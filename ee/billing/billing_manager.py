@@ -74,12 +74,17 @@ def build_billing_token(
     user: Optional[User] = None,
     authorizer_actor: Optional[User] = None,
     billing_provider: BillingProvider | None = None,
+    service_action: str | None = None,
 ) -> str:
     """
     Build the JWT token to authenticate with the Billing system.
 
     Allows doing privilege escalation with the `authorizer_actor` parameter, in that case the distinct_id
     will be that of the user, but the role will be that of the authorizer_actor.
+
+    `service_action` marks a token minted by a backend job for one specific service-to-service
+    endpoint (e.g. "signals_pr_dispute"); billing rejects calls to such endpoints from tokens
+    without the matching claim, so tokens minted for user-initiated calls can't reach them.
 
     Raises NotAuthenticated if the authorizer_actor (or user in case there's no authorizer_actor) are not
     part of the organization.
@@ -125,6 +130,9 @@ def build_billing_token(
 
     if billing_provider:
         payload["billing_provider"] = billing_provider.value
+
+    if service_action:
+        payload["service_action"] = service_action
 
     encoded_jwt = jwt.encode(
         payload,
@@ -513,11 +521,17 @@ class BillingManager:
         organization: Organization,
         billing_provider: BillingProvider | None = None,
         authorizer_actor: User | None = None,
+        service_action: str | None = None,
     ):
         if not self.license:  # mypy
             raise Exception("No license found")
         billing_service_token = build_billing_token(
-            self.license, organization, self.user, authorizer_actor=authorizer_actor, billing_provider=billing_provider
+            self.license,
+            organization,
+            self.user,
+            authorizer_actor=authorizer_actor,
+            billing_provider=billing_provider,
+            service_action=service_action,
         )
         return {"Authorization": f"Bearer {billing_service_token}"}
 
@@ -553,6 +567,28 @@ class BillingManager:
         )
 
         handle_billing_service_error(res)
+
+        return res.json()
+
+    def dispute_signals_pr(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        """Ask billing to credit back a refunded Signals PR (idempotent on data['refund_id']).
+
+        Billing returns 200 for every handled business outcome, including $0 credits; any other
+        status means "not handled" and must raise so the caller retries. The default valid_codes
+        would swallow 404 (endpoint not deployed) and 401 (auth failure) as success and record an
+        error body as a synced credit, hence the explicit (200,).
+        """
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/signals/dispute-pr",
+            # The service_action claim is required by billing: it distinguishes this
+            # backend-minted token from ones minted for user-initiated billing calls,
+            # which cannot reach the dispute endpoint.
+            headers=self.get_auth_headers(organization, service_action="signals_pr_dispute"),
+            json=data,
+            timeout=30,
+        )
+
+        handle_billing_service_error(res, valid_codes=(200,))
 
         return res.json()
 

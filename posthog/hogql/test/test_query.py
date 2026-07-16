@@ -28,7 +28,7 @@ from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_dir
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
 from posthog.hogql.property import property_to_expr
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 from posthog.hogql.test.utils import (
     execute_hogql_query_with_timings,
     pretty_print_in_tests,
@@ -37,9 +37,9 @@ from posthog.hogql.test.utils import (
 
 from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
-from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.uuidt import UUIDT, uuid7
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import recalculate_cohortpeople
@@ -372,6 +372,18 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(str(error.exception), INVALID_CONNECTION_ID_ERROR)
+        mock_sync_execute.assert_not_called()
+
+    @patch("posthog.hogql.query.sync_execute")
+    def test_execute_clickhouse_query_short_circuits_on_empty_sql(self, mock_sync_execute):
+        # Empty SQL (None prepared AST) used to trip a bare assert; direct callers need empty results.
+        executor = HogQLQueryExecutor(query="select 1", team=self.team)
+        executor.clickhouse_sql = ""
+
+        executor._execute_clickhouse_query()
+
+        self.assertEqual(executor.results, [])
+        self.assertEqual(executor.types, [])
         mock_sync_execute.assert_not_called()
 
     @pytest.mark.usefixtures("unittest_snapshot")

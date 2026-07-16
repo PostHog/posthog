@@ -151,10 +151,10 @@ def list_is_legacy_annotation() -> Case:
 def _build_prompt_variants(versions: list[int]) -> list[dict[str, Any]]:
     """Build N feature flag variants from an ordered list of prompt versions.
 
-    First variant is keyed "control" (required by ExperimentService._validate_existing_flag
-    when the experiment is later launched). For the standard 2-variant case the second is
-    keyed "test", matching the rest of the codebase's defaults. For N >= 3 the trailing
-    variants are keyed "test-1", "test-2", … so each key stays unique.
+    First variant is keyed "control", matching the codebase's baseline convention (the
+    baseline defaults to 'control' when present). For the standard 2-variant case the
+    second is keyed "test", matching the rest of the codebase's defaults. For N >= 3 the
+    trailing variants are keyed "test-1", "test-2", … so each key stays unique.
     The human-readable prompt version goes in the variant name so chart legends stay readable.
     Splits are integers summing to 100; the last variant absorbs any remainder.
     """
@@ -416,7 +416,7 @@ class EnterpriseExperimentsViewSet(
         Validates the experiment is in draft state, activates its linked feature flag,
         sets start_date to the current server time, and transitions the experiment to running.
         Returns 400 if the experiment has already been launched or if the feature flag
-        configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
+        configuration is invalid (e.g. fewer than 2 variants).
         """
         experiment: Experiment = self.get_object()
         service = ExperimentService(team=self.team, user=request.user)
@@ -879,8 +879,7 @@ class EnterpriseExperimentsViewSet(
         Returns a paginated list of feature flags eligible for use in experiments.
 
         Eligible flags must:
-        - Be multivariate with at least 2 variants
-        - Have "control" as the first variant key
+        - Be multivariate with 2 to 20 variants
 
         Query parameters:
         - search: Filter by flag key or name (case insensitive)
@@ -1048,7 +1047,10 @@ class EnterpriseExperimentsViewSet(
                 asyncio.run(
                     temporal.start_workflow(
                         "experiment-metrics-recalculation-workflow",
-                        MetricsRecalcInputs(recalculation_id=recalculation_id),
+                        MetricsRecalcInputs(
+                            recalculation_id=recalculation_id,
+                            fairness_key=str(experiment.team.organization_id),
+                        ),
                         id=f"experiment-metrics-recalculation-{recalculation_id}",
                         task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
                     )

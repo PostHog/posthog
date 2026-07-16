@@ -47,6 +47,9 @@ from products.customer_analytics.backend.logic.custom_property_definitions impor
     coerce_is_big_number,
     normalize_options,
 )
+from products.customer_analytics.backend.logic.person_property_projection import (
+    person_properties_flag_enabled as person_properties_flag_enabled,
+)
 from products.customer_analytics.backend.logic.usage_spike_notifications import (
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
 )

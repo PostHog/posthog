@@ -207,8 +207,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/eligible_feature_flags/?order=key")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual([flag["key"] for flag in response.json()["results"]], ["eligible-flag"])
+        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual([flag["key"] for flag in response.json()["results"]], ["eligible-flag", "wrong-order-flag"])
 
     @parameterized.expand(
         [
@@ -2983,23 +2983,21 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertIsNotNone(get_data["feature_flag"])
         self.assertEqual(get_data["feature_flag"]["key"], "test-flag-serialization")
 
-    def test_creating_invalid_multivariate_experiment_no_control(self):
+    def test_creating_multivariate_experiment_without_control_variant(self):
+        # No 'control' variant is required; the baseline defaults to the first variant downstream.
         ff_key = "a-b-test"
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
                 "name": "Test Experiment",
                 "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
                 "feature_flag_key": ff_key,
                 "parameters": {
                     "feature_flag_variants": [
-                        # no control
                         {
                             "key": "test_0",
-                            "name": "Control Group",
-                            "rollout_percentage": 33,
+                            "name": "Baseline Group",
+                            "rollout_percentage": 34,
                         },
                         {
                             "key": "test_1",
@@ -3013,22 +3011,15 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                         },
                     ]
                 },
-                "filters": {
-                    "events": [
-                        {"order": 0, "id": "$pageview"},
-                        {"order": 1, "id": "$pageleave"},
-                    ],
-                    "properties": [],
-                },
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        detail = response.json()["detail"]
-        self.assertIn("must contain a variant with key 'control'", detail)
-        self.assertIn("'test_0'", detail)
-        self.assertIn("'test_1'", detail)
-        self.assertIn("'test_2'", detail)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        flag = FeatureFlag.objects.get(key=ff_key)
+        flag_keys = [v["key"] for v in flag.filters["multivariate"]["variants"]]
+        self.assertEqual(flag_keys, ["test_0", "test_1", "test_2"])
+        # The inferred baseline is pinned, not left implicit (order-sensitive).
+        self.assertEqual(response.json()["stats_config"]["baseline_variant_key"], "test_0")
 
     @parameterized.expand(
         [
@@ -3071,9 +3062,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         # otherwise it would rewrite `Control` → `control` and produce two duplicate
         # entries. The downstream FeatureFlagSerializer may then accept (variants
         # preserved) or reject (duplicate-key error) — both prove the normalization
-        # path was skipped. The signal we actively check against: the response must
-        # not be the missing-control error, since that would only fire if our
-        # rewrite logic got confused.
+        # path was skipped. A wrong rewrite would surface as duplicate `control` keys
+        # in the 201 response, which the assertion below would catch.
         ff_key = "control-and-capital-control"
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -3096,11 +3086,6 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         if response.status_code == status.HTTP_201_CREATED:
             variants = response.json()["parameters"]["feature_flag_variants"]
             self.assertEqual([v["key"] for v in variants], ["control", "Control"])
-        else:
-            # 400 path: the error must NOT be the missing-control message,
-            # which would only fire if normalization had wrongly rewritten things.
-            detail = str(response.json())
-            self.assertNotIn("must contain a variant with key 'control'", detail)
 
     def test_creating_updating_experiment_with_group_aggregation(self):
         ff_key = "a-b-tests"
@@ -3577,7 +3562,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertFalse(response.json()["only_count_matured_users"])
 
-    def test_create_experiment_with_feature_flag_missing_control(self):
+    def test_create_experiment_with_feature_flag_without_control(self):
+        # An existing flag without a 'control' variant is eligible; the baseline
+        # defaults to the first variant downstream.
         feature_flag = FeatureFlag.objects.create(
             team=self.team,
             name="Beta feature",
@@ -3602,8 +3589,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Feature flag must have a variant with key 'control'")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(response.json()["feature_flag"]["id"], feature_flag.id)
 
     def test_create_experiment_with_feature_flag_insufficient_variants(self):
         feature_flag = FeatureFlag.objects.create(
@@ -3632,7 +3619,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json()["detail"],
-            "Feature flag must have at least 2 variants (control and at least one test variant)",
+            "Feature flag must have at least 2 variants (a baseline and at least one test variant)",
         )
 
     def test_create_experiment_with_parameters_insufficient_variants(self):
@@ -3652,7 +3639,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json()["detail"],
-            "Feature flag must have at least 2 variants (control and at least one test variant)",
+            "Feature flag must have at least 2 variants (a baseline and at least one test variant)",
         )
 
     def test_create_experiment_with_valid_existing_feature_flag(self):
@@ -4938,6 +4925,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["status"], "draft")
+        # False counterpart to the wiring guard in test_launching_experiment_sets_status_running,
+        # proving the field tracks the property value rather than being hardcoded truthy.
+        self.assertFalse(response.json()["can_freeze_exposure"])
 
     def test_launching_experiment_sets_status_running(self):
         response = self.client.post(
@@ -4951,6 +4941,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["status"], "running")
+        # Wiring guard for the serializer-computed field; the case matrix lives on the
+        # model property test (test_can_freeze_exposure_property).
+        self.assertTrue(response.json()["can_freeze_exposure"])
 
     def test_ending_experiment_sets_status_stopped(self):
         response = self.client.post(

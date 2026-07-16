@@ -761,6 +761,7 @@ const llmaPersonalSpend = (): ToolBase<typeof LlmaPersonalSpendSchema, Schemas.P
             method: 'GET',
             path: `/api/llm_analytics/@me/spend/`,
             query: {
+                bucket_minutes: params.bucket_minutes,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 limit: params.limit,

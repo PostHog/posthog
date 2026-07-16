@@ -5,6 +5,7 @@ from requests.exceptions import ChunkedEncodingError, SSLError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
+    SHOPIFY_STORE_NOT_FOUND_ERROR,
     ShopifyRetryableError,
     _get_shopify_access_token,
 )
@@ -31,7 +32,7 @@ def _patched_token_call(response: mock.MagicMock):
     return _patched_token_post(mock.MagicMock(return_value=response))
 
 
-@pytest.mark.parametrize("status_code", [400, 401, 403, 404])
+@pytest.mark.parametrize("status_code", [400, 401, 403])
 def test_get_access_token_4xx_is_non_retryable(status_code):
     with _patched_token_call(_mock_response(status_code, ok=False)):
         with pytest.raises(Exception) as exc_info:
@@ -42,6 +43,23 @@ def test_get_access_token_4xx_is_non_retryable(status_code):
     patterns = ShopifySource().get_non_retryable_errors()
     assert any(pattern in error_message for pattern in patterns), (
         f"4xx token error '{error_message}' should match a non-retryable pattern"
+    )
+
+
+def test_get_access_token_404_reports_missing_store():
+    # A 404 means the store subdomain doesn't resolve to a real store — a distinct,
+    # non-retryable failure that reconnecting the app can't fix, so it must surface the
+    # store-not-found message rather than the credentials error.
+    with _patched_token_call(_mock_response(404, ok=False)):
+        with pytest.raises(Exception) as exc_info:
+            _get_shopify_access_token("store", "client-id", "client-secret")
+
+    error_message = str(exc_info.value)
+    assert SHOPIFY_STORE_NOT_FOUND_ERROR in error_message
+    assert SHOPIFY_ACCESS_TOKEN_AUTH_ERROR not in error_message
+    patterns = ShopifySource().get_non_retryable_errors()
+    assert any(pattern in error_message for pattern in patterns), (
+        f"404 token error '{error_message}' should match a non-retryable pattern"
     )
 
 

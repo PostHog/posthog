@@ -40,3 +40,11 @@ class CertificationStatus(StrEnum):
     PROPOSED = "proposed"
     CERTIFIED = "certified"
     DEPRECATED = "deprecated"
+
+
+class RelationshipStatus(StrEnum):
+    """Review state of a proposed join between two warehouse tables."""
+
+    PROPOSED = "proposed"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"

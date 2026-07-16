@@ -12,7 +12,8 @@ and threaded down into the builders, so a request hits the warehouse models a si
 
 A team can connect GitHub more than once (e.g. one source per repository). A caller may pass
 ``source_id`` to read a specific source; otherwise the oldest connected source with both
-endpoints synced is used.
+endpoints synced is used, or — when a ``repo`` ('owner/name') is passed — the source whose
+``job_inputs.repository`` matches that repo, so a repo-scoped call reads the right source.
 """
 
 import re
@@ -20,9 +21,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from posthog.models.team import Team
+from posthog.rbac.user_access_control import NO_ACCESS_LEVEL
 
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
@@ -60,7 +62,11 @@ class GitHubTables:
 
 
 def resolve_github_tables(
-    *, team: Team, source_id: str | None = None, user_access_control: "UserAccessControl | None" = None
+    *,
+    team: Team,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
 ) -> GitHubTables:
     """Resolve the team's curated GitHub table names from its warehouse models.
 
@@ -71,15 +77,23 @@ def resolve_github_tables(
     presentation layer maps it to a 400, so the UI prompts to connect a source and an agent gets
     an actionable error), or ``ValueError`` when ``source_id`` is not a UUID.
 
+    ``repo`` ('owner/name') scopes a repo-specific call — a team with one source per repository
+    otherwise always resolves the oldest, so a repo-scoped read (e.g. ``resolve_branch``) would
+    search the wrong repo's tables. When ``repo`` is given (and ``source_id`` is not), sources
+    whose ``job_inputs.repository`` equals it (case-insensitively) are tried first; the remaining
+    sources still follow as a fallback, since the ``repository`` input can be empty and the
+    per-source data may still hold the repo.
+
     ``user_access_control`` enforces the requesting user's per-source warehouse RBAC (applied in
     ``_github_sources``): a denied ``source_id`` raises (400) and the default-oldest path skips it.
     The curated HogQL runs team-scoped with no user and HogQL does not enforce per-user ACL on
     warehouse tables, so honoring it here is the only way the read path can. ``None`` (system/
     Temporal/CLI contexts with no request user) skips filtering — team scoping still holds.
     """
-    sources = _github_sources(team, user_access_control)
+    queryset = _github_sources(team, user_access_control)
     if source_id is not None:
-        sources = sources.filter(id=_as_source_uuid(source_id))
+        queryset = queryset.filter(id=_as_source_uuid(source_id))
+    sources: list[ExternalDataSource] = _repo_first(queryset, repo) if repo and source_id is None else list(queryset)
     for source in sources:
         tables = _synced_table_names(team=team, source=source)
         pull_requests = tables.get(PULL_REQUESTS_SCHEMA)
@@ -141,6 +155,24 @@ def list_github_sources(*, team: Team, user_access_control: "UserAccessControl |
     ]
 
 
+def _repo_first(sources: QuerySet[ExternalDataSource], repo: str) -> list[ExternalDataSource]:
+    """Sources whose ``job_inputs.repository`` matches ``repo`` (case-insensitive), then the rest.
+
+    Both groups keep the queryset's oldest-first order, so among equal candidates the established
+    connection still wins; the non-matching tail is a fallback for sources with an empty
+    ``repository`` input whose data may still hold the repo.
+    """
+    wanted = repo.casefold()
+    matching: list[ExternalDataSource] = []
+    others: list[ExternalDataSource] = []
+    for source in sources:
+        if _source_repository(source).casefold() == wanted:
+            matching.append(source)
+        else:
+            others.append(source)
+    return matching + others
+
+
 def _github_sources(team: Team, user_access_control: "UserAccessControl | None" = None) -> QuerySet[ExternalDataSource]:
     """The team's non-deleted GitHub sources the caller may access, oldest first — the order
     ``resolve_github_tables`` defaults from, so a picker's first entry matches the default source.
@@ -156,6 +188,16 @@ def _github_sources(team: Team, user_access_control: "UserAccessControl | None" 
     )
     if user_access_control is not None:
         sources = user_access_control.filter_queryset_by_access_level(sources)
+        if not user_access_control.has_resource_access("external_data_source"):
+            # "none" resource-level access: the platform filter drops nothing when the user holds no
+            # object grants, so fail closed here to self-created or explicitly granted sources.
+            granted_ids = [
+                source.id
+                for source in sources
+                if (level := user_access_control.access_level_for_object(source, explicit=True))
+                and level != NO_ACCESS_LEVEL
+            ]
+            sources = sources.filter(Q(created_by=user_access_control.user) | Q(id__in=granted_ids))
     return sources
 
 

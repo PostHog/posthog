@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING
 from django.db import models
 from django.utils import timezone
 
+from dateutil import parser
+
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel, sane_repr
 
@@ -51,6 +53,16 @@ class ExternalDataSchemaOOMEvent(TeamScopedRootMixin, UUIDModel):
 
         `days` is required (no default) so it stays sourced from `DATA_WAREHOUSE_REPARTITION_OOM_WINDOW_DAYS`
         at the call site rather than duplicating that window here where the two could silently diverge.
+
+        The window is also floored at the schema's `last_repartition_at`: a completed repartition addresses
+        the OOMs that preceded it, so counting them again would re-trigger a repartition on the same (now
+        healthy) table every cooldown until they age out. Only OOMs a repartition did not fix count.
         """
         since = timezone.now() - timedelta(days=days)
+        last_repartition_at = schema.last_repartition_at
+        if last_repartition_at:
+            try:
+                since = max(since, parser.parse(last_repartition_at))
+            except (ValueError, TypeError):
+                pass
         return cls.objects.for_team(schema.team_id).filter(schema_id=schema.pk, created_at__gte=since).count()

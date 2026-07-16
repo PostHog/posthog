@@ -33,6 +33,7 @@ export interface EmailConfigStatus {
     domain: string
     domain_verified: boolean
     dns_records: Record<string, any> | null
+    is_default: boolean
 }
 
 export const supportSettingsLogic = kea<supportSettingsLogicType>([
@@ -109,6 +110,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         connectEmailDone: (config: EmailConfigStatus | null) => ({ config }),
         disconnectEmail: (configId: string) => ({ configId }),
         disconnectEmailDone: (configId: string) => ({ configId }),
+        setDefaultEmail: (configId: string) => ({ configId }),
+        setDefaultEmailDone: (configId: string) => ({ configId }),
+        setDefaultEmailFailed: true,
         verifyEmailDomain: (configId: string) => ({ configId }),
         verifyEmailDomainDone: (configId: string, verified: boolean, dnsRecords: Record<string, any> | null) => ({
             configId,
@@ -206,7 +210,19 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             {
                 loadEmailConfigsDone: (_, { configs }) => configs,
                 connectEmailDone: (state, { config }) => (config ? [...state, config] : state),
-                disconnectEmailDone: (state, { configId }) => state.filter((c) => c.id !== configId),
+                disconnectEmailDone: (state, { configId }) => {
+                    const remaining = state.filter((c) => c.id !== configId)
+                    // Mirror the backend: if the default was removed, promote a replacement
+                    // (prefer verified, then oldest by list order) so the UI stays in sync
+                    const removedDefault = state.find((c) => c.id === configId)?.is_default
+                    if (removedDefault && remaining.length > 0 && !remaining.some((c) => c.is_default)) {
+                        const promoted = remaining.find((c) => c.domain_verified) ?? remaining[0]
+                        return remaining.map((c) => (c.id === promoted.id ? { ...c, is_default: true } : c))
+                    }
+                    return remaining
+                },
+                setDefaultEmailDone: (state, { configId }) =>
+                    state.map((c) => ({ ...c, is_default: c.id === configId })),
                 verifyEmailDomainDone: (state, { configId, verified, dnsRecords }) => {
                     const targetDomain = state.find((t) => t.id === configId)?.domain
                     if (!targetDomain) {
@@ -253,6 +269,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             {
                 verifyEmailDomain: (_, { configId }) => configId,
                 verifyEmailDomainDone: () => null,
+            },
+        ],
+        settingDefaultEmailConfigId: [
+            null as string | null,
+            {
+                setDefaultEmail: (_, { configId }) => configId,
+                setDefaultEmailDone: () => null,
+                setDefaultEmailFailed: () => null,
             },
         ],
         emailTestingConfigId: [
@@ -818,6 +842,18 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 })
             }
             lemonToast.success('Email address disconnected')
+        },
+        setDefaultEmail: async ({ configId }) => {
+            try {
+                // nosemgrep: prefer-codegen-api
+                await api.create('api/conversations/v1/email/set-default', { config_id: configId })
+            } catch {
+                lemonToast.error('Failed to set default email address')
+                actions.setDefaultEmailFailed()
+                return
+            }
+            actions.setDefaultEmailDone(configId)
+            lemonToast.success('Default email address updated')
         },
         verifyEmailDomain: async ({ configId }) => {
             try {

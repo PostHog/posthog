@@ -12,7 +12,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_response_in_tests
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models.utils import UUIDT
+from posthog.uuidt import UUIDT
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import recalculate_cohortpeople

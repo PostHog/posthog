@@ -26,6 +26,8 @@ import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSect
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { FixErrorButton } from './components/FixErrorButton'
 import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
@@ -50,6 +52,9 @@ interface QueryWindowProps {
     runQueryLoading?: boolean
     runQueryDisabledReason?: string
     runQueryTooltip?: string
+    /** With onRunQuery: flips the button to Cancel while runQueryLoading, mirroring the native cancel. */
+    onCancelQuery?: () => void
+    cancelQueryLoading?: boolean
     onShareTab?: () => void
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
     autoFocusQueryPane?: boolean
@@ -67,6 +72,8 @@ export function QueryWindow({
     runQueryLoading,
     runQueryDisabledReason,
     runQueryTooltip,
+    onCancelQuery,
+    cancelQueryLoading,
     onShareTab,
     autoFocusQueryPane,
 }: QueryWindowProps): JSX.Element {
@@ -111,6 +118,12 @@ export function QueryWindow({
         () => getExecuteSqlToolContext(debouncedMaxToolQueryInput, debouncedMaxToolSourceQuery),
         [debouncedMaxToolQueryInput, debouncedMaxToolSourceQuery]
     )
+
+    useAttachedContext(
+        [{ type: 'sql_editor_state', value: JSON.stringify(executeSqlToolContext), label: 'Current query' }],
+        { active: mode === SQLEditorMode.Embedded && showQueryPanel }
+    )
+
     const executeSqlToolContextDescription = useMemo(
         () => ({
             text: 'Current query',
@@ -231,6 +244,8 @@ export function QueryWindow({
                             runQueryLoading={runQueryLoading}
                             runQueryDisabledReason={runQueryDisabledReason}
                             runQueryTooltip={runQueryTooltip}
+                            onCancelQuery={onCancelQuery}
+                            cancelQueryLoading={cancelQueryLoading}
                         />
                         <CollapsedConnectionSelector tabId={tabId} mode={mode} />
                         <LemonDivider vertical />
@@ -378,11 +393,15 @@ function RunButton({
     runQueryLoading,
     runQueryDisabledReason,
     runQueryTooltip,
+    onCancelQuery,
+    cancelQueryLoading,
 }: {
     onRunQuery?: () => void
     runQueryLoading?: boolean
     runQueryDisabledReason?: string
     runQueryTooltip?: string
+    onCancelQuery?: () => void
+    cancelQueryLoading?: boolean
 }): JSX.Element {
     const { runQuery, runSubquery } = useActions(sqlEditorLogic)
     const { cancelQuery } = useActions(dataNodeLogic)
@@ -391,9 +410,14 @@ function RunButton({
 
     const isUsingIndices = metadata?.isUsingIndices === 'yes'
     const isRunning = onRunQuery ? !!runQueryLoading : responseLoading
+    // The external-run path shows a cancel affordance only when a canceller is provided.
+    const showCancel = isRunning && (!onRunQuery || !!onCancelQuery)
 
     const [iconColor, tooltipContent] = useMemo(() => {
         if (onRunQuery) {
+            if (isRunning && onCancelQuery) {
+                return ['var(--success)', 'Stop the running query']
+            }
             return ['var(--success)', runQueryTooltip ?? 'Run query']
         }
 
@@ -410,7 +434,16 @@ function RunButton({
             : undefined
 
         return ['var(--warning)', tooltip]
-    }, [metadata, isUsingIndices, queryInput, isSourceQueryLastRun, onRunQuery, runQueryTooltip])
+    }, [
+        metadata,
+        isUsingIndices,
+        queryInput,
+        isSourceQueryLastRun,
+        onRunQuery,
+        runQueryTooltip,
+        isRunning,
+        onCancelQuery,
+    ])
 
     const sideAction = useMemo(
         () =>
@@ -446,7 +479,7 @@ function RunButton({
         <Shortcut
             name="SQLEditorRun"
             keybind={[keyBinds.run]}
-            intent={isRunning && !onRunQuery ? 'Cancel query' : 'Run query'}
+            intent={showCancel ? 'Cancel query' : 'Run query'}
             interaction="click"
             scope={Scene.SQLEditor}
         >
@@ -454,7 +487,12 @@ function RunButton({
                 data-attr="sql-editor-run-button"
                 onClick={() => {
                     if (onRunQuery) {
-                        if (!runQueryLoading) {
+                        if (runQueryLoading) {
+                            // Guard against double submission: one cancel request at a time.
+                            if (onCancelQuery && !cancelQueryLoading) {
+                                onCancelQuery()
+                            }
+                        } else {
                             onRunQuery()
                         }
                     } else if (responseLoading) {
@@ -463,15 +501,15 @@ function RunButton({
                         runQuery()
                     }
                 }}
-                icon={isRunning && !onRunQuery ? <IconCancel /> : <IconPlayFilled color={iconColor} />}
+                icon={showCancel ? <IconCancel /> : <IconPlayFilled color={iconColor} />}
                 type="primary"
                 size="small"
                 tooltip={tooltipContent}
                 sideAction={sideAction}
-                loading={isRunning && !!onRunQuery}
+                loading={onRunQuery ? (onCancelQuery ? !!cancelQueryLoading : isRunning) : false}
                 disabledReason={runQueryDisabledReason}
             >
-                {isRunning && !onRunQuery ? 'Cancel' : 'Run'}
+                {showCancel ? 'Cancel' : 'Run'}
             </LemonButton>
         </Shortcut>
     )
