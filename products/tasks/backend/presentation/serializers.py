@@ -409,11 +409,6 @@ class TaskWriteSerializer(serializers.Serializer):
         required=False,
         help_text="PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).",
     )
-    runtime = serializers.ChoiceField(
-        choices=tasks_facade.TaskRuntime.choices,
-        required=False,
-        help_text="Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.",
-    )
     repository = serializers.CharField(
         max_length=255,
         required=False,
@@ -628,6 +623,9 @@ class TaskWriteSerializer(serializers.Serializer):
         return normalized
 
     def validate(self, attrs: dict) -> dict:
+        if "runtime" in self.initial_data and "runtime" not in self.fields:
+            raise serializers.ValidationError({"runtime": "Runtime cannot be changed after task creation."})
+
         rel = attrs.get("signal_report_task_relationship")
         if rel is not None:
             if not attrs.get("signal_report"):
@@ -646,6 +644,14 @@ class TaskWriteSerializer(serializers.Serializer):
                 {"github_user_integration": "Signal report tasks use the team GitHub integration."}
             )
         return attrs
+
+
+class TaskCreateSerializer(TaskWriteSerializer):
+    runtime = serializers.ChoiceField(
+        choices=tasks_facade.TaskRuntime.choices,
+        required=False,
+        help_text="Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.",
+    )
 
 
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):

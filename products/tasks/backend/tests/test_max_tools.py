@@ -40,6 +40,7 @@ class BaseTaskToolTest(BaseTest):
         repository=None,
         origin_product=None,
         deleted=False,
+        runtime=Task.Runtime.ACP,
     ):
         task = Task.objects.create(
             team=self.team,
@@ -48,6 +49,7 @@ class BaseTaskToolTest(BaseTest):
             origin_product=origin_product or Task.OriginProduct.USER_CREATED,
             repository=repository,
             created_by=self.user,
+            runtime=runtime,
         )
         if deleted:
             task.deleted = True
@@ -61,8 +63,11 @@ class BaseTaskToolTest(BaseTest):
         repository=None,
         origin_product=None,
         deleted=False,
+        runtime=Task.Runtime.ACP,
     ):
-        return await sync_to_async(self._create_task_sync)(title, description, repository, origin_product, deleted)
+        return await sync_to_async(self._create_task_sync)(
+            title, description, repository, origin_product, deleted, runtime
+        )
 
     def _create_task_run_sync(
         self,

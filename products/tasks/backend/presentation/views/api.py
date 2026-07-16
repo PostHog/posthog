@@ -73,6 +73,7 @@ from products.tasks.backend.presentation.serializers import (
     StreamReadTokenResponseSerializer,
     TaskAutomationSerializer,
     TaskAutomationWriteSerializer,
+    TaskCreateSerializer,
     TaskListQuerySerializer,
     TaskPresenceBeaconRequestSerializer,
     TaskRepositoriesResponseSerializer,
@@ -227,8 +228,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
 
-    def _write_serializer(self, data, *, partial: bool = False) -> TaskWriteSerializer:
-        serializer = TaskWriteSerializer(
+    def _write_serializer(
+        self,
+        data,
+        *,
+        partial: bool = False,
+        serializer_class: type[TaskWriteSerializer] = TaskWriteSerializer,
+    ) -> TaskWriteSerializer:
+        serializer = serializer_class(
             data=data,
             partial=partial,
             context={"team": self.team, "team_id": self.team.id, "request": self.request},
@@ -274,9 +281,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         return Response(TaskSerializer(task).data)
 
-    @extend_schema(request=TaskWriteSerializer, responses={201: TaskSerializer})
+    @extend_schema(request=TaskCreateSerializer, responses={201: TaskSerializer})
     def create(self, request, **kwargs):
-        serializer = self._write_serializer(request.data)
+        serializer = self._write_serializer(request.data, serializer_class=TaskCreateSerializer)
         task = tasks_facade.create_task(self.team_id, self._user_id(), validated_data=dict(serializer.validated_data))
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
 

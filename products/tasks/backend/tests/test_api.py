@@ -1151,6 +1151,19 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.json()["runtime"], Task.Runtime.PI)
         self.assertEqual(Task.objects.get(id=response.json()["id"]).runtime, Task.Runtime.PI)
 
+    def test_update_task_rejects_runtime_change(self):
+        task = self.create_task(runtime=Task.Runtime.ACP)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"runtime": Task.Runtime.PI},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        task.refresh_from_db()
+        self.assertEqual(task.runtime, Task.Runtime.ACP)
+
     def test_create_task_accepts_null_runtime_fields(self):
         # The Code app's cloud-task flows (e.g. Discuss) send the write-only
         # runtime hints as explicit `null` when nothing is selected. `default=None`
