@@ -217,6 +217,45 @@ describe('handleClientIngestionWarningStep', () => {
             expect(warning.type).toBe('client_ingestion_warning')
             expect((warning as any).source).toBe('plugin-server')
         })
+
+        // Unique team ids so each row hits a fresh per-(team,type) limiter bucket
+        // rather than the one the 'preserves' test above already consumed.
+        it.each([
+            ['a string', 'x'.repeat(10), 90001],
+            ['an array', ['a', 'b', 'c'], 90002],
+        ])(
+            'drops non-object details (%s) instead of exploding it into indexed keys',
+            async (_label, badDetails, teamId) => {
+                // A client can set details to a large string/array; object-rest would
+                // otherwise expand it into one key per character/element in the hot
+                // consumer path, before the per-(team,type) limiter can throttle it.
+                const step = createHandleClientIngestionWarningStep(mockOutputs)
+                const input: HandleClientIngestionWarningStepInput = {
+                    ...baseInput,
+                    team: { id: teamId },
+                    event: {
+                        ...baseEvent,
+                        event: '$$client_ingestion_warning',
+                        properties: {
+                            $$client_ingestion_warning_type: 'missing_event_name',
+                            $$client_ingestion_warning_source: 'capture',
+                            $$client_ingestion_warning_details: badDetails,
+                        },
+                    },
+                }
+
+                const result = await step(input)
+
+                expect(result.type).toBe(PipelineResultType.OK)
+                const warning = producedWarning()
+                // Still promoted (type is allowlisted), but details carry only the
+                // envelope defaults — no indexed keys leaked from the bad shape.
+                expect(warning.type).toBe('missing_event_name')
+                const indexedKeys = Object.keys(warning.details).filter((k) => /^\d+$/.test(k))
+                expect(indexedKeys).toEqual([])
+                expect(warning.details).toMatchObject({ eventUuid, distinctId: 'my_id' })
+            }
+        )
     })
 
     describe('non-client ingestion warning events', () => {

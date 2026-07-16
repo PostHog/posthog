@@ -77,7 +77,13 @@ function buildWarning(event: PluginEvent): IngestionWarning {
         typeof structuredType === 'string' &&
         CAPTURE_PRODUCED_WARNING_TYPES.has(structuredType as IngestionWarningType)
     ) {
-        const detailsIn = (props.$$client_ingestion_warning_details ?? {}) as Record<string, any>
+        // Details ride on a publicly-ingestible event, so this is attacker-controlled.
+        // Object-rest over a string or array explodes it into one property per
+        // character/element (before the limiter runs), so only accept a plain object
+        // and drop any other shape (note: typeof null === 'object').
+        const rawDetails = props.$$client_ingestion_warning_details
+        const detailsIn: Record<string, any> =
+            rawDetails !== null && typeof rawDetails === 'object' && !Array.isArray(rawDetails) ? rawDetails : {}
         const { pipelineStep, ...restDetails } = detailsIn
         const source = props.$$client_ingestion_warning_source
         return {
