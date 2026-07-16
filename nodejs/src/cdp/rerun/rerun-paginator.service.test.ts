@@ -42,7 +42,7 @@ const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer')
  * collapse query all line up.
  */
 describe('RerunPaginatorService integration', () => {
-    jest.setTimeout(60_000)
+    jest.setTimeout(120_000)
 
     let hub: Hub
     let kafkaProducer: KafkaProducerWrapper
@@ -118,6 +118,10 @@ describe('RerunPaginatorService integration', () => {
         seededCount += rows.length
         const expected = seededCount
 
+        // Seed visibility rides the shared Kafka -> ClickHouse pipe, whose consumer may still be
+        // chewing a backlog from whichever suite the shard ran just before this one (run order
+        // shifts whenever sibling files change size). The deadline is sized for that worst case;
+        // waitForExpect polls, so a healthy pipe still completes in seconds.
         await waitForExpect(async () => {
             const got = await clickhouse.query<{ c: number }>(
                 `SELECT count() AS c FROM hog_invocation_results
@@ -125,7 +129,7 @@ describe('RerunPaginatorService integration', () => {
                    AND function_id = '${hogFunction.id}'`
             )
             expect(Number(got[0]?.c ?? 0)).toBeGreaterThanOrEqual(expected)
-        }, 30_000)
+        }, 90_000)
     }
 
     // Produce a raw lifecycle row with a chosen (here: undecodable) invocation_globals,
