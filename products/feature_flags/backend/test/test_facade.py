@@ -341,6 +341,16 @@ class TestExperimentRuleFromFilters:
                 {"groups": [{"properties": []}], "holdout": None, "multivariate": {"variants": []}},
                 ExperimentRuleConfig(variants=[], rollout_percentage=None, assign_variant_by=None, holdout=None),
             ),
+            (
+                "null_multivariate",
+                {"multivariate": None},
+                ExperimentRuleConfig(variants=[], rollout_percentage=None, assign_variant_by=None, holdout=None),
+            ),
+            (
+                "null_variants",
+                {"multivariate": {"variants": None}},
+                ExperimentRuleConfig(variants=[], rollout_percentage=None, assign_variant_by=None, holdout=None),
+            ),
         ]
     )
     def test_derivation(self, _name, filters, expected):

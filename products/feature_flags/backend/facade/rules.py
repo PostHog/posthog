@@ -37,7 +37,8 @@ def experiment_rule_from_filters(current_filters: dict) -> ExperimentRuleConfig:
     groups = current_filters.get("groups") or []
     holdout = current_filters.get("holdout") or None
     return ExperimentRuleConfig(
-        variants=current_filters.get("multivariate", {}).get("variants", []),
+        # Explicit nulls occur in real flag data (see FeatureFlag.variants) — coalesce them too.
+        variants=(current_filters.get("multivariate") or {}).get("variants") or [],
         rollout_percentage=groups[0].get("rollout_percentage") if groups else None,
         assign_variant_by=current_filters.get("aggregation_group_type_index"),
         holdout=HoldoutRef(id=holdout["id"], exclusion_percentage=holdout.get("exclusion_percentage"))
