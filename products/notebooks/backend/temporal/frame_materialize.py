@@ -61,10 +61,11 @@ from posthog.clickhouse.client.execute_async import QueryNotFoundError, QuerySta
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, RateLimit
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
-from posthog.errors import InternalCHQueryError
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions import (
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
 from posthog.exceptions_capture import capture_exception
@@ -115,9 +116,10 @@ _STREAM_READ_TIMEOUT_SECONDS = 120.0
 # effectively infinite send_receive_timeout in prod, but Temporal cannot interrupt a sync
 # activity thread — so a half-open connection during the (minutes-long) INSERT would pin the
 # thread and its Redis slot until OS-level TCP gives up, exactly as the streaming path's read
-# timeout prevents. Set just above the 600s max_execution_time so a healthy long INSERT never
-# trips it while an abandoned connection still unblocks near the activity deadline.
-_INSERT_SEND_RECEIVE_TIMEOUT_SECONDS = 630
+# timeout prevents. Set just above the 600s max_execution_time so the server-side timeout wins
+# (returning its error in-band) on a healthy query, while an abandoned connection still unblocks
+# shortly after the activity deadline. Clamped in TEST so a misrouted test INSERT fails fast.
+_INSERT_SEND_RECEIVE_TIMEOUT_SECONDS = 30 if settings.TEST else 630
 
 # A successful Arrow IPC stream always ends with this 8-byte end-of-stream marker, emitted
 # only when the writer finalizes cleanly. ClickHouse streams `200 OK` before execution
@@ -136,6 +138,7 @@ _RESOURCE_BUDGET_MESSAGE = (
     "This query exceeds the frame materialization limits (scan or memory budget). Narrow it and re-run."
 )
 _TIME_BUDGET_MESSAGE = "The query hit the frame materialization time limit. Narrow it and re-run."
+_QUERY_SIZE_MESSAGE = "The query is too large to materialize. Simplify it (e.g. smaller IN lists) and re-run."
 _RESULT_SIZE_MESSAGE = (
     "The materialized result is too large (over the frame size budget). "
     "Select fewer columns or aggregate before materializing."
@@ -393,6 +396,22 @@ class FrameTooLargeError(Exception):
     """The CH-written object exceeds the frame size budget (enforced post-write)."""
 
 
+def _frame_s3_url(key: str) -> str:
+    """The s3() target URL for the frames bucket, reachable from the ClickHouse cluster.
+
+    Mirrors the identity_matching CH-side writer: when a cluster-reachable endpoint is set
+    (dev/test/self-hosted S3-compatible storage) use a path-style URL including the bucket;
+    on prod the endpoint is empty and the cluster reaches AWS S3 over its IAM role, so emit a
+    virtual-hosted HTTPS URL. Reusing OBJECT_STORAGE_ENDPOINT directly would break prod (it is
+    empty there → a scheme-less URL CH rejects) and mis-route dev (it may be an app-only host
+    CH can't reach), which is why this has its own NOTEBOOKS_FRAME_STORE_S3_ENDPOINT knob.
+    """
+    endpoint = settings.NOTEBOOKS_FRAME_STORE_S3_ENDPOINT
+    if endpoint:
+        return f"{endpoint}/{settings.OBJECT_STORAGE_BUCKET}/{key}"
+    return f"https://{settings.OBJECT_STORAGE_BUCKET}.s3.{settings.OBJECT_STORAGE_REGION}.amazonaws.com/{key}"
+
+
 def _insert_into_s3_sql(printed_sql: str, key: str) -> tuple[str, dict[str, object]]:
     """Wrap the printed SELECT in the CH-side object write (design doc phase 2).
 
@@ -404,16 +423,14 @@ def _insert_into_s3_sql(printed_sql: str, key: str) -> tuple[str, dict[str, obje
     reach the credential zone. The key is already charset-validated by build_frame_key. The
     SELECT is the same guarded-printer artifact the streaming path executes verbatim,
     printed without a FORMAT clause (the s3() argument defines the object format).
-    Credentials are omitted when unset so ClickHouse falls back to its credential provider
-    chain (the instance role — the batch-exports keyless recipe for cloud); when set (dev,
-    self-hosted) they ride inline and land in system.query_log, which the rollout notes
-    call out.
+    Credentials are emitted only for the path-style (endpoint-set) case; on prod the empty
+    endpoint yields a virtual-hosted URL and the cluster authenticates via its IAM role, so
+    no secret is ever interpolated into a statement that lands in system.query_log.
     """
-    params: dict[str, object] = {
-        "_nb_s3_url": f"{settings.OBJECT_STORAGE_ENDPOINT}/{settings.OBJECT_STORAGE_BUCKET}/{key}"
-    }
+    endpoint = settings.NOTEBOOKS_FRAME_STORE_S3_ENDPOINT
+    params: dict[str, object] = {"_nb_s3_url": _frame_s3_url(key)}
     target = ["%(_nb_s3_url)s"]
-    if settings.OBJECT_STORAGE_ACCESS_KEY_ID and settings.OBJECT_STORAGE_SECRET_ACCESS_KEY:
+    if endpoint and settings.OBJECT_STORAGE_ACCESS_KEY_ID and settings.OBJECT_STORAGE_SECRET_ACCESS_KEY:
         params["_nb_s3_key"] = settings.OBJECT_STORAGE_ACCESS_KEY_ID
         params["_nb_s3_secret"] = settings.OBJECT_STORAGE_SECRET_ACCESS_KEY
         target.append("%(_nb_s3_key)s")
@@ -430,6 +447,10 @@ def _bounded_offline_client(team_id: int) -> AbstractContextManager:
     thread. Route through a dedicated pool that shares the offline-host + notebooks-user
     routing but caps the socket timeout just above max_execution_time. `make_ch_pool` is
     cached, so this is one extra pool per (offline, notebooks) combination, not per call.
+    (Note: sync_execute enters the client as its own context manager and disconnects it on
+    exit, so connections aren't kept warm across calls — the pool's value here is the bounded
+    timeout, not connection reuse. Negligible at this path's volume: one reconnect per
+    materialization, dwarfed by the INSERT itself.)
     """
     kwargs = get_kwargs_for_client(workload=Workload.OFFLINE, team_id=team_id, ch_user=ClickHouseUser.NOTEBOOKS)
     pool = make_ch_pool(send_receive_timeout=_INSERT_SEND_RECEIVE_TIMEOUT_SECONDS, **kwargs)
@@ -496,12 +517,11 @@ def _finalize_status(
     """Write the terminal query status and release the dedup mapping."""
     try:
         status = manager.get_query_status()
-        if status.complete and results is not None:
-            # Already terminal, and this is a success write. A slow zombie attempt (one that
-            # outlived its Temporal deadline while the retry — or mark-failed — already wrote
-            # a terminal state) must not flip a recorded failure back to success after the
-            # user has seen it. An error write is still allowed to land (first-writer-wins on
-            # the error message is fine).
+        if status.complete:
+            # First terminal write wins. A slow zombie attempt (one that outlived its Temporal
+            # deadline while a retry — or mark-failed — already finalized) must not overwrite
+            # what the user has seen: not a success flipping a recorded failure, and not a late
+            # error clobbering a genuinely-materialized frame that still exists at the key.
             return
     except QueryNotFoundError:
         status = QueryStatus(id=inputs.query_id, team_id=inputs.team_id)
@@ -748,22 +768,33 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             ClickHouseQueryMemoryLimitExceeded,
             ClickHouseQueryTimeOut,
             ClickHouseEstimatedQueryExecutionTimeTooLong,
+            ClickHouseQuerySizeExceeded,
         ) as exc:
-            # CH-writes path: sync_execute rewraps these budget codes (241 MEMORY, 159
-            # TIMEOUT, 160 TOO_SLOW) as APIException subclasses — NOT InternalCHQueryError —
-            # so they must be caught here or they'd fall through to a retry. They are the
-            # canonical deterministic whale failures, so terminal with the actionable message.
-            message = (
-                _RESOURCE_BUDGET_MESSAGE
-                if isinstance(exc, ClickHouseQueryMemoryLimitExceeded)
-                else _TIME_BUDGET_MESSAGE
-            )
+            # CH-writes path: sync_execute rewraps some codes (241 MEMORY, 159 TIMEOUT, 160
+            # TOO_SLOW, and the query-size overflow) as APIException subclasses — NOT
+            # InternalCHQueryError — so they must be caught here or they'd fall through to a
+            # retry. All deterministic, so terminal with an actionable message.
+            if isinstance(exc, ClickHouseQuerySizeExceeded):
+                message = _QUERY_SIZE_MESSAGE
+            elif isinstance(exc, ClickHouseQueryMemoryLimitExceeded):
+                message = _RESOURCE_BUDGET_MESSAGE
+            else:
+                message = _TIME_BUDGET_MESSAGE
             logger.warning(
                 "notebook_frame_materialize_insert_budget_error",
                 team_id=inputs.team_id,
                 query_id=inputs.query_id,
                 error_type=type(exc).__name__,
             )
+            _finalize_status(manager, inputs, error_message=message)
+            FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed", mode=mode).inc()
+            raise exceptions.ApplicationError(message, non_retryable=True) from exc
+        except ExposedCHQueryError as exc:
+            # A user-safe ClickHouse query error surfaced at DESCRIBE/execution (e.g.
+            # TYPE_MISMATCH, UNKNOWN_FUNCTION) that HogQL didn't catch at print time —
+            # deterministic, so terminal with the sanitized message (ExposedCHQueryError.__str__
+            # strips the stack trace) rather than 10 pointless re-analyses ending generic.
+            message = str(exc)
             _finalize_status(manager, inputs, error_message=message)
             FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed", mode=mode).inc()
             raise exceptions.ApplicationError(message, non_retryable=True) from exc

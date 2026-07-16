@@ -11,8 +11,8 @@ from temporalio import exceptions
 from posthog.schema import QueryStatus
 
 from posthog.clickhouse.client.execute_async import QueryStatusManager
-from posthog.errors import InternalCHQueryError
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQuerySizeExceeded, ClickHouseQueryTimeOut
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError, ClickHouseTooManyRowsOrBytesError
@@ -222,13 +222,40 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
         self.assertTrue(pa.types.is_string(table.schema.field("u").type))
         self.assertEqual(table.column("u").to_pylist(), [frame_uuid] * 3)
 
+    def test_ch_writes_zero_row_result_writes_a_valid_empty_object(self):
+        # Empty results are common in notebooks (a filter matching nothing). CH must still
+        # write a valid (header-only) Arrow object for a zero-row INSERT INTO s3, or stat_frame
+        # would see no object → retry → generic failure. Guards against a CH version/setting
+        # change (or a switch away from ArrowStream) that stops emitting the empty object.
+        inputs, manager = _registered_inputs(
+            self.team.id,
+            self.notebook.short_id,
+            self.user.id,
+            query="select number as n from numbers(0)",
+        )
+        key = frame_store.build_frame_key(inputs.team_id, inputs.notebook_short_id, inputs.query_hash)
+        self.addCleanup(object_storage.delete, key)
+
+        with self.settings(NOTEBOOKS_FRAME_STORE_CH_WRITES=True, OBJECT_STORAGE_ENABLED=True):
+            frame_materialize.materialize_frame(inputs)
+
+        status = manager.get_query_status()
+        self.assertTrue(status.complete and not status.error)
+
+        import pyarrow as pa  # noqa: PLC0415 — keeps the heavy dep off the module import path
+
+        data = object_storage.read_bytes(key)
+        assert data is not None
+        self.assertEqual(pa.ipc.open_stream(data).read_all().num_rows, 0)
+
     def test_insert_sql_binds_s3_args_as_parameters(self):
         # The s3() endpoint/bucket/key/credentials are bound as query params, not spliced as
         # literals: sync_execute's single %-substitution pass escapes them (so a % or quote in
         # a config value can't corrupt the format pass or reach the credential zone). A
         # regression back to literal splicing is the design doc's named injection risk.
+        # Path-style URL uses the CH-reachable endpoint, NOT OBJECT_STORAGE_ENDPOINT.
         with self.settings(
-            OBJECT_STORAGE_ENDPOINT="http://store:19000",
+            NOTEBOOKS_FRAME_STORE_S3_ENDPOINT="http://store:19000",
             OBJECT_STORAGE_BUCKET="bucket",
             OBJECT_STORAGE_ACCESS_KEY_ID="ke'y%s",
             OBJECT_STORAGE_SECRET_ACCESS_KEY="s'ec\\ret",
@@ -244,17 +271,23 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
         self.assertEqual(params["_nb_s3_key"], "ke'y%s")
         self.assertEqual(params["_nb_s3_secret"], "s'ec\\ret")
 
-    def test_insert_sql_omits_credentials_when_unset(self):
-        # Keyless (cloud instance role): no credential args, no reserved keys — CH falls back
-        # to its provider chain.
+    def test_insert_sql_prod_endpoint_is_virtual_hosted_and_keyless(self):
+        # The prod branch that dev/CI never exercises: an empty CH endpoint (cluster reaches AWS
+        # via IAM role) must yield a virtual-hosted HTTPS URL and NO inline credentials — not a
+        # scheme-less `/bucket/key` from concatenating an empty endpoint (which CH rejects).
         with self.settings(
-            OBJECT_STORAGE_ENDPOINT="http://store:19000",
-            OBJECT_STORAGE_BUCKET="bucket",
-            OBJECT_STORAGE_ACCESS_KEY_ID=None,
-            OBJECT_STORAGE_SECRET_ACCESS_KEY=None,
+            NOTEBOOKS_FRAME_STORE_S3_ENDPOINT="",
+            OBJECT_STORAGE_BUCKET="ph-frames",
+            OBJECT_STORAGE_REGION="eu-west-1",
+            OBJECT_STORAGE_ACCESS_KEY_ID="should-be-ignored",
+            OBJECT_STORAGE_SECRET_ACCESS_KEY="should-be-ignored",
         ):
             sql, params = frame_materialize._insert_into_s3_sql("SELECT 1", "notebooks/frames/team_1/nb/abc.arrow")
         self.assertEqual(sql, "INSERT INTO FUNCTION s3(%(_nb_s3_url)s, 'ArrowStream')\nSELECT 1")
+        self.assertEqual(
+            params["_nb_s3_url"],
+            "https://ph-frames.s3.eu-west-1.amazonaws.com/notebooks/frames/team_1/nb/abc.arrow",
+        )
         self.assertNotIn("_nb_s3_key", params)
 
     @parameterized.expand(
@@ -264,6 +297,17 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
             # masked. Must be terminal, else the canonical whale failures retry 10x.
             ("memory_wrapped", ClickHouseQueryMemoryLimitExceeded(), True, "materialization limits"),
             ("timeout_wrapped", ClickHouseQueryTimeOut(), True, "time limit"),
+            # A big-but-valid query (printer-expanded IN lists) that overflows max_query_size:
+            # deterministic, terminal with an actionable message, not a retry.
+            ("query_size_wrapped", ClickHouseQuerySizeExceeded(), True, "too large to materialize"),
+            # A user-safe CH query error surfaced at execution (e.g. type mismatch): terminal
+            # with the real, sanitized message — not retried into a generic failure.
+            (
+                "exposed_user_error",
+                ExposedCHQueryError("Code: 53. DB::Exception: There is no supertype for types", code=53),
+                True,
+                "no supertype for types",
+            ),
             # A code that does arrive as InternalCHQueryError (307 TOO_MANY_BYTES): terminal.
             ("too_many_bytes", InternalCHQueryError("DB::Exception", code=307), True, "materialization limits"),
             # Unrecognized code (e.g. an S3-side blip): plausibly transient, retry per policy.

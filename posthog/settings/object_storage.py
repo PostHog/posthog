@@ -44,6 +44,18 @@ NOTEBOOKS_FRAME_STORE_ENABLED = get_from_env("NOTEBOOKS_FRAME_STORE_ENABLED", Fa
 # s3) instead of the worker relaying bytes. Default off — requires CH-node → object-store
 # reachability and the writer-identity provisioning in the doc's phase-2 security notes.
 NOTEBOOKS_FRAME_STORE_CH_WRITES = get_from_env("NOTEBOOKS_FRAME_STORE_CH_WRITES", False, type_cast=str_to_bool)
+# Endpoint the ClickHouse *cluster* uses to reach the frames bucket for that INSERT — which is
+# NOT always OBJECT_STORAGE_ENDPOINT. CI points OBJECT_STORAGE_ENDPOINT at localhost:19000 for
+# the test process, but ClickHouse runs in docker-compose and reaches object storage by service
+# name (objectstorage:19000) — using localhost there makes the cluster connect to itself and the
+# s3() call hangs. So in TEST/DEBUG default to the cluster-reachable host; on prod it stays empty
+# and the URL builder falls back to the virtual-hosted AWS form (IAM role, no inline keys),
+# mirroring IDENTITY_MATCHING_S3_ENDPOINT (the sibling CH-side s3 writer). Frames always live in
+# OBJECT_STORAGE_BUCKET (the bucket the app presigns and the kernel fetches from).
+if TEST or DEBUG:
+    NOTEBOOKS_FRAME_STORE_S3_ENDPOINT = os.getenv("NOTEBOOKS_FRAME_STORE_S3_ENDPOINT", "http://objectstorage:19000")
+else:
+    NOTEBOOKS_FRAME_STORE_S3_ENDPOINT = os.getenv("NOTEBOOKS_FRAME_STORE_S3_ENDPOINT", "")
 
 # Query cache specific bucket - falls back to general object storage bucket if not set
 QUERY_CACHE_S3_BUCKET = os.getenv("QUERY_CACHE_S3_BUCKET") or OBJECT_STORAGE_BUCKET

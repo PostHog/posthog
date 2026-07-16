@@ -283,10 +283,22 @@ the 50GB scan budget, 600s time budget, and CH→S3 throughput — before the si
 run terminal (no retry). A post-write freshness check (LastModified vs the write start, 5-min skew margin)
 also guards against a silent no-op write serving a stale prior-run object under endpoint skew.
 
+The s3() target URL is built from a **dedicated** `NOTEBOOKS_FRAME_STORE_S3_ENDPOINT`, not the app's shared
+`OBJECT_STORAGE_ENDPOINT` — mirroring `IDENTITY_MATCHING_S3_ENDPOINT`, the sibling CH-side s3 writer, for two
+reasons that bit that product first. (1) The endpoint must be reachable from the **ClickHouse cluster's**
+network, which isn't always the app's: CI points `OBJECT_STORAGE_ENDPOINT` at `localhost:19000`, but CH runs
+in compose and reaches the store as `objectstorage:19000` — `localhost` there makes CH connect to itself and
+the s3() call hangs. (2) On prod `OBJECT_STORAGE_ENDPOINT` is empty (the app's boto3 uses the AWS default
+endpoint), so concatenating it would yield a scheme-less URL CH rejects. So the endpoint defaults to the
+cluster-reachable host in TEST/DEBUG and is empty on prod, where the URL builder falls back to the
+virtual-hosted AWS form (`https://{bucket}.s3.{region}.amazonaws.com/{key}`) and the cluster authenticates via
+its IAM role.
+
 _Prerequisites for flipping the flag (per environment, on top of the phase-1 list):_
 
-- CH nodes must reach the object-store endpoint (`OBJECT_STORAGE_ENDPOINT` from the **CH node's** network —
-  local dev works because compose puts CH and the store on one network).
+- Set `NOTEBOOKS_FRAME_STORE_S3_ENDPOINT` to a host the **ClickHouse cluster** can reach (or leave empty on
+  cloud AWS to use the virtual-hosted URL + instance role). Frames always live in `OBJECT_STORAGE_BUCKET` (the
+  bucket the app presigns and the kernel fetches from), so only the CH-reachable endpoint differs.
 - Credentials: keyless in cloud (the CH instance role, write-scoped to the `notebooks/frames/` prefix);
   where `OBJECT_STORAGE_ACCESS_KEY_ID`/`SECRET` are set they ride inline in the statement and land in
   `system.query_log` — acceptable for dev/self-hosted, not for cloud. Verify the deployed CH version masks
