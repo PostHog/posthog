@@ -82,6 +82,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'tracing'
     } else if (resource === AccessControlResourceType.Workflow) {
         return 'workflows'
+    } else if (resource === AccessControlResourceType.Ticket) {
+        return 'support'
     }
 
     return resource.replace(/_/g, ' ') + 's'
