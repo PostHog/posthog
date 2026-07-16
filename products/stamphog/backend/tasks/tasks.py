@@ -306,6 +306,54 @@ def _supersede_prior_runs(pr_obj: PullRequest) -> None:
         )
 
 
+_BASE_RETARGET_DISMISS_MESSAGE = (
+    "The PR was retargeted to a different base branch, so the approved diff is no longer what was "
+    "reviewed. Stamphog re-reviews automatically."
+)
+
+
+def _retract_approvals_on_base_retarget(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> None:
+    """Invalidate approvals and in-flight runs when a PR's base branch changes.
+
+    A retarget rewrites the reviewed diff while the head SHA stays put, so post_verdict's head
+    guard and every head-keyed dismissal sweep are blind to it — an approval granted against the
+    old base would keep satisfying required reviews over a completely different diff. Supersede
+    in-flight runs (their sandbox is reviewing the old base's diff) and dismiss standing approvals
+    at EVERY head: current_head_sha="" disables the sweep's same-head exclusion on purpose, because
+    here the head not moving is exactly the problem.
+    """
+    team_id = repo_config.team_id
+    pr_number = pr.get("number")
+    if pr_number is None:
+        return
+    # Writer pin: same rationale as the skip-path retraction — this read gates the dismissal.
+    pull_request = (
+        PullRequest.objects.for_team(team_id)
+        .using(router.db_for_write(PullRequest))
+        .filter(repo_config=repo_config, pr_number=pr_number)
+        .first()
+    )
+    if pull_request is None:
+        return
+    superseded = (
+        ReviewRun.objects.for_team(team_id)
+        .filter(pull_request=pull_request)
+        .exclude(status__in=TERMINAL_STATUSES)
+        .update(status=ReviewRunStatus.SUPERSEDED, updated_at=timezone.now())
+    )
+    dismissed = dismiss_stale_approvals_for_head(
+        team_id, pull_request, repo_config, "", message=_BASE_RETARGET_DISMISS_MESSAGE
+    )
+    if superseded or dismissed:
+        logger.info(
+            "stamphog_pr_event_base_retarget_invalidated",
+            repo=repo_config.repository,
+            pr_number=pr_number,
+            superseded=superseded,
+            dismissed=dismissed,
+        )
+
+
 def _retract_stale_approvals_on_skip(repo_config: StamphogRepoConfig, pr: dict[str, Any], message: str) -> None:
     """Retract a standing stamphog approval when a head-changing event is skipped before the workflow.
 
@@ -644,7 +692,11 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             logger.info("stamphog_pr_event_closed_unmerged_ignored")
         return
 
-    if action not in RELEVANT_PR_ACTIONS:
+    # A base retarget arrives as `edited` with a `changes.base` entry. It changes the reviewed diff
+    # without moving the head, so it flows through the full pipeline like a synchronize — plus an
+    # explicit retraction below, because every head-keyed sweep is blind to a same-head approval.
+    base_retargeted = action == "edited" and bool((payload.get("changes") or {}).get("base"))
+    if action not in RELEVANT_PR_ACTIONS and not base_retargeted:
         logger.info("stamphog_pr_event_action_ignored", action=action)
         return
 
@@ -660,6 +712,18 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             pr_number=pr_number,
         )
         return
+
+    if base_retargeted:
+        # Before any skip below can return: the standing approval now covers a different diff, and
+        # no downstream path can see it (they all key on head moves). Retry (don't drop) on failure —
+        # the webhook is ACKed, and a transient blip must not leave the approval standing.
+        try:
+            retarget_config = _resolve_repo_config(installation_id, repo)
+            if retarget_config is not None:
+                _retract_approvals_on_base_retarget(retarget_config, pr)
+        except Exception as e:
+            logger.exception("stamphog_pr_event_retarget_dismiss_failed", delivery_id=delivery_id, error=str(e))
+            raise cast(Any, process_pull_request_event).retry(exc=e)
 
     # Cheap pre-sandbox drops (drafts, bots, fork/external authors) before we resolve config or spend a
     # sandbox. Only affects the review path — the merged/closed digest capture returned above already.

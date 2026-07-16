@@ -468,6 +468,45 @@ def test_stale_payload_recheck_under_lock_does_not_supersede_newer_run(team, rep
 
 
 @pytest.mark.parametrize(
+    "has_base_change,expect_invalidated",
+    [(True, True), (False, False)],
+    ids=["base_retarget_invalidates_and_rereviews", "plain_edit_is_a_non_event"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_base_retarget_invalidates_same_head_approval(team, repo_config, has_base_change, expect_invalidated):
+    # Retargeting the base rewrites the reviewed diff with the head SHA unchanged — post_verdict's
+    # head guard and every head-keyed dismissal sweep are blind to it, so the standing approval and
+    # any in-flight run must be invalidated explicitly and the PR re-reviewed. A plain title/body
+    # edit stays a non-event.
+    with team_scope(team.id):
+        pull_request = PullRequest.objects.create(team_id=team.id, repo_config=repo_config, pr_number=42)
+        in_flight = ReviewRun.objects.create(
+            team_id=team.id, pull_request=pull_request, head_sha="sha-1", status=ReviewRunStatus.REVIEWING
+        )
+    payload = _pr_payload(action="edited", head_sha="sha-1")
+    if has_base_change:
+        payload["changes"] = {"base": {"ref": {"from": "master"}, "sha": {"from": "base-old"}}}
+
+    with patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss:
+        mock_execute = _run_task(payload, f"delivery-retarget-{has_base_change}", team.id)
+
+    with team_scope(team.id):
+        in_flight.refresh_from_db()
+        run_count = ReviewRun.objects.filter(pull_request=pull_request).count()
+    if expect_invalidated:
+        dismiss.assert_called_once()
+        assert dismiss.call_args.args[3] == ""  # same-head exclusion disabled on purpose
+        assert in_flight.status == ReviewRunStatus.SUPERSEDED
+        assert run_count == 2  # the retargeted diff got a fresh run
+        mock_execute.assert_called_once()
+    else:
+        dismiss.assert_not_called()
+        assert in_flight.status == ReviewRunStatus.REVIEWING
+        assert run_count == 1
+        mock_execute.assert_not_called()
+
+
+@pytest.mark.parametrize(
     "incoming_updated_at,expect_refreshed",
     [
         ("2026-07-15T12:00:00Z", False),
