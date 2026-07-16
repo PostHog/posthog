@@ -280,6 +280,7 @@ export interface replayScannerLogicValues {
         p75: number
     } | null
     showScannerErrors: boolean
+    sidePanelContext: SidePanelSceneContext | null
     submitIntent: 'advance' | 'save'
     tagSuggestions: TagSuggestionApi[]
     tagSuggestionsLoading: boolean
@@ -548,6 +549,7 @@ export interface replayScannerLogicMeta {
             recentSessions: number
             totalSessions: number
         }
+        sidePanelContext: (scanner: ReplayScanner, isNew: boolean) => SidePanelSceneContext | null
     }
 }
 
