@@ -1,7 +1,7 @@
 import './ImpersonationNotice.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconChevronDown, IconCollapse, IconEllipsis, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonMenu, LemonTag, Tooltip } from '@posthog/lemon-ui'
@@ -68,7 +68,7 @@ function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: (
         if (pastCountdown) {
             callback?.() // oxlint-disable-line react-hooks/exhaustive-deps
         }
-    }, [pastCountdown])
+    }, [pastCountdown, callback])
 
     return <span className="tabular-nums text-warning">{countdown}</span>
 }
@@ -173,7 +173,7 @@ function ImpersonationNoticeContent(): JSX.Element {
                   onClick: () => setPendingUserId(member.user.id),
               }))
 
-    const handleSessionExpired = (): void => {
+    const handleSessionExpired = useCallback((): void => {
         if (user) {
             setSessionExpired({
                 email: user.email,
@@ -182,12 +182,27 @@ function ImpersonationNoticeContent(): JSX.Element {
                 reason: user.is_impersonated_reason ?? null,
             })
         }
-    }
+    }, [user, setSessionExpired])
 
     return (
         <>
             <p className="ImpersonationNotice__message">
-                Signed in as <span className="text-warning">{user?.email}</span>
+                Signed in as{' '}
+                <LemonMenu
+                    items={changeUserItems}
+                    onVisibilityChange={(visible) => visible && ensureAllMembersLoaded()}
+                >
+                    <LemonButton
+                        size="xsmall"
+                        sideIcon={<IconChevronDown />}
+                        loading={isChangingUser}
+                        tooltip={`Currently impersonating ${user?.email} - click to switch user`}
+                        truncate
+                        className="ImpersonationNotice__user-trigger text-warning"
+                    >
+                        {user?.email}
+                    </LemonButton>
+                </LemonMenu>
                 {user?.organization?.name && (
                     <>
                         {' '}
@@ -207,20 +222,6 @@ function ImpersonationNoticeContent(): JSX.Element {
                 <LemonButton type="secondary" size="small" onClick={() => loadUser()} loading={userLoading}>
                     Refresh
                 </LemonButton>
-                <LemonMenu
-                    items={changeUserItems}
-                    onVisibilityChange={(visible) => visible && ensureAllMembersLoaded()}
-                >
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        sideIcon={<IconChevronDown />}
-                        loading={isChangingUser}
-                        tooltip="Change user"
-                    >
-                        User
-                    </LemonButton>
-                </LemonMenu>
                 <LemonButton
                     type="secondary"
                     status="danger"
