@@ -624,6 +624,9 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             serviceNames:
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
+                            // Match the population the list shows (and the sparkline counts):
+                            // root spans in Traces view, every matching span in Spans view.
+                            rootSpans: values.filters.viewMode === 'traces',
                         },
                         controller.signal
                     )
