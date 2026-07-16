@@ -1619,10 +1619,19 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (githubSources: GitHubSourceApi[]): boolean => githubSources.length > 1,
             ],
             // The source reads resolve to: the picked one, else the backend default (oldest connected = first).
+            // Matched by (source, repo), not source alone: a multi-repo source's entries share one id,
+            // so headers and commit links reading activeSource.repo must reflect the picked repo, not
+            // the first entry with that id.
             activeSource: [
-                (s) => [s.githubSources, s.sourceId],
-                (githubSources: GitHubSourceApi[], sourceId: string | null): GitHubSourceApi | null =>
-                    (sourceId ? githubSources.find((source) => source.id === sourceId) : githubSources[0]) ?? null,
+                (s) => [s.githubSources, s.sourceId, s.scopeRepo],
+                (githubSources: GitHubSourceApi[], sourceId: string | null, scopeRepo): GitHubSourceApi | null => {
+                    if (!sourceId) {
+                        return githubSources[0] ?? null
+                    }
+                    const byRepo =
+                        scopeRepo && githubSources.find((source) => source.id === sourceId && source.repo === scopeRepo)
+                    return byRepo || githubSources.find((source) => source.id === sourceId) || null
+                },
             ],
             // One option per selectable (source, repo). The value encodes both so a multi-repo source's
             // repos are distinct entries; the label is the repo (falling back to prefix).

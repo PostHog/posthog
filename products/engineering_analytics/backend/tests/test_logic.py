@@ -741,6 +741,9 @@ class TestMultiRepoGitHubResolution(BaseTest):
         # legacy_repository keeps bare endpoint names (the source's pre-multi-repo repo); every
         # other repo is qualified as ``owner/repo.endpoint`` with location metadata, exactly as the
         # multi-repo GitHub source lands them.
+        job_inputs: dict[str, Any] = {"repositories": list(repos.keys())}
+        if legacy_repository:
+            job_inputs["repository"] = legacy_repository
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id=f"src-{prefix}",
@@ -748,7 +751,7 @@ class TestMultiRepoGitHubResolution(BaseTest):
             status=ExternalDataSource.Status.COMPLETED,
             source_type=ExternalDataSourceType.GITHUB,
             prefix=prefix,
-            job_inputs={"repository": legacy_repository} if legacy_repository else {},
+            job_inputs=job_inputs,
         )
         for repo, endpoints in repos.items():
             is_legacy = bool(legacy_repository) and repo.casefold() == legacy_repository.casefold()
@@ -810,6 +813,20 @@ class TestMultiRepoGitHubResolution(BaseTest):
         tables = resolve_github_tables(team=self.team, repo=repo)
         assert tables.repository == expected_repo
         assert tables.pull_requests == expected_pr
+
+    def test_default_repo_follows_configured_order_not_alphabetical(self) -> None:
+        # A new source with no legacy repo: the default (unscoped) resolve must pick the first
+        # *configured* repo, matching what the picker labels as githubSources[0] — an alphabetical
+        # pick would query one repo while the UI names another.
+        self._multi_repo_source(
+            prefix="ordered",
+            repos={
+                "z/org": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+                "a/org": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+            },
+        )
+        # _multi_repo_source stores repositories in dict order (z/org, a/org), so z/org is configured first.
+        assert resolve_github_tables(team=self.team).repository == "z/org"
 
     def test_explicit_repo_does_not_fall_through_to_a_sibling_repo(self) -> None:
         # The picker lists a repo before it finishes syncing. Selecting one whose pull_requests/

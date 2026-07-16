@@ -1,4 +1,4 @@
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 /** Carry the shared window + branch scope (and active source/repo) onto an internal nav URL, so drilling
  *  in, switching workflows, or stepping back never silently resets it. The scope lives in the URL — every
@@ -19,6 +19,12 @@ export function withScope(
         // the current URL — so every withScope-based link preserves it with no caller change.
         ...(searchParams.repo ? { repo: searchParams.repo } : {}),
     }).url
+}
+
+/** Like withScope, but reads the live URL for module-level link builders that don't have
+ *  searchParams in scope — so a source-only link still carries the current window / branch / repo. */
+export function withCurrentScope(url: string, sourceId: string | null | undefined): string {
+    return withScope(url, router.values.searchParams, sourceId)
 }
 
 /** Encode a (source, repo) selection as one string for the repo picker's LemonSelect value, since a
