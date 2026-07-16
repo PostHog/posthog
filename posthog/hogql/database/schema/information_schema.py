@@ -174,9 +174,16 @@ def _classify_table(name: str, table: Table, warehouse: set[str], views: set[str
 
 
 def _visible_table_names(database: "Database") -> list[str]:
-    # `posthog.*` is an internal namespace that mostly duplicates the top-level tables — skip it
-    # to keep the catalog clean. Everything else (built-in, system, warehouse, views) is included.
-    return [n for n in database.tables.resolve_visible_table_names() if not n.startswith("posthog.")]
+    # The `posthog.*` namespace holds two kinds of tables: copies of the top-level tables
+    # (`posthog.events`, `posthog.persons`, …) and data-plane tables that live *only* there
+    # (`posthog.ai_events`, `posthog.trace_spans`, `posthog.metrics`, the web pre-aggregated
+    # tables, …). Hide the copies to keep the catalog clean, but keep the unique ones — they're
+    # queryable by their `posthog.`-qualified name (a bare `FROM ai_events` errors), so leaving
+    # them out makes them undiscoverable through the schema-discovery workflow. Everything else
+    # (built-in, system, warehouse, views) is included.
+    names = database.tables.resolve_visible_table_names()
+    root_names = {n for n in names if "." not in n}
+    return [n for n in names if not (n.startswith("posthog.") and n[len("posthog.") :] in root_names)]
 
 
 # Per-column statistics surfaced into information_schema.columns: (null_fraction, min_value, max_value).
