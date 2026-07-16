@@ -140,6 +140,24 @@ class TestValidateCredentials:
         assert is_valid is False
         assert "Unable to reach" in (error or "")
 
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_api_key_over_plain_http_fails_before_any_request(self, mock_session):
+        # The bearer token must never ride a plaintext connection.
+        is_valid, error = validate_credentials("http://kubecost.example.com", "token")
+
+        assert is_valid is False
+        assert "https" in (error or "")
+        mock_session.return_value.get.assert_not_called()
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_plain_http_without_api_key_is_allowed(self, mock_session):
+        mock_session.return_value.get.return_value = _response({"code": 200, "data": [None]})
+
+        is_valid, error = validate_credentials("http://kubecost.example.com", None)
+
+        assert is_valid is True
+        assert error is None
+
 
 @freeze_time("2026-07-15T10:00:00Z")
 class TestGetRows:
@@ -279,6 +297,20 @@ class TestGetRows:
         saved_dates = [call.args[0].next_date for call in manager.save_state.call_args_list]
         # State points at the next unfetched day; no state after the final day.
         assert saved_dates == ["2026-07-12", "2026-07-13", "2026-07-14", "2026-07-15"]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_api_key_over_plain_http_raises_before_any_request(self, mock_session):
+        with pytest.raises(ValueError, match="https"):
+            list(
+                get_rows(
+                    "http://kubecost.example.com",
+                    "token",
+                    "allocation_by_namespace",
+                    mock.MagicMock(),
+                    _make_manager(),
+                )
+            )
+        mock_session.return_value.get.assert_not_called()
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_error_envelope_raises(self, mock_session):

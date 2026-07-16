@@ -7,6 +7,7 @@ Keyed by the endpoint names in `settings.py` `KUBECOST_ENDPOINTS`, which match t
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
+    CanonicalEndpoint,
 )
 
 _ALLOCATION_DOCS_URL = "https://docs.kubecost.com/apis/monitoring-apis/api-allocation"
@@ -43,7 +44,7 @@ _ALLOCATION_COLUMNS = {
 }
 
 
-def _allocation_entry(level: str) -> dict:
+def _allocation_entry(level: str) -> CanonicalEndpoint:
     return {
         "description": f"Kubernetes workload cost and usage from the Kubecost Allocation API, aggregated by {level} — one row per {level} per day.",
         "docs_url": _ALLOCATION_DOCS_URL,

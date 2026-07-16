@@ -63,7 +63,7 @@ class KubecostSource(ResumableSource[KubecostSourceConfig, KubecostResumeConfig]
             label="Kubecost (IBM / Apptio)",
             caption="""Connect your Kubecost deployment to pull Kubernetes cost allocation and infrastructure asset costs into the PostHog Data warehouse.
 
-Enter the URL where your Kubecost cost-model API is reachable (e.g. `https://kubecost.example.com` — with or without the `/model` suffix). Self-hosted Kubecost ships with no built-in auth, so the API must be exposed to PostHog, typically behind an ingress or auth proxy. If your deployment or proxy requires a token (e.g. Kubecost Cloud), provide it as the API key and it is sent as a bearer token.""",
+Enter the URL where your Kubecost cost-model API is reachable (e.g. `https://kubecost.example.com` — with or without the `/model` suffix). Self-hosted Kubecost ships with no built-in auth, so the API must be exposed to PostHog, typically behind an ingress or auth proxy. If your deployment or proxy requires a token (e.g. Kubecost Cloud), provide it as the API key and it is sent as a bearer token — this requires an `https://` URL so the key is never sent in plaintext.""",
             iconPath="/static/services/kubecost.png",
             docsUrl="https://posthog.com/docs/cdp/sources/kubecost",
             releaseStatus=ReleaseStatus.ALPHA,

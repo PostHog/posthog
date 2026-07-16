@@ -57,6 +57,18 @@ def hostname_of(host: str) -> str:
     return urlparse(normalize_host(host)).hostname or ""
 
 
+_PLAINTEXT_API_KEY_ERROR = (
+    "An API key can only be sent to an https:// URL. Use HTTPS for the Kubecost API URL or remove the API key."
+)
+
+
+def _check_api_key_transport(base_url: str, api_key: Optional[str]) -> str | None:
+    """The API key rides an `Authorization: Bearer` header, so it must never go over plaintext HTTP."""
+    if api_key and not base_url.startswith("https://"):
+        return _PLAINTEXT_API_KEY_ERROR
+    return None
+
+
 def _get_session(api_key: Optional[str]) -> requests.Session:
     # `host` is user-supplied, so pin redirects off: validation and the outbound
     # request must stay on the same target (SSRF defense-in-depth).
@@ -89,9 +101,14 @@ def _day_window(day: date) -> tuple[str, str]:
 
 def validate_credentials(host: str, api_key: Optional[str]) -> tuple[bool, str | None]:
     """Confirm the cost-model API is reachable and the credentials (if any) are accepted."""
+    base_url = normalize_host(host)
+    transport_error = _check_api_key_transport(base_url, api_key)
+    if transport_error is not None:
+        return False, transport_error
+
     try:
         response = _get_session(api_key).get(
-            f"{normalize_host(host)}/model/allocation",
+            f"{base_url}/model/allocation",
             params={"window": "1d", "aggregate": "namespace", "accumulate": "true"},
             timeout=30,
         )
@@ -152,8 +169,12 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = KUBECOST_ENDPOINTS[endpoint]
+    base_url = normalize_host(host)
+    transport_error = _check_api_key_transport(base_url, api_key)
+    if transport_error is not None:
+        raise ValueError(transport_error)
     session = _get_session(api_key)
-    url = f"{normalize_host(host)}{config.path}"
+    url = f"{base_url}{config.path}"
 
     @retry(
         retry=retry_if_exception_type((KubecostRetryableError, requests.ReadTimeout, requests.ConnectionError)),
