@@ -28,6 +28,8 @@ describe('DashboardRefreshStatusText', () => {
             dashboard: null,
             action: DashboardLoadAction.InitialLoad,
             dashboardLoading: true,
+            dashboardRevalidationError: null,
+            itemsLoading: true,
             expectedLoadingText: 'Loading...',
         },
         {
@@ -35,6 +37,8 @@ describe('DashboardRefreshStatusText', () => {
             dashboard: { id: 5 },
             action: DashboardLoadAction.InitialLoad,
             dashboardLoading: true,
+            dashboardRevalidationError: null,
+            itemsLoading: true,
             expectedLoadingText: null,
         },
         {
@@ -42,24 +46,31 @@ describe('DashboardRefreshStatusText', () => {
             dashboard: { id: 5 },
             action: DashboardLoadAction.Update,
             dashboardLoading: false,
+            dashboardRevalidationError: null,
+            itemsLoading: true,
             expectedLoadingText: 'Refreshing...',
+        },
+        {
+            scenario: 'a cached dashboard failed to refresh',
+            dashboard: { id: 5 },
+            action: DashboardLoadAction.InitialLoad,
+            dashboardLoading: false,
+            dashboardRevalidationError: 'Network error',
+            itemsLoading: false,
+            expectedLoadingText: 'Refresh failed',
         },
     ])(
         'shows the appropriate status when $scenario',
-        ({ dashboard, action, dashboardLoading, expectedLoadingText }) => {
-            mockedUseValues.mockImplementation((logic) => {
-                if (logic === dashboardLogic) {
-                    return {
-                        dashboard,
-                        dashboardLoading,
-                        dashboardStreaming: false,
-                        itemsLoading: true,
-                        refreshMetrics: { completed: 0, total: 0 },
-                        dashboardLoadData: { action },
-                        effectiveLastRefresh: null,
-                    }
-                }
-                return {}
+        ({ dashboard, action, dashboardLoading, dashboardRevalidationError, itemsLoading, expectedLoadingText }) => {
+            mockedUseValues.mockReturnValue({
+                dashboard,
+                dashboardLoading,
+                dashboardStreaming: false,
+                dashboardRevalidationError,
+                itemsLoading,
+                refreshMetrics: { completed: 0, total: 0 },
+                dashboardLoadData: { action },
+                effectiveLastRefresh: null,
             })
 
             render(<DashboardRefreshStatusText />)

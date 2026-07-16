@@ -182,7 +182,71 @@ export interface PendingInsertion {
     w: number | null
 }
 
-const cachedDashboardTeams = new WeakMap<DashboardType<QueryBasedInsightModel>, number>()
+const DASHBOARD_CACHE_MAX_ENTRIES = 10
+const SUPERSEDED_DASHBOARD_LOAD_ERROR = 'Dashboard load superseded'
+const cachedDashboards = new Map<string, DashboardType<QueryBasedInsightModel>>()
+
+export const resetDashboardCacheForTests = (): void => cachedDashboards.clear()
+
+const canCacheDashboard = (placement: DashboardPlacement): boolean =>
+    placement !== DashboardPlacement.Public && placement !== DashboardPlacement.Export
+
+const hasDashboardCacheOverrides = (
+    filtersOverride: DashboardFilter,
+    variablesOverride: Record<string, HogQLVariable>
+): boolean =>
+    Object.values(filtersOverride).some((value) => value !== undefined) || Object.keys(variablesOverride).length > 0
+
+const dashboardCacheKey = (teamId: number, dashboardId: number, layoutSize: DashboardLayoutSize | undefined): string =>
+    `${teamId}:${dashboardId}:${layoutSize ?? 'default'}`
+
+const cacheDashboard = (
+    dashboard: DashboardType<QueryBasedInsightModel> | null,
+    teamId: number | null,
+    placement: DashboardPlacement,
+    layoutSize: DashboardLayoutSize | undefined
+): void => {
+    if (dashboard && typeof teamId === 'number' && canCacheDashboard(placement)) {
+        const cacheKey = dashboardCacheKey(teamId, dashboard.id, layoutSize)
+        cachedDashboards.delete(cacheKey)
+        cachedDashboards.set(cacheKey, dashboard)
+
+        const oldestCacheKey = cachedDashboards.keys().next().value
+        if (cachedDashboards.size > DASHBOARD_CACHE_MAX_ENTRIES && oldestCacheKey) {
+            cachedDashboards.delete(oldestCacheKey)
+        }
+    }
+}
+
+const getCachedDashboard = (
+    dashboardId: number,
+    teamId: number | null,
+    placement: DashboardPlacement,
+    layoutSize: DashboardLayoutSize | undefined
+): DashboardType<QueryBasedInsightModel> | undefined => {
+    if (typeof teamId !== 'number' || !canCacheDashboard(placement)) {
+        return undefined
+    }
+
+    const cacheKey = dashboardCacheKey(teamId, dashboardId, layoutSize)
+    const dashboard = cachedDashboards.get(cacheKey)
+    if (dashboard) {
+        cachedDashboards.delete(cacheKey)
+        cachedDashboards.set(cacheKey, dashboard)
+    }
+    return dashboard
+}
+
+const deleteCachedDashboard = (dashboardId: number, teamId: number | null): void => {
+    if (typeof teamId === 'number') {
+        const cacheKeyPrefix = `${teamId}:${dashboardId}:`
+        for (const cacheKey of cachedDashboards.keys()) {
+            if (cacheKey.startsWith(cacheKeyPrefix)) {
+                cachedDashboards.delete(cacheKey)
+            }
+        }
+    }
+}
 
 const tileLayoutsFromDashboard = (
     dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
@@ -259,6 +323,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         tileStreamingComplete: true,
         /** Tile streaming failed. */
         tileStreamingFailure: (error: any) => ({ error }),
+        dashboardStreamingCancelled: true,
+        dashboardRequestCancelled: true,
+        restoreDashboardAfterStreamingFailure: (dashboard: DashboardType<QueryBasedInsightModel> | null) => ({
+            dashboard,
+        }),
+        setDashboardRevalidationError: (error: string | null) => ({ error }),
         /** Expose additional information about the current dashboard load in dashboardLoadData. */
         loadingDashboardItemsStarted: (action: DashboardLoadAction) => ({ action }),
         /** Expose response size information about the current dashboard load in dashboardLoadData. */
@@ -440,43 +510,134 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboard: [
             null as DashboardType<QueryBasedInsightModel> | null,
             {
-                loadDashboard: async ({ action }) => {
+                loadDashboard: async ({ action }, breakpoint) => {
                     actions.loadingDashboardItemsStarted(action)
+                    const requestTeamId = values.currentTeamId
+                    const requestLayoutSize = values.currentLayoutSize
+                    const loadGeneration = (cache.dashboardLoadGeneration ?? 0) + 1
+                    const abortController = new AbortController()
+                    const shouldCacheResponse = !hasDashboardCacheOverrides(
+                        values.filtersOverrideForLoad,
+                        values.urlVariables
+                    )
+
+                    cache.dashboardLoadGeneration = loadGeneration
+                    cache.disposables.dispose('dashboardRequest')
+                    cache.disposables.dispose('dashboardStream')
+                    cache.streamedDashboardTileIds = undefined
+                    actions.dashboardStreamingCancelled()
+                    actions.setDashboardRevalidationError(null)
+                    cache.disposables.add(() => () => abortController.abort(), 'dashboardRequest', {
+                        pauseOnPageHidden: false,
+                    })
 
                     try {
                         const apiUrl = values.apiUrl('force_cache', values.filtersOverrideForLoad, values.urlVariables)
-                        const dashboardResponse: Response = await api.getResponse(apiUrl)
+                        const dashboardResponse: Response = await api.getResponse(apiUrl, {
+                            signal: abortController.signal,
+                        })
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
+                        breakpoint()
+                        if (
+                            cache.dashboardLoadGeneration !== loadGeneration ||
+                            values.currentTeamId !== requestTeamId
+                        ) {
+                            throw new Error(SUPERSEDED_DASHBOARD_LOAD_ERROR)
+                        }
 
                         actions.setInitialLoadResponseBytes(getResponseBytes(dashboardResponse))
 
-                        return getQueryBasedDashboard(dashboard)
+                        const queryBasedDashboard = getQueryBasedDashboard(dashboard)
+                        if (shouldCacheResponse) {
+                            cacheDashboard(queryBasedDashboard, requestTeamId, values.placement, requestLayoutSize)
+                        }
+                        return queryBasedDashboard
                     } catch (error: any) {
+                        if (
+                            cache.dashboardLoadGeneration !== loadGeneration ||
+                            values.currentTeamId !== requestTeamId
+                        ) {
+                            throw new Error(SUPERSEDED_DASHBOARD_LOAD_ERROR)
+                        }
+                        breakpoint()
                         if (error.status === 404) {
+                            deleteCachedDashboard(props.id, requestTeamId)
                             return null
                         }
                         if (error.status === 403 && error.code === 'permission_denied') {
+                            deleteCachedDashboard(props.id, requestTeamId)
                             actions.setAccessDeniedToDashboard()
                         }
                         throw error
+                    } finally {
+                        if (cache.dashboardLoadGeneration === loadGeneration) {
+                            cache.disposables.dispose('dashboardRequest')
+                        }
                     }
                 },
                 loadDashboardStreaming: async ({ action }) => {
                     actions.loadingDashboardItemsStarted(action)
                     actions.resetIntermittentFilters()
+                    const requestTeamId = values.currentTeamId
+                    const requestLayoutSize = values.currentLayoutSize
+                    const loadGeneration = (cache.dashboardLoadGeneration ?? 0) + 1
                     const streamedDashboardTileIds = new Set<number>()
+                    const dashboardBeforeStream = values.dashboard
+                    const shouldCacheResponse = !hasDashboardCacheOverrides(
+                        values.filtersOverrideForLoad,
+                        values.urlVariables
+                    )
+
+                    cache.dashboardLoadGeneration = loadGeneration
+                    cache.disposables.dispose('dashboardRequest')
+                    cache.disposables.dispose('dashboardStream')
                     cache.streamedDashboardTileIds = streamedDashboardTileIds
+                    actions.dashboardRequestCancelled()
+                    actions.setDashboardRevalidationError(null)
+
+                    const isActiveStream = (): boolean =>
+                        cache.dashboardLoadGeneration === loadGeneration && values.currentTeamId === requestTeamId
+
+                    const completeStream = (): void => {
+                        if (!isActiveStream()) {
+                            return
+                        }
+                        actions.tileStreamingComplete()
+                        if (shouldCacheResponse) {
+                            cacheDashboard(values.dashboard, requestTeamId, values.placement, requestLayoutSize)
+                        }
+                        cache.dashboardLoadGeneration += 1
+                        cache.disposables.dispose('dashboardStream')
+                    }
+
+                    const failStream = (error: any): void => {
+                        if (!isActiveStream()) {
+                            return
+                        }
+                        if (error?.message?.includes('404') || error?.status === 404) {
+                            deleteCachedDashboard(props.id, requestTeamId)
+                        } else if (error?.message?.includes('403') || error?.status === 403) {
+                            deleteCachedDashboard(props.id, requestTeamId)
+                        }
+                        actions.restoreDashboardAfterStreamingFailure(dashboardBeforeStream)
+                        actions.tileStreamingFailure(error)
+                        cache.dashboardLoadGeneration += 1
+                        cache.disposables.dispose('dashboardStream')
+                    }
 
                     // Start unified streaming - metadata followed by tiles
-                    api.dashboards.streamTiles(
+                    const disposeStream = await api.dashboards.streamTiles(
                         props.id,
                         {
-                            layoutSize: values.currentLayoutSize,
+                            layoutSize: requestLayoutSize,
                             filtersOverride: values.filtersOverrideForLoad,
                             variablesOverride: values.urlVariables,
                         },
                         // onMessage callback - handles both metadata and tiles
                         (data) => {
+                            if (!isActiveStream()) {
+                                return
+                            }
                             if (data.type === 'metadata') {
                                 for (const tile of data.dashboard.tiles) {
                                     streamedDashboardTileIds.add(tile.id)
@@ -490,15 +651,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             }
                         },
                         // onComplete callback
-                        () => {
-                            actions.tileStreamingComplete()
-                        },
+                        completeStream,
                         // onError callback
                         (error) => {
                             console.error('❌ Tile streaming error:', error)
-                            actions.tileStreamingFailure(error)
+                            failStream(error)
                         }
                     )
+
+                    if (isActiveStream()) {
+                        cache.disposables.add(() => disposeStream, 'dashboardStream', { pauseOnPageHidden: false })
+                    } else {
+                        disposeStream()
+                    }
 
                     // Return null - metadata will update the dashboard
                     return null
@@ -787,7 +952,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 loadDashboard: () => true,
                 loadDashboardSuccess: () => false,
-                loadDashboardFailure: () => false,
+                loadDashboardFailure: (state, { error }) => (error === SUPERSEDED_DASHBOARD_LOAD_ERROR ? state : false),
+                dashboardRequestCancelled: () => false,
             },
         ],
         dashboardStreaming: [
@@ -796,6 +962,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardStreaming: () => true,
                 tileStreamingComplete: () => false,
                 tileStreamingFailure: () => false,
+                dashboardStreamingCancelled: () => false,
             },
         ],
         loadingPreview: [
@@ -805,7 +972,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setProperties: () => false,
                 setBreakdownFilter: () => false,
                 loadDashboardSuccess: () => false,
-                loadDashboardFailure: () => false,
+                loadDashboardFailure: (state, { error }) => (error === SUPERSEDED_DASHBOARD_LOAD_ERROR ? state : false),
+                dashboardRequestCancelled: () => false,
                 applyFilters: () => true,
             },
         ],
@@ -816,7 +984,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // and resetting filters
                 loadDashboard: () => true,
                 loadDashboardSuccess: () => false,
-                loadDashboardFailure: () => false,
+                loadDashboardFailure: (state, { error }) => (error === SUPERSEDED_DASHBOARD_LOAD_ERROR ? state : false),
+                dashboardRequestCancelled: () => false,
             },
         ],
         pageVisibility: [
@@ -836,7 +1005,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 loadDashboardSuccess: () => false,
                 loadDashboardMetadataSuccess: () => false,
-                loadDashboardFailure: () => true,
+                loadDashboardFailure: (state, { error }) => (error === SUPERSEDED_DASHBOARD_LOAD_ERROR ? state : true),
+            },
+        ],
+        dashboardRevalidationError: [
+            null as string | null,
+            {
+                setDashboardRevalidationError: (_, { error }) => error,
+                loadDashboardSuccess: () => null,
+                tileStreamingComplete: () => null,
             },
         ],
         dashboardLayouts: [
@@ -844,6 +1021,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 loadDashboardSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
                 loadDashboardMetadataSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
+                restoreDashboardAfterStreamingFailure: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
                 saveEditModeChangesSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
                 receiveTileFromStream: (state, { tile }) => ({
                     ...state,
@@ -1016,6 +1194,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         ],
                     }
                 },
+                restoreDashboardAfterStreamingFailure: (_, { dashboard }) => dashboard,
                 receiveTileFromStream: (state, { tile }) => {
                     if (!state || !state.tiles) {
                         return state
@@ -1907,19 +2086,35 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // the loadDashboardSuccess listener will initiate a refresh
                     // Ensure loading state is properly initialized for shared dashboards
                     actions.loadingDashboardItemsStarted(DashboardLoadAction.InitialLoad)
+                    if (!hasDashboardCacheOverrides(values.filtersOverrideForLoad, values.urlVariables)) {
+                        cacheDashboard(
+                            props.dashboard,
+                            values.currentTeamId,
+                            values.placement,
+                            values.currentLayoutSize
+                        )
+                    }
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
-                    const cachedDashboard = dashboardsModel.values.rawDashboards[String(props.id)]
+                    const hasVariablesInUrl = SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams
+                    const cachedDashboard =
+                        hasVariablesInUrl ||
+                        hasDashboardCacheOverrides(values.filtersOverrideForLoad, values.urlVariables)
+                            ? undefined
+                            : getCachedDashboard(
+                                  props.id,
+                                  values.currentTeamId,
+                                  values.placement,
+                                  values.currentLayoutSize
+                              )
                     if (
                         cachedDashboard &&
                         'tiles' in cachedDashboard &&
                         !cachedDashboard.deleted &&
-                        cachedDashboardTeams.get(cachedDashboard) === values.currentTeamId
+                        canCacheDashboard(values.placement)
                     ) {
                         actions.loadDashboardMetadataSuccess(cachedDashboard)
                     }
-
-                    const hasVariablesInUrl = SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams
 
                     if (!hasVariablesInUrl) {
                         if (values.shouldUseStreaming) {
@@ -1949,6 +2144,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         beforeUnmount: () => {
+            cache.dashboardLoadGeneration = (cache.dashboardLoadGeneration ?? 0) + 1
+            cache.streamedDashboardTileIds = undefined
             cache.widgetTileRefreshScheduler?.cancelAll()
             actions.abortAnyRunningQuery()
             // Bound the inline-insertion target's lifetime to this mount, so a never-consumed target
@@ -2055,7 +2252,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.resetInterval()
             }
         },
-        loadDashboardFailure: () => {
+        loadDashboardFailure: ({ error }) => {
+            if (error === SUPERSEDED_DASHBOARD_LOAD_ERROR) {
+                return
+            }
             const { action, dashboardQueryId, startTime } = values.dashboardLoadData
 
             eventUsageLogic.actions.reportTimeToSeeData({
@@ -2069,6 +2269,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
 
             if (values.dashboard) {
+                actions.setDashboardRevalidationError(error || 'Dashboard refresh failed')
                 actions.loadDashboardMetadataSuccess(values.dashboard)
             }
         },
@@ -2080,6 +2281,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             } else {
                 // Show error toast for other errors (500s, network issues, etc.)
                 const errorMessage = error?.message || 'Dashboard streaming failed'
+                if (values.dashboard) {
+                    actions.setDashboardRevalidationError(errorMessage)
+                } else {
+                    actions.loadDashboardFailure(errorMessage)
+                }
                 lemonToast.error(`Failed to load dashboard: ${errorMessage}`)
             }
         },
@@ -2181,8 +2387,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         [dashboardsModel.actionTypes.updateDashboardSuccess]: ({ dashboard }) => {
             // Text/button (via updateDashboard) and widget (client-merged) tiles arrive through here.
             if (dashboard?.id === props.id) {
-                if (typeof values.currentTeamId === 'number') {
-                    cachedDashboardTeams.set(dashboard, values.currentTeamId)
+                if (!hasDashboardCacheOverrides(values.filtersOverrideForLoad, values.urlVariables)) {
+                    cacheDashboard(dashboard, values.currentTeamId, values.placement, values.currentLayoutSize)
                 }
                 actions.applyPendingInsertion()
             }
@@ -2938,12 +3144,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         loadDashboardSuccess: [
-            ({ dashboard }) => {
-                if (dashboard && typeof values.currentTeamId === 'number') {
-                    cachedDashboardTeams.set(dashboard, values.currentTeamId)
-                    dashboardsModel.actions.updateDashboardSuccess(dashboard)
-                }
-            },
             sharedListeners.reportLoadTiming,
             () => {
                 if (!values.dashboard) {
@@ -2963,10 +3163,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         tileStreamingComplete: [
             () => {
-                if (values.dashboard && typeof values.currentTeamId === 'number') {
-                    cachedDashboardTeams.set(values.dashboard, values.currentTeamId)
-                    dashboardsModel.actions.updateDashboardSuccess(values.dashboard)
-                }
                 cache.streamedDashboardTileIds = undefined
             },
             sharedListeners.handleDashboardLoadComplete,

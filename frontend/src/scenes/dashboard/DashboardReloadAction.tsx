@@ -32,15 +32,24 @@ export const LastRefreshText = (): JSX.Element => {
 
 /** Loading / progress / pessimistic last refresh — same as the left side of `DashboardReloadAction`, without refresh controls. */
 export function DashboardRefreshStatusText(): JSX.Element {
-    const { dashboard, dashboardLoading, dashboardStreaming, itemsLoading, refreshMetrics, dashboardLoadData } =
-        useValues(dashboardLogic)
+    const {
+        dashboard,
+        dashboardLoading,
+        dashboardStreaming,
+        dashboardRevalidationError,
+        itemsLoading,
+        refreshMetrics,
+        dashboardLoadData,
+    } = useValues(dashboardLogic)
     const isInitialLoad =
         dashboardLoadData?.action === 'initial_load' || dashboardLoadData?.action === 'initial_load_with_variables'
     const isCachedInitialLoad = !!dashboard && isInitialLoad && (dashboardLoading || dashboardStreaming)
     const showLoadingStatus = itemsLoading && !isCachedInitialLoad
     return (
         <span className="text-muted text-sm whitespace-nowrap">
-            {showLoadingStatus ? (
+            {dashboard && dashboardRevalidationError && !itemsLoading ? (
+                <span className="text-danger">Refresh failed</span>
+            ) : showLoadingStatus ? (
                 <span className="flex items-center gap-1">
                     <Spinner textColored className="text-sm" />
                     {refreshMetrics.total ? (

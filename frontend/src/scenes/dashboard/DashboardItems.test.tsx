@@ -251,10 +251,10 @@ describe('DashboardItems', () => {
         },
     ])('shows the streaming spinner only when $scenario', ({ tiles, spinnerVisible }) => {
         const defaultUseValues = mockedUseValues.getMockImplementation()!
-        mockedUseValues.mockImplementation((logic) => {
-            const values = defaultUseValues(logic)
-            return logic === dashboardLogic ? { ...values, tiles, dashboardStreaming: true } : values
-        })
+        const dashboardValues = defaultUseValues(dashboardLogic)
+        mockedUseValues
+            .mockImplementationOnce(() => ({ ...dashboardValues, tiles, dashboardStreaming: true }))
+            .mockImplementationOnce(() => ({ layoutZoom: dashboardValues.layoutZoom }))
 
         const { queryByText } = render(<DashboardItems />)
 
