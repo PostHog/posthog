@@ -35,6 +35,14 @@ def _files(pdf: UploadedFile | None = None) -> MultiValueDict[str, UploadedFile]
     return mvd
 
 
+def _attach_messages(request) -> None:
+    # Give a RequestFactory request the messages-framework plumbing admin
+    # actions rely on. Untyped param on purpose so the attribute assignments
+    # don't trip the type checker on WSGIRequest.
+    request.session = {}
+    request._messages = FallbackStorage(request)
+
+
 class TestLegalDocumentAdminForm(APIBaseTest):
     def _form_data(self, **overrides: Any) -> dict[str, Any]:
         data = {
@@ -93,8 +101,7 @@ class TestLegalDocumentAdminSave(APIBaseTest):
         request.user = self.user
         # Admin actions write user-facing feedback via the messages framework,
         # which needs a storage backend attached to the request.
-        request.session = {}
-        request._messages = FallbackStorage(request)
+        _attach_messages(request)
         return request
 
     def _bound_form(self, document_type: str = "DPA") -> LegalDocumentAdminForm:
