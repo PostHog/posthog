@@ -194,7 +194,7 @@ export function HostedSurveySettingsPanel({
                     {canQuestionSkipSubmitButton(question) && (
                         <LemonCheckbox
                             label="Automatically submit on selection"
-                            info="If enabled, the survey submits immediately after the user makes a selection and the submit button is hidden."
+                            info="If enabled, the survey submits immediately after the user makes a selection (for rating or single-choice questions without an open-ended option), and the submit button is hidden. Requires at least version 1.244.0 of posthog-js. Not available for the mobile SDKs at the moment."
                             checked={!!question.skipSubmitButton}
                             onChange={(checked) => updateQuestionField('skipSubmitButton', checked)}
                         />

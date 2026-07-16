@@ -799,6 +799,11 @@ export function sanitizeSurvey(survey: Partial<Survey>, options?: SanitizeSurvey
             ) {
                 sanitized.choices = sanitized.choices.map((choice) => choice.trim())
             }
+            // Drop a stale auto-submit flag if the question is no longer eligible for it
+            // (e.g. an open-ended choice was added, or the type was switched).
+            if ('skipSubmitButton' in sanitized && !canQuestionSkipSubmitButton(sanitized)) {
+                delete (sanitized as { skipSubmitButton?: boolean }).skipSubmitButton
+            }
             return sanitized
         }) || []
 
