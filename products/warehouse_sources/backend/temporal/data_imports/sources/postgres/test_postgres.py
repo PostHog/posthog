@@ -1355,6 +1355,11 @@ class TestIsConnectionDroppedError:
             psycopg.errors.ConnectionFailure(
                 "Failed to connect to database: authentication did not complete within 15000ms"
             ),
+            # pgcat refuses to hand out a backend when every pooled server is banned/down, reporting
+            # it as SQLSTATE 58000 (psycopg's SystemError, an OperationalError) rather than the
+            # Supavisor XX000 InternalError_ codes above. Transient — a banned server rejoins on a
+            # passing health check or once its ban expires — so the reconnect must catch it.
+            psycopg.errors.SystemError("could not get connection from the pool - AllServersDown"),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):

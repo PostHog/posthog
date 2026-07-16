@@ -107,7 +107,8 @@
             "bin/hogli format:python",
             "uv run --no-sync ty check"
         ],
-        "*.{md,mdx}": "bin/hogli format:markdown"
+        "*.{md,mdx}": "bin/hogli format:markdown",
+        "products/agent_platform/**/*.{ts,py}": "products/agent_platform/bin/coherence-precommit"
     },
     "browserslist": {
         "development": [

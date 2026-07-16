@@ -2823,7 +2823,7 @@
 # name: test_create_table_query[log_attributes_distributed]
   '''
   
-  CREATE TABLE IF NOT EXISTS posthog_test.log_attributes_distributed AS posthog_test.log_attributes ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'log_attributes')
+  CREATE OR REPLACE TABLE posthog_test.log_attributes_distributed AS posthog_test.log_attributes3 ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'log_attributes3')
   
   '''
 # ---
@@ -2964,10 +2964,10 @@
   
   '''
 # ---
-# name: test_create_table_query[logs32_to_log_attributes]
+# name: test_create_table_query[logs32_to_log_attributes3]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.logs32_to_log_attributes TO posthog_test.log_attributes
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.logs32_to_log_attributes3 TO posthog_test.log_attributes3
   (
       `team_id` Int32,
       `time_bucket` DateTime64(0),
@@ -2977,6 +2977,7 @@
       `attribute_key` LowCardinality(String),
       `attribute_value` String,
       `attribute_type` LowCardinality(String),
+      `severity_text` LowCardinality(String),
       `attribute_count` SimpleAggregateFunction(sum, UInt64)
   )
   AS SELECT
@@ -2988,6 +2989,7 @@
       attribute_key,
       attribute_value,
       attribute_type,
+      severity_text,
       attribute_count
   FROM
   (
@@ -2997,6 +2999,7 @@
           toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
           service_name AS service_name,
           resource_fingerprint,
+          severity_text AS severity_text,
           mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS attributes,
           arrayJoin(attributes) AS attribute,
           'log' AS attribute_type,
@@ -3010,15 +3013,16 @@
           original_expiry_time_bucket,
           service_name,
           resource_fingerprint,
+          severity_text,
           attributes
   )
   
   '''
 # ---
-# name: test_create_table_query[logs32_to_resource_attributes]
+# name: test_create_table_query[logs32_to_resource_attributes3]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.logs32_to_resource_attributes TO posthog_test.log_attributes
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.logs32_to_resource_attributes3 TO posthog_test.log_attributes3
   (
       `team_id` Int32,
       `time_bucket` DateTime64(0),
@@ -3028,6 +3032,7 @@
       `attribute_key` LowCardinality(String),
       `attribute_value` String,
       `attribute_type` LowCardinality(String),
+      `severity_text` LowCardinality(String),
       `attribute_count` SimpleAggregateFunction(sum, UInt64)
   )
   AS SELECT
@@ -3039,6 +3044,7 @@
       attribute_key,
       attribute_value,
       attribute_type,
+      severity_text,
       attribute_count
   FROM
   (
@@ -3048,6 +3054,7 @@
           toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
           service_name AS service_name,
           resource_fingerprint,
+          severity_text AS severity_text,
           arrayJoin(resource_attributes) AS attribute,
           'resource' AS attribute_type,
           attribute.1 AS attribute_key,
@@ -3060,6 +3067,7 @@
           original_expiry_time_bucket,
           service_name,
           resource_fingerprint,
+          severity_text,
           resource_attributes
   )
   

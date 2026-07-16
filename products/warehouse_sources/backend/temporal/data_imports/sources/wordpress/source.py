@@ -37,6 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WordpressSource(ResumableSource[WordpressSourceConfig, WordpressResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developer.wordpress.org/rest-api/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.WORDPRESS

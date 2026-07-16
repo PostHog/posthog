@@ -4129,7 +4129,7 @@
         }
     },
     "feature-flags-copy-flags-create": {
-        "description": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Returns lists of successful and failed copies.",
+        "description": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Set copy_dependencies only when the user explicitly wants missing transitive flag dependencies copied too; existing active same-key dependencies in target projects are reused, disabled same-key dependencies are left untouched, and warnings explain any dependencies or schedules that could not be copied. Returns lists of successful and failed copies.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Copy feature flag across projects",
@@ -4157,7 +4157,7 @@
         }
     },
     "feature-flags-evaluation-reasons-retrieve": {
-        "description": "Debug why feature flags evaluate a certain way for a given user. Provide a distinct_id and optionally groups to see each flag's evaluated value and the reason for that evaluation (e.g. condition_match, no_condition_match, disabled).",
+        "description": "Debug why feature flags evaluate a certain way for a given user. Provide a distinct_id and optionally groups to see each flag's evaluated value and the reason for that evaluation (e.g. condition_match, no_condition_match, disabled). Pass flag_keys to scope the response to specific flags. This is strongly recommended on projects with many flags, since omitting it returns an entry for every flag and can produce a very large payload.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Get feature flag evaluation reasons",
@@ -6522,6 +6522,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "path-cleaning-rules-update": {
+        "description": "Safely add, replace, remove, or reorder a project's path cleaning rules (Team.path_cleaning_filters) without hand-managing the whole list. Reads the current rules, applies your ordered operations, auto-numbers them, and (unless confirm:true) returns a PREVIEW of the resulting rules — plus how they rewrite any sample_paths — without saving. Path cleaning normalizes $pathname/$entry_pathname so pages sharing a template (/users/123, /users/456) collapse into one row (/users/<id>) in Web analytics, Paths, and apply_path_cleaning HogQL. Prefer this over project-settings-update for path cleaning: it avoids clobbering existing rules and renumbering by hand. Rules apply sequentially (order matters) and globally wherever cleaning is enabled, changing historical numbers — surface the preview to the user, then re-run with confirm:true.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Edit path cleaning rules with granular ops, a preview step, and safe read-modify-write.",
+        "title": "Update path cleaning rules",
+        "required_scopes": ["project:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "persons-bulk-delete": {
@@ -9834,7 +9848,7 @@
         }
     },
     "workflows-create": {
-        "description": "Create a workflow. It is created as a draft and does NOT run until enabled: test it with workflows-test-run first, then enable (workflows-enable) only with the user's explicit approval — enabling is a one-way door, since live workflows can't be edited over MCP. Provide an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes (function/function_email/function_sms, delay, conditional_branch, wait_until_condition, ...) connected by edges. Read the building-workflows skill for node shapes before composing: a node that mismatches the per-type schema saves but breaks the visual editor. Two traps that save but break: (1) a conditional_branch condition needs a 'filters' wrapper — {filters:{properties:[...]}}, not {properties:[...]} on the condition; omitting it passes save but the editor flags it and the branch won't evaluate your condition. (2) Never hand-author bytecode anywhere; send properties/hash and the server compiles it. A 'batch' trigger broadcasts to an audience (config.filters.properties: person-property conditions and/or cohort references), one run per matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with workflows-schedule-create. Behavioral targeting ('did event X at least N times over the last M days') is unsupported; reject it and explain why.",
+        "description": "Create a workflow. It is created as a draft and does NOT run until enabled: test it with workflows-test-run first, then enable (workflows-enable) only with the user's explicit approval — from then on it runs on real people, and further content edits stage as a draft you must publish (workflows-publish) to take effect. Provide an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes (function/function_email/function_sms, delay, conditional_branch, wait_until_condition, ...) connected by edges. Read the building-workflows skill for node shapes before composing: a node that mismatches the per-type schema saves but breaks the visual editor. Two traps that save but break: (1) a conditional_branch condition needs a 'filters' wrapper — {filters:{properties:[...]}}, not {properties:[...]} on the condition; omitting it passes save but the editor flags it and the branch won't evaluate your condition. (2) Never hand-author bytecode anywhere; send properties/hash and the server compiles it. A 'batch' trigger broadcasts to an audience (config.filters.properties: person-property conditions and/or cohort references), one run per matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with workflows-schedule-create. Behavioral targeting ('did event X at least N times over the last M days') is unsupported; reject it and explain why.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Create workflow",
@@ -9861,8 +9875,22 @@
             "readOnlyHint": false
         }
     },
+    "workflows-discard-draft": {
+        "description": "Throw away a workflow's staged draft without touching the live config. Idempotent — discarding when nothing is staged is a no-op. Returns the workflow.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Discard workflow draft",
+        "title": "Discard workflow draft",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-enable": {
-        "description": "Enable / activate a draft workflow and start processing events. One-way door: a live workflow can't be edited over MCP (to change it you recreate it as a new draft), so test it first and get the user's explicit approval before invoking. Don't enable on your own initiative.",
+        "description": "Enable / activate a draft workflow and start processing events. From then on it runs on real people: test it first with workflows-test-run and get the user's explicit approval before invoking - don't enable on your own initiative. Once live, content edits stage as a draft you publish with workflows-publish; if draft editing isn't enabled for the project yet, a live change means recreating the workflow as a new draft.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Enable workflow",
@@ -9876,7 +9904,7 @@
         }
     },
     "workflows-get": {
-        "description": "Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit condition, variables, and any recurring 'schedules' (read-only here). For a batch workflow, check status=='active' plus an active entry in 'schedules' to confirm it will actually fire.",
+        "description": "Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit condition, variables, and any recurring 'schedules' (read-only here). For a batch workflow, check status=='active' plus an active entry in 'schedules' to confirm it will actually fire. On an active workflow, 'draft' holds staged content changes awaiting workflows-publish (null when nothing is staged) — the live config in actions/edges is what's running.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Get workflow",
@@ -10016,7 +10044,7 @@
         }
     },
     "workflows-patch-graph": {
-        "description": "Surgically edit a draft workflow's graph by sending a small, ordered list of operations instead of resending every action and edge. Prefer this over workflows-update for any change to an existing draft — to tweak one node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing changes. Draft only — active workflows are read-only via MCP. The full updated workflow is returned, so you don't need to re-fetch before the next edit. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper: {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with workflows-test-run after patching.",
+        "description": "Surgically edit a workflow's graph by sending a small, ordered list of operations instead of resending every action and edge. Prefer this over workflows-update for any graph change — to tweak one node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing changes. On an active workflow, patches stage a draft instead of changing what's running: the first patch copies the live graph into the draft, later patches compose onto it, and nothing reaches real people until workflows-publish. A rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet — then a live change means recreating the workflow as a new draft. The full updated workflow is returned, so you don't need to re-fetch before the next edit. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper: {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with workflows-test-run after patching.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Patch workflow graph",
@@ -10024,6 +10052,20 @@
         "required_scopes": ["hog_flow:write"],
         "annotations": {
             "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-publish": {
+        "description": "Apply a workflow's staged draft to its live config. Two-step: call without confirm first — it returns in_flight_runs (people mid-flow who will follow the new config once published) and draft_updated_at, changing nothing. Echo that impact to the user and get their go-ahead, then call again with confirm=true and that exact draft_updated_at; a 409 means the draft changed since you read it, so re-read and re-confirm. Publish revalidates the draft fully and recompiles it, so an invalid draft is rejected with the reason and the live config stays untouched. Test the draft first with workflows-test-run (use_draft=true).",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Publish workflow draft",
+        "title": "Publish workflow draft",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": true,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -10086,7 +10128,7 @@
         }
     },
     "workflows-test-run": {
-        "description": "Test-invoke a workflow one node at a time; it does NOT traverse the full graph in one call. The result includes nextActionId. To verify a path end to end, chain calls: start at the trigger (omit current_action_id), then pass the returned nextActionId as current_action_id on the next call, and repeat. To test a specific branch, set current_action_id to that node. Skip delay nodes by jumping to the action after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}). Async actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side effects. Returns the step's execution trace.",
+        "description": "Test-invoke a workflow one node at a time; it does NOT traverse the full graph in one call. The result includes nextActionId. To verify a path end to end, chain calls: start at the trigger (omit current_action_id), then pass the returned nextActionId as current_action_id on the next call, and repeat. To test a specific branch, set current_action_id to that node. Skip delay nodes by jumping to the action after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}). Async actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side effects. Returns the step's execution trace. Set use_draft=true to test a workflow's staged draft instead of its live config — always do this before workflows-publish.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Test-run workflow",
@@ -10100,7 +10142,7 @@
         }
     },
     "workflows-update": {
-        "description": "Fallback editor. Prefer workflows-patch-graph for graph changes: it sends only the delta, is structurally validated, and returns the full updated graph. Reach for workflows-update for top-level metadata a patch can't express (name, description, exit_condition), or as an escape hatch to replace the whole workflow when you can't get workflows-patch-graph to land a change. Draft only: active workflows are read-only via MCP (editing risks breaking already-scheduled runs), so create a new draft to change a live one. Status changes go through workflows-enable / workflows-archive.",
+        "description": "Fallback editor. Prefer workflows-patch-graph for graph changes: it sends only the delta, is structurally validated, and returns the full updated graph. Reach for workflows-update for top-level metadata a patch can't express (name, description, exit_condition), or as an escape hatch to replace the whole workflow when you can't get workflows-patch-graph to land a change. On an active workflow, content fields stage a draft (published with workflows-publish) while name/description apply immediately; a rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet — then a live change means recreating the workflow as a new draft. Status changes go through workflows-enable / workflows-archive.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",

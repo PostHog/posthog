@@ -94,8 +94,8 @@ catalogs:
       specifier: ^0.57.0
       version: 0.57.0
     posthog-js:
-      specifier: ^1.401.0
-      version: 1.401.0
+      specifier: ^1.402.3
+      version: 1.402.3
     storybook:
       specifier: ^10.4.3
       version: 10.4.6
@@ -409,7 +409,7 @@ importers:
         version: 3.1.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
     devDependencies:
       '@swc/core':
         specifier: ^1.11.29
@@ -440,7 +440,7 @@ importers:
         version: 1.5.15
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
     devDependencies:
       '@swc/core':
         specifier: ^1.11.29
@@ -808,7 +808,7 @@ importers:
         version: link:../packages/quill/packages/components
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.401.0)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.402.3)(react@18.3.1)
       '@posthog/replay-shared':
         specifier: workspace:*
         version: link:../common/replay-shared
@@ -875,25 +875,10 @@ importers:
       '@tiptap/extension-code-block-lowlight':
         specifier: 3.20.6
         version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/extension-code-block@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(highlight.js@11.11.1)(lowlight@3.3.0)
-      '@tiptap/extension-collaboration':
-        specifier: 3.20.6
-        version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@tiptap/y-tiptap@3.0.2(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1)(y-protocols@1.0.7(yjs@13.6.29))(yjs@13.6.29))(yjs@13.6.29)
       '@tiptap/extension-color':
         specifier: 3.20.6
         version: 3.20.6(@tiptap/extension-text-style@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6)))
       '@tiptap/extension-document':
-        specifier: 3.20.6
-        version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))
-      '@tiptap/extension-drag-handle':
-        specifier: 3.20.6
-        version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/extension-collaboration@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@tiptap/y-tiptap@3.0.2(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1)(y-protocols@1.0.7(yjs@13.6.29))(yjs@13.6.29))(yjs@13.6.29))(@tiptap/extension-node-range@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@tiptap/y-tiptap@3.0.2(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1)(y-protocols@1.0.7(yjs@13.6.29))(yjs@13.6.29))
-      '@tiptap/extension-drag-handle-react':
-        specifier: 3.20.6
-        version: 3.20.6(@tiptap/extension-drag-handle@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/extension-collaboration@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@tiptap/y-tiptap@3.0.2(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1)(y-protocols@1.0.7(yjs@13.6.29))(yjs@13.6.29))(yjs@13.6.29))(@tiptap/extension-node-range@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@tiptap/y-tiptap@3.0.2(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1)(y-protocols@1.0.7(yjs@13.6.29))(yjs@13.6.29)))(@tiptap/pm@3.20.6)(@tiptap/react@3.20.6(@floating-ui/dom@1.7.6)(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@tiptap/extension-floating-menu':
-        specifier: 3.20.6
-        version: 3.20.6(@floating-ui/dom@1.7.6)(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)
-      '@tiptap/extension-heading':
         specifier: 3.20.6
         version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))
       '@tiptap/extension-image':
@@ -905,16 +890,10 @@ importers:
       '@tiptap/extension-list':
         specifier: 3.20.6
         version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)
-      '@tiptap/extension-node-range':
-        specifier: 3.20.6
-        version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)
       '@tiptap/extension-placeholder':
         specifier: 3.20.6
         version: 3.20.6(@tiptap/extensions@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6))
       '@tiptap/extension-table':
-        specifier: 3.20.6
-        version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)
-      '@tiptap/extension-table-of-contents':
         specifier: 3.20.6
         version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)
       '@tiptap/extension-text-align':
@@ -1153,7 +1132,7 @@ importers:
         version: 2.11.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       query-selector-shadow-dom:
         specifier: ^1.0.0
         version: 1.0.0
@@ -2650,7 +2629,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2714,7 +2693,7 @@ importers:
         version: 0.1.7
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2778,7 +2757,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2829,7 +2808,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2934,7 +2913,7 @@ importers:
         version: 3.3.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3024,7 +3003,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3063,7 +3042,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3165,7 +3144,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3343,7 +3322,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3424,7 +3403,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3556,7 +3535,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3709,7 +3688,7 @@ importers:
         version: 5.4.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3862,7 +3841,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3985,7 +3964,7 @@ importers:
         version: 0.55.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4037,7 +4016,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4185,6 +4164,10 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+    devDependencies:
+      kea-test-utils:
+        specifier: 'catalog:'
+        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
 
   products/session_replay:
     dependencies:
@@ -4302,7 +4285,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4421,7 +4404,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4464,7 +4447,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4482,7 +4465,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/react':
         specifier: '*'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.401.0)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.402.3)(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -4500,7 +4483,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4550,7 +4533,7 @@ importers:
         version: 4.0.0-pre.5(react@18.3.1)
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4602,7 +4585,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.401.0
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -10079,8 +10062,8 @@ packages:
   '@posthog/core@1.38.0':
     resolution: {integrity: sha512-QLrJh0hMVpEJXHNyiJR9YhvIO5tzLDedw4UHdvB+ub4fXHMtHCA8H44qgl11HWR3ajpjxtJ8hs3HyOGVF3Zc1w==}
 
-  '@posthog/core@1.41.1':
-    resolution: {integrity: sha512-lKjPdeawDSvRhHnP14RwTSI5CofuyluhG3ISHRa+Kj6PyfSrEUyIkoVOpYWicFGgWikeaJCZzFQpo7ngHt9BcA==}
+  '@posthog/core@1.42.1':
+    resolution: {integrity: sha512-cZojBmvf92gZAn0MGf/J2S+3t2sZqb9E2/6mjY4jJsImwz7PuYqdNj870Wx2iwwlf++wfhRuH4K4bpDy9GIoCA==}
 
   '@posthog/core@1.7.1':
     resolution: {integrity: sha512-kjK0eFMIpKo9GXIbts8VtAknsoZ18oZorANdtuTj1CbgS28t4ZVq//HAWhnxEuXRTrtkd+SUJ6Ux3j2Af8NCuA==}
@@ -12108,14 +12091,6 @@ packages:
     peerDependencies:
       '@tiptap/core': 3.20.6
 
-  '@tiptap/extension-collaboration@3.20.6':
-    resolution: {integrity: sha512-wHU8GJjlFwf2/rubNA4EhpBZfoDB+0JZKDUsQQTooyQ+HvYYPwz2HHXBDwijJ4YgNDPGacB3t/1eUtZx/Jz/1A==}
-    peerDependencies:
-      '@tiptap/core': 3.20.6
-      '@tiptap/pm': 3.20.6
-      '@tiptap/y-tiptap': ^3.0.2
-      yjs: ^13
-
   '@tiptap/extension-color@3.20.6':
     resolution: {integrity: sha512-CuNArBP57tBjJkolnzCBOrx9Jq7nEM67oEISXzidzYg1466yHOxocJ+7irFf8KdBhTN3uxWbHZTzL3nsHAW39g==}
     peerDependencies:
@@ -12125,24 +12100,6 @@ packages:
     resolution: {integrity: sha512-ge2Frwy+LZ8SjaVblNZQ+dYzMlPg6OUAerRYNT6f4sKuHZfynIkRlWcCmAMKsZ9VO531dkq+v5K1b4r2iXwIew==}
     peerDependencies:
       '@tiptap/core': 3.20.6
-
-  '@tiptap/extension-drag-handle-react@3.20.6':
-    resolution: {integrity: sha512-puoV0xsQfZtCrUIcJqXzHQxhKzHfsm0v/6rFjFhvQZe15LBsCzhVFnCfLV7Hrp+S6P7OaiLabqDhhfgavP4RKg==}
-    peerDependencies:
-      '@tiptap/extension-drag-handle': 3.20.6
-      '@tiptap/pm': 3.20.6
-      '@tiptap/react': 3.20.6
-      react: 18.3.1
-      react-dom: 18.3.1
-
-  '@tiptap/extension-drag-handle@3.20.6':
-    resolution: {integrity: sha512-kyzrSr4Jkwt1f8Lx23hP9RGw6U03w9H6g0N/dukpa3jQIDwfiCyqj/lxS1UicrU7kIoUY6eEiIdB9LBY4glrRA==}
-    peerDependencies:
-      '@tiptap/core': 3.20.6
-      '@tiptap/extension-collaboration': 3.20.6
-      '@tiptap/extension-node-range': 3.20.6
-      '@tiptap/pm': 3.20.6
-      '@tiptap/y-tiptap': ^3.0.2
 
   '@tiptap/extension-dropcursor@3.20.6':
     resolution: {integrity: sha512-TtRykf5BeOxQwFMYtJnCCqiqYBdH0nxcVvigidNzm9etX5hujeLFMN/Q6RYQ8edv1nqkb96HTC4P5egVNHfU+g==}
@@ -12209,12 +12166,6 @@ packages:
       '@tiptap/core': 3.20.6
       '@tiptap/pm': 3.20.6
 
-  '@tiptap/extension-node-range@3.20.6':
-    resolution: {integrity: sha512-jCNB53ksWtxyiNyq05MyZH0lzp87BakAWDSR/D3D6x4iyo8FAtjF7AipKJMTuWRBXD0rzkO956IO/G7zbsqiDw==}
-    peerDependencies:
-      '@tiptap/core': 3.20.6
-      '@tiptap/pm': 3.20.6
-
   '@tiptap/extension-ordered-list@3.20.6':
     resolution: {integrity: sha512-2qGVri9W4RG2jEFQAXMXUAgIjBH5J+cpcY4wUkrxdYmXDMor14o955/ITYNPzBvdi7wpfJa1F70rp4K3YNPEmg==}
     peerDependencies:
@@ -12234,12 +12185,6 @@ packages:
     resolution: {integrity: sha512-eJeUVvvfatFZhlPiKLGJICSAXG2q1sZH+xcSE/832jFc2vtV+yAnkXZ9TmlhoK84SxNA2kS17fMMeZVUP/FqZw==}
     peerDependencies:
       '@tiptap/core': 3.20.6
-
-  '@tiptap/extension-table-of-contents@3.20.6':
-    resolution: {integrity: sha512-8p6sUP4LixyhpybkHqRoRJbeqRcOc6rd34F8yjycuGZ+LzaL0yxfQjk5Z7JtELfr49uB6CkZLykxKqX15zXKwg==}
-    peerDependencies:
-      '@tiptap/core': 3.20.6
-      '@tiptap/pm': 3.20.6
 
   '@tiptap/extension-table@3.20.6':
     resolution: {integrity: sha512-0Cjs9pdzvomT1jp0ev814k3glEpc1Lhi8yoGlStXdSbov8BRlw8E++T2PuIKYr6SPgtttVIX9tENZRYg4SkmDQ==}
@@ -12307,16 +12252,6 @@ packages:
     peerDependencies:
       '@tiptap/core': 3.20.6
       '@tiptap/pm': 3.20.6
-
-  '@tiptap/y-tiptap@3.0.2':
-    resolution: {integrity: sha512-flMn/YW6zTbc6cvDaUPh/NfLRTXDIqgpBUkYzM74KA1snqQwhOMjnRcnpu4hDFrTnPO6QGzr99vRyXEA7M44WA==}
-    engines: {node: '>=16.0.0', npm: '>=8.0.0'}
-    peerDependencies:
-      prosemirror-model: ^1.7.1
-      prosemirror-state: ^1.2.3
-      prosemirror-view: ^1.9.10
-      y-protocols: ^1.0.1
-      yjs: ^13.5.38
 
   '@toon-format/toon@2.1.0':
     resolution: {integrity: sha512-JwWptdF5eOA0HaQxbKAzkpQtR4wSWTEfDlEy/y3/4okmOAX1qwnpLZMmtEWr+ncAhTTY1raCKH0kteHhSXnQqg==}
@@ -17056,9 +16991,6 @@ packages:
     peerDependencies:
       ws: '*'
 
-  isomorphic.js@0.2.5:
-    resolution: {integrity: sha512-PIeMbHqMt4DnUP3MA/Flc0HElYjMXArsw1qwJZcm9sqR8mq3l8NYizFMty0pWwE/tzIGH3EKK5+jes5mAr85yw==}
-
   istanbul-lib-coverage@3.2.0:
     resolution: {integrity: sha512-eOeJ5BHCmHYvQK7xt9GkdHuzuCGS1Y6g9Gvnx3Ym33fz/HpLRYxiS0wHNr+m/MBC8B647Xt608vCDEvhl9c6Mw==}
     engines: {node: '>=8'}
@@ -17834,11 +17766,6 @@ packages:
   levn@0.4.1:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
     engines: {node: '>= 0.8.0'}
-
-  lib0@0.2.117:
-    resolution: {integrity: sha512-DeXj9X5xDCjgKLU/7RR+/HQEVzuuEUiwldwOGsHK/sfAfELGWEyTcf0x+uOvCvK3O2zPmZePXWL85vtia6GyZw==}
-    engines: {node: '>=16'}
-    hasBin: true
 
   libsodium-wrappers@0.7.16:
     resolution: {integrity: sha512-Gtr/WBx4dKjvRL1pvfwZqu7gO6AfrQ0u9vFL+kXihtHf6NfkROR8pjYWn98MFDI3jN19Ii1ZUfPR9afGiPyfHg==}
@@ -19859,8 +19786,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.401.0:
-    resolution: {integrity: sha512-NuP+SVPN9Ep6myHSv43+WF6W1v9v6v2LBvScQ5KckmRukm1xmAHtASe/EjhuvjRc/33kbGjuROEtDwcTbATGgA==}
+  posthog-js@1.402.3:
+    resolution: {integrity: sha512-MCn4O9wJc1BGBbb820MlmYifDb6EhFBFhfR1K9294gfgFRcxin+NSlypswVBdt1ZO4XD/P7EPmwApyVX/EYlUw==}
 
   posthog-node@5.25.0:
     resolution: {integrity: sha512-DFE5lZAoD6hk7RATuT8qVQ7KFgFP5YlFTJciMbU2qq6NX0A8eJxiJcmEsMnB3g30jJJ9suiwGIq4I8ESwf9bZg==}
@@ -23138,12 +23065,6 @@ packages:
   xxhashjs@0.2.2:
     resolution: {integrity: sha512-AkTuIuVTET12tpsVIQo+ZU6f/qDmKuRUcjaqR+OIvm+aCBsZ95i7UVY5WJ9TMsSaZ0DA2WxoZ4acu0sPH+OKAw==}
 
-  y-protocols@1.0.7:
-    resolution: {integrity: sha512-YSVsLoXxO67J6eE/nV4AtFtT3QEotZf5sK5BHxFBXso7VDUT3Tx07IfA6hsu5Q5OmBdMkQVmFZ9QOA7fikWvnw==}
-    engines: {node: '>=16.0.0', npm: '>=8.0.0'}
-    peerDependencies:
-      yjs: ^13.0.0
-
   y18n@4.0.3:
     resolution: {integrity: sha512-JKhqTOwSrqNA1NY5lSztJ1GrBiUodLMmIZuLiDaMRJ+itFd+ABVE8XBjOvIWL+rSqNDC74LCSFmlb/U4UZ4hJQ==}
 
@@ -23202,10 +23123,6 @@ packages:
 
   yauzl@2.10.0:
     resolution: {integrity: sha512-p4a9I6X6nu6IhoGmBqAcbJy1mlC4j27vEPZX9F4L4/vZT3Lyq1VkFHw/V/PUcB9Buo+DG3iHkT0x3Qya58zc3g==}
-
-  yjs@13.6.29:
-    resolution: {integrity: sha512-kHqDPdltoXH+X4w1lVmMtddE3Oeqq48nM40FD5ojTd8xYhQpzIDcfE2keMSU5bAgRPJBe225WTUdyUgj1DtbiQ==}
-    engines: {node: '>=16.0.0', npm: '>=8.0.0'}
 
   yn@3.1.1:
     resolution: {integrity: sha512-Ux4ygGWsu2c7isFWe8Yu1YluJmqVhxqK2cLXNQA5AcC3QfbGNpM7fu0Y8b/z16pXLnFxZYvWhd3fhBY9DLmC6Q==}
@@ -30016,7 +29933,7 @@ snapshots:
     dependencies:
       '@posthog/types': 1.392.1
 
-  '@posthog/core@1.41.1':
+  '@posthog/core@1.42.1':
     dependencies:
       '@posthog/types': 1.395.0
 
@@ -30058,9 +29975,9 @@ snapshots:
       '@posthog/core': 1.38.0
       posthog-node: 5.25.0
 
-  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.401.0)(react@18.3.1)':
+  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.402.3)(react@18.3.1)':
     dependencies:
-      posthog-js: 1.401.0
+      posthog-js: 1.402.3
       react: 18.3.1
     optionalDependencies:
       '@types/react': 18.3.27
@@ -32322,13 +32239,6 @@ snapshots:
     dependencies:
       '@tiptap/core': 3.20.6(@tiptap/pm@3.20.6)
 
-  '@tiptap/extension-collaboration@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@tiptap/y-tiptap@3.0.2(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1)(y-protocols@1.0.7(yjs@13.6.29))(yjs@13.6.29))(yjs@13.6.29)':
-    dependencies:
-      '@tiptap/core': 3.20.6(@tiptap/pm@3.20.6)
-      '@tiptap/pm': 3.20.6
-      '@tiptap/y-tiptap': 3.0.2(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1)(y-protocols@1.0.7(yjs@13.6.29))(yjs@13.6.29)
-      yjs: 13.6.29
-
   '@tiptap/extension-color@3.20.6(@tiptap/extension-text-style@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6)))':
     dependencies:
       '@tiptap/extension-text-style': 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))
@@ -32336,23 +32246,6 @@ snapshots:
   '@tiptap/extension-document@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))':
     dependencies:
       '@tiptap/core': 3.20.6(@tiptap/pm@3.20.6)
-
-  '@tiptap/extension-drag-handle-react@3.20.6(@tiptap/extension-drag-handle@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/extension-collaboration@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@tiptap/y-tiptap@3.0.2(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1)(y-protocols@1.0.7(yjs@13.6.29))(yjs@13.6.29))(yjs@13.6.29))(@tiptap/extension-node-range@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@tiptap/y-tiptap@3.0.2(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1)(y-protocols@1.0.7(yjs@13.6.29))(yjs@13.6.29)))(@tiptap/pm@3.20.6)(@tiptap/react@3.20.6(@floating-ui/dom@1.7.6)(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
-    dependencies:
-      '@tiptap/extension-drag-handle': 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/extension-collaboration@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@tiptap/y-tiptap@3.0.2(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1)(y-protocols@1.0.7(yjs@13.6.29))(yjs@13.6.29))(yjs@13.6.29))(@tiptap/extension-node-range@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@tiptap/y-tiptap@3.0.2(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1)(y-protocols@1.0.7(yjs@13.6.29))(yjs@13.6.29))
-      '@tiptap/pm': 3.20.6
-      '@tiptap/react': 3.20.6(@floating-ui/dom@1.7.6)(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      react: 18.3.1
-      react-dom: 18.3.1(react@18.3.1)
-
-  '@tiptap/extension-drag-handle@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/extension-collaboration@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@tiptap/y-tiptap@3.0.2(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1)(y-protocols@1.0.7(yjs@13.6.29))(yjs@13.6.29))(yjs@13.6.29))(@tiptap/extension-node-range@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@tiptap/y-tiptap@3.0.2(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1)(y-protocols@1.0.7(yjs@13.6.29))(yjs@13.6.29))':
-    dependencies:
-      '@floating-ui/dom': 1.7.6
-      '@tiptap/core': 3.20.6(@tiptap/pm@3.20.6)
-      '@tiptap/extension-collaboration': 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@tiptap/y-tiptap@3.0.2(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1)(y-protocols@1.0.7(yjs@13.6.29))(yjs@13.6.29))(yjs@13.6.29)
-      '@tiptap/extension-node-range': 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)
-      '@tiptap/pm': 3.20.6
-      '@tiptap/y-tiptap': 3.0.2(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1)(y-protocols@1.0.7(yjs@13.6.29))(yjs@13.6.29)
 
   '@tiptap/extension-dropcursor@3.20.6(@tiptap/extensions@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6))':
     dependencies:
@@ -32363,6 +32256,7 @@ snapshots:
       '@floating-ui/dom': 1.7.6
       '@tiptap/core': 3.20.6(@tiptap/pm@3.20.6)
       '@tiptap/pm': 3.20.6
+    optional: true
 
   '@tiptap/extension-gapcursor@3.20.6(@tiptap/extensions@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6))':
     dependencies:
@@ -32408,11 +32302,6 @@ snapshots:
       '@tiptap/core': 3.20.6(@tiptap/pm@3.20.6)
       '@tiptap/pm': 3.20.6
 
-  '@tiptap/extension-node-range@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)':
-    dependencies:
-      '@tiptap/core': 3.20.6(@tiptap/pm@3.20.6)
-      '@tiptap/pm': 3.20.6
-
   '@tiptap/extension-ordered-list@3.20.6(@tiptap/extension-list@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6))':
     dependencies:
       '@tiptap/extension-list': 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)
@@ -32428,12 +32317,6 @@ snapshots:
   '@tiptap/extension-strike@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))':
     dependencies:
       '@tiptap/core': 3.20.6(@tiptap/pm@3.20.6)
-
-  '@tiptap/extension-table-of-contents@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)':
-    dependencies:
-      '@tiptap/core': 3.20.6(@tiptap/pm@3.20.6)
-      '@tiptap/pm': 3.20.6
-      uuid: 10.0.0
 
   '@tiptap/extension-table@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)':
     dependencies:
@@ -32542,15 +32425,6 @@ snapshots:
     dependencies:
       '@tiptap/core': 3.20.6(@tiptap/pm@3.20.6)
       '@tiptap/pm': 3.20.6
-
-  '@tiptap/y-tiptap@3.0.2(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1)(y-protocols@1.0.7(yjs@13.6.29))(yjs@13.6.29)':
-    dependencies:
-      lib0: 0.2.117
-      prosemirror-model: 1.25.2
-      prosemirror-state: 1.4.3
-      prosemirror-view: 1.40.1
-      y-protocols: 1.0.7(yjs@13.6.29)
-      yjs: 13.6.29
 
   '@toon-format/toon@2.1.0': {}
 
@@ -38136,8 +38010,6 @@ snapshots:
     dependencies:
       ws: 5.2.5
 
-  isomorphic.js@0.2.5: {}
-
   istanbul-lib-coverage@3.2.0: {}
 
   istanbul-lib-hook@3.0.0:
@@ -39980,10 +39852,6 @@ snapshots:
     dependencies:
       prelude-ls: 1.2.1
       type-check: 0.4.0
-
-  lib0@0.2.117:
-    dependencies:
-      isomorphic.js: 0.2.5
 
   libsodium-wrappers@0.7.16:
     dependencies:
@@ -42487,9 +42355,9 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.401.0:
+  posthog-js@1.402.3:
     dependencies:
-      '@posthog/core': 1.41.1
+      '@posthog/core': 1.42.1
       '@posthog/types': 1.395.0
       core-js: 3.49.0
       dompurify: 3.4.0
@@ -46507,11 +46375,6 @@ snapshots:
     dependencies:
       cuint: 0.2.2
 
-  y-protocols@1.0.7(yjs@13.6.29):
-    dependencies:
-      lib0: 0.2.117
-      yjs: 13.6.29
-
   y18n@4.0.3: {}
 
   y18n@5.0.8: {}
@@ -46599,10 +46462,6 @@ snapshots:
     dependencies:
       buffer-crc32: 0.2.13
       fd-slicer: 1.1.0
-
-  yjs@13.6.29:
-    dependencies:
-      lib0: 0.2.117
 
   yn@3.1.1: {}
 
