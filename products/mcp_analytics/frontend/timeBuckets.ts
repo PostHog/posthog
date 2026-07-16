@@ -47,25 +47,36 @@ export function buildBucketKeys(
     interval: IntervalType
 ): string[] {
     const { start, end } = resolveWindow(dateFrom, dateTo, timezone)
+    const first = startOfBucket(start, interval)
     const last = startOfBucket(end, interval).valueOf()
     const keys: string[] = []
-    let cursor = startOfBucket(start, interval)
-    // Bounded windows keep this small; the cap is just a guard against a pathological range.
-    for (let i = 0; cursor.valueOf() <= last && i < 100000; i++) {
-        keys.push(cursor.format(BUCKET_FORMAT))
-        cursor = cursor.add(1, interval)
+    // Re-anchor each bucket from the window start instead of cumulatively adding to a timezone-aware
+    // cursor: Day.js keeps the original UTC offset across `add`, so a range crossing a DST boundary
+    // would otherwise drop a bucket (short by an hour) or repeat one. startOf() re-resolves the offset
+    // each step; the dedupe guards the fall-back hour that wall-clock-repeats. The cap bounds a
+    // pathological range.
+    for (let i = 0; i < 100000; i++) {
+        const bucket = startOfBucket(first.add(i, interval), interval)
+        if (bucket.valueOf() > last) {
+            break
+        }
+        const key = bucket.format(BUCKET_FORMAT)
+        if (key !== keys[keys.length - 1]) {
+            keys.push(key)
+        }
     }
     return keys
 }
 
 // Normalize a raw bucket string from a query (a date or datetime) to BUCKET_FORMAT so it joins the
-// generated keys regardless of how ClickHouse rendered it. The raw value is a project-timezone wall
-// clock (dateTrunc runs in the team timezone), so parse it AS that timezone — `dayjs(s).tz(tz)` would
-// read it in the browser tz and then convert, shifting day buckets off midnight so nothing matches
-// and the chart reads flat zero for anyone not sitting in the project timezone.
-export function normalizeBucket(raw: unknown, timezone: string): string {
+// generated keys regardless of how ClickHouse rendered it. The value already carries the project-tz
+// wall clock — either a naive datetime (toString(dateTrunc)) or a Z-stamped ISO (a raw DateTime
+// column) — so read it in UTC to keep those digits verbatim. dayjs.tz(s, tz) would treat a Z-stamped
+// value as an instant and convert it by the project offset, shifting buckets off the axis so nothing
+// matches (flat charts for non-UTC projects). buildBucketKeys formats keys as the same wall clock.
+export function normalizeBucket(raw: unknown): string {
     const s = String(raw ?? '')
-    return s ? dayjs.tz(s, timezone).format(BUCKET_FORMAT) : ''
+    return s ? dayjs.utc(s).format(BUCKET_FORMAT) : ''
 }
 
 // Human-readable axis/hover label for a bucket, showing the time only when the interval is sub-day.

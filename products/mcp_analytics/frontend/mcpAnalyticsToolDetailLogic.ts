@@ -82,11 +82,11 @@ export type ResultRows = unknown[][]
 // to draw a line — even when the tool has data on only a bucket or two. Counts fill with 0; latency
 // fills with NaN so the chart skips the point instead of dipping to 0. Rows match by normalized
 // bucket key, so day, hour, and minute intervals all line up. No rows at all keeps the empty state.
-export function buildDailyChartData(rows: DailyToolStat[], bucketKeys: string[], timezone: string): DailyChartData {
+export function buildDailyChartData(rows: DailyToolStat[], bucketKeys: string[]): DailyChartData {
     if (rows.length === 0) {
         return EMPTY_CHART_DATA
     }
-    const byBucket = new Map(rows.map((r) => [normalizeBucket(r.day, timezone), r]))
+    const byBucket = new Map(rows.map((r) => [normalizeBucket(r.day), r]))
     const at = bucketKeys.map((k) => byBucket.get(k))
     return {
         labels: bucketKeys,
@@ -324,7 +324,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                 timezone: string
             ): DailyChartData => {
                 const bucketKeys = buildBucketKeys(dateFilter.dateFrom, dateFilter.dateTo, timezone, interval)
-                return buildDailyChartData(dailyStats, bucketKeys, timezone)
+                return buildDailyChartData(dailyStats, bucketKeys)
             },
         ],
 

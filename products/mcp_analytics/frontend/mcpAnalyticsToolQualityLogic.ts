@@ -132,12 +132,8 @@ const DEFAULT_SORT: SortState = { column: 'total_calls', direction: 'DESC' }
 // Counts fill with 0 (genuinely no activity); rate and latency fill with NaN so the chart skips the
 // point instead of drawing a misleading dip to zero. Rows match by normalized bucket key, so day,
 // hour, and minute intervals all line up.
-export function buildDailyChartData(
-    dailyStats: DailyToolStat[],
-    bucketKeys: string[],
-    timezone: string
-): DailyChartData {
-    const byBucket = new Map(dailyStats.map((r) => [normalizeBucket(r.day, timezone), r]))
+export function buildDailyChartData(dailyStats: DailyToolStat[], bucketKeys: string[]): DailyChartData {
+    const byBucket = new Map(dailyStats.map((r) => [normalizeBucket(r.day), r]))
     const rows = bucketKeys.map((k) => byBucket.get(k))
     return {
         labels: bucketKeys,
@@ -394,7 +390,7 @@ ORDER BY day
                 timezone: string
             ): DailyChartData => {
                 const bucketKeys = buildBucketKeys(dateFilter.dateFrom, dateFilter.dateTo, timezone, interval)
-                return buildDailyChartData(dailyStats, bucketKeys, timezone)
+                return buildDailyChartData(dailyStats, bucketKeys)
             },
         ],
     }),

@@ -26,8 +26,7 @@ describe('mcpAnalyticsToolQualityLogic', () => {
                     dailyStat({ day: '2026-06-05', calls: 100, errors: 10, p50: 200, p95: 900, p99: 2100 }),
                     dailyStat({ day: '2026-06-07', calls: 50, errors: 0, p50: 150, p95: 800, p99: 1500 }),
                 ],
-                ['2026-06-05 00:00:00', '2026-06-06 00:00:00', '2026-06-07 00:00:00'],
-                'UTC'
+                ['2026-06-05 00:00:00', '2026-06-06 00:00:00', '2026-06-07 00:00:00']
             )
             expect(data.labels).toEqual(['2026-06-05 00:00:00', '2026-06-06 00:00:00', '2026-06-07 00:00:00'])
             expect(data.calls).toEqual([100, 0, 50])
@@ -39,7 +38,7 @@ describe('mcpAnalyticsToolQualityLogic', () => {
         })
 
         it('returns empty series for empty bucket keys', () => {
-            expect(buildDailyChartData([], [], 'UTC').labels).toEqual([])
+            expect(buildDailyChartData([], []).labels).toEqual([])
         })
 
         // Sub-day windows bucket by hour: rows keyed to an hour must line up with hourly keys, so the
@@ -47,8 +46,7 @@ describe('mcpAnalyticsToolQualityLogic', () => {
         it('lines up hourly rows with hourly bucket keys', () => {
             const data = buildDailyChartData(
                 [dailyStat({ day: '2026-06-07 10:00:00', calls: 12, errors: 3, p50: 80, p95: 200, p99: 400 })],
-                ['2026-06-07 09:00:00', '2026-06-07 10:00:00', '2026-06-07 11:00:00'],
-                'UTC'
+                ['2026-06-07 09:00:00', '2026-06-07 10:00:00', '2026-06-07 11:00:00']
             )
             expect(data.calls).toEqual([0, 12, 0])
             expect(data.errors).toEqual([0, 3, 0])

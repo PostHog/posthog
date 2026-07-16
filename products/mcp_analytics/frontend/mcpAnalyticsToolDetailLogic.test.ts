@@ -14,7 +14,7 @@ function stat(overrides: Partial<DailyToolStat> & { day: string }): DailyToolSta
 
 describe('buildDailyChartData', () => {
     it('returns empty series for no rows, so the empty state shows', () => {
-        expect(buildDailyChartData([], ['2026-06-01 00:00:00'], 'UTC')).toEqual({
+        expect(buildDailyChartData([], ['2026-06-01 00:00:00'])).toEqual({
             labels: [],
             calls: [],
             errors: [],
@@ -30,7 +30,7 @@ describe('buildDailyChartData', () => {
     it('projects rows onto day bucket keys, padding empty days', () => {
         const rows = [stat({ day: '2026-06-03', calls: 5, errors: 0, p50: 50, p95: 150, users: 1, sessions: 1 })]
         const keys = ['2026-06-01 00:00:00', '2026-06-02 00:00:00', '2026-06-03 00:00:00', '2026-06-04 00:00:00']
-        expect(buildDailyChartData(rows, keys, 'UTC')).toEqual({
+        expect(buildDailyChartData(rows, keys)).toEqual({
             labels: keys,
             calls: [0, 0, 5, 0],
             errors: [0, 0, 0, 0],
@@ -48,7 +48,7 @@ describe('buildDailyChartData', () => {
             stat({ day: '2026-06-03 10:00:00', calls: 12, errors: 2, p50: 80, p95: 200, users: 4, sessions: 5 }),
         ]
         const keys = ['2026-06-03 09:00:00', '2026-06-03 10:00:00', '2026-06-03 11:00:00']
-        const data = buildDailyChartData(rows, keys, 'UTC')
+        const data = buildDailyChartData(rows, keys)
         expect(data.calls).toEqual([0, 12, 0])
         expect(data.p95).toEqual([NaN, 200, NaN])
         expect(data.sessions).toEqual([0, 5, 0])
