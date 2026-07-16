@@ -204,7 +204,11 @@ fn failure_to_outcome(
         }
         ItemFailure::Transient(msg) => {
             warn!(id, error = %msg, "transient infra error during resolution, asking caller to retry item");
-            (retry_result(TRANSIENT_RETRY_CODE, msg), "retry", "transient")
+            (
+                retry_result(TRANSIENT_RETRY_CODE, msg),
+                "retry",
+                "transient",
+            )
         }
         ItemFailure::Unhandled(err) => {
             warn!(id, error = %err, "unhandled error during resolution");
