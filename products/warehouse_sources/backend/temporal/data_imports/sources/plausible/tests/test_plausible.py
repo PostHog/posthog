@@ -228,7 +228,9 @@ class TestGetRows:
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_http_error_reraises_with_response_body_attached(self, mock_session, mock_sleep):
         error_response = _response({"error": "metric bounce_rate not available"}, status_code=400)
-        error_response.raise_for_status.side_effect = requests.HTTPError("400 Client Error: Bad Request for url")
+        error_response.raise_for_status.side_effect = requests.HTTPError(
+            "400 Client Error: Bad Request for url", response=error_response
+        )
         mock_session.return_value.post.return_value = error_response
 
         # The status prefix stays so it can be classified non-retryable, and the body is attached so
