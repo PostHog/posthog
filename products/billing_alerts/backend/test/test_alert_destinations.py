@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -114,6 +115,24 @@ class TestBillingAlertDestinations(APIBaseTest):
         assert HogFunction.objects.filter(deleted=False, id__in=first.json()["hog_function_ids"]).count() == len(
             BILLING_ALERT_EVENT_IDS
         )
+
+    def test_create_destination_locks_alert_before_duplicate_check(self) -> None:
+        self._sync_webhook_template()
+        alert = self._alert()
+
+        with patch.object(
+            BillingAlertConfiguration.objects,
+            "select_for_update",
+            wraps=BillingAlertConfiguration.objects.select_for_update,
+        ) as select_for_update:
+            response = self.client.post(
+                f"{self.url}{alert.id}/destinations/",
+                {"type": "webhook", "webhook_url": "https://example.com/billing-alert"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        select_for_update.assert_called_once_with()
 
     def test_delete_destination_removes_complete_group(self) -> None:
         alert = self._alert()

@@ -188,22 +188,24 @@ def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: 
     destination_data = cast(AlertDestinationData, data)
     validate_destination_data(destination_data, allowed_destination_types=BILLING_DESTINATION_TYPES)
     destination_data["type"] = DestinationType(data["type"])
-    existing_types = destination_types_for_alerts([alert]).get(str(alert.id), [])
-    if destination_data["type"].value in existing_types:
-        raise DRFValidationError({"type": f"A {destination_data['type'].label} destination already exists."})
-    configs = [
-        build_alert_destination_config(
-            team=alert.team,
-            spec=EVENT_KIND_CONFIG[kind],
-            alert_id=str(alert.id),
-            alert_name=alert.name,
-            data=destination_data,
-            slack_context_elements=BILLING_ALERT_SLACK_CONTEXT_ELEMENTS,
-        )
-        for kind in EVENT_KINDS
-    ]
-    hog_functions = create_alert_destination_hog_functions(configs, request=request)
-    return [hog_function.id for hog_function in hog_functions]
+    with transaction.atomic():
+        locked_alert = BillingAlertConfiguration.objects.select_for_update().get(pk=alert.pk)
+        existing_types = destination_types_for_alerts([locked_alert]).get(str(locked_alert.id), [])
+        if destination_data["type"].value in existing_types:
+            raise DRFValidationError({"type": f"A {destination_data['type'].label} destination already exists."})
+        configs = [
+            build_alert_destination_config(
+                team=locked_alert.team,
+                spec=EVENT_KIND_CONFIG[kind],
+                alert_id=str(locked_alert.id),
+                alert_name=locked_alert.name,
+                data=destination_data,
+                slack_context_elements=BILLING_ALERT_SLACK_CONTEXT_ELEMENTS,
+            )
+            for kind in EVENT_KINDS
+        ]
+        hog_functions = create_alert_destination_hog_functions(configs, request=request)
+        return [hog_function.id for hog_function in hog_functions]
 
 
 def delete_destination(alert: BillingAlertConfiguration, hog_function_ids: list[UUID]) -> None:
