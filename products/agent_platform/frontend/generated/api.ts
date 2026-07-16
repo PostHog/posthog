@@ -63,7 +63,7 @@ import type {
     ImportBundleRequestApi,
     NewDraftRevisionRequestApi,
     PaginatedAgentApplicationListApi,
-    PaginatedAgentRevisionListApi,
+    PaginatedAgentRevisionSummaryListApi,
     PatchedAgentApplicationApi,
     PatchedAgentMemoryUpdateRequestApi,
     PatchedAgentRevisionApi,
@@ -489,8 +489,8 @@ export const agentApplicationsRevisionsList = async (
     applicationId: string,
     params?: AgentApplicationsRevisionsListParams,
     options?: RequestInit
-): Promise<PaginatedAgentRevisionListApi> => {
-    return apiMutator<PaginatedAgentRevisionListApi>(
+): Promise<PaginatedAgentRevisionSummaryListApi> => {
+    return apiMutator<PaginatedAgentRevisionSummaryListApi>(
         getAgentApplicationsRevisionsListUrl(projectId, applicationId, params),
         {
             ...options,
