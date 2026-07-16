@@ -487,9 +487,10 @@ CREATE TABLE posthog.trace_spans (
   toStartOfMinute(timestamp),
   service_name,
   resource_fingerprint,
+  is_root_span,
   count() AS event_count
 GROUP BY
-  team_id, time_bucket, toStartOfMinute(timestamp), service_name, resource_fingerprint),
+  team_id, time_bucket, toStartOfMinute(timestamp), service_name, resource_fingerprint, is_root_span),
   PROJECTION projection_index_span_id (SELECT _part_offset
 ORDER BY span_id),
   PROJECTION projection_index_trace_id (SELECT _part_offset

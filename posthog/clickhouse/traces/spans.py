@@ -71,10 +71,10 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     INDEX idx_trace_bloom_part trace_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
     INDEX idx_span_id_bloom_part span_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
 
-    -- Powers the Spans-view sparkline (count of spans per minute). The Traces-view sparkline instead
-    -- counts distinct traces per minute (uniqExactIf(trace_id, is_root_span = 1)) and currently
-    -- raw-scans, since this count() projection can't serve a distinct-trace aggregate; a sibling
-    -- uniqExactState(trace_id) projection would let it use a projection too. Tracked as a follow-up.
+    -- Powers the Spans-view sparkline (spans per minute via sum(event_count)). is_root_span is a
+    -- projection dimension so the Traces-view sparkline (distinct traces per minute) can serve from
+    -- this projection too via sumIf(event_count, is_root_span = 1) — one root span per trace —
+    -- instead of the uniqExactIf(trace_id, is_root_span = 1) raw scan it currently runs.
     PROJECTION projection_aggregate_counts
     (
         SELECT
@@ -83,13 +83,15 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
             toStartOfMinute(timestamp),
             service_name,
             resource_fingerprint,
+            is_root_span,
             count() AS event_count
         GROUP BY
             team_id,
             time_bucket,
             toStartOfMinute(timestamp),
             service_name,
-            resource_fingerprint
+            resource_fingerprint,
+            is_root_span
     ),
 
     PROJECTION projection_index_span_id
