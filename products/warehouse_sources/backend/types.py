@@ -895,6 +895,9 @@ class ExternalDataSourceType(models.TextChoices):
     AUTUMN = "Autumn", "Autumn"
     GETSTREAM = "GetStream", "GetStream"
     OCTOLENS = "Octolens", "Octolens"
+    KAJABI = "Kajabi", "Kajabi"
+    SHOPWARE = "Shopware", "Shopware"
+    DUBSADO = "Dubsado", "Dubsado"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
