@@ -369,6 +369,7 @@ the row lists both.
 | pretix                           | HTTP                        | requests                                                        | ✅                          |
 | printify                         | HTTP                        | requests                                                        | ✅                          |
 | productboard                     | HTTP                        | requests                                                        | ✅                          |
+| pulumi_cloud                     | HTTP                        | requests                                                        | ✅                          |
 | pylon                            | HTTP                        | requests                                                        | ✅                          |
 | pypi                             | HTTP                        | requests                                                        | ✅                          |
 | qualaroo                         | HTTP                        | requests                                                        | ✅                          |
@@ -824,7 +825,6 @@ doesn't conflict with concurrent PRs.
 - primetric
 - productive
 - prompting_company
-- pulumi_cloud
 - qdrant
 - qonto
 - qualtrics
