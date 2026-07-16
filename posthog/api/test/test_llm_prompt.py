@@ -1044,20 +1044,14 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_set_label_enforces_limit_but_still_allows_moves(self):
+    def test_set_label_limit_blocks_creates_but_not_moves(self):
         self.create_prompt_version(version=1, is_latest=False)
         self.create_prompt_version(version=2)
 
-        with patch("posthog.api.services.llm_prompt.MAX_PROMPT_LABELS", 2):
+        with patch("posthog.api.services.llm_prompt.MAX_PROMPT_LABELS", 1):
             assert self._set_label("my-prompt", "production", 1).status_code == status.HTTP_201_CREATED
-            assert self._set_label("my-prompt", "staging", 1).status_code == status.HTTP_201_CREATED
-
-            response = self._set_label("my-prompt", "canary", 1)
-            assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert "maximum" in response.json()["detail"]
-
-            move_response = self._set_label("my-prompt", "production", 2)
-            assert move_response.status_code == status.HTTP_200_OK
+            assert self._set_label("my-prompt", "staging", 1).status_code == status.HTTP_400_BAD_REQUEST
+            assert self._set_label("my-prompt", "production", 2).status_code == status.HTTP_200_OK
 
     def test_delete_label_removes_pointer(self):
         self.create_prompt_version(version=1)
