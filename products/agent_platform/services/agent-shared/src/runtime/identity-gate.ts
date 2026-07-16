@@ -12,6 +12,7 @@ import type { HttpFetcher } from './http-client'
 import type { IdentityCredentialStore } from './identity-credential-store'
 import type { IdentityLinkStateStore } from './identity-link-state-store'
 import { type IdentityProvider, type IdentityProviderRegistry, MapIdentityProviderRegistry } from './identity-provider'
+import { buildLinkCallbackUrl, type IngressRoutingMode } from './link-callback-url'
 import { Oauth2AuthProvider } from './oauth2-identity-provider'
 import { PostHogAuthProvider, SeedOnlyPostHogProvider } from './posthog-identity-provider'
 
@@ -302,7 +303,13 @@ export interface BuildAskerIdentityDeps {
     /** PostHog instance base URL — builds the managed posthog provider + the
      *  implicit seed-only fallback. */
     posthogApiBaseUrl: string
-    /** OAuth callback base; `/link/<provider>/callback` is appended. */
+    /** The agent's slug — the callback host in domain mode is `<slug><domainSuffix>`. */
+    slug: string
+    /** Ingress routing mode; mirrors the ingress's own `ROUTING_MODE`. Defaults to `path`. */
+    routingMode?: IngressRoutingMode
+    /** Domain suffix for domain mode (e.g. `.agents.us.posthog.com`). */
+    domainSuffix?: string
+    /** Flat ingress base URL, used to build the callback in `path` mode (dev). */
     linkRedirectBaseUrl?: string
     log?: IdentityLog
 }
@@ -347,13 +354,24 @@ export async function buildAskerIdentity(
         applicationId: rev.application_id,
         teamId: session.team_id,
     })
-    const base = deps.linkRedirectBaseUrl ?? 'https://agents.posthog.com'
     return createToolIdentity({
         registry,
         agentUserId,
         teamId: session.team_id,
         applicationId: rev.application_id,
-        redirectUriFor: (p) => `${base}/link/${p}/callback`,
+        redirectUriFor: (p) => {
+            const url = buildLinkCallbackUrl({
+                routingMode: deps.routingMode ?? 'path',
+                domainSuffix: deps.domainSuffix,
+                publicBaseUrl: deps.linkRedirectBaseUrl,
+                slug: deps.slug,
+                provider: p,
+            })
+            if (!url) {
+                throw new Error('link_callback_url_unconfigured')
+            }
+            return url
+        },
         unavailableReason: sharedSession ? 'shared_session_unsupported' : undefined,
         seed: deps.credentialBroker ? { resolve: (t) => deps.credentialBroker!.resolve(session.id, t) } : undefined,
         log: deps.log,

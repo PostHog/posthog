@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
 
 import structlog
@@ -29,13 +30,29 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# Fallback when AGENT_INGRESS_PUBLIC_URL is unset — matches the runner's
-# linkRedirectBaseUrl default so the registered redirect URI lines up.
-_DEFAULT_INGRESS_BASE = "https://agents.posthog.com"
+def build_link_callback_url(slug: str, provider_id: str) -> str | None:
+    """OAuth link callback URL for an agent + provider, matching what the deployed
+    ingress serves in each routing mode.
 
+    MIRROR of ``buildLinkCallbackUrl`` in
+    services/agent-shared/src/runtime/link-callback-url.ts — the two MUST produce
+    byte-identical strings: this is registered as the OAuthApplication
+    ``redirect_uri`` here, the runner sends the same value at authorize time, and
+    the IdP rejects the exchange on any mismatch.
 
-def _ingress_base() -> str:
-    return (settings.AGENT_INGRESS_PUBLIC_URL or _DEFAULT_INGRESS_BASE).rstrip("/")
+      domain -> ``https://<slug><suffix>/link/<provider>/callback``  (slug in host)
+      path   -> ``<public_url>/link/<provider>/callback``            (dev: single host)
+
+    Returns None when the active mode's required setting is unset (domain mode
+    without a suffix, path mode without a public URL) or ``slug`` is empty.
+    """
+    if not slug:
+        return None
+    if settings.AGENT_INGRESS_ROUTING_MODE == "domain":
+        suffix = (settings.AGENT_INGRESS_DOMAIN_SUFFIX or "").strip()
+        return f"https://{slug}{suffix}/link/{provider_id}/callback" if suffix else None
+    base = (settings.AGENT_INGRESS_PUBLIC_URL or "").rstrip("/")
+    return f"{base}/link/{provider_id}/callback" if base else None
 
 
 def _ensure_oauth_app(
@@ -91,12 +108,18 @@ def provision_posthog_identity_apps(
         return False
 
     organization = Team.objects.get(pk=application.team_id).organization
-    base = _ingress_base()
 
     mutated = False
     for entry in posthog_entries:
         provider_id = entry.get("id") or "posthog"
-        redirect_uri = f"{base}/link/{provider_id}/callback"
+        redirect_uri = build_link_callback_url(application.slug, provider_id)
+        if not redirect_uri:
+            # A posthog-identity agent can't link without a reachable callback host.
+            # Fail the promote loudly rather than register a wrong/empty redirect URI.
+            raise ImproperlyConfigured(
+                "Cannot provision the PostHog identity app: no agent-ingress callback URL is configured "
+                "(set AGENT_INGRESS_DOMAIN_SUFFIX in domain mode, or AGENT_INGRESS_PUBLIC_URL in path mode)."
+            )
         scopes = list(entry.get("scopes") or [])
         # Stable, readable, org-unique per (agent, provider).
         name = f"Agent identity · {application.slug} · {provider_id}"

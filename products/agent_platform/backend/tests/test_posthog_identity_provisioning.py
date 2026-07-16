@@ -94,3 +94,17 @@ class TestPostHogIdentityProvisioning(APIBaseTest):
         revision = self._ready_revision({"model": "anthropic/claude-sonnet-4-6"})
         self._promote(revision)
         self.assertEqual(len(self._identity_apps()), 0)
+
+    @override_settings(
+        AGENT_INGRESS_ROUTING_MODE="domain",
+        AGENT_INGRESS_DOMAIN_SUFFIX=".agents.us.posthog.com",
+    )
+    def test_domain_mode_registers_per_agent_callback_host(self) -> None:
+        revision = self._ready_revision(POSTHOG_SPEC)
+        self._promote(revision)
+
+        app = self._identity_apps()[0]
+        # In domain mode the callback lands on the agent's own env-specific host,
+        # not a flat/shared one — this is the redirect that must match what the
+        # runner sends at authorize time (build_link_callback_url mirror).
+        self.assertEqual(app.redirect_uris, "https://dog-bot.agents.us.posthog.com/link/posthog/callback")
