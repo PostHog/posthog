@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+
 def build_link_callback_url(slug: str, provider_id: str) -> str | None:
     """OAuth link callback URL for an agent + provider, matching what the deployed
     ingress serves in each routing mode.

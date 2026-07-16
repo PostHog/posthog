@@ -11,12 +11,14 @@ from __future__ import annotations
 
 from posthog.test.base import APIBaseTest
 
+from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 
 from rest_framework import status
 
 from posthog.models.oauth import OAuthApplication
 
+from ..logic.posthog_identity_app import provision_posthog_identity_apps
 from ..models import AgentApplication, AgentRevision
 
 POSTHOG_SPEC = {
@@ -108,3 +110,9 @@ class TestPostHogIdentityProvisioning(APIBaseTest):
         # not a flat/shared one — this is the redirect that must match what the
         # runner sends at authorize time (build_link_callback_url mirror).
         self.assertEqual(app.redirect_uris, "https://dog-bot.agents.us.posthog.com/link/posthog/callback")
+
+    @override_settings(AGENT_INGRESS_ROUTING_MODE="domain", AGENT_INGRESS_DOMAIN_SUFFIX="")
+    def test_missing_callback_host_fails_loudly(self) -> None:
+        revision = self._ready_revision(POSTHOG_SPEC)
+        with self.assertRaises(ImproperlyConfigured):
+            provision_posthog_identity_apps(application=self.application, revision=revision, acting_user=self.user)
