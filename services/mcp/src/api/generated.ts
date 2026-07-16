@@ -54146,6 +54146,13 @@ export namespace Schemas {
       blind_spot_issue_count: number | null;
     }
 
+    export interface ReviewRecentReviewsPage {
+      /** The scoped reviews: in-progress runs first, then completed newest first. */
+      results: ReviewRecentReview[];
+      /** Whether reviews exist beyond this page — drives the list's "Show more" button. */
+      has_more: boolean;
+    }
+
     export interface ReviewStateCounts {
       needs_review: number;
       clean: number;
@@ -75594,6 +75601,12 @@ export namespace Schemas {
     };
 
     export type ReviewHogReviewsListParams = {
+    /**
+     * Maximum rows to return. The list grows this instead of paging by offset — in-progress rows reorder the list between refreshes, so offset pages would shift under the reader.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
     /**
      * Whose reviews to list: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.
      *
