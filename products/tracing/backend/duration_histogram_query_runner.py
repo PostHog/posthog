@@ -21,6 +21,31 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 
+def duration_bucket_expr() -> ast.Expr:
+    """Bucket `duration_nano` onto the 1-2-5 series (1ms, 2ms, 5ms, 10ms, ...).
+
+    Takes the duration's decade (power of ten) and snaps the mantissa down to 1, 2 or 5.
+    `greatest(..., 1)` parks zero-duration spans in the 1ns bucket instead of feeding log10(0).
+    The mantissa expression repeats the decade rather than referencing its alias so HogQL
+    resolution never depends on sibling aliases; ClickHouse collapses the common subexpression.
+    `round()` before the cast absorbs float wobble in pow/log10 (e.g. 4.9999...e8 → 5e8).
+
+    Shared by the duration histogram and the latency heatmap, and mirrored in
+    `frontend/durationBuckets.ts` (snapDurationToBucket) — change the series in BOTH places.
+    """
+    return parse_expr(
+        """
+        toInt(round(
+            pow(10, floor(log10(greatest(duration_nano, 1)))) * multiIf(
+                duration_nano / pow(10, floor(log10(greatest(duration_nano, 1)))) < 2, 1,
+                duration_nano / pow(10, floor(log10(greatest(duration_nano, 1)))) < 5, 2,
+                5
+            )
+        ))
+        """
+    )
+
+
 class TraceSpansDurationHistogramQueryRunner(TraceSpansQueryRunner):
     """Trace counts per logarithmic duration bucket, stacked by service.
 
@@ -32,9 +57,9 @@ class TraceSpansDurationHistogramQueryRunner(TraceSpansQueryRunner):
     Root scoping is the default — a distribution of *traces* for the trace list, where counting
     child spans would mix units. When `query.rootSpans` is explicitly False (the operation detail
     page, which scopes by span name), every matching span is counted instead: same-named spans
-    are the same unit, so a span-level distribution is sound there. The 1-2-5 bucketing below is
-    mirrored in `frontend/durationBuckets.ts` (snapDurationToBucket), which re-snaps client-side
-    only to place the scroll highlight — change the series in BOTH places.
+    are the same unit, so a span-level distribution is sound there. The 1-2-5 bucketing
+    (`duration_bucket_expr`) is mirrored in `frontend/durationBuckets.ts` (snapDurationToBucket),
+    which re-snaps client-side only to place the scroll highlight — change the series in BOTH places.
     """
 
     def _calculate(self) -> TraceSpansQueryResponse:
@@ -62,22 +87,10 @@ class TraceSpansDurationHistogramQueryRunner(TraceSpansQueryRunner):
         return TraceSpansQueryResponse(results=results)
 
     def to_query(self) -> ast.SelectQuery:
-        # Bucket a duration onto the 1-2-5 series: take its decade (power of ten) and snap the
-        # mantissa down to 1, 2 or 5. `greatest(..., 1)` parks zero-duration spans in the 1ns
-        # bucket instead of feeding log10(0). The mantissa expression repeats the decade rather
-        # than referencing its alias so HogQL resolution never depends on sibling aliases;
-        # ClickHouse collapses the common subexpression. `round()` before the cast absorbs float
-        # wobble in pow/log10 (e.g. 4.9999...e8 → 5e8).
         query = parse_select(
             """
             SELECT
-                toInt(round(
-                    pow(10, floor(log10(greatest(duration_nano, 1)))) * multiIf(
-                        duration_nano / pow(10, floor(log10(greatest(duration_nano, 1)))) < 2, 1,
-                        duration_nano / pow(10, floor(log10(greatest(duration_nano, 1)))) < 5, 2,
-                        5
-                    )
-                )) AS bucket_ns,
+                {bucket_expr} AS bucket_ns,
                 service_name AS service,
                 count() AS count
             FROM posthog.trace_spans
@@ -91,6 +104,7 @@ class TraceSpansDurationHistogramQueryRunner(TraceSpansQueryRunner):
             """,
             placeholders={
                 **self.query_date_range.to_placeholders(),
+                "bucket_expr": duration_bucket_expr(),
                 "where": self.where(),
                 "root_scope": parse_expr("is_root_span = 1")
                 if self.query.rootSpans is not False
