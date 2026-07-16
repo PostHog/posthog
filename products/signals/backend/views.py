@@ -2257,7 +2257,7 @@ class SignalReportViewSet(
     @action(
         detail=True,
         methods=["patch", "delete"],
-        url_path=r"pr_review_comments/(?P<comment_id>[^/.]+)",
+        url_path=r"pr_review_comments/(?P<comment_id>[0-9]+)",
         required_scopes=["task:write"],
     )
     def pr_review_comment(self, request: Request, *args, **kwargs) -> Response:
@@ -2304,7 +2304,7 @@ class SignalReportViewSet(
     @action(
         detail=True,
         methods=["post"],
-        url_path=r"pr_review_comments/(?P<comment_id>[^/.]+)/reactions",
+        url_path=r"pr_review_comments/(?P<comment_id>[0-9]+)/reactions",
         required_scopes=["task:write"],
     )
     def pr_review_comment_reactions(self, request: Request, *args, **kwargs) -> Response:
@@ -2354,7 +2354,7 @@ class SignalReportViewSet(
     @action(
         detail=True,
         methods=["delete"],
-        url_path=r"pr_review_comments/(?P<comment_id>[^/.]+)/reactions/(?P<reaction_id>[^/.]+)",
+        url_path=r"pr_review_comments/(?P<comment_id>[0-9]+)/reactions/(?P<reaction_id>[0-9]+)",
         required_scopes=["task:write"],
     )
     def pr_review_comment_reaction(self, request: Request, *args, **kwargs) -> Response:

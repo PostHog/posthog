@@ -967,10 +967,13 @@ class PullRequestReviewCommentCreateSerializer(serializers.Serializer):
     thread on a diff line (`body` + `path` + `line`, optionally `side`)."""
 
     body = serializers.CharField(help_text="Comment body (GitHub-flavored markdown).", max_length=65536)
-    in_reply_to = serializers.CharField(
+    # Numeric-only: this id is interpolated into the GitHub reply URL, so an unconstrained string could
+    # smuggle path segments (e.g. `../../issues/1/comments`) and retarget the request.
+    in_reply_to = serializers.RegexField(
+        r"^[0-9]+$",
         required=False,
         allow_null=True,
-        help_text="Id of the thread root comment to reply to. When set, path/line/side are ignored.",
+        help_text="Numeric id of the thread root comment to reply to. When set, path/line/side are ignored.",
     )
     path = serializers.CharField(
         required=False,
