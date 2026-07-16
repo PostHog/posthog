@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, isBreakpoint, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -17,37 +17,48 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
     loaders(({ values }) => ({
         primaryProperties: {
             __default: {} as Record<string, string>,
-            loadPrimaryProperties: async ({ names }: { names: string[] }) => {
+            loadPrimaryProperties: async ({ names }: { names: string[] }, breakpoint) => {
                 if (names.length === 0) {
                     return values.primaryProperties
                 }
                 const response = await api.eventDefinitions.primaryProperties({ names })
+                // Bail out if the logic unmounted mid-request, otherwise the post-await
+                // selector read below can no longer resolve and throws "[KEA] Can not find path".
+                breakpoint()
                 const next = { ...values.primaryProperties }
                 for (const name of names) {
                     delete next[name]
                 }
                 return { ...next, ...response.primary_properties }
             },
-            updatePrimaryProperty: async ({
-                eventName,
-                propertyKey,
-            }: {
-                eventName: string
-                propertyKey: string | null
-            }) => {
+            updatePrimaryProperty: async (
+                {
+                    eventName,
+                    propertyKey,
+                }: {
+                    eventName: string
+                    propertyKey: string | null
+                },
+                breakpoint
+            ) => {
+                // Snapshot before any await so the error paths don't re-read a selector
+                // that may no longer be resolvable if the logic has since unmounted.
+                const currentProperties = values.primaryProperties
                 let definitionId: string
                 try {
                     definitionId = (await api.eventDefinitions.byName({ name: eventName })).id
                 } catch (error) {
                     posthog.captureException(error, { action: 'update-primary-property', stage: 'lookup' })
                     lemonToast.error(`We couldn't find a definition for "${eventName}" yet. Please try again shortly.`)
-                    return values.primaryProperties
+                    return currentProperties
                 }
+                breakpoint()
                 try {
                     const updated = await api.eventDefinitions.update({
                         eventDefinitionId: definitionId,
                         eventDefinitionData: { primary_property: propertyKey },
                     })
+                    breakpoint()
                     const next = { ...values.primaryProperties }
                     if (updated.primary_property) {
                         next[eventName] = updated.primary_property
@@ -55,10 +66,14 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
                         delete next[eventName]
                     }
                     return next
-                } catch (error) {
+                } catch (error: any) {
+                    // Let kea swallow the unmount cancellation instead of reporting it as a failure.
+                    if (isBreakpoint(error)) {
+                        throw error
+                    }
                     posthog.captureException(error, { action: 'update-primary-property', stage: 'update' })
                     lemonToast.error('Could not update the pinned property. Please try again.')
-                    return values.primaryProperties
+                    return currentProperties
                 }
             },
         },
