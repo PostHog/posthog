@@ -1006,6 +1006,24 @@ class TestStripServerSideToolUsesFromMessages:
         self._call(data)
         assert data["messages"] == [{"role": "user", "content": "just text"}]
 
+    def test_dropping_tool_only_turn_keeps_roles_alternating(self) -> None:
+        # A tool-only assistant turn between two user turns: dropping it must not leave two user
+        # messages back to back (Bedrock 400s on non-alternating roles) — they coalesce into one.
+        data: dict[str, Any] = {
+            "messages": [
+                {"role": "user", "content": "search for X"},
+                {"role": "assistant", "content": [{"type": "server_tool_use", "name": "web_search", "input": {}}]},
+                {"role": "user", "content": [{"type": "text", "text": "and also Y"}]},
+            ]
+        }
+        self._call(data)
+        roles = [message["role"] for message in data["messages"]]
+        assert roles == ["user"]
+        assert data["messages"][0]["content"] == [
+            {"type": "text", "text": "search for X"},
+            {"type": "text", "text": "and also Y"},
+        ]
+
 
 class TestReconcileToolChoice:
     """Unit tests for reconcile_tool_choice — drops a tool_choice Bedrock can't satisfy."""

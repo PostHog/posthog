@@ -254,7 +254,8 @@ def strip_server_side_tool_uses_from_messages(data: dict[str, Any], *, model: st
     (or its matching *_tool_result block, e.g. web_search_tool_result) still references a tool no
     longer in the request, and Bedrock 400s with "Tool '<name>' not found in provided tools". Client
     tool_use / tool_result blocks (type == "tool_result") are kept — only server-side ones are dropped.
-    A message whose content becomes empty as a result is dropped entirely.
+    A message whose content becomes empty as a result is dropped, then any turns left adjacent by the
+    drop are coalesced so the sequence keeps alternating roles (Bedrock 400s on non-alternating roles).
     """
     messages = data.get("messages")
     if not isinstance(messages, list):
@@ -276,12 +277,41 @@ def strip_server_side_tool_uses_from_messages(data: dict[str, Any], *, model: st
         stripped = True
         if kept_blocks:
             new_messages.append({**message, "content": kept_blocks})
-        # else: content emptied by the strip — drop the message rather than send empty content.
+        # else: content emptied by the strip — drop the message; _coalesce_adjacent_roles below merges
+        # any same-role turns the drop left back-to-back so we don't emit an invalid message sequence.
 
     if stripped:
-        data["messages"] = new_messages
+        data["messages"] = _coalesce_adjacent_roles(new_messages)
         logger.warning("Stripping server-side tool blocks from messages for Bedrock", model=model, product=product)
         BEDROCK_PARAM_STRIPPED.labels(param="messages.server_tool_blocks", product=product).inc()
+
+
+def _coalesce_adjacent_roles(messages: list[Any]) -> list[Any]:
+    """Merge consecutive same-role messages into one, concatenating their content.
+
+    Dropping an emptied tool-only turn can leave two same-role messages back to back, which Bedrock
+    rejects. A valid input already alternates roles, so this only merges turns made adjacent by a drop.
+    """
+    merged: list[Any] = []
+    for message in messages:
+        prev = merged[-1] if merged else None
+        if isinstance(message, dict) and isinstance(prev, dict) and message.get("role") == prev.get("role"):
+            merged[-1] = {
+                **prev,
+                "content": _content_as_blocks(prev.get("content")) + _content_as_blocks(message.get("content")),
+            }
+        else:
+            merged.append(message)
+    return merged
+
+
+def _content_as_blocks(content: Any) -> list[Any]:
+    """Normalize message content to a block list so two turns can be concatenated."""
+    if isinstance(content, list):
+        return content
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    return [content]
 
 
 def _is_server_side_tool_block(block: Any) -> bool:
