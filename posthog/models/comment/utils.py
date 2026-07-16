@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING, Any, Optional
+from urllib.parse import quote
 
 from django.conf import settings
 
@@ -58,7 +59,10 @@ def build_comment_item_url(scope: str, item_id: Optional[str], slug: Optional[st
     if slug:
         url = f"{settings.SITE_URL}{slug}"
     elif scope in SCOPE_TO_PATH_MAPPING and item_id:
-        path = SCOPE_TO_PATH_MAPPING[scope].format(item_id=item_id)
+        # item_id is a free-form client-supplied CharField — percent-encode it so characters
+        # with meaning downstream (Slack mrkdwn `|`/`>` in links, URL delimiters) can't break
+        # or redirect the rendered link.
+        path = SCOPE_TO_PATH_MAPPING[scope].format(item_id=quote(str(item_id), safe=""))
         url = f"{settings.SITE_URL}{path}"
     else:
         url = settings.SITE_URL

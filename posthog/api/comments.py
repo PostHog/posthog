@@ -6,11 +6,13 @@ from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
+import structlog
 import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import exceptions, pagination, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
+from slack_sdk.errors import SlackApiError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -33,8 +35,23 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.tasks.comment_slack_sync import backfill_comment_slack_thread
 from posthog.tasks.email import send_discussions_mentioned
 
+logger = structlog.get_logger(__name__)
+
 # A reservation with no posted root older than this is a crashed send — safe to retry.
 STALE_SLACK_RESERVATION_GRACE = timedelta(minutes=2)
+
+# item_context keys the Slack mirror sync stamps server-side. Stripped from client input so a
+# caller can't forge sync state (suppress mirroring of a reply, or spoof Slack attribution).
+RESERVED_ITEM_CONTEXT_KEYS = frozenset({"from_slack", "slack_synced_ts"})
+
+
+def _release_slack_reservation(slack_thread: "CommentSlackThread") -> None:
+    """Best-effort release so a later send can retry; must not mask the Slack error being raised."""
+    try:
+        slack_thread.delete()
+    except Exception:
+        # The stale-reservation grace period will unblock a retry even if this row lingers.
+        logger.exception("comment_slack_reservation_release_failed", slack_thread_id=str(slack_thread.id))
 
 
 class Conflict(exceptions.APIException):
@@ -163,6 +180,11 @@ class CommentSerializer(serializers.ModelSerializer):
 
             if not content.strip() and (not rich_content or self.has_empty_paragraph(rich_content)):
                 raise exceptions.ValidationError("A comment must have content")
+
+        if isinstance(data.get("item_context"), dict):
+            data["item_context"] = {
+                k: v for k, v in data["item_context"].items() if k not in RESERVED_ITEM_CONTEXT_KEYS
+            }
 
         if not instance:
             data["created_by"] = request.user
@@ -606,11 +628,19 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 item_url=build_comment_item_url(comment.scope, comment.item_id),
                 item_label=comment_scope_display_name(comment.scope),
             )
-        except Exception:
-            slack_thread.delete()  # release the reservation so a later attempt can retry cleanly
-            raise exceptions.ValidationError("Failed to post the discussion to Slack")
+        except Exception as e:
+            _release_slack_reservation(slack_thread)
+            # Surface Slack's error code (not_in_channel, channel_not_found, ...) — it's the
+            # actionable part for the user; the full exception is chained for error tracking.
+            slack_error = e.response.get("error") if isinstance(e, SlackApiError) and e.response else None
+            detail = (
+                f"Failed to post the discussion to Slack ({slack_error})"
+                if slack_error
+                else ("Failed to post the discussion to Slack")
+            )
+            raise exceptions.ValidationError(detail) from e
         if not thread_ts:
-            slack_thread.delete()
+            _release_slack_reservation(slack_thread)
             raise exceptions.ValidationError("Cannot send an empty comment to Slack")
 
         slack_thread.slack_thread_ts = thread_ts

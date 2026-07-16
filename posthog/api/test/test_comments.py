@@ -655,6 +655,13 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_reserved_slack_sync_item_context_keys_are_stripped(self) -> None:
+        # Forged sync state would let a caller suppress mirroring or spoof Slack attribution.
+        created = self._create_comment(
+            {"item_context": {"from_slack": True, "slack_synced_ts": "123.456", "is_emoji": False}}
+        )
+        assert created["item_context"] == {"is_emoji": False}
+
     def test_ticket_scope_key_cannot_write_non_ticket_comment_via_body_scope(self) -> None:
         comment = Comment.objects.create(
             team=self.team, scope="Notebook", item_id="n1", content="note", created_by=self.user
@@ -894,6 +901,14 @@ class TestCommentHelperFunctions(APIBaseTest):
             ("without_slug_replay", "Replay", "rec_123", "", "/replay/rec_123#panel=discussion"),
             ("without_slug_feature_flag", "FeatureFlag", "10", "", "/feature_flags/10#panel=discussion"),
             ("unknown_scope_fallback", "UnknownScope", "123", "", "#panel=discussion"),
+            # item_id is client-supplied free text — mrkdwn/URL control chars must be encoded.
+            (
+                "item_id_with_mrkdwn_chars",
+                "Notebook",
+                "x|<!channel>y",
+                "",
+                "/notebooks/x%7C%3C%21channel%3Ey#panel=discussion",
+            ),
         ]
     )
     def test_build_comment_item_url(self, name: str, scope: str, item_id: str, slug: str, expected_suffix: str) -> None:
