@@ -1073,7 +1073,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 hiddenTiles
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
-                const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
 
                 const uniqueUserSeries: EventsNode = {
                     event: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE] ? '$screen' : '$pageview',
@@ -1264,7 +1263,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 properties: webAnalyticsFilters,
                                 breakdownBy: breakdownBy,
                                 dateRange,
-                                sampling,
                                 compareFilter,
                                 limit: 10,
                                 filterTestAccounts,
@@ -1418,7 +1416,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             properties: webAnalyticsFilters,
                             dateRange,
                             interval,
-                            sampling,
                             compareFilter,
                             filterTestAccounts,
                             conversionGoal,
@@ -1650,7 +1647,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   properties: webAnalyticsFilters,
                                                   dateRange,
                                                   compareFilter,
-                                                  sampling,
                                                   limit: 10,
                                                   filterTestAccounts,
                                                   conversionGoal,
@@ -2300,7 +2296,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       properties: webAnalyticsFilters,
                                       dateRange,
                                       compareFilter,
-                                      sampling,
                                       limit: 10,
                                       orderBy: tablesOrderBy ?? undefined,
                                       filterTestAccounts,

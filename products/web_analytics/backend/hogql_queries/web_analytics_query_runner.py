@@ -7,7 +7,6 @@ from typing import Optional, Union
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
-from django.core.cache import cache
 
 import structlog
 from prometheus_client import Counter
@@ -19,7 +18,6 @@ from posthog.schema import (
     CustomEventConversionGoal,
     EventPropertyFilter,
     PersonPropertyFilter,
-    SamplingRate,
     SessionPropertyFilter,
     WebExternalClicksTableQuery,
     WebGoalsQuery,
@@ -32,9 +30,8 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, apply_path_cleaning, property_to_expr
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
@@ -45,7 +42,6 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 from posthog.models import User
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.rbac.user_access_control import UserAccessControl
-from posthog.utils import generate_cache_key, get_safe_cache
 
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.hogql_queries.metrics import (
@@ -186,7 +182,6 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                         error_type=error_type,
                     ).inc()
 
-                sampling = getattr(self.query, "sampling", None)
                 logger.info(
                     "web_analytics_query",
                     team_id=self.team.pk,
@@ -204,7 +199,6 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                     filter_count=len(self.query.properties),
                     date_from=self.query_date_range.date_from_str,
                     date_to=self.query_date_range.date_to_str,
-                    sampling_enabled=sampling.enabled if sampling else False,
                 )
 
     @cached_property
@@ -231,12 +225,6 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         # Test-account filters are event/person property filters, so they constrain
         # session membership the same way user filters do.
         if self._test_account_filters:
-            return False
-        sampling_factor = getattr(self.query, "samplingFactor", None)
-        if sampling_factor and sampling_factor != 1:
-            return False
-        sampling = getattr(self.query, "sampling", None)
-        if sampling and (sampling.enabled or sampling.forceSamplingRate):
             return False
         return True
 
@@ -578,75 +566,6 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
 
         return refresh_frequency
 
-    def _sample_rate_cache_key(self) -> str:
-        return generate_cache_key(
-            self.team.pk,
-            f"web_analytics_sample_rate_{self.query.dateRange.model_dump_json() if self.query.dateRange else None}_{self.team.pk}_{self.team.timezone}",
-        )
-
-    def _get_or_calculate_sample_ratio(self) -> SamplingRate:
-        if not self.query.sampling or not self.query.sampling.enabled:
-            return SamplingRate(numerator=1)
-        if self.query.sampling.forceSamplingRate:
-            return self.query.sampling.forceSamplingRate
-
-        cache_key = self._sample_rate_cache_key()
-        cached_response = get_safe_cache(cache_key)
-        if cached_response:
-            return SamplingRate(**cached_response)
-
-        # To get the sample rate, we need to count how many page view events there were over the time period.
-        # This would be quite slow if there were a lot of events, so use sampling to calculate this!
-
-        with self.timings.measure("event_count_query"):
-            event_count = parse_select(
-                """
-SELECT
-    count() as count
-FROM
-    events
-SAMPLE 1/1000
-WHERE
-    {where}
-                """,
-                timings=self.timings,
-                placeholders={
-                    "where": self.events_where_data_range(),
-                },
-            )
-
-        with self.timings.measure("event_count_query_execute"):
-            response = execute_hogql_query(
-                query_type="event_count_query",
-                query=event_count,
-                team=self.team,
-                user=self.user,
-                timings=self.timings,
-                limit_context=self.limit_context,
-            )
-
-        if not response.results or not response.results[0] or not response.results[0][0]:
-            return SamplingRate(numerator=1)
-
-        count = response.results[0][0] * 1000
-        fresh_sample_rate = _sample_rate_from_count(count)
-
-        cache.set(cache_key, fresh_sample_rate, settings.CACHED_RESULTS_TTL)
-
-        return fresh_sample_rate
-
-    @cached_property
-    def _sample_rate(self) -> SamplingRate:
-        return self._get_or_calculate_sample_ratio()
-
-    @cached_property
-    def _sample_ratio(self) -> ast.RatioExpr:
-        sample_rate = self._sample_rate
-        return ast.RatioExpr(
-            left=ast.Constant(value=sample_rate.numerator),
-            right=ast.Constant(value=sample_rate.denominator) if sample_rate.denominator else None,
-        )
-
     def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
         if not self.query.doPathCleaning:
             return path_expr
@@ -667,16 +586,6 @@ WHERE
         return get_traffic_category_expr(
             user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]),
             ip_expr or ast.Field(chain=["events", "properties", "$ip"]),
-        )
-
-    def _unsample(self, n: Optional[int | float], _row: Optional[list[int | float]] = None):
-        if n is None:
-            return None
-
-        return (
-            n * self._sample_rate.denominator / self._sample_rate.numerator
-            if self._sample_rate.denominator
-            else n / self._sample_rate.numerator
         )
 
     def get_cache_key(self) -> str:
@@ -703,18 +612,6 @@ WHERE
         if self.query.modifiers and self.query.modifiers.sessionsV2JoinMode == "uuid":
             return parse_expr("events.$session_id_uuid IS NOT NULL")
         return parse_expr("events.$session_id IS NOT NULL AND events.$session_id != ''")
-
-
-def _sample_rate_from_count(count: int) -> SamplingRate:
-    # Change the sample rate so that the query will sample about 100_000 to 1_000_000 events, but use defined steps of
-    # sample rate. These numbers are just a starting point, and we can tune as we get feedback.
-    sample_target = 10_000
-    sample_rate_steps = [1_000, 100, 10]
-
-    for step in sample_rate_steps:
-        if count / sample_target >= step:
-            return SamplingRate(numerator=1, denominator=step)
-    return SamplingRate(numerator=1)
 
 
 def map_columns(results, mapper: dict[int, typing.Callable]):

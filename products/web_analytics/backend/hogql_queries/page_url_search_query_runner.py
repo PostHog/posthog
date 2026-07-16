@@ -43,7 +43,6 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner[WebPageURLSearchQueryResp
         with self.timings.measure("page_url_search_query"):
             url_column = self._get_url_column()
             search_condition = self._get_search_condition()
-            sampling_factor = self._sample_ratio
             limit = self.query.limit or PAGE_URL_SEARCH_DEFAULT_LIMIT
 
             where_exprs = [
@@ -61,10 +60,7 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner[WebPageURLSearchQueryResp
                     ast.Alias(alias="url", expr=url_column),
                 ],
                 distinct=True,
-                select_from=ast.JoinExpr(
-                    table=ast.Field(chain=["events"]),
-                    sample=ast.SampleExpr(sample_value=sampling_factor),
-                ),
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                 where=ast.And(exprs=where_exprs),
                 order_by=[ast.OrderExpr(expr=ast.Field(chain=["url"]), order="ASC")],
                 limit=ast.Constant(value=limit),
