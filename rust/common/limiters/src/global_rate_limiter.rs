@@ -12,7 +12,9 @@ use chrono::{DateTime, Utc};
 use common_redis::Client;
 use moka::sync::Cache;
 use tokio::sync::mpsc;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
+
+use crate::custom_key_source::CustomKeyThresholdSource;
 
 /// Resolver for custom-key thresholds. Given a lookup key and a snapshot of the
 /// current custom-key map, returns the threshold to apply (or `None` if the key
@@ -40,6 +42,11 @@ const GLOBAL_RATE_LIMITER_ESTIMATE_DRIFT_HISTOGRAM: &str = "global_rate_limiter_
 const GLOBAL_RATE_LIMITER_SYNC_STALENESS_HISTOGRAM: &str = "global_rate_limiter_sync_staleness_ms";
 const GLOBAL_RATE_LIMITER_CACHE_SIZE_GAUGE: &str = "global_rate_limiter_cache_size";
 const GLOBAL_RATE_LIMITER_EVICTION_COUNTER: &str = "global_rate_limiter_eviction_total";
+/// Number of custom-key thresholds applied at the last successful refresh.
+const CUSTOM_THRESHOLDS_LOADED_GAUGE: &str = "global_rate_limiter_custom_thresholds_loaded";
+/// Unix timestamp of the last successful custom-key threshold refresh.
+const CUSTOM_THRESHOLDS_LAST_REFRESH_GAUGE: &str =
+    "global_rate_limiter_custom_thresholds_last_refresh_timestamp";
 
 /// Full-cache scan cadence (ticks) for the per-tier distribution gauges. The
 /// distribution moves slowly and prod metrics dedup to 60s, so a periodic scan
@@ -193,6 +200,15 @@ pub struct GlobalRateLimiterConfig {
     /// `None`, resolution is an exact lookup in `custom_keys`. When set, the
     /// closure is consulted with the key and a snapshot of the current map.
     pub custom_key_resolver: Option<CustomKeyResolver>,
+    /// Optional source of dynamically-refreshed custom-key thresholds. When set,
+    /// `GlobalRateLimiterImpl::new` spawns a background task that fetches the map
+    /// every `custom_key_refresh_interval` and atomically swaps it into
+    /// `custom_keys`. When `None`, `custom_keys` is static (e.g. seeded once from
+    /// config) and no refresh task runs.
+    pub custom_key_source: Option<Arc<dyn CustomKeyThresholdSource>>,
+    /// Cadence for the custom-key refresh task. Ignored when `custom_key_source`
+    /// is `None`.
+    pub custom_key_refresh_interval: Duration,
     /// Tag value applied to all metrics emitted by this limiter instance.
     /// Allows distinguishing multiple limiter instances in the same process.
     pub metrics_scope: String,
@@ -242,6 +258,8 @@ impl Default for GlobalRateLimiterConfig {
             channel_capacity: 1_000_000,
             custom_keys: Arc::new(ArcSwap::from_pointee(HashMap::new())),
             custom_key_resolver: None,
+            custom_key_source: None,
+            custom_key_refresh_interval: Duration::from_secs(60),
             metrics_scope: "default".to_string(),
         }
     }
@@ -394,6 +412,9 @@ pub struct GlobalRateLimiterImpl {
     update_tx: Option<mpsc::Sender<UpdateRequest>>,
     pending_sync: Arc<DashSet<String>>,
     scope: &'static str,
+    /// Drop-to-stop signal for the custom-key refresh task (mirrors `update_tx`).
+    /// `None` when no `custom_key_source` was configured.
+    custom_key_refresh_stop: Option<mpsc::Sender<()>>,
 }
 
 #[async_trait]
@@ -428,6 +449,8 @@ impl GlobalRateLimiter for GlobalRateLimiterImpl {
 
     fn shutdown(&mut self) {
         let _ = self.update_tx.take();
+        // Dropping the sender closes the refresh task's stop channel.
+        let _ = self.custom_key_refresh_stop.take();
     }
 }
 
@@ -469,12 +492,28 @@ impl GlobalRateLimiterImpl {
         let (update_tx, update_rx) = mpsc::channel(config.channel_capacity);
         let pending_sync = Arc::new(DashSet::new());
 
+        // Spawn the custom-key refresh task when a source is configured. The
+        // source owns its own reconnect; we only hold a drop-to-stop signal,
+        // mirroring how `update_tx` closes the tick loop on shutdown.
+        let custom_key_refresh_stop = config.custom_key_source.clone().map(|source| {
+            let (stop_tx, stop_rx) = mpsc::channel::<()>(1);
+            Self::spawn_custom_key_refresh_task(
+                config.clone(),
+                source,
+                config.custom_key_refresh_interval,
+                stop_rx,
+                scope,
+            );
+            stop_tx
+        });
+
         let limiter = Self {
             config: config.clone(),
             cache: cache.clone(),
             update_tx: Some(update_tx),
             pending_sync: pending_sync.clone(),
             scope,
+            custom_key_refresh_stop,
         };
 
         Self::spawn_background_task(
@@ -616,6 +655,69 @@ impl GlobalRateLimiterImpl {
                 error = %e,
                 "Failed to queue rate limit update, channel may be full"
             );
+        }
+    }
+
+    /// Spawn the background task that periodically refreshes custom-key thresholds.
+    ///
+    /// `tokio::time::interval` fires immediately, so the first fetch happens
+    /// without delay. The task exits when `stop_rx` closes (all senders dropped
+    /// via `shutdown`, or when the limiter is dropped).
+    fn spawn_custom_key_refresh_task(
+        config: GlobalRateLimiterConfig,
+        source: Arc<dyn CustomKeyThresholdSource>,
+        refresh_interval: Duration,
+        mut stop_rx: mpsc::Receiver<()>,
+        scope: &'static str,
+    ) {
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(refresh_interval);
+            loop {
+                tokio::select! {
+                    _ = stop_rx.recv() => {
+                        info!(scope, "Custom-key threshold refresh task shutting down");
+                        break;
+                    }
+                    _ = tick.tick() => {
+                        Self::refresh_custom_keys_once(&config, source.as_ref(), scope).await;
+                    }
+                }
+            }
+        });
+    }
+
+    /// Fetch custom-key thresholds once and atomically swap them into the config.
+    ///
+    /// Redis is authoritative when reachable: `Ok(Some)` replaces the map,
+    /// `Ok(None)` (absent key) clears it. On `Err` the current map is kept
+    /// (fail-static) — the source handles its own reconnect, so the next tick
+    /// retries.
+    async fn refresh_custom_keys_once(
+        config: &GlobalRateLimiterConfig,
+        source: &dyn CustomKeyThresholdSource,
+        scope: &'static str,
+    ) {
+        match source.fetch().await {
+            Ok(Some(map)) => {
+                let count = map.len();
+                config.custom_keys.store(Arc::new(map));
+                metrics::gauge!(CUSTOM_THRESHOLDS_LOADED_GAUGE, "scope" => scope).set(count as f64);
+                metrics::gauge!(CUSTOM_THRESHOLDS_LAST_REFRESH_GAUGE, "scope" => scope)
+                    .set(Utc::now().timestamp() as f64);
+            }
+            Ok(None) => {
+                config.custom_keys.store(Arc::new(HashMap::new()));
+                metrics::gauge!(CUSTOM_THRESHOLDS_LOADED_GAUGE, "scope" => scope).set(0.0);
+                metrics::gauge!(CUSTOM_THRESHOLDS_LAST_REFRESH_GAUGE, "scope" => scope)
+                    .set(Utc::now().timestamp() as f64);
+            }
+            Err(e) => {
+                error!(
+                    scope,
+                    error = %e,
+                    "Failed to refresh custom-key thresholds, keeping current values"
+                );
+            }
         }
     }
 
@@ -1050,6 +1152,7 @@ fn parse_redis_count(value: &Option<Vec<u8>>) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::custom_key_source::testing::MockCustomKeyThresholdSource;
     use common_redis::MockRedisClient;
 
     fn test_config() -> GlobalRateLimiterConfig {
@@ -1066,6 +1169,8 @@ mod tests {
             channel_capacity: 100,
             custom_keys: Arc::new(ArcSwap::from_pointee(HashMap::new())),
             custom_key_resolver: None,
+            custom_key_source: None,
+            custom_key_refresh_interval: Duration::from_secs(60),
             global_read_timeout: Duration::from_millis(5),
             global_write_timeout: Duration::from_millis(10),
             metrics_scope: "test".to_string(),
@@ -1998,5 +2103,48 @@ mod tests {
         }
         stop.store(true, Ordering::Relaxed);
         reader.join().unwrap();
+    }
+
+    // --- Refresh path tests (refresh_custom_keys_once via a mock source) ---
+
+    #[tokio::test]
+    async fn test_refresh_once_applies_thresholds() {
+        let config = test_config();
+        set_custom_keys(&config, &[("seed", 1)]);
+
+        let source = MockCustomKeyThresholdSource::with_thresholds(Some(HashMap::from([(
+            "dyn".to_string(),
+            99u64,
+        )])));
+        GlobalRateLimiterImpl::refresh_custom_keys_once(&config, &source, "test").await;
+
+        // Fetched map replaces the seed wholesale (Redis is authoritative).
+        assert_eq!(config.resolve_custom("dyn"), Some(99));
+        assert_eq!(config.resolve_custom("seed"), None);
+    }
+
+    #[tokio::test]
+    async fn test_refresh_once_absent_key_clears_thresholds() {
+        let config = test_config();
+        set_custom_keys(&config, &[("seed", 1)]);
+
+        let source = MockCustomKeyThresholdSource::with_thresholds(None);
+        GlobalRateLimiterImpl::refresh_custom_keys_once(&config, &source, "test").await;
+
+        // Absent key means "no custom thresholds": the map is cleared.
+        assert_eq!(config.resolve_custom("seed"), None);
+    }
+
+    #[tokio::test]
+    async fn test_refresh_once_error_is_fail_static() {
+        let config = test_config();
+        set_custom_keys(&config, &[("keep", 7)]);
+
+        let source =
+            MockCustomKeyThresholdSource::with_error(common_redis::CustomRedisError::Timeout);
+        GlobalRateLimiterImpl::refresh_custom_keys_once(&config, &source, "test").await;
+
+        // A failed fetch must not disturb the current thresholds.
+        assert_eq!(config.resolve_custom("keep"), Some(7));
     }
 }

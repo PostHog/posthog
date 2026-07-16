@@ -7,6 +7,7 @@ use crate::config::Config;
 use arc_swap::ArcSwap;
 use chrono::Utc;
 use common_redis::Client;
+use limiters::custom_key_source::{CustomKeyThresholdSource, RedisCustomKeyThresholdSource};
 use limiters::global_rate_limiter::{
     CustomKeyResolver, EvalResult, GlobalRateLimitResponse,
     GlobalRateLimiter as CommonGlobalRateLimiter, GlobalRateLimiterConfig,
@@ -14,8 +15,6 @@ use limiters::global_rate_limiter::{
 };
 use metrics::counter;
 use tracing::{error, info, warn};
-
-pub mod threshold_source;
 
 #[cfg(test)]
 use chrono::DateTime;
@@ -105,13 +104,15 @@ impl GlobalRateLimiter {
             config.global_rate_limit_token_local_cache_max_entries,
             &prefix,
             &metrics_scope,
-            // The token-only limiter is not wired to the dynamic refresh loop;
-            // keep its resolution exact (feature-off path).
+            // The token-only limiter is not wired to the dynamic refresh source.
+            // (The hierarchical resolver is still set but is a no-op for bare
+            // token keys, which have no `:distinct_id` suffix.)
             false,
         )
     }
 
-    /// Hierarchical custom-key resolver used when dynamic thresholds are enabled.
+    /// Hierarchical custom-key resolver. Always applied to capture limiters,
+    /// whether thresholds come from the static CSV seed or the dynamic source.
     ///
     /// A lookup key is either `token` or `token:distinct_id` (the limiter's cache
     /// key). Resolution tries the exact key first, then falls back to the token
@@ -137,12 +138,46 @@ impl GlobalRateLimiter {
         local_cache_max_entries: u64,
         redis_key_prefix: &str,
         metrics_scope: &str,
-        enable_dynamic_thresholds: bool,
+        enable_dynamic_source: bool,
     ) -> anyhow::Result<Self> {
-        // Seed the (swappable) custom-key map from the static CSV overrides. When
-        // dynamic thresholds are enabled, the refresh loop replaces this map from
+        // Seed the (swappable) custom-key map from the static CSV overrides. When a
+        // dynamic source is enabled, the common refresh loop replaces this map from
         // Redis; until then (and if Redis is unreachable) the CSV seed applies.
         let seed = Self::format_custom_keys(custom_keys_csv);
+
+        // Build the dynamic source when enabled and its Redis key + URL are set.
+        // The source reads the JSON blob from the event-restrictions Redis (a
+        // separate store from the traffic-count Redis in `redis_instances`) and
+        // owns its own connection/reconnect; the common limiter runs the loop.
+        let custom_key_source: Option<Arc<dyn CustomKeyThresholdSource>> = if enable_dynamic_source
+        {
+            match (
+                config.global_rate_limit_custom_threshold_key.as_ref(),
+                config.event_restrictions_redis_url.as_ref(),
+            ) {
+                (Some(key), Some(redis_url)) => {
+                    let response_timeout = (config.redis_response_timeout_ms != 0)
+                        .then(|| Duration::from_millis(config.redis_response_timeout_ms));
+                    let connection_timeout = (config.redis_connection_timeout_ms != 0)
+                        .then(|| Duration::from_millis(config.redis_connection_timeout_ms));
+                    Some(Arc::new(RedisCustomKeyThresholdSource::new(
+                        redis_url.clone(),
+                        key.clone(),
+                        response_timeout,
+                        connection_timeout,
+                    )))
+                }
+                _ => {
+                    warn!(
+                        "Dynamic custom thresholds requested but threshold key or Redis URL is unset; using static CSV seed"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         let grl_config = GlobalRateLimiterConfig {
             global_threshold: threshold,
             window_interval: Duration::from_secs(config.global_rate_limit_window_interval_secs),
@@ -150,11 +185,15 @@ impl GlobalRateLimiter {
             tick_interval: Duration::from_millis(config.global_rate_limit_tick_interval_ms),
             redis_key_prefix: redis_key_prefix.to_string(),
             custom_keys: Arc::new(ArcSwap::from_pointee(seed)),
-            custom_key_resolver: if enable_dynamic_thresholds {
-                Some(Self::hierarchical_resolver())
-            } else {
-                None
-            },
+            // Capture keys are always `token` or `token:distinct_id`, so the
+            // hierarchical resolver is always the correct policy — a token-level
+            // override applies to all of that token's `token:distinct_id` keys,
+            // for both the CSV seed and the dynamic map.
+            custom_key_resolver: Some(Self::hierarchical_resolver()),
+            custom_key_source,
+            custom_key_refresh_interval: Duration::from_secs(
+                config.global_rate_limit_custom_threshold_refresh_secs,
+            ),
             local_cache_max_entries,
             metrics_scope: metrics_scope.to_string(),
             ..Default::default()
@@ -241,19 +280,14 @@ impl GlobalRateLimiter {
         }
     }
 
-    // trigger shutdown and stop pushing updates to global cache
+    // trigger shutdown and stop pushing updates to global cache. Also stops the
+    // common custom-key refresh loop, if one was spawned.
     pub fn shutdown(&mut self) {
         self.limiter.shutdown();
     }
 
-    /// Atomically replace the custom-key threshold map. Called by the dynamic
-    /// threshold refresh loop with the latest map fetched from Redis.
-    pub fn replace_custom_keys(&self, custom_keys: HashMap<String, u64>) {
-        self.limiter.replace_custom_keys(custom_keys);
-    }
-
     /// Returns true if the key resolves to a custom threshold (exact match, or
-    /// token-prefix fallback when the hierarchical resolver is enabled).
+    /// token-prefix fallback via the hierarchical resolver).
     pub fn is_custom_key(&self, key: &str) -> bool {
         self.limiter.is_custom_key(key)
     }
@@ -316,11 +350,11 @@ impl GlobalRateLimiter {
         }
     }
 
-    /// Test helper: build a real limiter with the hierarchical resolver enabled
-    /// and its custom-key map seeded from `csv`, backed by a mock Redis client.
-    /// Used to exercise the dynamic-threshold refresh path end to end.
+    /// Test helper: build a real limiter with the hierarchical resolver and its
+    /// custom-key map seeded from `csv` (no dynamic source), backed by a mock
+    /// Redis client. Exercises the static-CSV path with hierarchical resolution.
     #[cfg(test)]
-    pub(crate) fn for_test_with_dynamic_thresholds(csv: Option<&str>) -> Self {
+    pub(crate) fn for_test_hierarchical_seeded(csv: Option<&str>) -> Self {
         let csv_owned = csv.map(|s| s.to_string());
         let grl_config = GlobalRateLimiterConfig {
             global_threshold: 300_000,
@@ -450,6 +484,7 @@ impl GlobalRateLimiter {
 mod tests {
     use super::*;
     use async_trait::async_trait;
+    use rstest::rstest;
     use std::collections::HashSet;
     use std::sync::Mutex;
     use std::time::Duration;
@@ -756,6 +791,69 @@ mod tests {
         assert!(
             result.is_some(),
             "non-dry-run should return Some(response) when limited"
+        );
+    }
+
+    // --- Hierarchical custom-key resolver ---
+    //
+    // The resolver is capture's key-resolution policy, injected into the common
+    // limiter. A lookup key is `token` or `token:distinct_id`. Resolution: exact
+    // match first, then the token prefix (everything before the first `:`). It is
+    // colon-delimited, NOT a string prefix match.
+
+    fn resolver_map(pairs: &[(&str, u64)]) -> HashMap<String, u64> {
+        pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect()
+    }
+
+    #[rstest]
+    // Token-scope override: applies to the token and ALL of its token:distinct_id keys.
+    #[case::token_scope_exact(&[("phc_tok", 10)], "phc_tok", Some(10))]
+    #[case::token_scope_matches_any_distinct_id(&[("phc_tok", 10)], "phc_tok:alice", Some(10))]
+    #[case::token_scope_matches_other_distinct_id(&[("phc_tok", 10)], "phc_tok:bob", Some(10))]
+    #[case::token_scope_other_token_unmatched(&[("phc_tok", 10)], "other:alice", None)]
+    #[case::token_scope_other_bare_token_unmatched(&[("phc_tok", 10)], "other", None)]
+    // token:distinct_id-scope override: applies to that exact pair only.
+    #[case::distinct_scope_exact(&[("phc_tok:alice", 5)], "phc_tok:alice", Some(5))]
+    #[case::distinct_scope_other_distinct_unmatched(&[("phc_tok:alice", 5)], "phc_tok:bob", None)]
+    #[case::distinct_scope_bare_token_unmatched(&[("phc_tok:alice", 5)], "phc_tok", None)]
+    // Exact match wins over the token-prefix fallback.
+    #[case::exact_wins_over_fallback(&[("phc_tok", 10), ("phc_tok:vip", 100)], "phc_tok:vip", Some(100))]
+    #[case::fallback_when_no_exact(&[("phc_tok", 10), ("phc_tok:vip", 100)], "phc_tok:other", Some(10))]
+    #[case::bare_token_with_both(&[("phc_tok", 10), ("phc_tok:vip", 100)], "phc_tok", Some(10))]
+    // Safety: fallback is colon-delimited, never a raw string prefix.
+    #[case::not_string_prefix_bare(&[("phc_tok", 10)], "phc_tokEXTRA", None)]
+    #[case::not_string_prefix_with_distinct(&[("phc_tok", 10)], "phc_tokEXTRA:alice", None)]
+    // Corner cases: empty distinct_id, extra colons, empty token, utf8.
+    #[case::empty_distinct_id_falls_back(&[("phc_tok", 10)], "phc_tok:", Some(10))]
+    #[case::only_first_colon_splits(&[("phc_tok", 10)], "phc_tok:a:b", Some(10))]
+    #[case::empty_token_key(&[("", 3)], ":alice", Some(3))]
+    #[case::utf8_distinct_id_falls_back(&[("phc_tok", 10)], "phc_tok:ünïcödé", Some(10))]
+    #[case::empty_map_no_match(&[], "phc_tok:alice", None)]
+    fn test_hierarchical_resolver(
+        #[case] pairs: &[(&str, u64)],
+        #[case] key: &str,
+        #[case] expected: Option<u64>,
+    ) {
+        let resolver = GlobalRateLimiter::hierarchical_resolver();
+        let map = resolver_map(pairs);
+        assert_eq!(resolver(key, &map), expected, "key={key}");
+    }
+
+    #[tokio::test]
+    async fn test_static_csv_seed_resolves_hierarchically() {
+        // Gap fix vs master: a static-CSV token-level override (dynamic source
+        // OFF) now applies to that token's token:distinct_id keys too, because
+        // the hierarchical resolver is always set — not just on the dynamic path.
+        let limiter = GlobalRateLimiter::for_test_hierarchical_seeded(Some("phc_seed=7"));
+
+        assert!(limiter.is_custom_key("phc_seed"), "exact token override");
+        assert!(
+            limiter.is_custom_key("phc_seed:any_user"),
+            "token override must apply to token:distinct_id (master only did exact match)"
+        );
+        assert!(
+            !limiter.is_custom_key("other_tok:any_user"),
+            "unrelated token must not match"
         );
     }
 }

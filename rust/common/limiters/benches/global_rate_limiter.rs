@@ -82,6 +82,8 @@ fn bench_config() -> GlobalRateLimiterConfig {
         channel_capacity: 100_000,
         custom_keys: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(HashMap::new())),
         custom_key_resolver: None,
+        custom_key_source: None,
+        custom_key_refresh_interval: Duration::from_secs(60),
         global_read_timeout: Duration::from_millis(50),
         global_write_timeout: Duration::from_millis(50),
         metrics_scope: "bench".to_string(),

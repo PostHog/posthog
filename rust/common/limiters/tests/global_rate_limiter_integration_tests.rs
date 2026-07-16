@@ -50,6 +50,8 @@ fn test_config(test_name: &str) -> GlobalRateLimiterConfig {
         channel_capacity: 10_000,
         custom_keys: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(HashMap::new())),
         custom_key_resolver: None,
+        custom_key_source: None,
+        custom_key_refresh_interval: Duration::from_secs(60),
         global_read_timeout: Duration::from_millis(500),
         global_write_timeout: Duration::from_millis(500),
         metrics_scope: "integration_test".to_string(),
