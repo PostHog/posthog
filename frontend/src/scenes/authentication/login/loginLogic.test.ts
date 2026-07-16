@@ -1,6 +1,7 @@
 import { startAuthentication } from '@simplewebauthn/browser'
 import { router } from 'kea-router'
 import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
+import { HttpResponse } from 'msw'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { handleLoginRedirect, loginLogic } from 'scenes/authentication/login/loginLogic'
@@ -232,6 +233,37 @@ describe('loginLogic', () => {
             logic.actions.precheck({ email: 'b@example.com' })
             await expectLogic(logic).toDispatchActions(['precheckSuccess'])
             expect(precheckHandler).toHaveBeenCalledTimes(2)
+        })
+    })
+
+    describe('precheck network failure', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        const originalVendor = window.navigator.vendor
+
+        beforeEach(() => {
+            setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger, isolate precheck
+            // HttpResponse.error() makes the fetch reject with a network-level TypeError, the same
+            // way an offline/blocked precheck fails before reaching Django.
+            useMocks({ post: { '/api/login/precheck': () => HttpResponse.error() } })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            setVendor(originalVendor)
+            jest.clearAllMocks()
+        })
+
+        it('swallows a transient network failure and leaves the precheck pending', async () => {
+            logic.actions.precheck({ email: 'user@example.com' })
+            // Resolves via success (not failure), so nothing bubbles into error tracking.
+            await expectLogic(logic)
+                .toDispatchActions(['precheckSuccess'])
+                .toNotHaveDispatchedActions(['precheckFailure'])
+            expect(logic.values.precheckResponse).toEqual({ status: 'pending' })
         })
     })
 })

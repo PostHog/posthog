@@ -9,6 +9,7 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isWebKitBrowser } from 'lib/utils/dom'
+import { isNetworkError } from 'lib/utils/isNetworkError'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
 import { twoFactorResetLogic } from 'scenes/authentication/two-factor-reset/twoFactorResetLogic'
@@ -143,8 +144,19 @@ export const loginLogic = kea<loginLogicType>([
                     }
 
                     breakpoint()
-                    const response = await api.create<any>('api/login/precheck', { email })
-                    return { status: 'completed', ...response, email }
+                    try {
+                        const response = await api.create<any>('api/login/precheck', { email })
+                        return { status: 'completed', ...response, email }
+                    } catch (error) {
+                        // The precheck is a best-effort, fire-on-blur request. A transient network
+                        // failure (offline, navigated away, blocked by an extension) makes the fetch
+                        // throw before it reaches Django — leave the precheck pending instead of
+                        // letting it bubble into error tracking as noise. Anything else still surfaces.
+                        if (isNetworkError(error)) {
+                            return { status: 'pending' }
+                        }
+                        throw error
+                    }
                 },
             },
         ],
