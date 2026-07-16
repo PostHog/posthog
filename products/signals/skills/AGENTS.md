@@ -85,7 +85,12 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   row-volume cliffs, and failed/abandoned materialized views. Its discriminator is
   configured-to-sync (`should_sync: true`) vs actually-syncing and
   promised-freshness vs actual-freshness — paused schemas, billing limits, and
-  draft sources are operator choices, not signal. The mirror image of
+  draft sources are operator choices, not signal. Also carries a second,
+  lower-priority **optimization lane** that runs only when the integrity lane is
+  quiet: reads the per-team `query_log` table for recurring, multi-user query
+  time and read-bytes concentrated on one warehouse table or query shape
+  (materialization candidates, queries bypassing an existing matview, matviews
+  with no readers), filing each as a capped, evergreen-deduped P3 suggestion. The mirror image of
   data-pipelines (which watches data leaving PostHog); active `external_data_failure`
   health issues overlap the health-checks scout, so it dedupes against the inbox and
   owns the silent gaps the active-failure summary misses (staleness behind a green

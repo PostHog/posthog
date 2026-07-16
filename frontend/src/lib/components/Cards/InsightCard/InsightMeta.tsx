@@ -52,6 +52,7 @@ import {
     InsightLogicProps,
     InsightShortId,
     QueryBasedInsightModel,
+    InsightFilterOverrideContext,
 } from '~/types'
 
 import {
@@ -105,13 +106,15 @@ interface InsightMetaProps extends Pick<
     onCreateAnomalyAlert?: () => void
 }
 
-// Any tile override wins wholesale over the dashboard's (backend `apply_dashboard_filters`), so a tile
-// override with no dates uses the insight's own range, never the dashboard's.
 export function getEffectiveDateOverride(
+    filterOverrideContext: InsightFilterOverrideContext | null | undefined,
     filtersOverride: DashboardFilter | undefined,
     tileFiltersOverride: TileFilters | undefined
 ): { dateFromOverride: string | null | undefined; dateToOverride: string | null | undefined } {
-    const source = Object.keys(tileFiltersOverride ?? {}).length > 0 ? tileFiltersOverride : filtersOverride
+    const dashboardFilters = filterOverrideContext ? filterOverrideContext.dashboard : filtersOverride
+    const tileFilters = filterOverrideContext ? filterOverrideContext.tile : tileFiltersOverride
+    const tileHasDate = tileFilters?.date_from != null || tileFilters?.date_to != null
+    const source = tileHasDate ? tileFilters : dashboardFilters
     return { dateFromOverride: source?.date_from, dateToOverride: source?.date_to }
 }
 
@@ -196,7 +199,7 @@ export function InsightMeta({
     const showCompactHeading = !showCompactTile || !isSqlInsight
 
     const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).length > 0
-    const dateOverride = getEffectiveDateOverride(filtersOverride, tileFiltersOverride)
+    const dateOverride = getEffectiveDateOverride(insight.filter_override_context, filtersOverride, tileFiltersOverride)
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
@@ -361,6 +364,7 @@ export function InsightMeta({
             variablesOverride={variablesOverride}
             filtersOverride={filtersOverride}
             tileFiltersOverride={tileFiltersOverride ?? null}
+            filterOverrideContext={insight.filter_override_context}
             hasDataWarehouseSeries={hasDataWarehouseSeries}
         />
     ) : null

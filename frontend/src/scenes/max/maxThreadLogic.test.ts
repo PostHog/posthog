@@ -1388,7 +1388,7 @@ describe('maxThreadLogic', () => {
 
             // Mock openNotebook to track its calls
             const openNotebookSpy = jest.spyOn(notebooksModel, 'openNotebook')
-            openNotebookSpy.mockImplementation(async (notebookId, _target, _, callback) => {
+            openNotebookSpy.mockImplementation(async (notebookId, _target, callback) => {
                 const logic = notebookLogic({ shortId: notebookId })
                 logic.mount()
                 if (callback) {
@@ -1401,12 +1401,7 @@ describe('maxThreadLogic', () => {
                 logic.actions.processNotebookUpdate('test-notebook-id', { type: 'doc', content: [] } as any)
             }).toDispatchActions(['processNotebookUpdate'])
 
-            expect(openNotebookSpy).toHaveBeenCalledWith(
-                'test-notebook-id',
-                NotebookTarget.Scene,
-                undefined,
-                expect.any(Function)
-            )
+            expect(openNotebookSpy).toHaveBeenCalledWith('test-notebook-id', NotebookTarget.Scene, expect.any(Function))
             expect(router.values.location.pathname).toContain(urls.notebook('test-notebook-id'))
         })
 
@@ -1429,7 +1424,7 @@ describe('maxThreadLogic', () => {
 
             expect(findMountedSpy).toHaveBeenCalledWith({ shortId: notebookId })
             expect(routerActionsSpy).not.toHaveBeenCalled()
-            expect(setLocalContentSpy).toHaveBeenCalledWith({ type: 'doc', content: [] }, true, true)
+            expect(setLocalContentSpy).toHaveBeenCalledWith({ type: 'doc', content: [] }, true)
         })
 
         it('handles gracefully when notebook logic is not mounted on notebook page', async () => {

@@ -2033,6 +2033,13 @@ class ExternalDataSourceType(StrEnum):
     KONG_KONNECT = "KongKonnect"
     KANDJI = "Kandji"
     AUTOMOX = "Automox"
+    AUTUMN = "Autumn"
+    GET_STREAM = "GetStream"
+    OCTOLENS = "Octolens"
+    KAJABI = "Kajabi"
+    SHOPWARE = "Shopware"
+    DUBSADO = "Dubsado"
+    CAMPFIRE = "Campfire"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3560,6 +3567,7 @@ class UsageMetricFormat(StrEnum):
 
 
 class UserProductListReason(StrEnum):
+    DEFAULT = "default"
     ONBOARDING = "onboarding"
     PRODUCT_INTENT = "product_intent"
     USED_BY_COLLEAGUES = "used_by_colleagues"
