@@ -12,8 +12,8 @@ Query quotas protect billing-period usage and return HTTP 402.
 
 ## Responsibilities
 
-- Billing defines the allowance for each plan and sends usage, limit, billing-period, and trust-score data to PostHog.
-- The usage-report pipeline measures chargeable ClickHouse reads and reports them per team for the billing period.
+- The usage-report pipeline measures chargeable ClickHouse reads and reports `api_queries_read_bytes` usage per team to Billing.
+- The existing Billing sync stores the returned usage and limit, billing period, and trust scores in PostHog. Billing must configure a finite `api_queries_read_bytes` allowance for the plans covered by the rollout; that live plan configuration is outside this repository.
 - The billing quota task decides which organizations are limited and writes their team tokens to Redis with the billing-period end as the expiry.
 - The query layer checks the Redis decision before starting new ClickHouse work and returns the customer-facing quota response.
 - The launch owner coordinates pricing documentation, support guidance, customer communication, dashboards, and alerting before enabling a finite free-plan allowance.
