@@ -108,6 +108,8 @@ The `knowledge_base` table additionally requires the KnowledgeBase download opti
             "403 Client Error": "Your Qualys user does not have API access to this data. Grant the user API access (or the required module permissions) and reconnect.",
             "Unauthorized for url": "Your Qualys credentials are invalid or the account is locked. Check the username and password and reconnect.",
             "Qualys API server URL is not allowed": "The configured API server URL points at a blocked or internal address. Set it to your Qualys account's regional API server and reconnect.",
+            "Qualys API response body was too large": "The Qualys API server returned an unexpectedly large response. Confirm the configured API server URL points at your Qualys account's regional API server and reconnect.",
+            "Qualys API response download was too slow": "The Qualys API server was too slow to return a response. Confirm the configured API server URL points at your Qualys account's regional API server and reconnect.",
         }
 
     def get_schemas(

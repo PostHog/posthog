@@ -1,4 +1,5 @@
 import json
+import time
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -26,6 +27,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmd
 REQUEST_TIMEOUT_SECONDS = 300  # long list requests stream slowly with keep-alive bytes
 MAX_RATE_LIMIT_WAIT_SECONDS = 120
 
+# The API server is user-supplied, so a malicious or misconfigured host could stream an unbounded
+# body and exhaust a shared worker (requests buffers the whole body into memory by default, and the
+# read timeout only guards idle gaps between reads, not a steady large transfer). Cap what we read
+# into memory. Generous enough for a full truncated batch of host detections; anything past it is
+# refused rather than buffered.
+MAX_RESPONSE_BYTES = 256 * 1024 * 1024
+RESPONSE_CHUNK_BYTES = 256 * 1024
+# Wall-clock budget for downloading one page's body. requests' timeout only bounds each individual
+# socket read, so a host that dribbles the body slowly could hold the connection (and a shared
+# worker) open far longer than any read timeout while staying under MAX_RESPONSE_BYTES. This caps
+# total transfer time — 256 MiB in 300s is a ~0.85 MiB/s floor, far below any real Qualys response
+# and far above a slow-drip stall.
+MAX_DOWNLOAD_SECONDS = 300
+
+RESPONSE_TOO_LARGE_ERROR = "Qualys API response body was too large"
+RESPONSE_TOO_SLOW_ERROR = "Qualys API response download was too slow"
+
 # Qualys rejects any request without an X-Requested-With header.
 _BASE_HEADERS = {"X-Requested-With": "PostHog Data Warehouse"}
 
@@ -34,6 +52,44 @@ class QualysVmdrRetryableError(Exception):
     def __init__(self, message: str, wait_seconds: int | None = None):
         super().__init__(message)
         self.wait_seconds = wait_seconds
+
+
+class QualysVmdrResponseTooLargeError(Exception):
+    """Non-retryable: re-fetching the same page yields the same oversized body."""
+
+
+class QualysVmdrResponseTooSlowError(Exception):
+    """Non-retryable: a host dribbling one page's body will dribble it again on retry."""
+
+
+def _read_capped_body(response: requests.Response) -> bytes:
+    """Stream the body into memory, aborting past MAX_RESPONSE_BYTES or MAX_DOWNLOAD_SECONDS.
+
+    The API server is user-supplied, so a body must never be buffered unbounded (size cap) nor be
+    allowed to hold the connection open indefinitely by dribbling under the per-read timeout (time
+    cap). Both limits are non-retryable — re-fetching the same page yields the same oversized/slow
+    body.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
+    try:
+        for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
+            if time.monotonic() > deadline:
+                raise QualysVmdrResponseTooSlowError(
+                    f"{RESPONSE_TOO_SLOW_ERROR}: exceeded {MAX_DOWNLOAD_SECONDS}s download budget"
+                )
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > MAX_RESPONSE_BYTES:
+                raise QualysVmdrResponseTooLargeError(
+                    f"{RESPONSE_TOO_LARGE_ERROR}: exceeded {MAX_RESPONSE_BYTES} bytes"
+                )
+            chunks.append(chunk)
+    finally:
+        response.close()
+    return b"".join(chunks)
 
 
 @dataclasses.dataclass
@@ -114,11 +170,14 @@ def _parse_xml(text: str) -> Element:
     reraise=True,
 )
 def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogger) -> Element:
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+    # stream=True so the body isn't buffered until we cap it — see _read_capped_body.
+    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
 
     # Qualys signals per-subscription rate/concurrency limits with 409 plus X-RateLimit /
-    # X-Concurrency headers telling us how long to wait.
+    # X-Concurrency headers telling us how long to wait. Close before raising so the connection is
+    # released without pulling the (unneeded) body.
     if response.status_code in (409, 429) or response.status_code >= 500:
+        response.close()
         wait_seconds: int | None = None
         for header in ("X-RateLimit-ToWait-Sec", "Retry-After"):
             raw_wait = response.headers.get(header)
@@ -130,11 +189,14 @@ def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogge
             wait_seconds=wait_seconds,
         )
 
+    body = _read_capped_body(response)
+    text = body.decode(response.encoding or "utf-8", errors="replace")
+
     if not response.ok:
-        logger.error(f"Qualys API error: status={response.status_code}, body={response.text[:2000]}")
+        logger.error(f"Qualys API error: status={response.status_code}, body={text[:2000]}")
         response.raise_for_status()
 
-    root = _parse_xml(response.text)
+    root = _parse_xml(text)
 
     # Parameter/permission errors come back as HTTP 200 with a SIMPLE_RETURN error document.
     if root.tag == "SIMPLE_RETURN":
@@ -279,13 +341,18 @@ def validate_credentials(api_server: str, username: str, password: str) -> tuple
 
     url = f"{base_url}/api/2.0/fo/asset/host/?{urlencode({'action': 'list', 'truncation_limit': 1})}"
     try:
-        response = _make_session(username, password).get(url, timeout=30)
+        # stream=True so a user-controlled host can't force us to buffer an unbounded probe body:
+        # we only ever inspect the status line here, never the body.
+        response = _make_session(username, password).get(url, timeout=30, stream=True)
     except Exception:
         return False, "Could not connect to the Qualys API server"
 
-    if response.status_code in (200, 403, 409):
-        return True, None
-    return False, "Invalid Qualys credentials or API server URL"
+    try:
+        if response.status_code in (200, 403, 409):
+            return True, None
+        return False, "Invalid Qualys credentials or API server URL"
+    finally:
+        response.close()
 
 
 def qualys_vmdr_source(

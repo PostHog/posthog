@@ -7,6 +7,7 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.qualys_vmdr import (
+    QualysVmdrResponseTooLargeError,
     QualysVmdrResumeConfig,
     QualysVmdrRetryableError,
     _build_initial_url,
@@ -14,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmd
     _fetch_page,
     _next_batch_url,
     _parse_xml,
+    _read_capped_body,
     build_base_url,
     get_rows,
     validate_credentials,
@@ -111,6 +113,9 @@ def _response(status_code: int = 200, text: str = "", headers: dict[str, str] | 
     response.status_code = status_code
     response.ok = status_code < 400
     response.text = text
+    response.encoding = "utf-8"
+    # _fetch_page reads the body via stream=True + iter_content, not response.text.
+    response.iter_content.return_value = iter([text.encode("utf-8")]) if text else iter([])
     response.headers = headers or {}
     response.url = "https://qualysapi.qualys.com/api/2.0/fo/asset/host/"
     return response
@@ -272,6 +277,18 @@ class TestQualysVmdr:
             _fetch_page_unwrapped(session, "https://example.com", mock.MagicMock())
 
         assert exc_info.value.wait_seconds == 42
+
+    def test_read_capped_body_refuses_bodies_over_the_size_cap(self):
+        # A user-controlled host must not be able to make us buffer an unbounded body — the cap
+        # aborts the read (and closes the response) instead of holding it all in memory.
+        response = mock.MagicMock()
+        response.iter_content.return_value = iter([b"a" * 1024, b"b" * 1024])
+
+        with mock.patch(f"{_MODULE}.MAX_RESPONSE_BYTES", 1500):
+            with pytest.raises(QualysVmdrResponseTooLargeError):
+                _read_capped_body(response)
+
+        response.close.assert_called_once()
 
     def test_fetch_page_raises_on_simple_return_error_document(self):
         session = mock.MagicMock()
