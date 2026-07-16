@@ -725,14 +725,6 @@ WHERE and(
             results,
             {
                 0: self._join_with_aggregation_value,  # breakdown_value
-                1: lambda tuple, row: (  # Views (tuple)
-                    self._unsample(tuple[0], row),
-                    self._unsample(tuple[1], row),
-                ),
-                2: lambda tuple, row: (  # Visitors (tuple)
-                    self._unsample(tuple[0], row),
-                    self._unsample(tuple[1], row),
-                ),
             },
         )
 

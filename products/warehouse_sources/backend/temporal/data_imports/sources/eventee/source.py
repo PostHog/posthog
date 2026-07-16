@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class EventeeSource(SimpleSource[EventeeSourceConfig]):
     supported_versions = ("v1",)
     default_version = "v1"
+    api_docs_url = "https://publiceventeeapi.docs.apiary.io/"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

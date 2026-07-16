@@ -1,0 +1,38 @@
+developer_instructions = """
+Run commands that depend on PostHog's development environment through
+`bash "$(git rev-parse --show-toplevel)/.codex/with-flox" <command> [args...]`.
+This includes hogli, Python and uv, Node.js and pnpm, Rust and Go, and local-stack
+commands. Basic filesystem, Git, and GitHub commands can run directly. Never use
+a dependency executable inherited from another checkout. If the wrapper reports
+that setup or a dependency change needs elevated execution, rerun that same
+wrapper command with elevated permissions. Dependency changes also apply the
+existing dev sandbox.
+"""
+
+[sandbox_workspace_write]
+# Flox and dependency managers keep mutable caches outside the worktree.
+writable_roots = [
+    "~/.cache/flox",
+    "~/.cache/node",
+    "~/.cache/uv",
+    "~/.local/share/flox",
+    "~/.local/share/pnpm",
+    "~/Library/pnpm",
+]
+network_access = false
+
+[shell_environment_policy]
+# Keep another checkout's Flox, virtualenv, and compiler paths out of commands.
+inherit = "core"
+# xdist opens a loopback socket even without parallel workers, which the
+# Codex sandbox blocks.
+set = { PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin", PYTEST_ADDOPTS = "-p no:xdist" }
+
+[mcp_servers.phrocs]
+command = "bin/dev-sandbox"
+args = [".flox/cache/venv/bin/python tools/phrocs/mcp_server.py"]
+cwd = ".."
+startup_timeout_sec = 120
+
+[mcp_servers.posthog-local]
+url = "http://localhost:8787/mcp"

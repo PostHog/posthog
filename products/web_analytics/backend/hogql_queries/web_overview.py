@@ -303,22 +303,19 @@ CROSS JOIN {sessions_agg} AS sessions_agg
 
         include_previous = bool(self.query.compareFilter and self.query.compareFilter.compare)
 
-        def get_prev_val(idx, use_unsample=True):
-            if not include_previous:
-                return None
-            return self._unsample(row[idx]) if use_unsample else row[idx]
+        def get_prev_val(idx):
+            return row[idx] if include_previous else None
 
         results = [
-            to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
-            to_data("views", "unit", self._unsample(row[2]), get_prev_val(3)),
-            to_data("sessions", "unit", self._unsample(row[4]), get_prev_val(5)),
-            to_data("session duration", "duration_s", row[6], get_prev_val(7, False)),
-            to_data("bounce rate", "percentage", row[8], get_prev_val(9, False), is_increase_bad=True),
+            to_data("visitors", "unit", row[0], get_prev_val(1)),
+            to_data("views", "unit", row[2], get_prev_val(3)),
+            to_data("sessions", "unit", row[4], get_prev_val(5)),
+            to_data("session duration", "duration_s", row[6], get_prev_val(7)),
+            to_data("bounce rate", "percentage", row[8], get_prev_val(9), is_increase_bad=True),
         ]
 
         return WebOverviewQueryResponse(
             results=results,
-            samplingRate=self._sample_rate,
             modifiers=self.modifiers,
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,
@@ -379,30 +376,27 @@ CROSS JOIN {sessions_agg} AS sessions_agg
         row = response.results[0]
         include_previous = bool(self.query.compareFilter and self.query.compareFilter.compare)
 
-        def get_prev_val(idx, use_unsample=True):
-            if not include_previous:
-                return None
-            return self._unsample(row[idx]) if use_unsample else row[idx]
+        def get_prev_val(idx):
+            return row[idx] if include_previous else None
 
         if self.query.conversionGoal:
             results = [
-                to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
-                to_data("total conversions", "unit", self._unsample(row[2]), get_prev_val(3)),
-                to_data("unique conversions", "unit", self._unsample(row[4]), get_prev_val(5)),
-                to_data("conversion rate", "percentage", row[6], get_prev_val(7, False)),
+                to_data("visitors", "unit", row[0], get_prev_val(1)),
+                to_data("total conversions", "unit", row[2], get_prev_val(3)),
+                to_data("unique conversions", "unit", row[4], get_prev_val(5)),
+                to_data("conversion rate", "percentage", row[6], get_prev_val(7)),
             ]
         else:
             results = [
-                to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
-                to_data("views", "unit", self._unsample(row[2]), get_prev_val(3)),
-                to_data("sessions", "unit", self._unsample(row[4]), get_prev_val(5)),
-                to_data("session duration", "duration_s", row[6], get_prev_val(7, False)),
-                to_data("bounce rate", "percentage", row[8], get_prev_val(9, False), is_increase_bad=True),
+                to_data("visitors", "unit", row[0], get_prev_val(1)),
+                to_data("views", "unit", row[2], get_prev_val(3)),
+                to_data("sessions", "unit", row[4], get_prev_val(5)),
+                to_data("session duration", "duration_s", row[6], get_prev_val(7)),
+                to_data("bounce rate", "percentage", row[8], get_prev_val(9), is_increase_bad=True),
             ]
 
         return WebOverviewQueryResponse(
             results=results,
-            samplingRate=self._sample_rate,
             modifiers=self.modifiers,
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,

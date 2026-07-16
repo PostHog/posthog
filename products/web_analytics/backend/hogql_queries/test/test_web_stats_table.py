@@ -2709,8 +2709,10 @@ class TestWebStatsTableSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
             ("conversion_goal", {"conversionGoal": CustomEventConversionGoal(customEventName="purchase")}, False),
             ("non_page_breakdown", {"breakdownBy": WebStatsBreakdown.INITIAL_CHANNEL_TYPE}, False),
             ("no_bounce_rate", {"includeBounceRate": False}, False),
-            ("sampling_enabled", {"sampling": WebAnalyticsSampling(enabled=True)}, False),
-            ("sampling_factor", {"samplingFactor": 0.1}, False),
+            # Sampling fields are accepted-but-ignored no-ops across web analytics,
+            # so they must not kick eligible queries off the session-id-set path.
+            ("sampling_enabled_ignored", {"sampling": WebAnalyticsSampling(enabled=True)}, True),
+            ("sampling_factor_ignored", {"samplingFactor": 0.1}, True),
         ]
     )
     def test_session_id_set_paths_strategy_selection(self, _name: str, query_kwargs: dict, expected: bool):
