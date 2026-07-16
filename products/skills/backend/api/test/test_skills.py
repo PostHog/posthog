@@ -485,9 +485,9 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         files = response.json()["files"]
         assert len(files) == 2
-        paths = {f["path"] for f in files}
-        assert "scripts/setup.sh" in paths
-        assert "references/guide.md" in paths
+        manifest = {f["path"]: (f["line_count"], f["char_count"]) for f in files}
+        assert manifest["scripts/setup.sh"] == (2, len("#!/bin/bash\necho hi"))
+        assert manifest["references/guide.md"] == (1, len("# Guide"))
 
     def test_get_skill_not_found(self):
         response = self.client.get(self._url("name/nonexistent"))

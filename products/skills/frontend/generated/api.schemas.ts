@@ -214,6 +214,10 @@ export interface LLMSkillFileManifestApi {
     path: string
     /** @maxLength 100 */
     content_type?: string
+    /** Number of lines in the file content. */
+    line_count: number
+    /** Number of characters in the file content. */
+    char_count: number
 }
 
 export interface LLMSkillApi {
@@ -246,7 +250,7 @@ export interface LLMSkillApi {
     metadata?: LLMSkillApiMetadata
     /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
     readonly category: string
-    /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
+    /** Bundled files manifest. Each entry carries path, content_type, and line/char counts — no content; fetch content via /llm_skills/name/{name}/files/{path}/. */
     readonly files: readonly LLMSkillFileManifestApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]

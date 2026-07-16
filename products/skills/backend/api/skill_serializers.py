@@ -2,6 +2,8 @@ import re
 from typing import Any
 
 from django.db import transaction
+from django.db.models import Value
+from django.db.models.functions import Length, Replace
 
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
@@ -216,9 +218,12 @@ class LLMSkillFileSerializer(serializers.ModelSerializer):
 
 
 class LLMSkillFileManifestSerializer(serializers.ModelSerializer):
+    line_count = serializers.IntegerField(help_text="Number of lines in the file content.")
+    char_count = serializers.IntegerField(help_text="Number of characters in the file content.")
+
     class Meta:
         model = LLMSkillFile
-        fields = ["path", "content_type"]
+        fields = ["path", "content_type", "line_count", "char_count"]
 
 
 class LLMSkillFileInputSerializer(serializers.Serializer):
@@ -392,7 +397,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         "(e.g. the Scouts tab) independently of the skill name.",
     )
     files = serializers.SerializerMethodField(
-        help_text="Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/.",
+        help_text="Bundled files manifest. Each entry carries path, content_type, and line/char counts — no content; fetch content via /llm_skills/name/{name}/files/{path}/.",
     )
     outline = serializers.SerializerMethodField(
         help_text="Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents.",
@@ -468,7 +473,12 @@ class LLMSkillSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(LLMSkillFileManifestSerializer(many=True))
     def get_files(self, instance: LLMSkill) -> list[dict[str, Any]]:
-        return [dict(row) for row in LLMSkillFile.objects.filter(skill=instance).values("path", "content_type")]
+        # Counts are computed in the database so the manifest never fetches file contents.
+        annotated = LLMSkillFile.objects.filter(skill=instance).annotate(
+            char_count=Length("content"),
+            line_count=Length("content") - Length(Replace("content", Value("\n"))) + 1,
+        )
+        return [dict(row) for row in annotated.values("path", "content_type", "line_count", "char_count")]
 
     @extend_schema_field(LLMSkillOutlineEntrySerializer(many=True))
     def get_outline(self, instance: LLMSkill) -> list[dict[str, Any]]:
