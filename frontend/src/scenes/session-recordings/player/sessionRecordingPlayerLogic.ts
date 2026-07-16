@@ -57,12 +57,12 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { PreflightStatus, SessionRecordingSnapshotSource, UserType } from '../../../types'
-import type { SessionRecordingType } from '../../../types'
+import type { PreflightStatus, SessionRecordingSnapshotSource, SessionRecordingType, UserType } from '../../../types'
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { playerCommentOverlayLogic } from './commenting/playerFrameCommentOverlayLogic'
+import type { RecordingCommentForm } from './commenting/playerFrameCommentOverlayLogic'
 import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOverlayLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { snapshotDataLogic } from './snapshotDataLogic'
@@ -637,19 +637,17 @@ export interface sessionRecordingPlayerLogicActions {
     } // deletedRecordingsLogic
     startReplayExport: (
         sessionRecordingId: string,
-        format?: ExporterFormat | undefined,
-        timestamp?: number | undefined,
-        duration?: number | undefined,
-        mode?: SessionRecordingPlayerMode | undefined,
-        options?:
-            | {
-                  css_selector?: string
-                  filename?: string
-                  height?: number
-                  skip_inactivity?: boolean
-                  width?: number
-              }
-            | undefined
+        format?: ExporterFormat,
+        timestamp?: number,
+        duration?: number,
+        mode?: SessionRecordingPlayerMode,
+        options?: {
+            css_selector?: string
+            filename?: string
+            height?: number
+            skip_inactivity?: boolean
+            width?: number
+        }
     ) => {
         duration: number | undefined
         format: ExporterFormat | undefined
@@ -1655,10 +1653,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // The relative time for the player, i.e. the offset between the current timestamp, and the window start for the current segment
         toRRWebPlayerTime: [
             (s) => [s.sessionPlayerData, s.currentSegment],
-            (
-                sessionPlayerData: SessionPlayerData,
-                currentSegment: null | import('@posthog/replay-shared').RecordingSegment
-            ) => {
+            (sessionPlayerData: SessionPlayerData, currentSegment: RecordingSegment | null) => {
                 return (timestamp: number): number | undefined => {
                     if (!currentSegment || !currentSegment.windowId) {
                         return
@@ -1677,10 +1672,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // The relative time for the player, i.e. the offset between the current timestamp, and the window start for the current segment
         fromRRWebPlayerTime: [
             (s) => [s.sessionPlayerData, s.currentSegment],
-            (
-                sessionPlayerData: SessionPlayerData,
-                currentSegment: null | import('@posthog/replay-shared').RecordingSegment
-            ) => {
+            (sessionPlayerData: SessionPlayerData, currentSegment: RecordingSegment | null) => {
                 return (time?: number): number | undefined => {
                     if (time === undefined || !currentSegment?.windowId) {
                         return
@@ -1701,7 +1693,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (
                 speed: number,
                 isSkippingInactivity: boolean,
-                currentSegment: null | import('@posthog/replay-shared').RecordingSegment,
+                currentSegment: RecordingSegment | null,
                 currentTimestamp: number | undefined,
                 mode
             ) => {
@@ -1875,8 +1867,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (
                 sessionPlayerData: SessionPlayerData,
                 debugSettings: {
-                    incrementalSources: IncrementalSource[]
-                    types: EventType[]
+                    incrementalSources: import('node_modules/posthog-js/dist/rrweb').IncrementalSource[]
+                    types: import('node_modules/posthog-js/dist/rrweb').EventType[]
                 }
             ): eventWithTime[] => {
                 const allSnapshots = Object.values(sessionPlayerData.snapshotsByWindowId).flat()
@@ -1897,7 +1889,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     timestamp: number
                     url: string
                 }[],
-                sessionPlayerMetaData: SessionRecordingType | null,
+                sessionPlayerMetaData: null | import('~/types').SessionRecordingType,
                 currentTimestamp: number | undefined
             ): string | undefined => {
                 if (!urls.length || !currentTimestamp) {
@@ -1918,7 +1910,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (
                 sessionPlayerData: SessionPlayerData,
                 currentTimestamp: number | undefined,
-                currentSegment: null | import('@posthog/replay-shared').RecordingSegment
+                currentSegment: RecordingSegment | null
             ): { width: number; height: number } | null => {
                 // Find snapshot to pull resolution from
                 if (!currentTimestamp) {

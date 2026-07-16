@@ -460,7 +460,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
         ],
         canEditCurrentView: [
             (s) => [s.currentView, s.user],
-            (currentView: ColumnConfigurationApi | null, user: UserType | null): boolean => {
+            (currentView: ColumnConfigurationApi | null, user: null | import('~/types').UserType): boolean => {
                 if (!currentView || !user) {
                     return false
                 }

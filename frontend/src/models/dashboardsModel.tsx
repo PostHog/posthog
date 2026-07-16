@@ -73,8 +73,8 @@ export interface dashboardsModelValues {
     pagedDashboards: PaginatedResponse<DashboardBasicType> | null
     pagedDashboardsLoading: boolean
     pagingDashboardsCompleted: boolean
-    pinSortedDashboards: unknown[]
-    pinnedDashboards: unknown[]
+    pinSortedDashboards: (DashboardBasicType | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>)[]
+    pinnedDashboards: (DashboardBasicType | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>)[]
     rawDashboards: Record<string, DashboardBasicType | DashboardType<QueryBasedInsightModel>>
     redirect: boolean
 }
@@ -317,14 +317,14 @@ export interface dashboardsModelMeta {
                 | DashboardBasicType
                 | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>
             )[]
-        ) => unknown[]
+        ) => (DashboardBasicType | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>)[]
         dashboardsLoading: (pagedDashboardsLoading: boolean, pagingDashboardsCompleted: boolean) => boolean
         pinnedDashboards: (
             nameSortedDashboards: (
                 | DashboardBasicType
                 | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>
             )[]
-        ) => unknown[]
+        ) => (DashboardBasicType | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>)[]
     }
 }
 
@@ -600,12 +600,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
     selectors(({ selectors }) => ({
         nameSortedDashboards: [
             () => [selectors.rawDashboards],
-            (
-                rawDashboards: Record<
-                    string,
-                    DashboardBasicType | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>
-                >
-            ) => {
+            (rawDashboards: Record<string, DashboardBasicType | DashboardType<QueryBasedInsightModel>>) => {
                 return Object.values(rawDashboards)
                     .filter((dashboard) => !(dashboard.name ?? 'Untitled').startsWith(GENERATED_DASHBOARD_PREFIX))
                     .sort(nameCompareFunction)
@@ -614,7 +609,12 @@ export const dashboardsModel = kea<dashboardsModelType>([
         /** Display dashboards are additionally sorted by pin status: pinned first. */
         pinSortedDashboards: [
             () => [selectors.nameSortedDashboards],
-            (nameSortedDashboards: unknown[]) => {
+            (
+                nameSortedDashboards: (
+                    | DashboardBasicType
+                    | DashboardType<QueryBasedInsightModel<import('../queries/schema').Node<Record<string, any>>>>
+                )[]
+            ) => {
                 return [...nameSortedDashboards].sort(
                     (a, b) => (Number(b.pinned) - Number(a.pinned)) * 10 + nameCompareFunction(a, b)
                 )
@@ -627,7 +627,12 @@ export const dashboardsModel = kea<dashboardsModelType>([
         ],
         pinnedDashboards: [
             () => [selectors.nameSortedDashboards],
-            (nameSortedDashboards: unknown[]) => {
+            (
+                nameSortedDashboards: (
+                    | DashboardBasicType
+                    | DashboardType<QueryBasedInsightModel<import('../queries/schema').Node<Record<string, any>>>>
+                )[]
+            ) => {
                 const pinnedDashboards = nameSortedDashboards.filter((dashboard) => dashboard.pinned)
 
                 return [...pinnedDashboards].sort((a, b) => {

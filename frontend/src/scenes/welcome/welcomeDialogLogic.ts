@@ -340,7 +340,7 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         ],
         organizationName: [
             (s) => [s.welcomeData, s.user],
-            (data: WelcomePayload, user: UserType | null): string =>
+            (data: WelcomePayload, user: null | import('../../types').UserType): string =>
                 data.organization_name || user?.organization?.name || '',
         ],
         // Open for invitees (not the org creator) and for partner-provisioned accounts (which have no
@@ -348,7 +348,11 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         // `storageTick` is in the dependency list so cross-tab localStorage changes re-run the selector.
         shouldShowDialog: [
             (s) => [s.user, s.isProvisionedUser, s.locallyClosed, s.storageTick],
-            (user: UserType | null, isProvisionedUser: boolean, locallyClosed: boolean): boolean => {
+            (
+                user: null | import('../../types').UserType,
+                isProvisionedUser: boolean,
+                locallyClosed: boolean
+            ): boolean => {
                 if (!user || (user.is_organization_first_user !== false && !isProvisionedUser)) {
                     return false
                 }

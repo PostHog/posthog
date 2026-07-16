@@ -92,6 +92,7 @@ import type { CopyFlagsDependencyRequirementsResponseApi } from 'products/featur
 
 import type { CopyFlagsResponseApi } from '../../../../products/feature_flags/frontend/generated/api.schemas'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
+import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
 import type { Node } from '../../queries/schema/schema-general'
 import type {
@@ -99,9 +100,13 @@ import type {
     Experiment,
     FeatureFlagFilters,
     MinimalEarlyAccessFeatureType,
+    OrganizationType,
+    SidePanelTab,
+    TeamPublicType,
+    TeamType,
     UserBasicType,
+    UserType,
 } from '../../types'
-import type { OrganizationType, TeamPublicType, TeamType, UserType } from '../../types'
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
@@ -894,12 +899,10 @@ export interface featureFlagLogicActions {
     updateFlag: (flag: FeatureFlagType) => {
         flag: FeatureFlagType
     } // featureFlagsLogic
-    closeSidePanel: (tab?: import('~/types').SidePanelTab | undefined) => {
-        tab: import('~/types').SidePanelTab | undefined
+    closeSidePanel: (tab?: SidePanelTab) => {
+        tab: SidePanelTab | undefined
     } // sidePanelStateLogic
-    addProductIntent: (
-        properties: import('../../lib/utils/product-intents').ProductIntentProperties
-    ) => import('../../lib/utils/product-intents').ProductIntentProperties // teamLogic
+    addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     addVariant: () => {
         value: true
     }
@@ -4022,7 +4025,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.featureFlag, s.aggregationLabel],
             (
                 featureFlag: FeatureFlagType,
-                aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+                aggregationLabel: (
+                    groupTypeIndex: number | null | undefined,
+                    deferToUserWording?: boolean
+                ) => import('~/models/groupsModel').Noun
             ): string => {
                 if (featureFlag && featureFlag.filters.aggregation_group_type_index != null) {
                     return aggregationLabel(featureFlag.filters.aggregation_group_type_index).plural
@@ -4234,7 +4240,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 upcomingOneTime: ScheduledChangeType[]
             ) => [...activeRecurring, ...pausedRecurring, ...upcomingOneTime].sort(byScheduledAt),
         ],
-        emailDomain: [(s) => [s.user], (user: UserType | null) => user?.email?.split('@')[1] || 'example.com'],
+        emailDomain: [
+            (s) => [s.user],
+            (user: null | import('~/types').UserType) => user?.email?.split('@')[1] || 'example.com',
+        ],
         templates: [
             (s) => [s.emailDomain],
             (

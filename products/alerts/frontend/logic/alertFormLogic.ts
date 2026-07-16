@@ -683,7 +683,10 @@ export const alertFormLogic = kea<alertFormLogicType>([
             (s) => [s.alertFormSubmitAttempted, s.alertFormErrors],
             (
                 submitAttempted: boolean,
-                alertFormErrors: DeepPartialMap<AlertFormType, ValidationErrorType>
+                alertFormErrors: import('node_modules/kea-forms/lib').DeepPartialMap<
+                    AlertFormType,
+                    import('node_modules/kea-forms/lib').ValidationErrorType
+                >
             ): string | undefined => {
                 if (!submitAttempted) {
                     return undefined

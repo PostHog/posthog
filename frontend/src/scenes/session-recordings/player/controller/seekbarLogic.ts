@@ -176,14 +176,18 @@ export const seekbarLogic = kea<seekbarLogicType>([
     selectors({
         endTimeMs: [
             (selectors) => [selectors.sessionPlayerData],
-            (sessionPlayerData: SessionPlayerData) => {
+            (sessionPlayerData: import('../../../../types').SessionPlayerData) => {
                 return sessionPlayerData?.durationMs ?? 0
             },
         ],
 
         scrubbingTime: [
             (selectors) => [selectors.thumbLeftPos, selectors.slider, selectors.sessionPlayerData],
-            (thumbLeftPos: number, slider: HTMLDivElement | null, sessionPlayerData: SessionPlayerData) => {
+            (
+                thumbLeftPos: number,
+                slider: HTMLDivElement | null,
+                sessionPlayerData: import('../../../../types').SessionPlayerData
+            ) => {
                 if (thumbLeftPos && slider && sessionPlayerData?.durationMs) {
                     return ((thumbLeftPos + THUMB_OFFSET) / slider.offsetWidth) * sessionPlayerData.durationMs
                 }

@@ -929,7 +929,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 filters: FeatureFlagFilters & {
                     groups: FeatureFlagGroupTypeWithSortKey[]
                 },
-                groupTypes: Map<GroupTypeIndex, GroupType>
+                groupTypes: Map<GroupTypeIndex, import('~/types').GroupType>
             ): TaxonomicFilterGroupType[] => {
                 const targetGroupTypes = []
                 const targetGroup =
@@ -960,7 +960,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 filters: FeatureFlagFilters & {
                     groups: FeatureFlagGroupTypeWithSortKey[]
                 },
-                aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+                aggregationLabel: (
+                    groupTypeIndex: number | null | undefined,
+                    deferToUserWording?: boolean
+                ) => import('~/models/groupsModel').Noun
             ) =>
                 (conditionGroupTypeIndex?: number | null): string => {
                     const effectiveIndex = resolveAggregationGroupTypeIndex(
@@ -979,7 +982,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 filters: FeatureFlagFilters & {
                     groups: FeatureFlagGroupTypeWithSortKey[]
                 },
-                groupTypes: Map<GroupTypeIndex, GroupType>
+                groupTypes: Map<GroupTypeIndex, import('~/types').GroupType>
             ) =>
                 (conditionGroupTypeIndex: number | null | undefined): TaxonomicFilterGroupType[] => {
                     const effectiveIndex = resolveAggregationGroupTypeIndex(

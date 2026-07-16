@@ -25,8 +25,12 @@ import {
 import { getCoreFilterDefinition, getFirstFilterTypeFor } from '~/taxonomy/helpers'
 import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 
-import type { RecordingSegment, SessionPlayerData, SessionRecordingPropertiesType } from '../../../../types'
-import type { RecordingEventType } from '../../../../types'
+import type {
+    RecordingEventType,
+    RecordingSegment,
+    SessionPlayerData,
+    SessionRecordingPropertiesType,
+} from '../../../../types'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
 import { SeekbarSegmentRange } from '../controller/SeekbarSegments'
 import type { MiniFilterKey } from '../inspector/miniFiltersLogic'
@@ -439,8 +443,11 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         summaryDisabledReason: [
             (s) => [s.allItemsByMiniFilterKey, s.sessionPlayerData],
             (
-                allItemsByMiniFilterKey: Record<string, InspectorListItem[]>,
-                sessionPlayerData: SessionPlayerData
+                allItemsByMiniFilterKey: Record<
+                    import('../inspector/miniFiltersLogic').MiniFilterKey,
+                    import('../inspector/playerInspectorLogic').InspectorListItem[]
+                >,
+                sessionPlayerData: import('~/types').SessionPlayerData
             ): string | undefined => {
                 const eventItems = SUMMARY_EVENT_MINI_FILTER_KEYS.flatMap(
                     (key) => allItemsByMiniFilterKey[key] ?? []
@@ -457,7 +464,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             (s) => [s.sessionPlayerMetaData, s.recordingPropertiesById],
             (
                 sessionPlayerMetaData: SessionRecordingType | null,
-                recordingPropertiesById: Record<string, SessionRecordingPropertiesType[]>
+                recordingPropertiesById: Record<string, import('~/types').SessionRecordingPropertiesType[]>
             ) => {
                 const hasSessionPlayerMetadata = !!sessionPlayerMetaData && !isEmptyObject(sessionPlayerMetaData)
                 const hasRecordingProperties = !!recordingPropertiesById && !isEmptyObject(recordingPropertiesById)
@@ -466,7 +473,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         ],
         sessionPerson: [
             (s) => [s.sessionPlayerData],
-            (playerData: SessionPlayerData): PersonType | null => {
+            (playerData: import('~/types').SessionPlayerData): PersonType | null => {
                 return playerData?.person ?? null
             },
         ],
@@ -489,13 +496,13 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         ],
         startTime: [
             (s) => [s.sessionPlayerData],
-            (sessionPlayerData: SessionPlayerData) => {
+            (sessionPlayerData: import('~/types').SessionPlayerData) => {
                 return sessionPlayerData.start ?? null
             },
         ],
         endTime: [
             (s) => [s.sessionPlayerData],
-            (sessionPlayerData: SessionPlayerData) => {
+            (sessionPlayerData: import('~/types').SessionPlayerData) => {
                 return sessionPlayerData.end ?? null
             },
         ],
@@ -510,14 +517,14 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         ],
         currentWindowIndex: [
             (s) => [s.currentSegment],
-            (currentSegment: null | import('@common/replay-shared/src').RecordingSegment) => {
+            (currentSegment: null | import('~/types').RecordingSegment) => {
                 // windowId is already 1-indexed from the registry
                 return currentSegment?.windowId ?? 1
             },
         ],
         lastPageviewEvent: [
             (s) => [s.sessionEventsData, s.currentPlayerTime],
-            (sessionEventsData: RecordingEventType[] | null, currentPlayerTime: number) => {
+            (sessionEventsData: import('~/types').RecordingEventType[] | null, currentPlayerTime: number) => {
                 const playerTimeClosestSecond = ceilMsToClosestSecond(currentPlayerTime ?? 0)
 
                 if (!sessionEventsData?.length) {

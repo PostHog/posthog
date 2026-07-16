@@ -62,8 +62,7 @@ import {
 
 import type { ExperimentSessionContextItemApi } from '../../../../../../products/experiments/frontend/generated/api.schemas'
 import type { FeatureFlagsSet } from '../../../../lib/logic/featureFlagLogic'
-import type { RecordingSegment, SessionPlayerData } from '../../../../types'
-import type { SessionRecordingType } from '../../../../types'
+import type { RecordingSegment, SessionPlayerData, SessionRecordingType } from '../../../../types'
 import { sessionRecordingExperimentContextLogic } from '../player-meta/sessionRecordingExperimentContextLogic'
 import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
 import {
@@ -914,7 +913,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     selectors(({ props }) => ({
         allowMatchingEventsFilter: [
             (s) => [s.miniFilters],
-            (miniFilters: SharedListMiniFilter[]): boolean => {
+            (
+                miniFilters: import('scenes/session-recordings/player/inspector/miniFiltersLogic').SharedListMiniFilter[]
+            ): boolean => {
                 return (
                     miniFilters.some((mf) => mf.type === 'events' && mf.enabled) &&
                     props.matchingEventsMatchType?.matchType !== 'none'
@@ -940,14 +941,15 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
         collapseInspectorItems: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_COLLAPSE_INSPECTOR_ITEMS],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.REPLAY_COLLAPSE_INSPECTOR_ITEMS],
         ],
 
         processedSnapshotData: [
             (s) => [s.start, s.sessionPlayerData, s.windowNumberForID, s.collapseInspectorItems],
             (
                 start: Dayjs | null,
-                sessionPlayerData: SessionPlayerData,
+                sessionPlayerData: import('~/types').SessionPlayerData,
                 windowNumberForID: (windowId: number | undefined) => number | '?' | undefined,
                 collapseInspectorItems: boolean
             ): {
@@ -1260,7 +1262,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         experimentVariantItems: [
             (s) => [s.experimentItems, s.windowIdForTimestamp, s.windowNumberForID, s.start],
             (
-                experimentItems: ExperimentSessionContextItemApi[],
+                experimentItems: import('products/experiments/frontend/generated/api.schemas').ExperimentSessionContextItemApi[],
                 windowIdForTimestamp: (timestamp: number) => number | undefined,
                 windowNumberForID: (windowId: number | undefined) => number | '?' | undefined,
                 start: Dayjs | null
@@ -1364,8 +1366,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     rawConsoleLogs: RecordingConsoleLogV2[]
                 },
                 windowNumberForID: (windowId: number | undefined) => number | '?' | undefined,
-                sessionPlayerMetaData: SessionRecordingType | null,
-                segments: import('@common/replay-shared/src').RecordingSegment[],
+                sessionPlayerMetaData: null | import('~/types').SessionRecordingType,
+                segments: import('~/types').RecordingSegment[],
                 runtimeDoctorEvents: InspectorListItemDoctor[],
                 experimentVariantItems: InspectorListItemExperimentVariant[]
             ) => {
@@ -1466,9 +1468,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 allContextItems: InspectorListItem[],
                 commentItems: InspectorListItemComment[],
                 notebookCommentItems: InspectorListItemNotebookComment[],
-                sessionPlayerData: SessionPlayerData,
+                sessionPlayerData: import('~/types').SessionPlayerData,
                 miniFiltersByKey: {
-                    [key: string]: SharedListMiniFilter
+                    [key: string]: import('scenes/session-recordings/player/inspector/miniFiltersLogic').SharedListMiniFilter
                 },
                 uuidToIndex: Record<string, number>,
                 logs: LogMessage[]
@@ -1699,7 +1701,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     itemsByType: Record<FilterableInspectorListItemTypes | 'context', InspectorListItem[]>
                 },
                 miniFiltersByKey: {
-                    [key: string]: SharedListMiniFilter
+                    [key: string]: import('scenes/session-recordings/player/inspector/miniFiltersLogic').SharedListMiniFilter
                 },
                 showOnlyMatching: boolean,
                 allowMatchingEventsFilter: boolean,
@@ -1736,7 +1738,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     itemsByType: Record<FilterableInspectorListItemTypes | 'context', InspectorListItem[]>
                 },
                 miniFiltersByKey: {
-                    [key: string]: SharedListMiniFilter
+                    [key: string]: import('scenes/session-recordings/player/inspector/miniFiltersLogic').SharedListMiniFilter
                 },
                 showOnlyMatching: boolean,
                 allowMatchingEventsFilter: boolean,
@@ -1894,22 +1896,14 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
         isLoading: [
             (s) => [s.inspectorDataState],
-            (
-                inspectorDataState: Record<
-                    'comment' | 'console' | 'doctor' | 'events' | 'logs' | 'network',
-                    'empty' | 'loading' | 'ready'
-                >
-            ): boolean => Object.values(inspectorDataState).some((state) => state === 'loading'),
+            (inspectorDataState: Record<FilterableInspectorListItemTypes, 'empty' | 'loading' | 'ready'>): boolean =>
+                Object.values(inspectorDataState).some((state) => state === 'loading'),
         ],
 
         isReady: [
             (s) => [s.inspectorDataState],
-            (
-                inspectorDataState: Record<
-                    'comment' | 'console' | 'doctor' | 'events' | 'logs' | 'network',
-                    'empty' | 'loading' | 'ready'
-                >
-            ): boolean => Object.values(inspectorDataState).every((state) => state === 'ready'),
+            (inspectorDataState: Record<FilterableInspectorListItemTypes, 'empty' | 'loading' | 'ready'>): boolean =>
+                Object.values(inspectorDataState).every((state) => state === 'ready'),
         ],
 
         playbackIndicatorIndex: [
@@ -2004,12 +1998,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
         hasEventsToDisplay: [
             (s) => [s.allItemsByItemType],
-            (
-                allItemsByItemType: Record<
-                    'comment' | 'console' | 'context' | 'doctor' | 'events' | 'logs' | 'network',
-                    InspectorListItem[]
-                >
-            ): boolean => allItemsByItemType['events']?.length > 0,
+            (allItemsByItemType: Record<FilterableInspectorListItemTypes | 'context', InspectorListItem[]>): boolean =>
+                allItemsByItemType['events']?.length > 0,
         ],
     })),
     listeners(({ values, actions }) => ({

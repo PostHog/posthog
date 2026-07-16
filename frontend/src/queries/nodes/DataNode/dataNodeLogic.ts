@@ -102,6 +102,7 @@ import type {
     TraceSpansQueryResponse,
     TraceSpansTreeQueryResponse,
 } from '../../schema/schema-general'
+import type { DataNodeRegisteredProps } from './dataNodeCollectionLogic'
 
 export interface DataNodeLogicProps {
     key: string
@@ -306,10 +307,10 @@ export interface dataNodeLogicActions {
     } // dataNodeCollectionLogic
     mountDataNode: (
         id: string,
-        props: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').DataNodeRegisteredProps
+        props: DataNodeRegisteredProps
     ) => {
         id: string
-        props: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').DataNodeRegisteredProps
+        props: DataNodeRegisteredProps
     } // dataNodeCollectionLogic
     unmountDataNode: (id: string) => {
         id: string
@@ -1415,19 +1416,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 query: DataNode<Record<string, any>>,
                 response:
                     | ErrorTrackingQueryResponse
-                    | HogQLAutocompleteResponse
-                    | HogQLMetadataResponse
                     | HogQLQueryResponse<any[]>
-                    | HogQueryResponse
-                    | LogAttributesQueryResponse
-                    | LogValuesQueryResponse
-                    | MetricsQueryResponse
                     | Record<string, any>
                     | SessionsQueryResponse
-                    | TraceSpansAggregationQueryResponse
-                    | TraceSpansAttributeBreakdownQueryResponse
-                    | TraceSpansQueryResponse
                     | null
+                    | import('~/queries/schema/schema-general').HogQLAutocompleteResponse
+                    | import('~/queries/schema/schema-general').HogQLMetadataResponse
+                    | import('~/queries/schema/schema-general').HogQueryResponse
+                    | import('~/queries/schema/schema-general').LogAttributesQueryResponse
+                    | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansQueryResponse
             ): DataNode | null => {
                 if (!isEventsQuery(query)) {
                     return null
@@ -1454,7 +1455,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
         canLoadNewData: [
             (s) => [s.newQuery, s.isShowingCachedResults],
-            (newQuery: DataNode<Record<string, any>> | null, isShowingCachedResults: boolean) =>
+            (newQuery: DataNode | null, isShowingCachedResults: boolean) =>
                 isShowingCachedResults ? false : !!newQuery,
         ],
         nextQuery: [
@@ -1470,19 +1471,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 query: DataNode<Record<string, any>>,
                 response:
                     | ErrorTrackingQueryResponse
-                    | HogQLAutocompleteResponse
-                    | HogQLMetadataResponse
                     | HogQLQueryResponse<any[]>
-                    | HogQueryResponse
-                    | LogAttributesQueryResponse
-                    | LogValuesQueryResponse
-                    | MetricsQueryResponse
                     | Record<string, any>
                     | SessionsQueryResponse
-                    | TraceSpansAggregationQueryResponse
-                    | TraceSpansAttributeBreakdownQueryResponse
-                    | TraceSpansQueryResponse
-                    | null,
+                    | null
+                    | import('~/queries/schema/schema-general').HogQLAutocompleteResponse
+                    | import('~/queries/schema/schema-general').HogQLMetadataResponse
+                    | import('~/queries/schema/schema-general').HogQueryResponse
+                    | import('~/queries/schema/schema-general').LogAttributesQueryResponse
+                    | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansQueryResponse,
                 responseError: string | null,
                 dataLoading: boolean,
                 isShowingCachedResults: boolean,
@@ -1594,7 +1595,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
         canLoadNextData: [
             (s) => [s.nextQuery, s.isShowingCachedResults],
-            (nextQuery: DataNode<Record<string, any>> | null, isShowingCachedResults: boolean) =>
+            (nextQuery: DataNode | null, isShowingCachedResults: boolean) =>
                 isShowingCachedResults ? false : !!nextQuery,
         ],
         hasMoreData: [
@@ -1602,19 +1603,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (
                 response:
                     | ErrorTrackingQueryResponse
-                    | HogQLAutocompleteResponse
-                    | HogQLMetadataResponse
                     | HogQLQueryResponse<any[]>
-                    | HogQueryResponse
-                    | LogAttributesQueryResponse
-                    | LogValuesQueryResponse
-                    | MetricsQueryResponse
                     | Record<string, any>
                     | SessionsQueryResponse
-                    | TraceSpansAggregationQueryResponse
-                    | TraceSpansAttributeBreakdownQueryResponse
-                    | TraceSpansQueryResponse
                     | null
+                    | import('~/queries/schema/schema-general').HogQLAutocompleteResponse
+                    | import('~/queries/schema/schema-general').HogQLMetadataResponse
+                    | import('~/queries/schema/schema-general').HogQueryResponse
+                    | import('~/queries/schema/schema-general').LogAttributesQueryResponse
+                    | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansQueryResponse
             ): boolean => {
                 return response && 'hasMore' in response && response.hasMore
             },
@@ -1625,19 +1626,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (
                 response:
                     | ErrorTrackingQueryResponse
-                    | HogQLAutocompleteResponse
-                    | HogQLMetadataResponse
                     | HogQLQueryResponse<any[]>
-                    | HogQueryResponse
-                    | LogAttributesQueryResponse
-                    | LogValuesQueryResponse
-                    | MetricsQueryResponse
                     | Record<string, any>
                     | SessionsQueryResponse
-                    | TraceSpansAggregationQueryResponse
-                    | TraceSpansAttributeBreakdownQueryResponse
-                    | TraceSpansQueryResponse
                     | null
+                    | import('~/queries/schema/schema-general').HogQLAutocompleteResponse
+                    | import('~/queries/schema/schema-general').HogQLMetadataResponse
+                    | import('~/queries/schema/schema-general').HogQueryResponse
+                    | import('~/queries/schema/schema-general').LogAttributesQueryResponse
+                    | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansQueryResponse
             ): number | null => {
                 return response && 'limit' in response ? (response.limit ?? null) : null
             },
@@ -1669,19 +1670,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (
                 response:
                     | ErrorTrackingQueryResponse
-                    | HogQLAutocompleteResponse
-                    | HogQLMetadataResponse
                     | HogQLQueryResponse<any[]>
-                    | HogQueryResponse
-                    | LogAttributesQueryResponse
-                    | LogValuesQueryResponse
-                    | MetricsQueryResponse
                     | Record<string, any>
                     | SessionsQueryResponse
-                    | TraceSpansAggregationQueryResponse
-                    | TraceSpansAttributeBreakdownQueryResponse
-                    | TraceSpansQueryResponse
                     | null
+                    | import('~/queries/schema/schema-general').HogQLAutocompleteResponse
+                    | import('~/queries/schema/schema-general').HogQLMetadataResponse
+                    | import('~/queries/schema/schema-general').HogQueryResponse
+                    | import('~/queries/schema/schema-general').LogAttributesQueryResponse
+                    | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansQueryResponse
             ): string | null => {
                 return response && 'last_refresh' in response ? response.last_refresh : null
             },
@@ -1692,19 +1693,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 query: DataNode<Record<string, any>>,
                 response:
                     | ErrorTrackingQueryResponse
-                    | HogQLAutocompleteResponse
-                    | HogQLMetadataResponse
                     | HogQLQueryResponse<any[]>
-                    | HogQueryResponse
-                    | LogAttributesQueryResponse
-                    | LogValuesQueryResponse
-                    | MetricsQueryResponse
                     | Record<string, any>
                     | SessionsQueryResponse
-                    | TraceSpansAggregationQueryResponse
-                    | TraceSpansAttributeBreakdownQueryResponse
-                    | TraceSpansQueryResponse
                     | null
+                    | import('~/queries/schema/schema-general').HogQLAutocompleteResponse
+                    | import('~/queries/schema/schema-general').HogQLMetadataResponse
+                    | import('~/queries/schema/schema-general').HogQueryResponse
+                    | import('~/queries/schema/schema-general').LogAttributesQueryResponse
+                    | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansQueryResponse
             ): string | null => {
                 return isInsightQueryNode(query) && response && 'next_allowed_client_refresh' in response
                     ? response.next_allowed_client_refresh
@@ -1742,19 +1743,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (
                 response:
                     | ErrorTrackingQueryResponse
-                    | HogQLAutocompleteResponse
-                    | HogQLMetadataResponse
                     | HogQLQueryResponse<any[]>
-                    | HogQueryResponse
-                    | LogAttributesQueryResponse
-                    | LogValuesQueryResponse
-                    | MetricsQueryResponse
                     | Record<string, any>
                     | SessionsQueryResponse
-                    | TraceSpansAggregationQueryResponse
-                    | TraceSpansAttributeBreakdownQueryResponse
-                    | TraceSpansQueryResponse
                     | null
+                    | import('~/queries/schema/schema-general').HogQLAutocompleteResponse
+                    | import('~/queries/schema/schema-general').HogQLMetadataResponse
+                    | import('~/queries/schema/schema-general').HogQueryResponse
+                    | import('~/queries/schema/schema-general').LogAttributesQueryResponse
+                    | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansQueryResponse
             ): QueryTiming[] | null => {
                 return response && 'timings' in response ? response.timings : null
             },
@@ -1764,19 +1765,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (
                 response:
                     | ErrorTrackingQueryResponse
-                    | HogQLAutocompleteResponse
-                    | HogQLMetadataResponse
                     | HogQLQueryResponse<any[]>
-                    | HogQueryResponse
-                    | LogAttributesQueryResponse
-                    | LogValuesQueryResponse
-                    | MetricsQueryResponse
                     | Record<string, any>
                     | SessionsQueryResponse
-                    | TraceSpansAggregationQueryResponse
-                    | TraceSpansAttributeBreakdownQueryResponse
-                    | TraceSpansQueryResponse
                     | null
+                    | import('~/queries/schema/schema-general').HogQLAutocompleteResponse
+                    | import('~/queries/schema/schema-general').HogQLMetadataResponse
+                    | import('~/queries/schema/schema-general').HogQueryResponse
+                    | import('~/queries/schema/schema-general').LogAttributesQueryResponse
+                    | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
+                    | import('~/queries/schema/schema-general').TraceSpansQueryResponse
             ): number | null => {
                 if (!response) {
                     return null

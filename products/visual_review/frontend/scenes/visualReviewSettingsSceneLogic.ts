@@ -9,7 +9,7 @@ import { Breadcrumb } from '~/types'
 
 import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
 
-import type { IntegrationType } from '../../../../frontend/src/types'
+import type { IntegrationType, UserBasicType } from '../../../../frontend/src/types'
 import { visualReviewReposCreate, visualReviewReposList, visualReviewReposPartialUpdate } from '../generated/api'
 import type { PatchedUpdateRepoRequestInputApi, RepoApi } from '../generated/api.schemas'
 
@@ -54,7 +54,7 @@ export interface visualReviewSettingsSceneLogicActions {
         integrations: {
             config: any
             created_at: string
-            created_by?: null | import('~/types').UserBasicType | undefined
+            created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
             icon_url: any
@@ -104,7 +104,7 @@ export interface visualReviewSettingsSceneLogicActions {
         integrations: {
             config: any
             created_at: string
-            created_by?: null | import('~/types').UserBasicType | undefined
+            created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
             icon_url: any

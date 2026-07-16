@@ -167,7 +167,7 @@ export const wizardLogic = kea<wizardLogicType>([
     selectors({
         availableProjects: [
             (s) => [s.currentOrganization],
-            (currentOrganization: OrganizationType | null) => {
+            (currentOrganization: null | import('../../types').OrganizationType) => {
                 return (
                     currentOrganization?.teams?.map((team) => ({
                         value: team.id,

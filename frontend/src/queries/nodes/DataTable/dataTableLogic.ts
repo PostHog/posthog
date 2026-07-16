@@ -369,7 +369,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
             (
                 query: DataTableNode,
                 columnsInQuery: string[],
-                featureFlags: FeatureFlagsSet,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 context
             ): RequiredExcept<
                 Omit<DataTableNode, 'response'>,

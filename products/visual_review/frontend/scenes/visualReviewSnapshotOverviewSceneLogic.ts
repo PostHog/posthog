@@ -377,12 +377,14 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
         filteredEntries: [
             (s) => [s.decoratedEntries, s.filters],
             (
-                entries: (BaselineEntryApi & {
-                    _area: string
-                    _stability: string[]
-                    _theme: 'dark' | 'light' | null
-                    _typeKey: string
-                })[],
+                entries: Array<
+                    BaselineEntryApi & {
+                        _area: string
+                        _stability: string[]
+                        _theme: 'dark' | 'light' | null
+                        _typeKey: string
+                    }
+                >,
                 filters: Filters
             ) => {
                 const filtered = applyFilters(entries, filters)
@@ -401,12 +403,14 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
         frequentlyToleratedCount: [
             (s) => [s.decoratedEntries, s.overview],
             (
-                entries: (BaselineEntryApi & {
-                    _area: string
-                    _stability: string[]
-                    _theme: 'dark' | 'light' | null
-                    _typeKey: string
-                })[],
+                entries: Array<
+                    BaselineEntryApi & {
+                        _area: string
+                        _stability: string[]
+                        _theme: 'dark' | 'light' | null
+                        _typeKey: string
+                    }
+                >,
                 overview: BaselineOverviewApi | null
             ): number =>
                 overview?.totals.frequently_tolerated ?? entries.filter((e) => e.tolerate_count_90d >= 3).length,
@@ -414,12 +418,14 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
         statCounts: [
             (s) => [s.decoratedEntries, s.overview],
             (
-                entries: (BaselineEntryApi & {
-                    _area: string
-                    _stability: string[]
-                    _theme: 'dark' | 'light' | null
-                    _typeKey: string
-                })[],
+                entries: Array<
+                    BaselineEntryApi & {
+                        _area: string
+                        _stability: string[]
+                        _theme: 'dark' | 'light' | null
+                        _typeKey: string
+                    }
+                >,
                 overview: BaselineOverviewApi | null
             ): Record<StatPreset, number> => {
                 const totals = overview?.totals
@@ -446,12 +452,14 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
         facetGroups: [
             (s) => [s.decoratedEntries, s.filters],
             (
-                entries: (BaselineEntryApi & {
-                    _area: string
-                    _stability: string[]
-                    _theme: 'dark' | 'light' | null
-                    _typeKey: string
-                })[],
+                entries: Array<
+                    BaselineEntryApi & {
+                        _area: string
+                        _stability: string[]
+                        _theme: 'dark' | 'light' | null
+                        _typeKey: string
+                    }
+                >,
                 filters: Filters
             ): FacetGroups => {
                 const typeBase = applyFilters(entries, filters, 'typeKeys')
@@ -488,7 +496,7 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
         // Single scene crumb — see runs scene for why we collapse to one.
         breadcrumbs: [
             (s) => [s.repo],
-            (repo: RepoApi | null): Breadcrumb[] => [
+            (repo: null | import('../generated/api.schemas').RepoApi): Breadcrumb[] => [
                 {
                     key: ['visual_review_repo', repo?.id ?? 'unknown'],
                     name: repo?.repo_full_name ?? 'Visual review',

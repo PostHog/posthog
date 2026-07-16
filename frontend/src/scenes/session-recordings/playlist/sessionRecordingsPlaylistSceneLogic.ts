@@ -390,7 +390,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
             (s) => [s.filters, s.cohortsById],
             (
                 filters: LegacyRecordingFilters | RecordingUniversalFilters | null,
-                cohortsById: Partial<Record<number | string, CohortType>>
+                cohortsById: Partial<Record<number | string, import('~/types').CohortType>>
             ) => {
                 if (!filters) {
                     return 'Unnamed'

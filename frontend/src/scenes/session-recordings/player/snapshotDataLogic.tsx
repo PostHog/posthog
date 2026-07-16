@@ -654,15 +654,14 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
         snapshotsLoaded: [
             (s) => [s.snapshotSources],
-            (snapshotSources: import('@posthog/replay-shared').SessionRecordingSnapshotSource[] | null): boolean =>
-                !!snapshotSources,
+            (snapshotSources: SessionRecordingSnapshotSource[] | null): boolean => !!snapshotSources,
         ],
 
         isLoadingSnapshots: [
             (s) => [s.loadingSources],
             (
                 loadingSources: Pick<
-                    import('@posthog/replay-shared').SessionRecordingSnapshotSource,
+                    SessionRecordingSnapshotSource,
                     'blob_key' | 'end_timestamp' | 'source' | 'start_timestamp'
                 >[]
             ): boolean => {
@@ -672,10 +671,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
         allSourcesLoaded: [
             (s) => [s.snapshotSources, s.storeVersion],
-            (
-                snapshotSources: import('@posthog/replay-shared').SessionRecordingSnapshotSource[] | null,
-                _storeVersion: number
-            ): boolean => {
+            (snapshotSources: SessionRecordingSnapshotSource[] | null, _storeVersion: number): boolean => {
                 if (!snapshotSources || snapshotSources.length === 0) {
                     return false
                 }

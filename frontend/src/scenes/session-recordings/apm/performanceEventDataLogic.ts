@@ -137,7 +137,10 @@ export const performanceEventDataLogic = kea<performanceEventDataLogicType>([
     selectors(() => ({
         allPerformanceEvents: [
             (s) => [s.sessionPlayerData, s.webVitalsEvents],
-            (sessionPlayerData: SessionPlayerData, webVitalsEvents: RecordingEventType[]): PerformanceEvent[] => {
+            (
+                sessionPlayerData: import('~/types').SessionPlayerData,
+                webVitalsEvents: RecordingEventType[]
+            ): PerformanceEvent[] => {
                 // TRICKY: we listen to webVitalsEventsLoading to trigger a recompute once all the data is present
 
                 // performanceEvents used to come from the API,

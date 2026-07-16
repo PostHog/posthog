@@ -13,7 +13,8 @@ import { userLogic } from 'scenes/userLogic'
 import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
 import { CommentType } from '~/types'
 
-import type { OrganizationMemberType, UserType } from '../../types'
+import type { UserType } from '../../types'
+import type { OrganizationMemberType } from '../../types'
 import { discussionsSlug, getTextContent } from './utils'
 
 export type CommentsLogicProps = {
@@ -643,14 +644,14 @@ export const commentsLogic = kea<commentsLogicType>([
 
         isMyComment: [
             (s) => [s.user],
-            (user: UserType | null) => {
+            (user: null | import('~/types').UserType) => {
                 return (comment: CommentType): boolean => comment.created_by?.uuid === user?.uuid
             },
         ],
 
         disabledReasonFor: [
             (s) => [s.user],
-            (user: UserType | null) => {
+            (user: null | import('~/types').UserType) => {
                 return (comment: CommentType): string | null =>
                     comment.created_by?.uuid === user?.uuid ? null : 'You can only delete your own comments'
             },

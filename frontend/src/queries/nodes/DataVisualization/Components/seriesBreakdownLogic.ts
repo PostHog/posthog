@@ -3,8 +3,9 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { DataColorTheme } from 'lib/colors'
 import { dataThemeLogic, getColorFromToken } from 'scenes/dataThemeLogic'
 
-import type { ChartSettings, DataVisualizationNode } from '../../../schema/schema-general'
 import type {
+    ChartSettings,
+    DataVisualizationNode,
     ErrorTrackingQueryResponse,
     HogQLAutocompleteResponse,
     HogQLMetadataResponse,
@@ -237,7 +238,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
     selectors({
         selectedSeriesBreakdownColumn: [
             (s) => [s.query],
-            (query: DataVisualizationNode): string | null | undefined => {
+            (query: import('../../../schema').DataVisualizationNode): string | null | undefined => {
                 return query?.chartSettings?.seriesBreakdownColumn
             },
         ],
@@ -251,21 +252,21 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
             (
                 breakdownColumn: string | null | undefined,
                 response:
-                    | ErrorTrackingQueryResponse
-                    | HogQLAutocompleteResponse
-                    | HogQLMetadataResponse
-                    | HogQLQueryResponse<any[]>
-                    | HogQueryResponse
-                    | LogAttributesQueryResponse
-                    | LogValuesQueryResponse
-                    | MetricsQueryResponse
                     | Record<string, any>
-                    | SessionsQueryResponse
-                    | TraceSpansAggregationQueryResponse
-                    | TraceSpansAttributeBreakdownQueryResponse
-                    | TraceSpansQueryResponse
-                    | null,
-                columns: Column[]
+                    | null
+                    | import('../../../schema').ErrorTrackingQueryResponse
+                    | import('../../../schema').HogQLAutocompleteResponse
+                    | import('../../../schema').HogQLMetadataResponse
+                    | import('../../../schema').HogQLQueryResponse<any[]>
+                    | import('../../../schema').HogQueryResponse
+                    | import('../../../schema').LogAttributesQueryResponse
+                    | import('../../../schema').LogValuesQueryResponse
+                    | import('../../../schema').MetricsQueryResponse
+                    | import('../../../schema').SessionsQueryResponse
+                    | import('../../../schema').TraceSpansAggregationQueryResponse
+                    | import('../../../schema').TraceSpansAttributeBreakdownQueryResponse
+                    | import('../../../schema').TraceSpansQueryResponse,
+                columns: import('../dataVisualizationLogic').Column[]
             ): string[] => {
                 if (!response || breakdownColumn === null) {
                     return []
@@ -299,22 +300,22 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                 ySeries: (SelectedYAxis | null)[] | null,
                 xSeries: string | null,
                 response:
-                    | ErrorTrackingQueryResponse
-                    | HogQLAutocompleteResponse
-                    | HogQLMetadataResponse
-                    | HogQLQueryResponse<any[]>
-                    | HogQueryResponse
-                    | LogAttributesQueryResponse
-                    | LogValuesQueryResponse
-                    | MetricsQueryResponse
                     | Record<string, any>
-                    | SessionsQueryResponse
-                    | TraceSpansAggregationQueryResponse
-                    | TraceSpansAttributeBreakdownQueryResponse
-                    | TraceSpansQueryResponse
-                    | null,
-                columns: Column[],
-                chartSettings: ChartSettings,
+                    | null
+                    | import('../../../schema').ErrorTrackingQueryResponse
+                    | import('../../../schema').HogQLAutocompleteResponse
+                    | import('../../../schema').HogQLMetadataResponse
+                    | import('../../../schema').HogQLQueryResponse<any[]>
+                    | import('../../../schema').HogQueryResponse
+                    | import('../../../schema').LogAttributesQueryResponse
+                    | import('../../../schema').LogValuesQueryResponse
+                    | import('../../../schema').MetricsQueryResponse
+                    | import('../../../schema').SessionsQueryResponse
+                    | import('../../../schema').TraceSpansAggregationQueryResponse
+                    | import('../../../schema').TraceSpansAttributeBreakdownQueryResponse
+                    | import('../../../schema').TraceSpansQueryResponse,
+                columns: import('../dataVisualizationLogic').Column[],
+                chartSettings: import('../../../schema').ChartSettings,
                 getTheme: (themeId: string | number | null | undefined) => DataColorTheme | null
             ): BreakdownSeriesData<number | null> => {
                 if (

@@ -221,7 +221,12 @@ export const playerInspectorLogsLogic = kea<playerInspectorLogsLogicType>([
     selectors(() => ({
         readyToLoadLogs: [
             (s) => [s.featureFlags, s.start, s.end, (_, props) => props.sessionRecordingId],
-            (featureFlags: FeatureFlagsSet, start: Dayjs | null, end: Dayjs | null, sessionRecordingId): boolean =>
+            (
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                start: Dayjs | null,
+                end: Dayjs | null,
+                sessionRecordingId
+            ): boolean =>
                 !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS] && !!start && !!end && !!sessionRecordingId,
         ],
     })),

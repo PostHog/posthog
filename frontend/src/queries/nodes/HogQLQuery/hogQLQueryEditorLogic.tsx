@@ -36,6 +36,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { DataNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
+import type { DataWarehouseSavedQuery } from '../../../types'
 
 export interface HogQLQueryEditorLogicProps {
     key: string | number
@@ -69,12 +70,12 @@ export interface hogQLQueryEditorLogicActions {
         types: string[][]
     } // dataWarehouseSettingsSceneLogic
     createDataWarehouseSavedQuery: (
-        view: Partial<import('../../../types').DataWarehouseSavedQuery> & {
+        view: Partial<DataWarehouseSavedQuery> & {
             dag_id?: string
             folder_id?: string | null
             types: string[][]
         }
-    ) => Partial<import('../../../types').DataWarehouseSavedQuery> & {
+    ) => Partial<DataWarehouseSavedQuery> & {
         dag_id?: string
         folder_id?: string | null
         types: string[][]

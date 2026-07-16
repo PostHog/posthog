@@ -10,6 +10,7 @@ import {
     EmptyYAxisSeries,
     dataVisualizationLogic,
 } from '../dataVisualizationLogic'
+import type { AxisSeriesSettings } from '../dataVisualizationLogic'
 
 export interface YSeriesLogicProps {
     series: AxisSeries<number | null>
@@ -103,11 +104,11 @@ export interface ySeriesLogicActions {
     updateSeriesIndex: (
         seriesIndex: number,
         columnName: string,
-        settings?: import('../dataVisualizationLogic').AxisSeriesSettings | undefined
+        settings?: AxisSeriesSettings | undefined
     ) => {
         columnName: string
         seriesIndex: number
-        settings: import('../dataVisualizationLogic').AxisSeriesSettings | undefined
+        settings: AxisSeriesSettings | undefined
     } // dataVisualizationLogic
     resetDisplay: (values?: {
         color: string

@@ -446,7 +446,8 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
 
         isEnabled: [
             (s) => [s.currentTeam],
-            (team: TeamPublicType | TeamType | null): boolean => team?.default_evaluation_contexts_enabled || false,
+            (team: null | import('../../types').TeamPublicType | import('../../types').TeamType): boolean =>
+                team?.default_evaluation_contexts_enabled || false,
         ],
 
         canAddMoreContexts: [

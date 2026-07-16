@@ -10,9 +10,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import { annotationsModel } from '~/models/annotationsModel'
 import { SessionRecordingId, SessionRecordingType } from '~/types'
 
-import type { RecordingSnapshot } from '../../../../../common/replay-shared/src/types'
-import type { PersonType } from '../../../types'
-import type { AnnotationType, SessionRecordingSnapshotSource, TeamPublicType, TeamType } from '../../../types'
+import type {
+    AnnotationType,
+    PersonType,
+    RecordingSnapshot,
+    SessionRecordingSnapshotSource,
+    TeamPublicType,
+    TeamType,
+} from '../../../types'
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 
 export interface SessionRecordingMetaLogicProps {
@@ -83,8 +88,8 @@ export interface sessionRecordingMetaLogicActions {
                   sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
               }
     } // snapshotLogic
-    setSnapshots: (snapshots: RecordingSnapshot[]) => {
-        snapshots: import('~/types').RecordingSnapshot[]
+    setSnapshots: (snapshots: import('@common/replay-shared/src').RecordingSnapshot[]) => {
+        snapshots: RecordingSnapshot[]
     } // snapshotLogic
     loadRecordingFromFile: (recording: ExportedSessionRecordingFileV2['data']) => {
         recording: {

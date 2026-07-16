@@ -75,6 +75,7 @@ import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { RecordingOrderDirection } from '../../../queries/schema/schema-general'
 import type { AutoplayDirection } from '../../../types'
 import type { HideViewedRecordingsOptions } from '../player/playerSettingsLogic'
+import type { SessionRecordingFilterType } from '../sessionRecordingEventUsageLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
 
@@ -500,10 +501,8 @@ export interface sessionRecordingsPlaylistLogicActions {
         filters: RecordingUniversalFilters
         loadTime: number
     } // sessionRecordingEventUsageLogic
-    reportRecordingsListFilterAdded: (
-        filterType: import('scenes/session-recordings/sessionRecordingEventUsageLogic').SessionRecordingFilterType
-    ) => {
-        filterType: import('scenes/session-recordings/sessionRecordingEventUsageLogic').SessionRecordingFilterType
+    reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => {
+        filterType: SessionRecordingFilterType
     } // sessionRecordingEventUsageLogic
     maybeLoadPropertiesForSessions: (sessions: SessionRecordingType[]) => {
         sessions: SessionRecordingType[]
@@ -1594,7 +1593,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         allowEventPropertyExpansion: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => {
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean => {
                 return !!featureFlags[FEATURE_FLAGS.RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION]
             },
         ],
@@ -1649,7 +1648,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         activeSessionRecordingId: [
             (s) => [s.selectedRecordingId, s.recordings, (_, props) => props.autoPlay],
             (
-                selectedRecordingId: string | null,
+                selectedRecordingId: SessionRecordingType['id'] | null,
                 recordings: SessionRecordingType[],
                 autoPlay
             ): SessionRecordingId | undefined => {
@@ -1660,7 +1659,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         activeSessionRecording: [
             (s) => [s.activeSessionRecordingId, s.recordings],
             (
-                activeSessionRecordingId: string | undefined,
+                activeSessionRecordingId: SessionRecordingId | undefined,
                 recordings: SessionRecordingType[]
             ): SessionRecordingType | undefined => {
                 return recordings.find((rec) => rec.id === activeSessionRecordingId)
@@ -1669,7 +1668,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         selectedRecordingOutsideFilters: [
             (s) => [s.selectedRecordingId, s.recordings],
-            (selectedRecordingId: string | null, recordings: SessionRecordingType[]): boolean => {
+            (selectedRecordingId: SessionRecordingType['id'] | null, recordings: SessionRecordingType[]): boolean => {
                 if (!selectedRecordingId) {
                     return false
                 }
@@ -1682,7 +1681,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (
                 activeSessionRecording: SessionRecordingType | undefined,
                 recordings: SessionRecordingType[],
-                autoplayDirection: AutoplayDirection
+                autoplayDirection: import('~/types').AutoplayDirection
             ): Partial<SessionRecordingType> | undefined => {
                 if (!activeSessionRecording || !autoplayDirection) {
                     return
@@ -1731,8 +1730,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (s) => [s.sessionRecordings, s.hideViewedRecordings, s.selectedRecordingId, s.deletedRecordingIds],
             (
                 sessionRecordings: SessionRecordingType[],
-                hideViewedRecordings: HideViewedRecordingsOptions,
-                selectedRecordingId: string | null,
+                hideViewedRecordings: import('../player/playerSettingsLogic').HideViewedRecordingsOptions,
+                selectedRecordingId: SessionRecordingType['id'] | null,
                 deletedRecordingIds: Set<string>
             ): SessionRecordingType[] => {
                 return sessionRecordings.filter((rec) => {
@@ -1768,10 +1767,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ],
             (
                 sessionRecordings: SessionRecordingType[],
-                hideViewedRecordings: HideViewedRecordingsOptions,
+                hideViewedRecordings: import('../player/playerSettingsLogic').HideViewedRecordingsOptions,
                 pinnedRecordings: SessionRecordingType[],
                 deletedRecordingIds: Set<string>,
-                selectedRecordingId: string | null,
+                selectedRecordingId: SessionRecordingType['id'] | null,
                 filters: RecordingUniversalFilters
             ): SessionRecordingType[] => {
                 const filteredRecordings = sessionRecordings.filter((rec) => {
@@ -1844,7 +1843,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         allowHogQLFilters: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS],
         ],
     }),
 

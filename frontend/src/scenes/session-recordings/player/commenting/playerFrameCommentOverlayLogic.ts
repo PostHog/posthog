@@ -191,7 +191,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
     selectors({
         timestampUnits: [
             (s) => [s.sessionPlayerData],
-            (sessionPlayerData: SessionPlayerData) => {
+            (sessionPlayerData: import('~/types').SessionPlayerData) => {
                 const endTimeSeconds = Math.floor(sessionPlayerData.durationMs / 1000)
                 return endTimeSeconds > 3600 ? 3 : 2
             },

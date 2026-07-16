@@ -804,7 +804,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         ],
         eventMetadataPropertyDefinitions: [
             (s) => [s.groupTypes],
-            (groupTypes: Map<GroupTypeIndex, GroupType>) => {
+            (groupTypes: Map<GroupTypeIndex, import('~/types').GroupType>) => {
                 const definitions = [
                     {
                         id: 'event',

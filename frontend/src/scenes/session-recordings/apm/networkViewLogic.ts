@@ -11,8 +11,7 @@ import {
 
 import { PerformanceEvent } from '~/types'
 
-import type { SessionPlayerData } from '../../../types'
-import type { SessionRecordingType } from '../../../types'
+import type { SessionPlayerData, SessionRecordingType } from '../../../types'
 import type { AssetSizeInfo } from './performanceEventDataLogic'
 
 export interface NetworkViewLogicProps extends SessionRecordingDataCoordinatorLogicProps {}

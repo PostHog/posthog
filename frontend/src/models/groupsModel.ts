@@ -220,7 +220,7 @@ export const groupsModel = kea<groupsModelType>([
     selectors({
         groupTypes: [
             (s) => [s.groupTypesRaw],
-            (groupTypesRaw: GroupType[]) =>
+            (groupTypesRaw: Array<GroupType>) =>
                 new Map<GroupTypeIndex, GroupType>(
                     (groupTypesRaw ?? []).map((groupType) => [groupType.group_type_index, groupType])
                 ),

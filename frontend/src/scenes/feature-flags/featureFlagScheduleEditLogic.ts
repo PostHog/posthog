@@ -231,7 +231,8 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
         // timezone changes, which matters if the user switches projects while the edit dialog is open.
         projectTimezone: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): string => currentTeam?.timezone || 'UTC',
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string =>
+                currentTeam?.timezone || 'UTC',
         ],
         editRepeatsValue: [
             (s) => [s.editIsRecurring, s.editCronExpression, s.editRecurrenceInterval],

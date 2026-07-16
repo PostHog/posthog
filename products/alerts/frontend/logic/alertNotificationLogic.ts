@@ -22,6 +22,8 @@ import {
     notificationTypeFromTemplateId,
 } from 'products/alerts/frontend/logic/alertNotifications'
 
+import type { UserBasicType } from '../../../../frontend/src/types'
+
 export const ALERT_NOTIFICATION_TYPE_OPTIONS = [
     { label: 'Slack', value: ALERT_NOTIFICATION_TYPE_SLACK },
     { label: 'Discord', value: ALERT_NOTIFICATION_TYPE_DISCORD },
@@ -52,7 +54,7 @@ export interface alertNotificationLogicActions {
         integrations: {
             config: any
             created_at: string
-            created_by?: null | import('~/types').UserBasicType | undefined
+            created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
             icon_url: any
@@ -102,7 +104,7 @@ export interface alertNotificationLogicActions {
         integrations: {
             config: any
             created_at: string
-            created_by?: null | import('~/types').UserBasicType | undefined
+            created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
             icon_url: any
