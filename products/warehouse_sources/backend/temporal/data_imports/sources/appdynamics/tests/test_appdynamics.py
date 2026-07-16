@@ -328,6 +328,22 @@ class TestGetRows:
         assert batches == [[{"id": 1, "name": "app"}]]
         assert manager.saved == []
 
+    def test_too_many_applications_is_rejected(self) -> None:
+        many = [{"id": i} for i in range(appdynamics_module.MAX_APPLICATIONS + 1)]
+        manager = FakeResumeManager()
+        with pytest.raises(AppdynamicsError):
+            _run_get_rows(lambda path, params: FakeResponse(json_data=many), "business_transactions", manager)
+
+    def test_duplicate_application_ids_are_deduplicated(self) -> None:
+        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
+            if path == "/controller/rest/applications":
+                return FakeResponse(json_data=[{"id": 1}, {"id": 1}, {"id": 2}])
+            return FakeResponse(json_data=[{"name": "bt"}])
+
+        manager = FakeResumeManager()
+        batches, _ = _run_get_rows(responder, "business_transactions", manager)
+        assert [row["application_id"] for batch in batches for row in batch] == [1, 2]
+
     def test_fan_out_injects_application_id_and_bookmarks_next_app(self) -> None:
         def responder(path: str, params: dict[str, Any]) -> FakeResponse:
             if path == "/controller/rest/applications":

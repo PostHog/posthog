@@ -164,6 +164,7 @@ You can create an API client in your controller under **Administration → API C
             "403 Client Error": "Your AppDynamics user or API client is missing read access to application data. Grant the required roles and try again.",
             "AppDynamics OAuth token request failed": "Your AppDynamics API client credentials were rejected. Check your API client name, client secret, and account name, then reconnect.",
             "Too many metric paths configured": None,
+            "Too many AppDynamics applications": None,
         }
 
     def _auth_for_config(self, config: AppdynamicsSourceConfig) -> AppdynamicsAuth:

@@ -14,6 +14,12 @@ DEFAULT_METRIC_PATHS = ["Overall Application Performance|*"]
 # possible well within this cap.
 MAX_METRIC_PATHS = 50
 
+# Application-fan-out streams issue at least one request per application, multiplied by time
+# windows and metric paths. The application list comes from the user-supplied controller, so
+# an unbounded catalog would let a hostile or misconfigured host monopolize a shared import
+# worker. Cap the catalog size per sync (generous enough for real accounts).
+MAX_APPLICATIONS = 1000
+
 # The Controller's time-windowed endpoints filter server-side on epoch-ms `start-time` /
 # `end-time` (`time-range-type=BETWEEN_TIMES`), so the row's `startTimeInMillis` is the
 # only reliable incremental cursor. There is no `updated-since` filter on any endpoint.

@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.settings import (
     APPDYNAMICS_ENDPOINTS,
     APPLICATIONS_PATH,
+    MAX_APPLICATIONS,
     AppdynamicsEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -467,7 +468,14 @@ def get_rows(
         return
 
     applications = client.get_json(APPLICATIONS_PATH, {}) or []
-    application_ids = [application["id"] for application in applications]
+    # The controller controls this list, so dedupe IDs and cap the catalog before fanning
+    # out — otherwise a hostile or misconfigured host could return a huge (or duplicate-laden)
+    # list and monopolize a shared import worker. `dict.fromkeys` preserves order.
+    application_ids = list(dict.fromkeys(application["id"] for application in applications))
+    if len(application_ids) > MAX_APPLICATIONS:
+        raise AppdynamicsError(
+            f"Too many AppDynamics applications ({len(application_ids)}); the maximum per sync is {MAX_APPLICATIONS}."
+        )
 
     # Resolve the saved application-ID bookmark to the slice of applications still to
     # process. If the bookmarked application no longer exists (deleted between runs),
