@@ -17,6 +17,7 @@ import {
     reviewHogReviewsList,
     reviewHogReviewsPerspectiveStatsRetrieve,
     reviewHogReviewsRetrieve,
+    reviewHogReviewsTriggerCreate,
     reviewHogSettingsPartialUpdate,
     reviewHogSettingsRetrieve,
     reviewHogValidatorsList,
@@ -400,6 +401,10 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         applyDefaultReviewsScope: (scope: ReviewHogReviewsListScope) => ({ scope }),
         startSkillAuthorTask: (kind: ReviewSkillKind) => ({ kind }),
         startSkillAuthorTaskFinished: true,
+        setTriggerPrUrl: (prUrl: string) => ({ prUrl }),
+        // Starts a review of the pasted PR URL; the button guards double-submission via `triggeringReview`.
+        submitTriggerReview: true,
+        submitTriggerReviewFinished: true,
     }),
 
     loaders(({ values }) => ({
@@ -609,6 +614,19 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 startSkillAuthorTaskFinished: () => null,
             },
         ],
+        triggerPrUrl: [
+            '',
+            {
+                setTriggerPrUrl: (_, { prUrl }) => prUrl,
+            },
+        ],
+        triggeringReview: [
+            false,
+            {
+                submitTriggerReview: () => true,
+                submitTriggerReviewFinished: () => false,
+            },
+        ],
     }),
 
     selectors({
@@ -757,6 +775,24 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         },
         openReviewDetail: ({ review }) => {
             actions.loadReviewDetail(review.id)
+        },
+        submitTriggerReview: async () => {
+            const prUrl = values.triggerPrUrl.trim()
+            if (!prUrl) {
+                actions.submitTriggerReviewFinished()
+                return
+            }
+            try {
+                await reviewHogReviewsTriggerCreate(currentProjectId(), { pr_url: prUrl })
+                lemonToast.success('Review started. It will appear under recent reviews as it runs.')
+                actions.setTriggerPrUrl('')
+                actions.loadRecentReviews()
+            } catch (error: any) {
+                // The trigger endpoint's rejections come back as `{error: "..."}` bodies.
+                lemonToast.error(error?.data?.error || error?.detail || error?.message || 'Failed to start the review')
+            } finally {
+                actions.submitTriggerReviewFinished()
+            }
         },
         startSkillAuthorTask: async ({ kind }) => {
             // Task-kickoff mirroring the Inbox "Make a scout" flow: create an agent task from a

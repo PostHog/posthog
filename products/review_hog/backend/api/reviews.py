@@ -3,18 +3,20 @@ import logging
 from datetime import timedelta
 from typing import Any, get_args
 
+from django.conf import settings
 from django.db.models import Max, QuerySet
 from django.utils import timezone
 
 from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.integration import GitHubIntegration
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
@@ -35,6 +37,9 @@ from products.review_hog.backend.reviewer.progress import (
     snapshot_stats,
     turn_stats,
 )
+from products.review_hog.backend.reviewer.tools.github_meta import PRParser
+from products.review_hog.backend.temporal.client import start_review_pr_workflow
+from products.review_hog.backend.temporal.types import TRIGGER_UI
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +196,22 @@ class ReviewRecentReviewsPageSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(
         help_text='Whether reviews exist beyond this page — drives the list\'s "Show more" button.'
     )
+
+
+class ReviewTriggerRequestSerializer(serializers.Serializer):
+    pr_url = serializers.CharField(
+        help_text="GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. "
+        "The repository must be accessible to the project's GitHub App installation.",
+    )
+
+
+class ReviewTriggerResponseSerializer(serializers.Serializer):
+    workflow_id = serializers.CharField(help_text="Temporal workflow id for the started review run.")
+    status = serializers.CharField(help_text="Run lifecycle marker; 'started' when the review was queued.")
+
+
+class ReviewTriggerErrorSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="Human-readable explanation of why the trigger was rejected.")
 
 
 class ReviewFindingLineRangeSerializer(serializers.Serializer):
@@ -530,6 +551,73 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         items.sort(key=lambda item: (-item["kept"], -item["raised"], item["skill_name"]))
         payload = {"report_count": len(reports), "perspectives": items}
         return Response(ReviewPerspectiveStatsSerializer(payload).data)
+
+    @extend_schema(
+        request=ReviewTriggerRequestSerializer,
+        responses={
+            202: OpenApiResponse(response=ReviewTriggerResponseSerializer, description="Review run started."),
+            400: OpenApiResponse(
+                response=ReviewTriggerErrorSerializer,
+                description="Invalid PR URL, or the project's GitHub App installation can't access the repository.",
+            ),
+            403: OpenApiResponse(
+                response=ReviewTriggerErrorSerializer,
+                description="The ReviewHog UI trigger is not enabled for this project.",
+            ),
+        },
+        summary="Start a review of a pull request",
+        description="Start a ReviewHog review of any pull request the project's GitHub App installation can "
+        "access, and publish it back to the PR. The requesting user is the review's acting user: their "
+        "enabled perspectives, blind-spot check, validator, and urgency threshold drive the run, and it "
+        "appears under their recent reviews. Non-blocking: returns the Temporal workflow id immediately "
+        "while the review runs in the worker.",
+    )
+    @action(methods=["POST"], detail=False)
+    def trigger(self, request: Request, **kwargs) -> Response:
+        team_id = resolve_effective_team_id(self.team_id)
+        # Dogfood gate: the UI trigger only runs on the designated ReviewHog team for now — reviews are
+        # expensive, so widening beyond it is a deliberate later decision, not a default.
+        if not settings.REVIEWHOG_TEAM_ID or team_id != settings.REVIEWHOG_TEAM_ID:
+            return Response(
+                {"error": "ReviewHog reviews can't be started from this project yet"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = ReviewTriggerRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            pr_info = PRParser().parse_github_pr_url(serializer.validated_data["pr_url"])
+        except ValueError:
+            return Response(
+                {
+                    "error": "That doesn't look like a GitHub pull request URL (expected https://github.com/OWNER/REPO/pull/NUMBER)"
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        repository = f"{pr_info['owner']}/{pr_info['repo']}"
+        # Checked synchronously (one GitHub API call) so an inaccessible repo errors here, in the UI —
+        # asynchronously the fetch activity would fail before the report row exists, showing nothing.
+        if GitHubIntegration.first_for_team_repository(team_id, repository) is None:
+            return Response(
+                {
+                    "error": f"ReviewHog's GitHub App can't access {repository}. It reviews repositories covered by this project's GitHub integration."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Rebuilt canonical URL: the parser accepts trailing paths (e.g. …/pull/123/files).
+        pr_url = f"https://github.com/{pr_info['owner']}/{pr_info['repo']}/pull/{pr_info['pr_number']}"
+        workflow_id = start_review_pr_workflow(
+            pr_url=pr_url,
+            team_id=team_id,
+            user_id=request.user.id,
+            publish=True,
+            acting_user_id=request.user.id,
+            trigger_source=TRIGGER_UI,
+        )
+        logger.info(f"ReviewHog UI trigger started workflow {workflow_id} for {pr_url} by user {request.user.id}")
+        return Response(
+            ReviewTriggerResponseSerializer({"workflow_id": workflow_id, "status": "started"}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
 
     @extend_schema(
         responses={

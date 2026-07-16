@@ -2419,10 +2419,10 @@ first so the latest fixes are loaded.
 
 ---
 
-### ⏭️ Stage 5c — UI trigger: review any accessible `posthog/*` PR from the Code review scene (DESIGNED 2026-07-16, not built)
+### ✅ Stage 5c — UI trigger: review any accessible `posthog/*` PR from the Code review scene (BUILT 2026-07-16)
 
-> **Status: DESIGNED (decision round with the maintainer, 2026-07-16), not yet built.** Design recorded here
-> before implementation, per this doc's convention.
+> **Status: BUILT 2026-07-16** (same-day decision round with the maintainer, then implemented — see
+> "As built" at the end of this section). Not yet e2e'd against a live non-`posthog/posthog` PR.
 
 **Motivation.** The label trigger needs `.github/workflows/review-hog.yml` in every repo it serves — only
 `PostHog/posthog` has it, so every other `posthog/*` repo is out of reach unless we replicate the workflow
@@ -2475,6 +2475,33 @@ is authoritative server-side, and the deterministic per-PR workflow id + `USE_EX
 - **Accepted / out of scope for v1:** no rate limit beyond the per-PR workflow-id dedupe (internal dogfood
   team; revisit if abused); PR URLs only (no branch targets from the UI); the label Action keeps working
   unchanged for `PostHog/posthog`.
+
+**As built (2026-07-16):**
+
+- `backend/api/reviews.py` — `trigger` action on `ReviewRecentReviewsViewSet`
+  (`POST /api/projects/:id/review_hog/reviews/trigger/`): team gate vs `settings.REVIEWHOG_TEAM_ID`
+  (403), `PRParser` URL parse (400), sync `GitHubIntegration.first_for_team_repository` access check
+  (400), then `start_review_pr_workflow(publish=True, user_id=acting_user_id=request.user.id,
+  trigger_source=TRIGGER_UI)` → `202 {workflow_id, status}`. The URL is canonicalized (trailing
+  `/files` etc. dropped) before it reaches the workflow id.
+- `backend/temporal/types.py` — `TRIGGER_UI = "ui"`; ungated in the workflow's gate map (no
+  workflow.py change, so no Temporal versioning concern).
+- `backend/api/settings.py` — `can_trigger_reviews` (read-only method field) on the settings GET;
+  the scene hides the trigger field when it's false.
+- `frontend/CodeReviewScene.tsx` — `TriggerReviewSection` (PR-URL input + submit, above the
+  recent-reviews block; button loading/disabled while in flight);
+  `frontend/reviewHogSettingsLogic.ts` — `triggerPrUrl` / `triggeringReview` state +
+  `submitTriggerReview` listener (toast on error, clear + reload recent reviews on 202; the new
+  report row appears once the fetch activity creates it and the in-progress poll takes over).
+- Tests: `backend/tests/test_ui_trigger_api.py` (gate, URL parse, access check, workflow kwargs,
+  `can_trigger_reviews` exposure), `test_settings_api.py` defaults updated, two
+  `reviewHogSettingsLogic.test.ts` cases (in-flight flag resets on both outcomes).
+- **v1 gap (deliberate):** the endpoint doesn't fetch PR metadata synchronously, so a typo'd PR
+  *number* in an accessible repo still fails async, before the report row exists — nothing appears
+  in the UI. Fix when it bites: one `GET /pulls/{n}` in the action (also rejects forks/closed PRs
+  with a message; the fetch activity stays authoritative).
+- Generated clients (`frontend/generated/*`) come from CI's OpenAPI auto-commit
+  (`hogli build:openapi` was unavailable in the authoring environment).
 
 ---
 
