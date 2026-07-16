@@ -404,6 +404,7 @@ the row lists both.
 | scaleway                  | HTTP                        | requests                                                        | ✅                          |
 | secoda                    | HTTP                        | requests                                                        | ✅                          |
 | segment                   | HTTP                        | requests                                                        | ✅                          |
+| semgrep                   | HTTP                        | requests                                                        | ✅                          |
 | sendgrid                  | HTTP                        | requests                                                        | ✅                          |
 | sendowl                   | HTTP                        | requests                                                        | ✅                          |
 | sentry                    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -867,7 +868,6 @@ doesn't conflict with concurrent PRs.
 - search_ads_360
 - secureframe
 - semaphore
-- semgrep
 - sendpulse
 - senseforce
 - sentinelone
