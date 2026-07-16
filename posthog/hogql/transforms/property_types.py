@@ -4,6 +4,8 @@ from typing import Literal, Optional, cast
 from django.db import models
 from django.db.models.functions.comparison import Coalesce
 
+from dateutil import parser as dateutil_parser
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
@@ -200,6 +202,43 @@ class PropertyFinder(TraversingVisitor):
             node.type.resolve_database_field(self.context), DateTimeDatabaseField
         ):
             self.found_timestamps = True
+
+
+def _resolves_to_datetime(expr: ast.Expr) -> bool:
+    """True when ``expr`` evaluates to a DateTime — including the ``toDateTime(...)``
+    wrapper PropertySwapper adds around a DateTime-typed property."""
+    inner = expr.expr if isinstance(expr, ast.Alias) else expr
+    expr_type = inner.type
+    if isinstance(expr_type, ast.CallType):
+        expr_type = expr_type.return_type
+    return isinstance(expr_type, ast.DateTimeType)
+
+
+def _is_unparseable_datetime_literal(expr: ast.Expr) -> bool:
+    """True when ``expr`` is a String constant that ClickHouse cannot parse as a
+    DateTime (the literal ``"null"``, an empty string, free text, …).
+
+    All-numeric strings are excluded — ClickHouse reads them as unix timestamps.
+    Anything ``dateutil`` can parse is treated as parseable, matching ClickHouse's
+    lenient ``parseDateTime64BestEffort`` closely enough that valid datetime
+    filters are never touched.
+    """
+    inner = expr.expr if isinstance(expr, ast.Alias) else expr
+    if not isinstance(inner, ast.Constant) or not isinstance(inner.value, str):
+        return False
+    stripped = inner.value.strip()
+    if stripped == "":
+        return True
+    try:
+        float(stripped)
+        return False
+    except ValueError:
+        pass
+    try:
+        dateutil_parser.parse(stripped)
+        return False
+    except (ValueError, OverflowError):
+        return True
 
 
 class PropertySwapper(CloningVisitor):
@@ -416,6 +455,7 @@ class PropertySwapper(CloningVisitor):
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         result = super().visit_compare_operation(node)
+        result = self._null_unparseable_datetime_literal(result)
 
         if (
             not self.setTimeZones
@@ -426,6 +466,27 @@ class PropertySwapper(CloningVisitor):
             return result
 
         return self._move_timezone_from_field_to_constant(result) or result
+
+    def _null_unparseable_datetime_literal(self, node: ast.CompareOperation) -> ast.CompareOperation:
+        """Replace a String literal ClickHouse can't parse as a DateTime with NULL
+        when the other side of the comparison is a DateTime expression.
+
+        A DateTime-typed property has its comparison side rewritten to a
+        ``DateTime64`` expression (``toDateTime(...)``) above. ClickHouse then
+        hard-casts a bare String constant on the other side to ``DateTime64`` and
+        throws ``CANNOT_PARSE_DATETIME`` on values like the string ``"null"``, empty
+        strings, or free text — failing the whole query (e.g. a cohort
+        recalculation). Nulling the literal makes the comparison evaluate to NULL
+        (excluding the row), the same result ClickHouse's
+        ``parseDateTime64BestEffortOrNull`` would produce, instead of crashing.
+        Parseable literals are left untouched, so valid datetime filters — and the
+        materialized-column DateTime index optimization — are unaffected.
+        """
+        if _resolves_to_datetime(node.left) and _is_unparseable_datetime_literal(node.right):
+            return ast.CompareOperation(op=node.op, left=node.left, right=ast.Constant(value=None))
+        if _resolves_to_datetime(node.right) and _is_unparseable_datetime_literal(node.left):
+            return ast.CompareOperation(op=node.op, left=ast.Constant(value=None), right=node.right)
+        return node
 
     def _move_timezone_from_field_to_constant(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
         """Move toTimeZone() from the field side to the constant side of a range comparison.

@@ -465,6 +465,43 @@ class TestPropertyTypes(BaseTest):
         printed = self._print_select("select toFloatOrZero(toString(properties.$screen_width)) from events")
         assert "toFloat64OrZero(toString(accurateCastOrNull" in printed
 
+    def _create_event_datetime_property(self) -> None:
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            type=PropertyDefinition.Type.EVENT,
+            name="event_dt",
+            defaults={"property_type": "DateTime"},
+        )
+
+    @parameterized.expand([("null_literal", "null"), ("empty", ""), ("free_text", "free text")])
+    def test_datetime_property_compared_to_unparseable_value_is_nulled(self, _name: str, bad_value: str) -> None:
+        # Comparing a DateTime property against a value ClickHouse can't parse (the
+        # string "null", empty strings, free text) used to crash the query with
+        # CANNOT_PARSE_DATETIME. The literal is replaced with NULL, so the comparison
+        # lowers to isNull(...) over the parsed property instead of a hard cast.
+        self._create_event_datetime_property()
+        printed = self._print_select(f"select count() from events where properties.event_dt = '{bad_value}'")
+        assert "isNull(parseDateTime64BestEffortOrNull(" in printed, printed
+
+    def test_datetime_property_compared_to_valid_value_is_untouched(self) -> None:
+        self._create_event_datetime_property()
+        printed = self._print_select("select count() from events where properties.event_dt = '2024-01-05 00:00:00'")
+        # Parseable datetimes keep the real comparison — never nulled out.
+        assert "parseDateTime64BestEffortOrNull(" in printed, printed
+        assert "isNull(parseDateTime64BestEffortOrNull(" not in printed, printed
+
+    def test_datetime_property_numeric_string_is_untouched(self) -> None:
+        # All-numeric strings are unix timestamps to ClickHouse, not unparseable.
+        self._create_event_datetime_property()
+        printed = self._print_select("select count() from events where properties.event_dt = '1704412800'")
+        assert "isNull(parseDateTime64BestEffortOrNull(" not in printed, printed
+
+    def test_non_datetime_property_compared_to_null_string_is_untouched(self) -> None:
+        # String properties must still compare against the literal "null" — the value
+        # is never nulled out, so the comparison stays a real equals (not isNull).
+        printed = self._print_select("select count() from events where properties.some_string_prop = 'null'")
+        assert "ifNull(equals(" in printed, printed
+
     def _print_select(self, select: str) -> str:
         expr = parse_select(select)
         query, _ = prepare_and_print_ast(
