@@ -513,6 +513,39 @@ describe('exec tool', () => {
             expect(JSON.parse(result as string)).toEqual({ id: 5, limit: 10 })
         })
 
+        it('resolves user-get to the @me sentinel when the exec body is omitted', async () => {
+            // CLI hosts dispatch through exec as `call user-get` with no JSON body,
+            // so the model routinely omits arguments. `uuid` defaults to `@me`, so
+            // the real tool must validate instead of being rejected as invalid input.
+            const context = {
+                api: {} as any,
+                cache: {} as any,
+                env: {} as any,
+                stateManager: {
+                    getApiKey: async () => ({ scopes: ['*'] }),
+                    getAiConsentGiven: async () => true,
+                } as any,
+                sessionManager: new SessionManager({} as any),
+                getDistinctId: async () => 'test-distinct-id',
+                trackEvent: async () => {},
+            } as unknown as Context
+            const userGet = (await getToolsFromContext(context)).find((t) => t.name === 'user-get')
+            if (!userGet) {
+                throw new Error('user-get tool not found')
+            }
+            let received: Record<string, unknown> | undefined
+            const stubbed = {
+                ...userGet,
+                handler: async (_ctx: Context, params: Record<string, unknown>) => {
+                    received = params
+                    return { uuid: params.uuid }
+                },
+            } as Tool<ZodObjectAny>
+            const exec = createExec([stubbed])
+            await exec.handler(mockContext, { command: 'call user-get' })
+            expect(received?.uuid).toBe('@me')
+        })
+
         it('does not dispatch to the handler when validation fails', async () => {
             let called = false
             const tool = makeMockTool({

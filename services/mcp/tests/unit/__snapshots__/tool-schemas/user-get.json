@@ -2,10 +2,10 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "uuid": {
-            "description": "User UUID, or `@me` to target the authenticated user.",
+            "default": "@me",
+            "description": "User UUID, or `@me` to target the authenticated user. Defaults to `@me` when omitted.",
             "type": "string"
         }
     },
-    "required": ["uuid"],
     "type": "object"
 }
