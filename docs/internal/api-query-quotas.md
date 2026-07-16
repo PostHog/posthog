@@ -32,12 +32,29 @@ The usage report and quota decision are asynchronous.
 A newly over-limit organization can continue querying until the next quota update reaches Redis.
 The query path uses the existing 30-second process cache for Redis quota membership.
 
+## Rollout mode and kill switch
+
+`QUERY_QUOTA_ENFORCEMENT_ENABLED` controls whether a limited query is blocked.
+It defaults to `false` so the first release is dry-run only:
+
+- `false`: check the Redis quota decision, emit the would-block metric and structured log, then allow the query to continue.
+- `true`: emit the same observability signals and return HTTP 402 before new ClickHouse work starts.
+
+Set the variable consistently on web and async query-worker processes.
+Changing it requires the affected processes to restart or redeploy.
+Setting it back to `false` is the operational kill switch if enforcement produces unexpected customer impact; metering and dry-run observability continue while 402 responses stop.
+
+Dry-run decisions emit `posthog_external_query_quota_decision_total` with `plan_tier`, `access_method`, and `enforcement_mode="dry_run"` labels.
+The `query_quota_decision` structured log includes team, organization, client query, query type, dashboard or insight identifiers, access method, plan tier, enforcement mode, and billing-period end.
+Use the counter for aggregate rates and the logs for organization-level investigation without adding high-cardinality Prometheus labels.
+Async requests can produce decisions when they are enqueued and when a worker picks them up; use the client query identifier when deduplicating logs for request-level analysis.
+
 ## Enforcement timing decision
 
 The first version is intentionally an eventual billing-period limit, not a real-time hard cap.
 The usage-report pipeline, billing quota task, and Redis decision cache remain the authoritative enforcement loop.
 A request that crosses the allowance is allowed to finish, and later requests can continue until that loop marks the organization as limited.
-Once the decision is visible to the query process, new uncached personal API key queries and shared dashboard or insight refreshes return HTTP 402.
+Once the decision is visible to the query process and enforcement is enabled, new uncached personal API key queries and shared dashboard or insight refreshes return HTTP 402.
 
 This delay is an accepted simplicity tradeoff for the first rollout.
 The query path will not maintain a second per-query byte accumulator or synchronously fetch current billing usage.
@@ -70,7 +87,7 @@ Once a tile needs new ClickHouse work, the shared dashboard or insight request r
 
 ## Customer response contract
 
-The query API and shared dashboard or insight endpoints return HTTP 402 with a stable error type and code:
+When enforcement is enabled, the query API and shared dashboard or insight endpoints return HTTP 402 with a stable error type and code:
 
 ```json
 {
@@ -116,7 +133,8 @@ The organization usage record remains the source for billing-period reset metada
 Monitor at least:
 
 - HTTP 402 responses from query and shared-resource endpoints
-- `posthog_external_query_quota_limited_total` split by plan tier and access method, with an alert if paid or enterprise organizations appear unexpectedly
+- `posthog_external_query_quota_decision_total` split by plan tier, access method, and enforcement mode
+- distinct organizations and teams in `query_quota_decision` logs, with an alert if paid or enterprise organizations appear unexpectedly
 - organizations entering and leaving `api_queries_read_bytes` quota limiting
 - usage beyond the configured allowance before enforcement
 - Redis quota lookup failures
@@ -127,12 +145,15 @@ Monitor at least:
 1. Confirm the free-plan allowance and verify paid-plan configuration is unchanged.
 2. Decide whether trust-score grace, `never_drop_data`, and the retention feature flag are acceptable for this resource.
 3. Verify `API_QUERIES_ENABLED` in every cloud region.
-4. Test blocking and async personal API key and sharing-token requests against a limited organization.
-5. Test that fresh cached API and shared results remain available and no async task is enqueued while limited.
-6. Publish that shared dashboard and insight traffic consumes the allowance and can return HTTP 402 after it is exhausted.
-7. Publish the allowance and eventual enforcement timing in customer API and pricing documentation.
-8. Give Support the response shape, shared-dashboard behavior, reset behavior, expected enforcement delay, and escalation path.
-9. Enable monitoring before rollout, alert on unexpected paid-plan blocks, and review usage leakage caused by the reporting interval.
+4. Deploy with `QUERY_QUOTA_ENFORCEMENT_ENABLED=false` on web and async query workers.
+5. Build the dry-run dashboard from `posthog_external_query_quota_decision_total` and `query_quota_decision` logs.
+6. Review would-block rates, affected organizations, access-method mix, reporting lag, and any unexpected paid-plan decisions.
+7. Test blocking and async personal API key and sharing-token requests with enforcement enabled in a non-production environment.
+8. Test that fresh cached API and shared results remain available and no async task is enqueued while enforced.
+9. Publish that shared dashboard and insight traffic consumes the allowance and can return HTTP 402 after it is exhausted.
+10. Publish the allowance and eventual enforcement timing in customer API and pricing documentation.
+11. Give Support the response shape, shared-dashboard behavior, reset behavior, expected enforcement delay, kill switch, and escalation path.
+12. Enable enforcement gradually, monitor blocked decisions, and set `QUERY_QUOTA_ENFORCEMENT_ENABLED=false` immediately if impact differs materially from dry-run observations.
 
 ## Out of scope
 

@@ -574,7 +574,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertFalse(query_status.get("error"), query_status)
         self.assertIsNotNone(exported["insight"]["result"])
 
-    @override_settings(EE_AVAILABLE=True, API_QUERIES_ENABLED=True)
+    @override_settings(
+        EE_AVAILABLE=True,
+        API_QUERIES_ENABLED=True,
+        QUERY_QUOTA_ENFORCEMENT_ENABLED=True,
+    )
     @patch("ee.billing.quota_limiting.is_team_limited", return_value=True)
     def test_shared_dashboard_refresh_returns_payment_required_when_query_quota_limited(
         self, mock_is_team_limited: mock.MagicMock

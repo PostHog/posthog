@@ -8,6 +8,7 @@ from types import UnionType
 from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
 
 import orjson
+import structlog
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
@@ -140,16 +141,18 @@ from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
+logger = structlog.get_logger(__name__)
+
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
     "Query executions by category",
     labelnames=["query_type", "category", "error_type", "contains_user_hogql"],
 )
 
-QUERY_QUOTA_LIMITED_TOTAL = Counter(
-    "posthog_external_query_quota_limited_total",
-    "Fresh external query calculations blocked by the billing-period read-byte quota.",
-    labelnames=["plan_tier", "access_method"],
+QUERY_QUOTA_DECISION_TOTAL = Counter(
+    "posthog_external_query_quota_decision_total",
+    "External query calculations that matched the billing-period read-byte quota.",
+    labelnames=["plan_tier", "access_method", "enforcement_mode"],
 )
 
 QUERY_EXECUTION_DURATION = Histogram(
@@ -1351,6 +1354,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     limit_context: LimitContext
     # query service means programmatic access and /query endpoint
     is_query_service: bool = False
+    _query_quota_limit_checked: bool = False
     workload: Workload
     # Opt-in (set by process_query_model): on a cache hit, keep the results segment of the
     # cached response as raw JSON bytes in raw_cached_results_bytes instead of parsing it,
@@ -2047,19 +2051,41 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _raise_if_query_quota_limited(self) -> None:
         access_method = get_query_tag_value("access_method")
         if (
-            not is_query_quota_access_method(access_method)
+            self._query_quota_limit_checked
+            or not is_query_quota_access_method(access_method)
             or not settings.EE_AVAILABLE
             or not settings.API_QUERIES_ENABLED
         ):
             return
 
+        self._query_quota_limit_checked = True
+
         from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 
         if is_team_limited(self.team.api_token, QuotaResource.API_QUERIES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
             billing_period = self.team.organization.current_billing_period
-            QUERY_QUOTA_LIMITED_TOTAL.labels(
-                plan_tier=self.team.organization.get_plan_tier(), access_method=str(access_method)
+            enforcement_mode = "enforced" if settings.QUERY_QUOTA_ENFORCEMENT_ENABLED else "dry_run"
+            plan_tier = self.team.organization.get_plan_tier()
+            QUERY_QUOTA_DECISION_TOTAL.labels(
+                plan_tier=plan_tier,
+                access_method=str(access_method),
+                enforcement_mode=enforcement_mode,
             ).inc()
+            logger.info(
+                "query_quota_decision",
+                team_id=self.team.pk,
+                organization_id=str(self.team.organization_id),
+                query_type=getattr(self.query, "kind", "Other"),
+                client_query_id=self.query_id,
+                insight_id=get_query_tag_value("insight_id"),
+                dashboard_id=get_query_tag_value("dashboard_id"),
+                access_method=str(access_method),
+                plan_tier=plan_tier,
+                enforcement_mode=enforcement_mode,
+                billing_period_end=billing_period[1].isoformat() if billing_period else None,
+            )
+            if not settings.QUERY_QUOTA_ENFORCEMENT_ENABLED:
+                return
             raise QueryQuotaLimitExceeded(billing_period_end=billing_period[1] if billing_period else None)
 
     def get_api_queries_concurrency_limit(self) -> int | None:

@@ -215,7 +215,11 @@ class TestQueryRunner(BaseTest):
             ("blocking_in_app", None, False, ExecutionMode.CALCULATE_BLOCKING_ALWAYS, False),
         ]
     )
-    @override_settings(EE_AVAILABLE=True, API_QUERIES_ENABLED=True)
+    @override_settings(
+        EE_AVAILABLE=True,
+        API_QUERIES_ENABLED=True,
+        QUERY_QUOTA_ENFORCEMENT_ENABLED=True,
+    )
     @mock.patch("ee.billing.quota_limiting.is_team_limited")
     def test_query_quota_only_blocks_eligible_external_calculations(
         self,
@@ -249,6 +253,52 @@ class TestQueryRunner(BaseTest):
                 response = runner.run(execution_mode=execution_mode)
                 self.assertEqual(response.results[0], ["row", 1, 2, 3])
                 mock_is_team_limited.assert_not_called()
+
+    @override_settings(
+        EE_AVAILABLE=True,
+        API_QUERIES_ENABLED=True,
+        QUERY_QUOTA_ENFORCEMENT_ENABLED=False,
+    )
+    @mock.patch("posthog.hogql_queries.query_runner.logger")
+    @mock.patch("posthog.hogql_queries.query_runner.QUERY_QUOTA_DECISION_TOTAL")
+    @mock.patch("ee.billing.quota_limiting.is_team_limited", return_value=True)
+    def test_query_quota_dry_run_records_decision_without_blocking(
+        self,
+        mock_is_team_limited: mock.MagicMock,
+        mock_decision_total: mock.MagicMock,
+        mock_logger: mock.MagicMock,
+    ) -> None:
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        runner.is_query_service = True
+        runner.team.organization.usage = {
+            "period": ["2026-07-01T00:00:00Z", "2026-08-01T00:00:00Z"],
+        }
+
+        with tags_context(access_method=AccessMethod.PERSONAL_API_KEY):
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        self.assertEqual(response.results[0], ["row", 1, 2, 3])
+        mock_is_team_limited.assert_called_once()
+        mock_decision_total.labels.assert_called_once_with(
+            plan_tier=mock.ANY,
+            access_method=AccessMethod.PERSONAL_API_KEY.value,
+            enforcement_mode="dry_run",
+        )
+        mock_decision_total.labels.return_value.inc.assert_called_once_with()
+        mock_logger.info.assert_called_once_with(
+            "query_quota_decision",
+            team_id=self.team.pk,
+            organization_id=str(self.team.organization_id),
+            query_type="TestQuery",
+            client_query_id=None,
+            insight_id=None,
+            dashboard_id=None,
+            access_method=AccessMethod.PERSONAL_API_KEY.value,
+            plan_tier=mock.ANY,
+            enforcement_mode="dry_run",
+            billing_period_end="2026-08-01T00:00:00+00:00",
+        )
 
     @parameterized.expand(
         [
