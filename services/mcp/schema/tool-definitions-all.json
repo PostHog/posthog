@@ -4129,7 +4129,7 @@
         }
     },
     "feature-flags-copy-flags-create": {
-        "description": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Returns lists of successful and failed copies.",
+        "description": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Set copy_dependencies only when the user explicitly wants missing transitive flag dependencies copied too; existing active same-key dependencies in target projects are reused, disabled same-key dependencies are left untouched, and warnings explain any dependencies or schedules that could not be copied. Returns lists of successful and failed copies.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Copy feature flag across projects",
@@ -4157,7 +4157,7 @@
         }
     },
     "feature-flags-evaluation-reasons-retrieve": {
-        "description": "Debug why feature flags evaluate a certain way for a given user. Provide a distinct_id and optionally groups to see each flag's evaluated value and the reason for that evaluation (e.g. condition_match, no_condition_match, disabled).",
+        "description": "Debug why feature flags evaluate a certain way for a given user. Provide a distinct_id and optionally groups to see each flag's evaluated value and the reason for that evaluation (e.g. condition_match, no_condition_match, disabled). Pass flag_keys to scope the response to specific flags. This is strongly recommended on projects with many flags, since omitting it returns an entry for every flag and can produce a very large payload.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Get feature flag evaluation reasons",
@@ -6522,6 +6522,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "path-cleaning-rules-update": {
+        "description": "Safely add, replace, remove, or reorder a project's path cleaning rules (Team.path_cleaning_filters) without hand-managing the whole list. Reads the current rules, applies your ordered operations, auto-numbers them, and (unless confirm:true) returns a PREVIEW of the resulting rules — plus how they rewrite any sample_paths — without saving. Path cleaning normalizes $pathname/$entry_pathname so pages sharing a template (/users/123, /users/456) collapse into one row (/users/<id>) in Web analytics, Paths, and apply_path_cleaning HogQL. Prefer this over project-settings-update for path cleaning: it avoids clobbering existing rules and renumbering by hand. Rules apply sequentially (order matters) and globally wherever cleaning is enabled, changing historical numbers — surface the preview to the user, then re-run with confirm:true.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Edit path cleaning rules with granular ops, a preview step, and safe read-modify-write.",
+        "title": "Update path cleaning rules",
+        "required_scopes": ["project:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "persons-bulk-delete": {

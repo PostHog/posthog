@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class JiraSource(ResumableSource[JiraSourceConfig, JiraResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("3",)
+    default_version = "3"
+    api_docs_url = "https://developer.atlassian.com/cloud/jira/platform/rest/v3/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
