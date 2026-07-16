@@ -22,6 +22,9 @@ from products.signals.backend.github_mention.process import process_github_menti
 from products.signals.backend.github_mention.replay import (
     replay_github_pending_mentions,  # noqa: F401 — Celery autodiscovery
 )
+from products.signals.backend.github_mention.result_relay import (
+    relay_github_mention_result,  # noqa: F401 — Celery autodiscovery
+)
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
 from products.signals.backend.models import (
     SignalReport,

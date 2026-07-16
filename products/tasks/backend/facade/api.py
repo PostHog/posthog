@@ -1918,6 +1918,20 @@ def signal_workflow_completion(run_id: str | UUID, status: str, error_message: s
         logger.warning("Failed to signal workflow completion for task run %s: %s", run.id, e)
 
 
+def _post_github_mention_result(run: TaskRun, status: str) -> None:
+    """On a terminal GITHUB_MENTION run, post the outcome back to the PR the mention landed on."""
+    if run.task.origin_product != Task.OriginProduct.GITHUB_MENTION:
+        return
+    from products.signals.backend.github_mention.result_relay import (  # noqa: PLC0415 — cross-product import kept off the api import path
+        enqueue_mention_result_relay,
+    )
+
+    try:
+        enqueue_mention_result_relay(str(run.id), status)
+    except Exception:
+        logger.warning("task_run.github_mention_relay_enqueue_failed", extra={"run_id": str(run.id)}, exc_info=True)
+
+
 def _post_slack_update_for_pr(run: TaskRun) -> None:
     pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if not pr_url:
@@ -2142,6 +2156,7 @@ def update_task_run(
             )
         observe_wizard_run_unbound(run)
         signal_workflow_completion(run.id, new_status, validated_data.get("error_message"))
+        _post_github_mention_result(run, new_status)
         if new_status == TaskRun.Status.CANCELLED:
             from products.tasks.backend.push_dispatcher import (  # noqa: PLC0415 — keep push deps off the api import path
                 notify_task_run_cancelled,
