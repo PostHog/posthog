@@ -109,9 +109,7 @@ tools:
                `Issue reopened: {event.properties.name}`.
 
                For `$error_tracking_issue_spiking` (Slack), use the same shape but swap the header to
-               `📈 Issue spiking`, wrap the button URL in a conditional that falls back to
-               `{project.url}/error_tracking/{event.distinct_id}` when `event.properties.fingerprint`
-               is empty (only newer spiking events carry it), and add a context line referencing
+               `📈 Issue spiking` and add a context line referencing
                `{event.properties.current_bucket_value}` and `{event.properties.computed_baseline}`. The
                exact block layout is in the `authoring-error-tracking-alerts` skill references.
 
@@ -124,12 +122,11 @@ tools:
 
 
             Event property reference — common across all three events: `event.properties.name` (issue title),
-            `event.properties.description` (truncated body), `event.distinct_id` (issue id used in the deep link).
-            `created`/`reopened` additionally expose `event.properties.status`, `event.properties.fingerprint`,
-            `event.properties.exception_timestamp`, and the originating exception's properties (e.g. `$exception_types`,
-            `$exception_issue_id`). Spiking events instead expose `event.properties.current_bucket_value` and
-            `event.properties.computed_baseline`, plus `event.properties.fingerprint` and
-            `event.properties.exception_timestamp` on newer events (guard with `empty()`) — no status or exception
+            `event.properties.description` (truncated body), `event.distinct_id` (issue id used in the deep link),
+            `event.properties.fingerprint`, and `event.properties.exception_timestamp`.
+            `created`/`reopened` additionally expose `event.properties.status` and the originating exception's
+            properties (e.g. `$exception_types`, `$exception_issue_id`). Spiking events instead expose
+            `event.properties.current_bucket_value` and `event.properties.computed_baseline` — no status or exception
             properties. Project context is available as `{project.url}` (already includes `/project/<team_id>`),
             `{project.name}`, and the alert's own metadata as `{source.url}` and `{source.name}`.
         exclude_params:
