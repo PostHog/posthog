@@ -254,6 +254,46 @@ class TestGetRowsTopLevel:
         assert "sinceChange" not in _locator_of(fetched[0])
 
 
+class _FakeRaw:
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+        self._pos = 0
+
+    def read(self, amt: int, decode_content: bool = False) -> bytes:
+        chunk = self._data[self._pos : self._pos + amt]
+        self._pos += len(chunk)
+        return chunk
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int, data: bytes) -> None:
+        self.status_code = status_code
+        self.ok = 200 <= status_code < 400
+        self.raw = _FakeRaw(data)
+
+    def raise_for_status(self) -> None:
+        if not self.ok:
+            raise AssertionError("raise_for_status called on ok response")
+
+
+class TestFetchPage:
+    def _session_returning(self, response: _FakeResponse) -> Any:
+        session = MagicMock()
+        session.get.return_value = response
+        return session
+
+    def test_parses_body_under_cap(self) -> None:
+        session = self._session_returning(_FakeResponse(200, b'{"build": [{"id": 1}]}'))
+        data = teamcity._fetch_page(session, "https://teamcity.example.com/app/rest/builds", {}, MagicMock())
+        assert data == {"build": [{"id": 1}]}
+
+    def test_oversized_body_raises_without_buffering(self, monkeypatch: Any) -> None:
+        monkeypatch.setattr(teamcity, "MAX_RESPONSE_BYTES", 10)
+        session = self._session_returning(_FakeResponse(200, b'{"x": "' + b"y" * 50 + b'"}'))
+        with pytest.raises(ValueError):
+            teamcity._fetch_page(session, "https://teamcity.example.com/app/rest/builds", {}, MagicMock())
+
+
 class TestPaginationBounds:
     def test_repeated_cursor_aborts_walk(self, monkeypatch: Any) -> None:
         # A server that returns the same non-empty nextHref forever must not loop indefinitely.

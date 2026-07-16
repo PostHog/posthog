@@ -1,3 +1,4 @@
+import json
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -19,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.teamcity.s
     FAN_OUT_BUILD_ID_FIELD,
     MAX_PAGES_PER_BUILD,
     MAX_PAGES_PER_WALK,
+    MAX_RESPONSE_BYTES,
     TEAMCITY_ENDPOINTS,
     TeamCityEndpointConfig,
 )
@@ -188,7 +190,9 @@ def _build_list_url(
 def _fetch_page(
     session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
 ) -> dict[str, Any]:
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+    # stream=True so the body isn't buffered until we read it under a cap below — the server URL is
+    # customer-supplied, so a hostile host could otherwise return an unbounded body and OOM the worker.
+    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
 
     # Throughput is bounded by the customer's own server; back off on 429 and transient 5xx
     # rather than failing the sync.
@@ -196,10 +200,17 @@ def _fetch_page(
         raise TeamCityRetryableError(f"TeamCity API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"TeamCity API error: status={response.status_code}, body={response.text[:500]}, url={url}")
+        # Read only a capped snippet for diagnostics — don't buffer a hostile error body.
+        snippet = response.raw.read(500, decode_content=True)
+        logger.error(f"TeamCity API error: status={response.status_code}, body={snippet!r}, url={url}")
         response.raise_for_status()
 
-    return response.json()
+    # Read one byte past the cap to detect an oversized body without buffering the whole thing.
+    raw = response.raw.read(MAX_RESPONSE_BYTES + 1, decode_content=True)
+    if len(raw) > MAX_RESPONSE_BYTES:
+        raise ValueError(f"TeamCity API returned an oversized response (over {MAX_RESPONSE_BYTES} bytes): url={url}")
+
+    return json.loads(raw)
 
 
 def _paginate(

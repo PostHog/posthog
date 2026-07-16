@@ -18,6 +18,12 @@ MAX_PAGES_PER_BUILD = 100
 # this still allows tens of millions of rows per walk before the cap trips.
 MAX_PAGES_PER_WALK = 50_000
 
+# Hard cap on a single response body. The server URL is customer-supplied, so a hostile or
+# misbehaving host could otherwise return an unbounded body that `response.json()` buffers
+# and exhaust an import worker's memory. A page of ~1000 rich rows is a few MiB, so 128 MiB
+# leaves ample headroom for legitimate pages while bounding memory.
+MAX_RESPONSE_BYTES = 128 * 1024 * 1024
+
 # Builds locator applied to the builds endpoint and to the parent walk of the occurrence
 # fan-outs. `branch:(default:any)` lifts TeamCity's default-branch-only filter so feature
 # branch builds are synced too; `state:finished` keeps rows immutable (a running build's
