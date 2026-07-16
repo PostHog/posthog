@@ -284,7 +284,14 @@ export interface maxThreadLogicActions {
         taskId: string
         traceId?: string | undefined
     } // runStreamLogic
-    cancelSandboxRun: (run?: { runId: string; taskId: string }) => {
+    cancelSandboxRun: (
+        run?:
+            | {
+                  runId: string
+                  taskId: string
+              }
+            | undefined
+    ) => {
         run:
             | {
                   runId: string
@@ -300,7 +307,7 @@ export interface maxThreadLogicActions {
     } // runStreamLogic
     pushSandboxError: (
         errorMessage: string,
-        variant?: 'crash' | 'error'
+        variant?: 'crash' | 'error' | undefined
     ) => {
         errorMessage: string
         variant: 'crash' | 'error'
