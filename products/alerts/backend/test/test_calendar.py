@@ -72,6 +72,27 @@ class TestNextCalendarCheckTime:
         assert before.hour == 9
         assert after.hour == 8
 
+    @parameterized.expand(
+        [
+            (
+                "weekly_spring_forward",
+                CalendarInterval.WEEKLY,
+                datetime(2026, 3, 6, 12, 0, tzinfo=UTC),
+                datetime(2026, 3, 9, 7, 0, tzinfo=UTC),
+            ),
+            (
+                "monthly_fall_back",
+                CalendarInterval.MONTHLY,
+                datetime(2026, 10, 31, 12, 0, tzinfo=UTC),
+                datetime(2026, 11, 1, 9, 0, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_calendar_anchors_keep_local_wall_time_across_dst(
+        self, _name: str, interval: CalendarInterval, now: datetime, expected: datetime
+    ) -> None:
+        assert next_calendar_check_time(interval, now=now, tz_name="America/New_York", next_check_at=None) == expected
+
 
 class TestIsWeekend:
     @parameterized.expand(
@@ -119,6 +140,27 @@ class TestScanNextUnblockedUtc:
         result = scan_next_unblocked_utc(datetime(2026, 3, 18, 18, 0, tzinfo=UTC), "US/Pacific", windows)
         assert result is not None
         assert result == datetime(2026, 3, 19, 0, 0, tzinfo=UTC)
+
+    @parameterized.expand(
+        [
+            (
+                "spring_forward",
+                ("01:30", "03:30"),
+                datetime(2026, 3, 8, 6, 30, tzinfo=UTC),
+                datetime(2026, 3, 8, 7, 30, tzinfo=UTC),
+            ),
+            (
+                "fall_back",
+                ("00:30", "02:00"),
+                datetime(2026, 11, 1, 5, 0, tzinfo=UTC),
+                datetime(2026, 11, 1, 7, 0, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_scan_respects_dst_offset_changes(
+        self, _name: str, window: tuple[str, str], candidate: datetime, expected: datetime
+    ) -> None:
+        assert scan_next_unblocked_utc(candidate, "America/New_York", self._windows(window)) == expected
 
     def test_no_windows_returns_candidate(self) -> None:
         candidate = datetime(2026, 3, 18, 12, 30, 45, 123456, tzinfo=UTC)

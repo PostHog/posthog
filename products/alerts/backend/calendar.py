@@ -11,12 +11,14 @@ names, quiet-hours windows as parsed tuples.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
 import pytz
-from dateutil.relativedelta import MO, relativedelta
+from dateutil.relativedelta import relativedelta
+from pytz.exceptions import AmbiguousTimeError, NonExistentTimeError
+from pytz.tzinfo import BaseTzInfo
 
 
 class CalendarInterval(StrEnum):
@@ -65,6 +67,26 @@ def is_weekend(now: datetime, tz_name: str) -> bool:
     return now_local.isoweekday() in [6, 7]
 
 
+def _localize_wall_time(team_timezone: BaseTzInfo, naive_local: datetime) -> datetime:
+    try:
+        return team_timezone.localize(naive_local, is_dst=None)
+    except AmbiguousTimeError:
+        return team_timezone.localize(naive_local, is_dst=True)
+    except NonExistentTimeError:
+        return team_timezone.normalize(team_timezone.localize(naive_local, is_dst=False))
+
+
+def _calendar_anchor_utc(
+    local_now: datetime,
+    team_timezone: BaseTzInfo,
+    *,
+    target_date: date,
+    hour: int,
+) -> datetime:
+    naive_local = datetime.combine(target_date, local_now.timetz().replace(tzinfo=None)).replace(hour=hour)
+    return _localize_wall_time(team_timezone, naive_local).astimezone(UTC)
+
+
 def next_calendar_check_time(
     interval: CalendarInterval,
     *,
@@ -80,6 +102,7 @@ def next_calendar_check_time(
     of next month. Hour-only replacement keeps the minute/second spread.
     """
     team_timezone = pytz.timezone(tz_name)
+    local_now = now.astimezone(team_timezone)
 
     match interval:
         case CalendarInterval.REAL_TIME:
@@ -89,17 +112,25 @@ def next_calendar_check_time(
         case CalendarInterval.HOURLY:
             return (next_check_at or now) + relativedelta(hours=1)
         case CalendarInterval.DAILY:
-            tomorrow_local = now.astimezone(team_timezone) + relativedelta(days=1)
-            one_am_local = tomorrow_local.replace(hour=1)
-            return one_am_local.astimezone(pytz.utc)
+            return _calendar_anchor_utc(
+                local_now,
+                team_timezone,
+                target_date=local_now.date() + timedelta(days=1),
+                hour=1,
+            )
         case CalendarInterval.WEEKLY:
-            next_monday_local = now.astimezone(team_timezone) + relativedelta(days=1, weekday=MO(1))
-            next_monday_3am_local = next_monday_local.replace(hour=3)
-            return next_monday_3am_local.astimezone(pytz.utc)
+            return _calendar_anchor_utc(
+                local_now,
+                team_timezone,
+                target_date=local_now.date() + timedelta(days=7 - local_now.weekday()),
+                hour=3,
+            )
         case CalendarInterval.MONTHLY:
-            next_month_local = now.astimezone(team_timezone) + relativedelta(months=1)
-            next_month_4am_local = next_month_local.replace(day=1, hour=4)
-            return next_month_4am_local.astimezone(pytz.utc)
+            if local_now.month == 12:
+                target_date = date(local_now.year + 1, 1, 1)
+            else:
+                target_date = date(local_now.year, local_now.month + 1, 1)
+            return _calendar_anchor_utc(local_now, team_timezone, target_date=target_date, hour=4)
         case _ as unreachable:
             raise ValueError(f"Unhandled alert calculation interval: {unreachable!r}")
 
@@ -340,12 +371,12 @@ def scan_next_unblocked_utc(
         return from_utc.astimezone(UTC).replace(microsecond=0)
 
     tz = pytz.timezone(tz_name)
-    cur = from_utc.astimezone(tz).replace(second=0, microsecond=0)
+    cur = from_utc.astimezone(UTC).replace(second=0, microsecond=0)
     steps = 0
     while steps < max_steps:
-        m = _minute_of_local_datetime(cur)
+        m = _minute_of_local_datetime(cur.astimezone(tz))
         if not is_local_minute_blocked(m, windows):
-            return cur.astimezone(pytz.UTC)
+            return cur
         cur = cur + timedelta(minutes=1)
         steps += 1
     return None
