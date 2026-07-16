@@ -12,6 +12,57 @@ logger = structlog.get_logger(__name__)
 
 SIGNALS_REPO_DISCOVERY_ENV_NAME = "SIGNALS_REPO_DISCOVERY"
 SIGNALS_REPORT_RESEARCH_ENV_NAME = "SIGNALS_REPORT_RESEARCH"
+# Dedicated scout env, split out from report-research so the scout fleet can carry a wider egress
+# allowlist without changing the report-research/custom-agent posture (they share the network access
+# level, which is reasserted on every upsert — so widening the shared env would thrash).
+SIGNALS_SCOUT_ENV_NAME = "SIGNALS_SCOUT"
+
+# Vendor developer-doc / changelog hosts the api-deprecation scout must reach to cite a deprecation
+# from the vendor's OWN page. The sandbox default allowlist (`DEFAULT_TRUSTED_DOMAINS`) covers dev
+# infra (github, package registries, cloud) but no vendor doc hosts, so the scout env is provisioned
+# CUSTOM with these plus the defaults (`include_default_domains=True`, keeping github reachable for
+# the repo clone). Read-only public documentation hosts only — never a host with an attacker-readable
+# write/log endpoint, so this can't become an exfiltration channel (which is why WebFetch stays off).
+# Extend as the fleet's integration coverage grows; an unlisted vendor falls back to WebSearch.
+SCOUT_RESEARCH_ALLOWED_DOMAINS: list[str] = [
+    # Ads / marketing platforms
+    "developers.facebook.com",
+    "developers.google.com",
+    "developer.linkedin.com",
+    "learn.microsoft.com",
+    "business-api.tiktok.com",
+    "ads.tiktok.com",
+    "developers.snap.com",
+    "marketingapi.snapchat.com",
+    "ads-api.reddit.com",
+    "developer.x.com",
+    "developer.twitter.com",
+    # CRM / marketing automation / messaging
+    "developers.hubspot.com",
+    "developer.salesforce.com",
+    "developers.intercom.com",
+    "customer.io",
+    "docs.customer.io",
+    "developers.klaviyo.com",
+    "mailchimp.com",
+    "www.braze.com",
+    "api.slack.com",
+    "docs.sendgrid.com",
+    "www.twilio.com",
+    "developer.zendesk.com",
+    "iterable.com",
+    # Payments / commerce
+    "docs.stripe.com",
+    "stripe.com",
+    "shopify.dev",
+    "developer.rechargepayments.com",
+    "developer.paddle.com",
+    "www.chargebee.com",
+    # Data warehouses / sources
+    "docs.snowflake.com",
+    "docs.aws.amazon.com",
+    "www.postgresql.org",
+]
 
 
 def get_or_create_signals_sandbox_env(

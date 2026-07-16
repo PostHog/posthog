@@ -29,7 +29,8 @@ from products.signals.backend.scout_harness.skill_loader import (
 )
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.signals.backend.temporal.agentic import (
-    SIGNALS_REPORT_RESEARCH_ENV_NAME,
+    SCOUT_RESEARCH_ALLOWED_DOMAINS,
+    SIGNALS_SCOUT_ENV_NAME,
     get_or_create_signals_sandbox_env,
     resolve_acting_user_id_for_team,
 )
@@ -41,9 +42,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Reuse the report-research sandbox env. Same posture: full repo on disk, restricted
-# network, MCP read scopes injected. Split out later if the agent needs different policy.
-SIGNALS_SCOUT_SANDBOX_ENV_NAME = SIGNALS_REPORT_RESEARCH_ENV_NAME
+# The scout fleet's own sandbox env, split out from report-research: same MCP-read posture, but a
+# CUSTOM network allowlist that adds the vendor doc hosts the api-deprecation scout must reach to
+# cite a deprecation (see `SCOUT_RESEARCH_ALLOWED_DOMAINS`). Kept separate from report-research
+# because the network access level is reasserted on every env upsert, so a shared env would thrash
+# between TRUSTED (report-research) and CUSTOM (scouts).
+SIGNALS_SCOUT_SANDBOX_ENV_NAME = SIGNALS_SCOUT_ENV_NAME
 
 # The report channel (emit_report/edit_report) is opt-in per skill. A scout's sandbox token
 # carries the report-write scope ONLY when its skill listed one of these in `allowed_tools` (see
@@ -382,7 +386,12 @@ async def _spawn_and_run(
     sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
         team.id,
         SIGNALS_SCOUT_SANDBOX_ENV_NAME,
-        tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
+        # CUSTOM (not TRUSTED) so the vendor doc allowlist is honored — `get_effective_domains`
+        # ignores `allowed_domains` under TRUSTED. `include_default_domains` keeps github.com and the
+        # package registries reachable for the repo clone.
+        tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
+        allowed_domains=SCOUT_RESEARCH_ALLOWED_DOMAINS,
+        include_default_domains=True,
     )
     # `repository` is None on the cadence path — v1 doesn't clone a repo into the
     # sandbox. The kwarg stays wired so the management command can still pass

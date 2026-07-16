@@ -34,8 +34,10 @@ from products.signals.backend.scout_harness.skill_loader import (
     load_skill_for_run,
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
+from products.signals.backend.temporal.agentic import SCOUT_RESEARCH_ALLOWED_DOMAINS
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
+from products.tasks.backend.facade import api as tasks_facade
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -541,6 +543,40 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
 
     assert captured["context"].model == expected_model
     assert captured["context"].runtime_adapter == expected_runtime_adapter
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_provisions_sandbox_with_vendor_doc_allowlist(ateam, aerrors_skill):
+    # The api-deprecation scout must curl vendor changelog hosts to cite a deprecation. That only
+    # works if the scout env is provisioned CUSTOM with the vendor allowlist + default domains (the
+    # repo clone needs github). If someone flips it back to TRUSTED, `get_effective_domains` drops
+    # `allowed_domains` and vendor pages silently become unreachable — the scout emits nothing with
+    # no error. Lock the provisioning contract here.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new=_fake_start_invoking_hook(session, result),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_scout_model",
+            return_value=ScoutModel(model=None, runtime_adapter=None),
+        ),
+        patch("products.signals.backend.scout_harness.runner.resolve_agent_runtime", return_value=AgentRuntime()),
+        patch("products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team", return_value=42),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ) as mock_env,
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    mock_env.assert_called_once()
+    assert mock_env.call_args.args[2] == tasks_facade.SandboxNetworkAccessLevel.CUSTOM
+    assert mock_env.call_args.kwargs["allowed_domains"] == SCOUT_RESEARCH_ALLOWED_DOMAINS
+    assert mock_env.call_args.kwargs["include_default_domains"] is True
 
 
 @pytest.mark.asyncio

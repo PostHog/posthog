@@ -11,16 +11,16 @@ description: >
   uncitable suspicions go to the scratchpad, never the inbox. Code changes slowly, so most runs
   close out empty against the last-scan memory. Self-contained peer in the signals-scout-* fleet.
 compatibility: >
-  Designed for the PostHog Signals agent in a Claude sandbox with shell access, a TRUSTED-allowlist
-  network (github.com and package registries reachable; arbitrary vendor doc hosts are NOT on the
-  allowlist and WebFetch is withheld, so vendor research goes through WebSearch, not direct page
-  fetch), and PostHog MCP scopes: read-only, signal_scout_internal:write for scratchpad, and
-  signal_scout_report:write for emit-report/edit-report (this scout authors reports directly via the
-  report channel). Assumes the scout MCP family (scratchpad-search, scratchpad-remember,
+  Designed for the PostHog Signals agent in a Claude sandbox with shell access, a CUSTOM-allowlist
+  network: github.com and package registries reachable (for the repo clone), plus the vendor doc
+  hosts in the scout env's allowlist (`SCOUT_RESEARCH_ALLOWED_DOMAINS`). WebFetch is withheld, so you
+  read a vendor page with shell `curl`; an allowlisted host resolves, an unlisted one is blocked and
+  falls back to WebSearch. PostHog MCP scopes: read-only, signal_scout_internal:write for scratchpad,
+  and signal_scout_report:write for emit-report/edit-report (this scout authors reports directly via
+  the report channel). Assumes the scout MCP family (scratchpad-search, scratchpad-remember,
   scratchpad-forget, runs-list, emit-report, edit-report, members-list) plus inbox-reports-list /
-  -retrieve, and WebSearch for vendor changelog research. Needs a repository to scan: uses a harness
-  checkout if one is present, otherwise shallow-clones the project's repository from github.com (on
-  the allowlist) when it is public.
+  -retrieve, and WebSearch. Needs a repository to scan: uses a harness checkout if one is present,
+  otherwise shallow-clones the project's repository from github.com when it is public.
 allowed_tools:
   - emit_report
   - edit_report
@@ -162,21 +162,21 @@ For each genuine call site, check **both axes** against the vendor's own documen
 - **Endpoint/product axis** — is the endpoint or API product itself being retired or migrated,
   even though the version is current? A current version is not evidence the usage is safe.
 
-Research through **WebSearch** — it is the web tool you actually have in the sandbox. Arbitrary
-vendor doc hosts are not on the network allowlist and WebFetch is withheld, so you generally cannot
-open a vendor page directly; a `curl` to `developers.<vendor>.com` will be blocked. Search for the
-deprecation (`"<vendor> <api> <version> deprecation sunset date"`), read the result snippets, and
-keep following searches until the vendor's own page is among the results and its snippet carries the
-claim.
+Two web affordances, used together. **WebSearch** discovers the right vendor page (WebFetch is
+withheld, so search is how you find URLs): `"<vendor> <api> <version> deprecation sunset date"`, then
+read the result snippets. **Shell `curl`** then fetches the vendor page itself for the verbatim
+quote — the scout env allowlists the major vendor doc hosts (Meta, Google, HubSpot, Stripe, Shopify,
+LinkedIn, Zendesk, and more; see `SCOUT_RESEARCH_ALLOWED_DOMAINS`). If a `curl` to the vendor host
+is blocked (an unlisted vendor), fall back to the WebSearch snippet and lower confidence.
 
 Rules:
 
-- Cite the specific vendor page URL (the vendor's OWN changelog/sunset page, from the search
-  results) and quote the exact sentence that supports the claim — from the vendor page's search
-  snippet when you can't open the page. If only third-party sources (blog posts, SDK release notes)
-  carry the claim, corroborate across several independent ones and lower your confidence
-  accordingly. If neither the vendor's own snippet nor solid corroboration is reachable, don't file
-  — remember it and re-check next run.
+- Cite the specific vendor page URL (the vendor's OWN changelog/sunset page) and quote the exact
+  sentence that supports the claim — `curl` the page for the verbatim quote when its host is
+  allowlisted, else quote the vendor page's WebSearch snippet. If only third-party sources (blog
+  posts, SDK release notes) carry the claim, corroborate across several independent ones and lower
+  your confidence accordingly. If neither the vendor's own page/snippet nor solid corroboration is
+  reachable, don't file — remember it and re-check next run.
 - If the page states no removal date, say "no published date" — never substitute an estimate. If
   the vendor publishes only an estimated month ("V21: August 2026 … dates are only estimates"),
   cite it as estimated.
@@ -280,9 +280,10 @@ must not stop future runs from researching a genuine API call site on the same h
   `suggested_reviewers` (wrap as a `{github_login}` object, or pass the member's `{user_uuid}`).
 - `scout-scratchpad-search` / `-remember` / `-forget`, `scout-runs-list` /
   `-runs-retrieve` — orientation, dedupe, and durable memory.
-- `WebSearch` — vendor changelog / sunset research (direct page fetch is unavailable in the
-  sandbox; search snippets are your window onto the vendor's own page).
-- Shell for the clone, `rg`, and reading call sites.
+- `WebSearch` — discover the vendor's changelog / sunset page (WebFetch is withheld, so search
+  finds the URL).
+- Shell for the clone, `rg`, reading call sites, and `curl`-ing allowlisted vendor doc pages for the
+  verbatim quote.
 
 ## Close out
 
