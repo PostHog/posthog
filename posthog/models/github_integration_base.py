@@ -1185,6 +1185,71 @@ class GitHubIntegrationBase:
                         }
                     )
         return out
+    def add_reaction_to_comment(self, repository: str, comment_id: int, content: str = "eyes") -> dict[str, Any]:
+        """React to an issue/PR conversation comment (e.g. an "eyes" ack). ``repository`` is
+        ``owner/repo`` or a bare repo. GitHub returns 200 if the reaction already existed, 201 if created."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_post(
+            f"https://api.github.com/repos/{repo_path}/issues/comments/{comment_id}/reactions",
+            endpoint="/repos/{owner}/{repo}/issues/comments/{comment_id}/reactions",
+            json_body={"content": content},
+        )
+        if response is None:
+            return {"success": False, "error": "Network error adding reaction"}
+        if response.status_code not in (200, 201):
+            return {
+                "success": False,
+                "error": f"Failed to add reaction: {response.text}",
+                "status_code": response.status_code,
+            }
+        return {"success": True}
+
+    def list_pull_request_comments(self, repository: str, pr_number: int, *, max_pages: int = 10) -> dict[str, Any]:
+        """List conversation (issue) comments on a PR, following pagination up to ``max_pages`` (100/page).
+
+        Returns ``{"success": True, "comments": [...]}`` where each comment carries ``id``, ``body``,
+        ``author_login``, ``author_id``, ``created_at``, and ``performed_via_github_app`` (True when the
+        comment was authored by a GitHub App — used to skip the bot's own comments). Inline review
+        comments live on a different endpoint and are intentionally excluded.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        comments: list[dict[str, Any]] = []
+        for page in range(1, max_pages + 1):
+            response = self._installation_authenticated_get(
+                f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/comments",
+                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+                params={"per_page": 100, "page": page},
+            )
+            if response is None:
+                return {"success": False, "error": "Network error listing pull request comments"}
+            if response.status_code != 200:
+                return {
+                    "success": False,
+                    "error": f"Failed to list pull request comments: {response.text}",
+                    "status_code": response.status_code,
+                }
+            try:
+                page_items = response.json()
+            except Exception:
+                return {"success": False, "error": "Failed to parse pull request comments JSON"}
+            if not isinstance(page_items, list):
+                return {"success": False, "error": "Unexpected pull request comments payload"}
+            for item in page_items:
+                user = item.get("user") or {}
+                comments.append(
+                    {
+                        "id": item.get("id"),
+                        "body": item.get("body") or "",
+                        "author_login": user.get("login"),
+                        "author_id": user.get("id"),
+                        "created_at": item.get("created_at"),
+                        "performed_via_github_app": item.get("performed_via_github_app") is not None,
+                    }
+                )
+            if len(page_items) < 100:
+                break
+        return {"success": True, "comments": comments}
 
     def find_pull_request_urls_for_branch(self, repository: str, branch: str) -> list[str]:
         """Return the HTML URLs of open or closed PRs whose head is ``branch`` in ``repository``.
