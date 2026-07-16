@@ -22,6 +22,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import InstanaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.instana.instana import (
+    RESPONSE_TOO_LARGE_ERROR,
+    RESPONSE_TOO_SLOW_ERROR,
     InstanaHostNotAllowedError,
     InstanaResumeConfig,
     instana_source,
@@ -100,6 +102,8 @@ Your base URL is the address you use to open the Instana UI, e.g. `https://unit-
             # per-tenant, so match only the stable status text.
             "401 Client Error: Unauthorized": "Your Instana API token is invalid or has been revoked. Create a new API token under Settings → Team Settings → API Tokens, then reconnect.",
             "403 Client Error: Forbidden": "Your Instana API token is missing the permission scopes needed to sync this data. Grant the required scopes on the token, then reconnect.",
+            RESPONSE_TOO_LARGE_ERROR: "Instana returned a response that was too large to process. Please contact support if this persists.",
+            RESPONSE_TOO_SLOW_ERROR: "Instana took too long to send a response. Check that the base URL points at a healthy Instana instance, then reconnect.",
         }
 
     def get_schemas(

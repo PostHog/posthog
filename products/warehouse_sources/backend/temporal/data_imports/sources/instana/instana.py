@@ -1,3 +1,5 @@
+import json
+import time
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -24,7 +26,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instana.se
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRY_ATTEMPTS = 5
 
+# The base URL is customer-controlled, so a body must never be buffered unbounded: requests reads
+# the whole response into memory by default, and the read timeout only guards idle gaps between
+# reads, not a steady large (or gzip-expanded) transfer. Cap what we read into memory — generous
+# for any real Instana page, anything past it is refused.
+MAX_RESPONSE_BYTES = 256 * 1024 * 1024
+RESPONSE_CHUNK_BYTES = 256 * 1024
+# Wall-clock budget for downloading one response body. The per-read timeout can't stop a host that
+# dribbles the body slowly enough to stay under it while holding a shared worker open. 256 MiB in
+# 300s is a ~0.85 MiB/s floor — far below any real API response, far above a slow-drip stall.
+MAX_DOWNLOAD_SECONDS = 300
+
 HOST_NOT_ALLOWED_ERROR = "Instana base URL is not allowed"
+RESPONSE_TOO_LARGE_ERROR = "Instana response body was too large"
+RESPONSE_TOO_SLOW_ERROR = "Instana response download was too slow"
 
 
 class InstanaRetryableError(Exception):
@@ -33,6 +48,41 @@ class InstanaRetryableError(Exception):
 
 class InstanaHostNotAllowedError(Exception):
     pass
+
+
+class InstanaResponseTooLargeError(Exception):
+    pass
+
+
+class InstanaResponseTooSlowError(Exception):
+    pass
+
+
+def _read_capped_body(response: requests.Response) -> bytes:
+    """Stream the body into memory, aborting past MAX_RESPONSE_BYTES or MAX_DOWNLOAD_SECONDS.
+
+    The host is customer-controlled, so a body must never be buffered unbounded (size cap) nor be
+    allowed to hold the connection open indefinitely by dribbling under the per-read timeout (time
+    cap). Both are non-retryable: re-fetching the same request yields the same oversized/slow body.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
+    try:
+        for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
+            if time.monotonic() > deadline:
+                raise InstanaResponseTooSlowError(
+                    f"{RESPONSE_TOO_SLOW_ERROR}: exceeded {MAX_DOWNLOAD_SECONDS}s download budget"
+                )
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > MAX_RESPONSE_BYTES:
+                raise InstanaResponseTooLargeError(f"{RESPONSE_TOO_LARGE_ERROR}: exceeded {MAX_RESPONSE_BYTES} bytes")
+            chunks.append(chunk)
+    finally:
+        response.close()
+    return b"".join(chunks)
 
 
 @dataclasses.dataclass
@@ -116,12 +166,17 @@ def validate_credentials(base_url: str, api_token: str, team_id: int | None = No
         _check_host(base_url, team_id)
     url = _build_url(root, "/api/instana/version", {})
     try:
+        # stream=True so a customer-controlled host can't force us to buffer an unbounded probe
+        # body; we only need the status, so read nothing and close immediately.
         response = make_tracked_session(allow_redirects=False, redact_values=(api_token,)).get(
-            url, headers=_headers(api_token), timeout=10
+            url, headers=_headers(api_token), timeout=10, stream=True
         )
     except requests.exceptions.RequestException:
         return False, None
-    return response.status_code == 200, response.status_code
+    try:
+        return response.status_code == 200, response.status_code
+    finally:
+        response.close()
 
 
 def _fetch(
@@ -136,18 +191,24 @@ def _fetch(
         reraise=True,
     )
     def fetch_once() -> Any:
-        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+        # stream=True so the body isn't buffered until we cap it — see _read_capped_body.
+        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
 
         # Instana rate-limits to 5000 calls/hour and answers excess with 429; transient 5xx are
         # retryable too. Back off and retry rather than failing the sync.
         if response.status_code == 429 or response.status_code >= 500:
+            response.close()
             raise InstanaRetryableError(f"Instana API error (retryable): status={response.status_code}, url={url}")
 
+        body = _read_capped_body(response)
+
         if not response.ok:
-            logger.error(f"Instana API error: status={response.status_code}, body={response.text}, url={url}")
+            logger.error(
+                f"Instana API error: status={response.status_code}, body={body.decode(errors='replace')}, url={url}"
+            )
             response.raise_for_status()
 
-        return response.json()
+        return json.loads(body or b"null")
 
     return fetch_once()
 

@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -27,6 +28,17 @@ BASE_URL = "https://unit-tenant.instana.io"
 
 def _patch_host_safe():
     return mock.patch.object(inst, "_is_host_safe", return_value=(True, None))
+
+
+def _make_response(status_code: int, payload: Any = None, ok: bool | None = None) -> Any:
+    """Build a streaming-response mock: `_read_capped_body` reads it via `iter_content`."""
+    resp = mock.MagicMock()
+    resp.status_code = status_code
+    resp.ok = ok if ok is not None else status_code < 400
+    body = b"" if payload is None else json.dumps(payload).encode()
+    resp.iter_content.return_value = iter([body]) if body else iter([])
+    resp.text = body.decode()
+    return resp
 
 
 class TestNormalizeBaseUrl:
@@ -97,13 +109,10 @@ def _run_get_rows(
 
     fetched_urls: list[str] = []
 
-    def fake_get(url: str, timeout: Any = None) -> Any:
+    def fake_get(url: str, timeout: Any = None, stream: bool = False) -> Any:
         fetched_urls.append(url)
-        resp = mock.MagicMock()
-        resp.status_code = 200
-        resp.ok = True
-        resp.json.return_value = pages[min(len(fetched_urls), len(pages)) - 1]
-        return resp
+        payload = pages[min(len(fetched_urls), len(pages)) - 1]
+        return _make_response(200, payload)
 
     with _patch_host_safe(), mock.patch.object(inst, "make_tracked_session") as mock_session:
         mock_session.return_value.get.side_effect = fake_get
