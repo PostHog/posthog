@@ -235,10 +235,7 @@ class TestMetricsBlockHtml(SimpleTestCase):
     def test_renders_all_counts(self):
         metrics = EvalReportMetrics(
             total_runs=100,
-            pass_count=80,
-            fail_count=18,
-            na_count=2,
-            pass_rate=81.63,
+            result_counts={"pass": 80, "fail": 18, "na": 2},
             period_start="2026-04-08T14:00:00+00:00",
             period_end="2026-04-08T15:00:00+00:00",
         )
@@ -251,23 +248,49 @@ class TestMetricsBlockHtml(SimpleTestCase):
         self.assertIn("Apr 08, 2026 14:00 UTC", html)
 
     def test_renders_delta_up(self):
-        metrics = EvalReportMetrics(total_runs=10, pass_count=9, pass_rate=90.0, previous_pass_rate=80.0)
+        metrics = EvalReportMetrics(
+            total_runs=10,
+            result_counts={"pass": 9, "fail": 1, "na": 0},
+            previous_pass_rate=80.0,
+        )
         html = _render_metrics_block_html(metrics)
         self.assertIn("▲", html)
         self.assertIn("10.00pp", html)
 
     def test_renders_delta_down(self):
-        metrics = EvalReportMetrics(total_runs=10, pass_count=5, pass_rate=50.0, previous_pass_rate=80.0)
+        metrics = EvalReportMetrics(
+            total_runs=10,
+            result_counts={"pass": 5, "fail": 5, "na": 0},
+            previous_pass_rate=80.0,
+        )
         html = _render_metrics_block_html(metrics)
         self.assertIn("▼", html)
         self.assertIn("30.00pp", html)
 
     def test_no_delta_when_previous_is_none(self):
-        metrics = EvalReportMetrics(total_runs=10, pass_count=9, pass_rate=90.0, previous_pass_rate=None)
+        metrics = EvalReportMetrics(total_runs=10, result_counts={"pass": 9, "fail": 1, "na": 0})
         html = _render_metrics_block_html(metrics)
         self.assertNotIn("▲", html)
         self.assertNotIn("▼", html)
         self.assertNotIn("pp vs previous", html)
+
+    def test_renders_sentiment_distribution_without_boolean_labels(self):
+        metrics = EvalReportMetrics(
+            output_type="sentiment",
+            total_runs=10,
+            result_counts={"positive": 4, "neutral": 1, "negative": 5},
+            result_rates={"positive": 40.0, "neutral": 10.0, "negative": 50.0},
+            previous_result_rates={"positive": 60.0, "neutral": 10.0, "negative": 30.0},
+        )
+
+        html = _render_metrics_block_html(metrics)
+
+        self.assertIn("Positive", html)
+        self.assertIn("Neutral", html)
+        self.assertIn("Negative", html)
+        self.assertIn("50.00%", html)
+        self.assertNotIn("Pass", html)
+        self.assertNotIn("Fail", html)
 
 
 class TestDeliverReport(SimpleTestCase):
@@ -279,7 +302,7 @@ class TestDeliverReport(SimpleTestCase):
             title=title,
             sections=[ReportSection(title="Summary", content="All good.")],
             citations=[Citation(generation_id="g", trace_id="t", reason="example")],
-            metrics=EvalReportMetrics(total_runs=10, pass_count=9, pass_rate=90.0),
+            metrics=EvalReportMetrics(total_runs=10, result_counts={"pass": 9, "fail": 1, "na": 0}),
         ).to_dict()
 
     def _make_report_run(self):
@@ -317,6 +340,24 @@ class TestDeliverReport(SimpleTestCase):
 
         mock_email.assert_called_once()
         self.assertEqual(run.delivery_status, "delivered")
+
+    @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_email_report")
+    @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_slack_report")
+    @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReportRun.objects")
+    @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReport.objects")
+    def test_deliver_report_without_targets_marks_generated(self, mock_report_qs, mock_run_qs, mock_slack, mock_email):
+        report = self._make_report([])
+        run = self._make_report_run()
+
+        mock_report_qs.select_related.return_value.get.return_value = report
+        mock_run_qs.get.return_value = run
+
+        deliver_report("report-id", "run-id")
+
+        mock_email.assert_not_called()
+        mock_slack.assert_not_called()
+        self.assertEqual(run.delivery_status, "generated")
+        self.assertEqual(run.delivery_errors, [])
 
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_email_report")
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_slack_report")
@@ -409,7 +450,7 @@ class TestDeliverSlackReport(SimpleTestCase):
             title="A nice punchline",
             sections=sections,
             citations=[],
-            metrics=EvalReportMetrics(total_runs=10, pass_count=9, pass_rate=90.0),
+            metrics=EvalReportMetrics(total_runs=10, result_counts={"pass": 9, "fail": 1, "na": 0}),
         ).to_dict()
         run.report_id = "report-id"
         run.id = "run-id"

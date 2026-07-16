@@ -244,7 +244,25 @@ impl RawNativeFrame {
 
         let symbol_infos = symbols.lookup(lookup_addr)?;
         if symbol_infos.is_empty() {
-            return Err(NativeError::SymbolNotFound(lookup_addr).into());
+            // The symbol set exists but doesn't cover this address (e.g. a
+            // section outside the symcache). The frame falls back to its
+            // client-side fields — but the set's source bundle can still
+            // supply context for the client-reported file/line. Exact-match
+            // only: the path comes from event input here, so the fuzzy
+            // basename fallback could attach lines from the wrong file.
+            let mut frame = self.handle_resolution_error(NativeError::SymbolNotFound(lookup_addr));
+            if let (Some(filename), Some(lineno)) =
+                (self.filename.as_deref(), self.lineno.filter(|l| *l > 0))
+            {
+                if let Some(source_text) = symbols.get_source_exact(filename) {
+                    frame.context = get_context_lines(
+                        source_text.lines(),
+                        (lineno - 1) as usize,
+                        context_lines,
+                    );
+                }
+            }
+            return Ok(vec![frame]);
         }
 
         // Build one resolved Frame per logical layer. The symcache returns
@@ -1381,5 +1399,72 @@ mod test {
                 "crate disambiguator leaked into resolved name: {name}"
             );
         }
+    }
+
+    /// When the uploaded set doesn't cover an address (symbol not found), the
+    /// frame keeps its client-side fields — and the set's source bundle still
+    /// supplies context for the client-reported file/line.
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_symbol_not_found_salvages_context_from_source_bundle(db: sqlx::PgPool) {
+        use crate::frames::RawFrame;
+
+        const ELF: &[u8] = include_bytes!("../../../../tests/static/native/test_binary_inline");
+        const SOURCE: &str = include_str!("../../../../tests/static/native/test_binary_inline.c");
+        let chunk_id = "140ab543-c098-09dc-22b6-11f72e46d6fe";
+        let zip = zip_fixture(
+            ELF,
+            Some(("/cymbal_tests/native/test_binary_inline.c", SOURCE)),
+        );
+        let catalog = catalog_for_chunk(&db, chunk_id, zip).await;
+
+        let slide_base = 0x7f0000000000u64;
+        // 0x10 is inside the image range but outside any symcache-covered
+        // function (ELF header area), so the lookup finds no symbol.
+        let mut raw = native_frame_at(slide_base + 0x10, slide_base);
+        raw.client_resolved = true;
+        raw.function = Some("inlined_leaf".to_string());
+        raw.filename = Some("/cymbal_tests/native/test_binary_inline.c".to_string());
+        raw.lineno = Some(6);
+        let frame = RawFrame::Native(raw);
+        let debug_images = vec![debug_image_at(chunk_id, slide_base)];
+
+        let resolved = frame
+            .resolve(1, &catalog, &debug_images, 3)
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+
+        assert!(!resolved.resolved);
+        assert!(resolved
+            .resolve_failure
+            .as_deref()
+            .is_some_and(|f| f.contains("Symbol not found")));
+        assert_eq!(resolved.resolved_name.as_deref(), Some("inlined_leaf"));
+
+        let context = resolved.context.expect("salvaged context from bundle");
+        assert_eq!(context.line.number, 6);
+        assert!(
+            context.line.line.contains("volatile int x = 99"),
+            "expected fixture line 6, got: {:?}",
+            context.line.line
+        );
+
+        // The salvage path is exact-match only: a bare basename (or any other
+        // fuzzy spelling) of a bundled path attaches nothing, since the
+        // filename here is event input rather than symcache output.
+        let mut fuzzy = native_frame_at(slide_base + 0x10, slide_base);
+        fuzzy.client_resolved = true;
+        fuzzy.function = Some("inlined_leaf".to_string());
+        fuzzy.filename = Some("test_binary_inline.c".to_string());
+        fuzzy.lineno = Some(6);
+        let resolved = RawFrame::Native(fuzzy)
+            .resolve(1, &catalog, &debug_images, 3)
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert!(!resolved.resolved);
+        assert!(resolved.context.is_none());
     }
 }

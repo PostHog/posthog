@@ -57,7 +57,6 @@ class ZapierSupportedStorageSource(SimpleSource[ZapierSupportedStorageSourceConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Zapier (Storage by Zapier)",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Storage by Zapier store secret to pull your key/value store into the PostHog Data warehouse.
 
 The secret is the per-store UUID you use with the [Storage by Zapier](https://help.zapier.com/hc/en-us/articles/8496293271053) app (the `secret` value passed to `StoreClient`, or the `X-Secret` you send to `store.zapier.com`). It both identifies and authorizes the store, so treat it like a password.

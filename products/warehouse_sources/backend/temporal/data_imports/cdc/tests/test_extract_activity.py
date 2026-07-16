@@ -1924,6 +1924,69 @@ class TestErrorClassification:
             assert mock_mark_broken.call_args.args[0] is source
             assert mock_mark_broken.call_args.args[1] == expected_reason
 
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.mark_cdc_broken")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_machine_id",
+        return_value="machine-1",
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.posthoganalytics")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_missing_slot_name_fails_before_streaming_without_recovery(
+        self,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+        mock_posthoganalytics,
+        mock_get_machine_id,
+        mock_mark_broken,
+    ):
+        # A CDC-enabled source whose stored slot name is empty must fail fast and non-retryably:
+        # streaming an empty slot name reads as a recoverable slot drop, so recovery / Repair CDC
+        # run only to dead-end with no slot name to recreate. Guard before streaming instead.
+        source = _make_source(
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "testdb",
+                "user": "test",
+                "password": "test",
+                "cdc_publication_name": "posthog_pub",
+            }
+        )
+        MockSourceModel.objects.get.return_value = source
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        mock_get_schemas.return_value = [schema]
+
+        mock_reader = MagicMock()
+        mock_adapter = MagicMock()
+        mock_adapter.create_reader.return_value = mock_reader
+        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.parse_cdc_config = PostgresCDCAdapter().parse_cdc_config  # reads the empty slot name
+        mock_get_adapter.return_value = mock_adapter
+
+        mock_activity.heartbeat = MagicMock()
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=1)
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        with pytest.raises(NonRetryableException) as exc_info:
+            cdc_extract_activity(inputs)
+
+        assert str(exc_info.value) == cdc_error_info(CDCErrorCategory.SLOT_NOT_CONFIGURED).friendly_message
+        # Never streamed and never tried to recover — the guard fired first.
+        mock_reader.connect.assert_not_called()
+        mock_reader.read_changes.assert_not_called()
+        mock_adapter.recreate_slot.assert_not_called()
+        # Broken state persisted so the schedule stops firing against an unconfigured slot.
+        mock_mark_broken.assert_called_once()
+        assert mock_mark_broken.call_args.args[0] is source
+        assert mock_mark_broken.call_args.args[1] == "slot_not_configured"
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_machine_id",
         return_value="machine-1",

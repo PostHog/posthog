@@ -38,6 +38,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class BraintreeSource(ResumableSource[BraintreeSourceConfig, BraintreeResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("2019-01-01",)
+    default_version = "2019-01-01"
+    api_docs_url = "https://graphql.braintreepayments.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

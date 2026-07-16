@@ -95,7 +95,7 @@ jobs:
             - name: Install system dependencies
               # protobuf-compiler (protoc) is needed to build personhog-router: its
               # transitive etcd-client dep compiles proto files in a build script.
-              run: sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl postgresql-client protobuf-compiler
+              run: sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl postgresql-client protobuf-compiler
 
             - name: Install Rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9

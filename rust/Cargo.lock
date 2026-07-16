@@ -2866,7 +2866,9 @@ dependencies = [
  "bytes",
  "chrono",
  "common-alloc",
+ "common-compression",
  "common-continuous-profiling",
+ "common-database",
  "common-dns",
  "common-kafka",
  "common-metrics",
@@ -7593,6 +7595,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "personhog-test-harness"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assignment-coordination",
+ "chrono",
+ "clap",
+ "futures",
+ "hdrhistogram",
+ "humantime",
+ "personhog-coordination",
+ "personhog-proto",
+ "rand 0.8.5",
+ "rdkafka",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tonic 0.12.3",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "personhog-writer"
 version = "0.1.0"
 dependencies = [
@@ -7918,9 +7944,9 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.19.1"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b19b9f71d36b4f2bd5c6b4db79a1d62c11b7ecf6772294aa5128711ca961f0b"
+checksum = "d78dcf8d0a4bb8a0b59f626d30db0449c4e523c553dd945041802e9bc0ea5fc2"
 dependencies = [
  "backtrace",
  "brotli 7.0.0",

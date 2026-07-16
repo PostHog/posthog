@@ -52,7 +52,6 @@ Create a key from your [CoinMarketCap developer dashboard](https://pro.coinmarke
             iconPath="/static/services/coinmarketcap.png",
             docsUrl="https://posthog.com/docs/cdp/sources/coinmarketcap",
             # Kept hidden from the new-source wizard for now; flip this off to release.
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

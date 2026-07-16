@@ -67,7 +67,6 @@ You can create an API token in your [Fulcrum account settings](https://web.fulcr
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

@@ -347,6 +347,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Marketing Analytics
     [Scene.MarketingAnalytics]: AccessControlResourceType.WebAnalytics,
 
+    // Metrics
+    [Scene.Metrics]: AccessControlResourceType.Metrics,
+
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,
     [Scene.Surveys]: AccessControlResourceType.Survey,

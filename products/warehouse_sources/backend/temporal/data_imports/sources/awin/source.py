@@ -49,7 +49,6 @@ class AwinSource(ResumableSource[AwinSourceConfig, AwinResumeConfig]):
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Awin",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Awin API token to pull your Awin affiliate data into the PostHog Data warehouse.
 
 Create a personal OAuth2 token from the [Awin API settings](https://ui.awin.com/awin-api). The same token grants access to every publisher account your user can see.""",

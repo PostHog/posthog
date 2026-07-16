@@ -70,7 +70,6 @@ You need a Cursor team plan (Business or Enterprise). A team admin can create an
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

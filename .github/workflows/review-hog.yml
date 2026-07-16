@@ -1,22 +1,27 @@
 # ReviewHog label trigger.
 #
-# When a maintainer adds the `reviewhog` label to a non-fork PR (or pushes to an already-labeled one),
-# this makes ONE authenticated call to the PostHog `review_hog` trigger endpoint, which starts the
-# review Temporal workflow server-side and publishes the review back to the PR. Unlike Stamphog, the
-# agent does NOT run in CI: there is no checkout, no app token, no Anthropic key here — the only secret
-# is the shared trigger token. Publishing happens server-side via the PostHog GitHub App installation
-# token.
+# When a maintainer adds the `reviewhog` label to a non-fork PR (any author, drafts included), this
+# makes ONE authenticated call to the PostHog `review_hog` trigger endpoint, which starts the review
+# Temporal workflow server-side and publishes the review back to the PR. One label add = one review:
+# pushes and ready-for-review deliberately do NOT re-trigger — re-reviewing is an explicit gesture
+# (remove and re-add the label), so a labeled PR can keep evolving without burning a review per event.
+# Unlike Stamphog, the agent does NOT run in CI: there is no checkout, no app token, no Anthropic key
+# here — the only secret is the shared trigger token. Publishing happens server-side via the PostHog
+# GitHub App installation token.
 #
-# Safety: `pull_request` (not `pull_request_target`) means fork PRs receive no secrets, so they cannot
-# trigger; the `if:` also hard-gates forks, drafts, and bots; and applying the label needs write access.
+# Safety: `pull_request_target` always runs the base branch's version of this file, so a PR cannot
+# edit its own trigger, and it fires even when the PR has merge conflicts. It does expose secrets to
+# fork PRs, so the `if:` hard-gates forks — safe because this job never checks out or runs PR code.
 name: ReviewHog
 
+# Sanctioned use — no job checks out or runs PR code; see the Safety note above.
+# nosemgrep: github-actions-pull-request-target
 on:
-    pull_request:
-        types: [labeled, ready_for_review, synchronize]
+    pull_request_target:
+        types: [labeled]
 
-# No GitHub permissions needed — the job only makes an outbound authenticated request; the review is
-# fetched and published server-side via the PostHog GitHub App installation token.
+# No GitHub permissions by default — the trigger job only makes an outbound authenticated request;
+# the review is fetched and published server-side via the PostHog GitHub App installation token.
 permissions: {}
 
 concurrency:
@@ -28,18 +33,12 @@ jobs:
         name: Trigger ReviewHog review
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # Run only for the `reviewhog` label on a non-fork, non-draft, human-authored PR. On `labeled`
-        # the label name is on the event; on `synchronize`/`ready_for_review` it must already be present.
+        # Run only when a human applies the `reviewhog` label to a non-fork PR — any author (drafts
+        # and bots included), but the labeler must be a person: the label is the explicit human request.
         if: >-
-            !github.event.pull_request.draft
-            && github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
-            && github.event.pull_request.user.type != 'Bot'
-            && !contains(github.event.pull_request.user.login, '[bot]')
-            && github.event.pull_request.user.login != 'posthog-bot'
-            && (
-                github.event.label.name == 'reviewhog'
-                || (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'reviewhog'))
-            )
+            github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
+            && github.event.sender.type != 'Bot'
+            && github.event.label.name == 'reviewhog'
         steps:
             - name: Trigger ReviewHog review
               env:
@@ -49,7 +48,7 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   if [ -z "$REVIEWHOG_TRIGGER_TOKEN" ]; then
-                    echo "::error::REVIEWHOG_TRIGGER_TOKEN secret is not set (or unavailable on a fork PR)." >&2
+                    echo "::error::REVIEWHOG_TRIGGER_TOKEN secret is not set." >&2
                     exit 1
                   fi
                   payload="$(jq -n --arg repo "$REPO" --argjson pr "$PR_NUMBER" '{repo: $repo, pr_number: $pr}')"
@@ -61,3 +60,27 @@ jobs:
                     -H "Authorization: Bearer $REVIEWHOG_TRIGGER_TOKEN" \
                     -H "Content-Type: application/json" \
                     -d "$payload"
+
+    # The trigger job skips bot-applied labels silently; explain why and strip the label so a
+    # human can re-add it deliberately.
+    bot-labeler-skip:
+        name: Explain skipped bot label
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            issues: write
+        if: >-
+            github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
+            && github.event.sender.type == 'Bot'
+            && github.event.label.name == 'reviewhog'
+        steps:
+            - name: Comment and strip label
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: |
+                  set -euo pipefail
+                  gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" \
+                    -f body="ReviewHog reviews start only when a human adds the \`reviewhog\` label, so this bot-applied label was removed. Re-add it yourself to start a review."
+                  gh api -X DELETE "repos/$REPO/issues/$PR_NUMBER/labels/reviewhog"

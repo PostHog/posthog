@@ -18,6 +18,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     DeltaTableHelper,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_row_sink import (
+    PersonPropertyRowSink,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     BillingLimitsWillBeReachedException,
@@ -248,8 +251,13 @@ def resolve_primary_keys(
         return schema.primary_key_columns
     if resource.primary_keys:
         return list(resource.primary_keys)
-    if "id" in extract_available_column_names(schema.schema_metadata):
-        return ["id"]
+    # Case-insensitive: engines like Snowflake uppercase unquoted identifiers, so the column
+    # arrives as `ID`. Return the actual stored casing — the merge indexes batches by real name.
+    id_column = next(
+        (name for name in extract_available_column_names(schema.schema_metadata) if name.lower() == "id"), None
+    )
+    if id_column is not None:
+        return [id_column]
     return None
 
 
@@ -640,6 +648,16 @@ async def cdp_producer_clear_chunks(cdp_producer: CDPProducer):
 async def write_chunk_for_cdp_producer(cdp_producer: CDPProducer, index: int, pa_table: pa.Table):
     if await cdp_producer.should_produce_table():
         await cdp_producer.write_chunk_for_cdp_producer(chunk=index, table=pa_table)
+
+
+async def person_property_sink_clear_chunks(sink: PersonPropertyRowSink):
+    if await sink.should_stage():
+        await sink.clear_chunks()
+
+
+async def stage_chunk_for_person_property_sink(sink: PersonPropertyRowSink, index: int, pa_table: pa.Table):
+    if await sink.should_stage():
+        await sink.stage_chunk(chunk=index, table=pa_table)
 
 
 async def run_pre_write_defensive_compact(

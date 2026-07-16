@@ -2260,9 +2260,17 @@
          "posthog_user"."onboarding_delegated_to_organization_id",
          "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in"
+         "posthog_user"."email_opt_in",
+         "posthog_threshold"."created_by_id",
+         "posthog_threshold"."created_at",
+         "posthog_threshold"."id",
+         "posthog_threshold"."team_id",
+         "posthog_threshold"."insight_id",
+         "posthog_threshold"."name",
+         "posthog_threshold"."configuration"
   FROM "posthog_alertconfiguration"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_alertconfiguration"."created_by_id" = "posthog_user"."id")
+  LEFT OUTER JOIN "posthog_threshold" ON ("posthog_alertconfiguration"."threshold_id" = "posthog_threshold"."id")
   WHERE "posthog_alertconfiguration"."insight_id" IN (1,
                                                       2,
                                                       3,
@@ -7730,9 +7738,17 @@
          "posthog_user"."onboarding_delegated_to_organization_id",
          "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in"
+         "posthog_user"."email_opt_in",
+         "posthog_threshold"."created_by_id",
+         "posthog_threshold"."created_at",
+         "posthog_threshold"."id",
+         "posthog_threshold"."team_id",
+         "posthog_threshold"."insight_id",
+         "posthog_threshold"."name",
+         "posthog_threshold"."configuration"
   FROM "posthog_alertconfiguration"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_alertconfiguration"."created_by_id" = "posthog_user"."id")
+  LEFT OUTER JOIN "posthog_threshold" ON ("posthog_alertconfiguration"."threshold_id" = "posthog_threshold"."id")
   WHERE "posthog_alertconfiguration"."insight_id" IN (1,
                                                       2,
                                                       3,
