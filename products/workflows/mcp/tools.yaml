@@ -115,9 +115,10 @@ tools:
             first, then enable (workflows-enable) only with the user's explicit approval — from then on it runs on real
             people, and further content edits stage as a draft you must publish (workflows-publish) to take effect.
             Provide an actions array with exactly one type='trigger' (config.type:
-            event|webhook|manual|batch|tracking_pixel) plus action nodes (function/function_email/function_sms, delay,
-            conditional_branch, wait_until_condition, ...) connected by edges. Read the building-workflows skill for
-            node shapes before composing: a node that mismatches the per-type schema saves but breaks the visual editor.
+            event|webhook|manual|batch|tracking_pixel) plus action nodes
+            (function/function_email/function_sms/function_push, delay, conditional_branch, wait_until_condition, ...)
+            connected by edges. Read the building-workflows skill for node shapes before composing: a node that
+            mismatches the per-type schema saves but breaks the visual editor.
             Two traps that save but break: (1) a conditional_branch condition needs a 'filters' wrapper —
             {filters:{properties:[...]}}, not {properties:[...]} on the condition; omitting it passes save but the
             editor flags it and the branch won't evaluate your condition. (2) Never hand-author bytecode anywhere; send
@@ -327,7 +328,7 @@ tools:
             current_action_id), then pass the returned nextActionId as current_action_id on the next call, and repeat.
             To test a specific branch, set current_action_id to that node. Skip delay nodes by jumping to the action
             after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}).
-            Async actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side
+            Async actions (HTTP/email/SMS/push) are mocked by default; set mock_async_functions=false to fire real side
             effects. Returns the step's execution trace. Set use_draft=true to test a workflow's staged draft instead of
             its live config — always do this before workflows-publish.
         exclude_params:

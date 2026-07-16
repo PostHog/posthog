@@ -49,6 +49,7 @@ Use **only** these `type` values — they are the complete supported set. An unk
 | `function`               | `{ "template_id": "<live template id>", "inputs": { ... }, "mappings?": [] }`. Don't guess the id or its inputs — discover them live (see below).                                                                                                                                   |
 | `function_email`         | `{ "template_id": "template-email", "inputs": {"email": {"value": {...}}}, "message_category_type?": <"marketing" / "transactional"> }`. `template_id` is the **literal** `template-email`.                                                                                         |
 | `function_sms`           | `{ "template_id": "template-twilio", "inputs": { ... }, "message_category_type?": "..." }`. `template_id` is the **literal** `template-twilio`.                                                                                                                                     |
+| `function_push`          | `{ "template_id": "template-native-push", "inputs": { ... }, "message_category_type?": <"marketing" / "transactional"> }`. `template_id` is the **literal** `template-native-push`. Sends a mobile push notification via FCM/APNs. Its `inputs` are richer than email's — `title`, `body`, and a `channels` list of the FCM/APNs integration ids to send through — so retrieve the `template-native-push` `inputs_schema` (as with `function`) for the exact keys, and use the project's push integration ids for `channels`. |
 | `exit`                   | `{ "reason?": "Done" }`. Usually one terminal exit node.                                                                                                                                                                                                                            |
 
 ### Branch and wait condition filters (the `filters` wrapper is mandatory)
@@ -124,7 +125,7 @@ The set of available `function` templates and their required inputs is **live da
 2. `cdp-function-templates-retrieve` with that id to read its **`inputs_schema`** — the exact keys, types, and which are required.
 3. Build `inputs` from that schema. A `template_id` not in the live list fails with "Template not found".
 
-`function_email` and `function_sms` are the exception — their `template_id` is the fixed literal `template-email` / `template-twilio` (required by the editor), so you don't look those up.
+`function_email`, `function_sms`, and `function_push` are the exception — their `template_id` is the fixed literal `template-email` / `template-twilio` / `template-native-push` (required by the editor), so you don't look the `template_id` up. `function_push` still has variable `inputs` (notably `channels`), so retrieve its `inputs_schema` even though the id is fixed.
 
 ## Duration strings (`delay_duration`, `max_wait_duration`)
 
@@ -147,7 +148,7 @@ Must match `^\d*\.?\d+[dhm]$` — a number plus unit `m` | `h` | `d`. Examples: 
 - [ ] Exactly **one** `type: "trigger"` action; usually exactly one `exit`.
 - [ ] Every action `type` and `config` matches a row above (no types outside the supported set).
 - [ ] `on_error` is only `continue` or `abort`.
-- [ ] `function_email.template_id == "template-email"`, `function_sms.template_id == "template-twilio"`.
+- [ ] `function_email.template_id == "template-email"`, `function_sms.template_id == "template-twilio"`, `function_push.template_id == "template-native-push"`.
 - [ ] Every non-exit node has an outgoing edge; `branch` edges have an `index` matching a condition.
 - [ ] Every `conditional_branch` / `wait_until_condition` condition is wrapped: `{filters: {properties: [...]}}`, not `{properties: [...]}`.
 - [ ] All durations match `^\d*\.?\d+[dhm]$` and dodge the silent per-unit clamp.
