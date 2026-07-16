@@ -1,17 +1,28 @@
+import json
 from typing import Any
+from urllib.parse import urlencode
 
 import pytest
 from unittest import mock
+
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.assemblyai import (
     AssemblyAIResumeConfig,
     _pinned_url,
     assemblyai_source,
     base_url_for_region,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.settings import ENDPOINTS
+
+# RESTClient (list pagination and per-transcript hydration) builds its session via
+# make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the assemblyai module.
+ASSEMBLYAI_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.assemblyai.make_tracked_session"
+)
 
 US_LIST_URL = "https://api.assemblyai.com/v2/transcript?limit=200"
 
@@ -23,25 +34,43 @@ def _make_manager(resume_state: AssemblyAIResumeConfig | None = None) -> mock.Ma
     return manager
 
 
-def _resp(json_body: Any, status: int = 200) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = json_body
-    resp.status_code = status
-    resp.ok = status < 400
-    return resp
-
-
 def _list_page(items: list[dict[str, Any]], next_url: str | None) -> dict[str, Any]:
     return {"transcripts": items, "page_details": {"next_url": next_url}}
 
 
-def _url_router(responses: dict[str, dict[str, Any]]) -> Any:
-    """Return a session.get side_effect that maps each requested URL to a mocked response."""
+def _wire(session: mock.MagicMock, responses: dict[str, dict[str, Any]]) -> list[str]:
+    """Wire a mock session that routes each request to a response body by its full URL.
 
-    def fake_get(url: str, headers: Any = None, timeout: Any = None) -> mock.MagicMock:
-        return _resp(responses[url])
+    URLs are snapshotted at prepare_request time (the params dict is mutated in place across
+    pages, so inspecting it after the run would only show the final state).
+    """
+    session.headers = {}
+    requested: list[str] = []
 
-    return fake_get
+    def _prepare(request: Any) -> mock.MagicMock:
+        url = request.url
+        if request.params:
+            url = f"{url}?{urlencode(request.params)}"
+        requested.append(url)
+        prepared = mock.MagicMock()
+        prepared.url = url
+        return prepared
+
+    def _send(prepared: Any) -> Response:
+        resp = Response()
+        resp.status_code = 200
+        resp.url = prepared.url
+        resp._content = json.dumps(responses[prepared.url]).encode()
+        return resp
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = _send
+    return requested
+
+
+def _batches(api_key: str, region: str | None, endpoint: str, manager: mock.MagicMock) -> list[list[dict[str, Any]]]:
+    response = assemblyai_source(api_key, region, endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+    return list(response.items())
 
 
 class TestBaseUrlForRegion:
@@ -89,105 +118,134 @@ class TestPinnedUrl:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize("status_code, expected", [(200, True), (401, False), (403, False), (500, False)])
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.assemblyai.make_tracked_session"
-    )
+    @mock.patch(ASSEMBLYAI_SESSION_PATCH)
     def test_status_mapping(self, mock_session: mock.MagicMock, status_code: int, expected: bool) -> None:
-        mock_session.return_value.get.return_value = _resp({}, status=status_code)
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
         assert validate_credentials("key", "us") is expected
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.assemblyai.make_tracked_session"
-    )
+    @mock.patch(ASSEMBLYAI_SESSION_PATCH)
     def test_swallows_exceptions(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("key", "us") is False
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.assemblyai.make_tracked_session"
-    )
-    def test_eu_region_probes_eu_host(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _resp({}, status=200)
+    @mock.patch(ASSEMBLYAI_SESSION_PATCH)
+    def test_eu_region_probes_eu_host_with_raw_key(self, mock_session: mock.MagicMock) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         validate_credentials("key", "eu")
-        called_url = mock_session.return_value.get.call_args.args[0]
-        assert called_url.startswith("https://api.eu.assemblyai.com/v2/transcript")
+        call = mock_session.return_value.get.call_args
+        assert call.args[0].startswith("https://api.eu.assemblyai.com/v2/transcript")
+        # AssemblyAI takes the raw API key in Authorization — no "Bearer" prefix.
+        assert call.kwargs["headers"]["Authorization"] == "key"
 
 
-class TestGetRows:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.assemblyai.make_tracked_session"
-    )
-    def test_lists_then_hydrates_each_transcript(self, mock_session: mock.MagicMock) -> None:
+class TestAssemblyAIRows:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_lists_then_hydrates_each_transcript(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
         next_url = "https://api.assemblyai.com/v2/transcript?limit=200&before_id=t2"
-        responses = {
-            US_LIST_URL: _list_page([{"id": "t1"}, {"id": "t2"}], next_url),
-            "https://api.assemblyai.com/v2/transcript/t1": {"id": "t1", "text": "hello", "status": "completed"},
-            "https://api.assemblyai.com/v2/transcript/t2": {"id": "t2", "text": "world", "status": "completed"},
-            next_url: _list_page([{"id": "t3"}], None),
-            "https://api.assemblyai.com/v2/transcript/t3": {"id": "t3", "text": "again", "status": "completed"},
-        }
-        mock_session.return_value.get.side_effect = _url_router(responses)
+        requested = _wire(
+            session,
+            {
+                US_LIST_URL: _list_page([{"id": "t1"}, {"id": "t2"}], next_url),
+                "https://api.assemblyai.com/v2/transcript/t1": {"id": "t1", "text": "hello", "status": "completed"},
+                "https://api.assemblyai.com/v2/transcript/t2": {"id": "t2", "text": "world", "status": "completed"},
+                next_url: _list_page([{"id": "t3"}], None),
+                "https://api.assemblyai.com/v2/transcript/t3": {"id": "t3", "text": "again", "status": "completed"},
+            },
+        )
 
-        manager = _make_manager()
-        batches = list(get_rows("key", "us", "transcripts", mock.MagicMock(), manager))
+        batches = _batches("key", "us", "transcripts", _make_manager())
 
         rows = [row for batch in batches for row in batch]
         # Rows are the hydrated full objects, not the list summaries.
         assert [r["id"] for r in rows] == ["t1", "t2", "t3"]
         assert all("text" in r for r in rows)
+        assert requested[0] == US_LIST_URL
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.assemblyai.make_tracked_session"
-    )
-    def test_saves_state_after_each_page_only_when_more_remain(self, mock_session: mock.MagicMock) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_saves_state_after_each_page_only_when_more_remain(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
         next_url = "https://api.assemblyai.com/v2/transcript?limit=200&before_id=t1"
-        responses = {
-            US_LIST_URL: _list_page([{"id": "t1"}], next_url),
-            "https://api.assemblyai.com/v2/transcript/t1": {"id": "t1", "text": "hello"},
-            next_url: _list_page([{"id": "t2"}], None),
-            "https://api.assemblyai.com/v2/transcript/t2": {"id": "t2", "text": "world"},
-        }
-        mock_session.return_value.get.side_effect = _url_router(responses)
+        _wire(
+            session,
+            {
+                US_LIST_URL: _list_page([{"id": "t1"}], next_url),
+                "https://api.assemblyai.com/v2/transcript/t1": {"id": "t1", "text": "hello"},
+                next_url: _list_page([{"id": "t2"}], None),
+                "https://api.assemblyai.com/v2/transcript/t2": {"id": "t2", "text": "world"},
+            },
+        )
 
         manager = _make_manager()
-        list(get_rows("key", "us", "transcripts", mock.MagicMock(), manager))
+        _batches("key", "us", "transcripts", manager)
 
         # Only the first page has a next_url, so state is saved exactly once, pointing at page two.
         manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].next_url == next_url
+        assert manager.save_state.call_args.args[0] == AssemblyAIResumeConfig(next_url=next_url)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.assemblyai.make_tracked_session"
-    )
-    def test_resumes_from_saved_state(self, mock_session: mock.MagicMock) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_state(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
         resume_url = "https://api.assemblyai.com/v2/transcript?limit=200&before_id=resume"
-        responses = {
-            resume_url: _list_page([{"id": "r1"}], None),
-            "https://api.assemblyai.com/v2/transcript/r1": {"id": "r1", "text": "resumed"},
-        }
-        mock_session.return_value.get.side_effect = _url_router(responses)
+        requested = _wire(
+            session,
+            {
+                resume_url: _list_page([{"id": "r1"}], None),
+                "https://api.assemblyai.com/v2/transcript/r1": {"id": "r1", "text": "resumed"},
+            },
+        )
 
         manager = _make_manager(AssemblyAIResumeConfig(next_url=resume_url))
-        batches = list(get_rows("key", "us", "transcripts", mock.MagicMock(), manager))
+        batches = _batches("key", "us", "transcripts", manager)
 
         rows = [row for batch in batches for row in batch]
         assert [r["id"] for r in rows] == ["r1"]
         # The initial list URL must never be requested when resuming.
-        requested = [call.args[0] for call in mock_session.return_value.get.call_args_list]
         assert US_LIST_URL not in requested
+        assert requested[0] == resume_url
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.assemblyai.make_tracked_session"
-    )
-    def test_empty_list_yields_nothing(self, mock_session: mock.MagicMock) -> None:
-        responses = {US_LIST_URL: _list_page([], None)}
-        mock_session.return_value.get.side_effect = _url_router(responses)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_list_yields_nothing(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, {US_LIST_URL: _list_page([], None)})
 
         manager = _make_manager()
-        batches = list(get_rows("key", "us", "transcripts", mock.MagicMock(), manager))
-
-        assert batches == []
+        assert _batches("key", "us", "transcripts", manager) == []
         manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_page_stops_even_with_next_url(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, {US_LIST_URL: _list_page([], "https://api.assemblyai.com/v2/transcript?before_id=x")})
+
+        manager = _make_manager()
+        assert _batches("key", "us", "transcripts", manager) == []
+        # The walk ends on the empty page — the advertised next page is never fetched.
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_tampered_next_url_is_rejected(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            {
+                US_LIST_URL: _list_page([{"id": "t1"}], "https://evil.example.com/v2/transcript"),
+                "https://api.assemblyai.com/v2/transcript/t1": {"id": "t1", "text": "hello"},
+            },
+        )
+
+        with pytest.raises(ValueError, match="not on the selected host"):
+            _batches("key", "us", "transcripts", _make_manager())
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_tampered_saved_state_is_rejected(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, {})
+
+        manager = _make_manager(AssemblyAIResumeConfig(next_url="https://evil.example.com/v2/transcript"))
+        with pytest.raises(ValueError, match="not on the selected host"):
+            _batches("key", "us", "transcripts", manager)
 
 
 class TestAssemblyAISource:
@@ -195,7 +253,9 @@ class TestAssemblyAISource:
         assert ENDPOINTS == ("transcripts",)
 
     def test_source_response_shape(self) -> None:
-        response = assemblyai_source("key", "us", "transcripts", mock.MagicMock(), _make_manager())
+        response = assemblyai_source(
+            "key", "us", "transcripts", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+        )
         assert response.name == "transcripts"
         assert response.primary_keys == ["id"]
         assert response.partition_mode == "datetime"

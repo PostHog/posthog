@@ -32,7 +32,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AssemblyAISourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -112,23 +115,24 @@ class AssemblyAISource(ResumableSource[AssemblyAISourceConfig, AssemblyAIResumeC
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        def _build_schema(endpoint: str) -> SourceSchema:
-            return SourceSchema(
-                name=endpoint,
-                # No server-side `created >= X` filter exists, so an "incremental" sync would still
-                # walk the whole list every run — ship full refresh only. See settings.py.
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=ASSEMBLYAI_ENDPOINTS[endpoint].should_sync_default,
-                description="Lists transcripts and hydrates each with its full text, words, and audio-intelligence results. AssemblyAI retains only the last 90 days. Full refresh only.",
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # No server-side `created >= X` filter exists, so an "incremental" sync would still walk the
+        # whole list every run — ship full refresh only (every endpoint is in both append_only and
+        # merge_only, forcing both capability flags off while keeping `created` listed for the UI).
+        # See settings.py.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            append_only=ENDPOINTS,
+            merge_only=ENDPOINTS,
+            descriptions=dict.fromkeys(
+                ENDPOINTS,
+                "Lists transcripts and hydrates each with its full text, words, and audio-intelligence results. AssemblyAI retains only the last 90 days. Full refresh only.",
+            ),
+            should_sync_default={
+                endpoint: ASSEMBLYAI_ENDPOINTS[endpoint].should_sync_default for endpoint in ENDPOINTS
+            },
+        )
 
     def validate_credentials(
         self, config: AssemblyAISourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -151,6 +155,7 @@ class AssemblyAISource(ResumableSource[AssemblyAISourceConfig, AssemblyAIResumeC
             api_key=config.api_key,
             region=config.region,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
