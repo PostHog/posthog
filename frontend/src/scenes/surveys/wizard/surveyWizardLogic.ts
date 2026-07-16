@@ -98,8 +98,15 @@ export interface surveyWizardLogicValues {
 export interface surveyWizardLogicActions {
     reportSurveyCreated: (
         survey: Survey,
-        isDuplicate?: boolean,
-        creationSource?: 'form_builder' | 'full_editor' | 'llm_analytics' | 'quick_create' | 'template' | 'wizard'
+        isDuplicate?: boolean | undefined,
+        creationSource?:
+            | 'form_builder'
+            | 'full_editor'
+            | 'llm_analytics'
+            | 'quick_create'
+            | 'template'
+            | 'wizard'
+            | undefined
     ) => {
         creationSource:
             | 'form_builder'
@@ -117,7 +124,7 @@ export interface surveyWizardLogicActions {
     } // eventUsageLogic
     reportSurveyTemplateClicked: (
         template: SurveyTemplateType,
-        source?: string
+        source?: string | undefined
     ) => {
         source: string | undefined
         template: SurveyTemplateType
