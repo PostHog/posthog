@@ -4,12 +4,27 @@ from typing import Any, Generic, Optional, TypeVar
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST, Expr
-from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.errors import BaseHogQLError, QueryError
 from posthog.hogql.utils import is_simple_value
 
 T = TypeVar("T")
 T_AST = TypeVar("T_AST", bound=AST)
 T_Expr = TypeVar("T_Expr", bound=Expr)
+
+# The AST walk is recursive: each nesting level (a subquery, a boolean AND/OR link, a
+# parenthesized expression) adds a handful of Python stack frames. A pathologically deep
+# query — a long AND/OR chain, stacked subqueries, heavy parenthesization — overflows the
+# interpreter's recursion limit and raises an uncaught RecursionError, which reads as a
+# platform failure rather than what it is: a query that's too complex. Bounding the depth
+# lets us fail with a clear, user-facing error well before the stack runs out. Realistic
+# complex queries sit around 30 levels, so 100 leaves generous headroom while still tripping
+# comfortably below where the interpreter would overflow.
+MAX_QUERY_DEPTH = 100
+
+_TOO_DEEP_MESSAGE = (
+    f"Query is too complex to process: it nests more than {MAX_QUERY_DEPTH} levels deep. "
+    "Simplify it by reducing nested subqueries, long boolean AND/OR chains, or parentheses."
+)
 
 
 def clone_expr(expr: T_AST, clear_types=False, clear_locations=False, inline_subquery_field_names=False) -> T_AST:
@@ -26,17 +41,26 @@ def clear_locations(expr: T_AST) -> T_AST:
 
 
 class Visitor(Generic[T]):
+    # Per-instance traversal depth, guarded against by MAX_QUERY_DEPTH. Class-level default so
+    # subclasses that don't call super().__init__ still start at zero on first visit().
+    _visit_depth = 0
+
     def visit(self, node: AST | None) -> T:
         if node is None:
             return node  # type: ignore
 
+        self._visit_depth += 1
         try:
+            if self._visit_depth > MAX_QUERY_DEPTH:
+                raise QueryError(_TOO_DEEP_MESSAGE, start=node.start, end=node.end)
             return node.accept(self)
         except BaseHogQLError as e:
             if e.start is None or e.end is None:
                 e.start = node.start
                 e.end = node.end
             raise
+        finally:
+            self._visit_depth -= 1
 
 
 class TraversingVisitor(Visitor[None]):
