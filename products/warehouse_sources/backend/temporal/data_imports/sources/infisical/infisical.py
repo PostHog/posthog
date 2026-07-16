@@ -217,12 +217,13 @@ class InfisicalClient:
         self._client_id = client_id
         self._client_secret = client_secret
         self._logger = logger
+        # capture=False on both sessions. HTTP sample capture reads response.text inside the
+        # tracked adapter's send() — before _send's _read_capped_body runs — so an armed
+        # capture rule would buffer an unbounded body from the customer-controlled host and
+        # defeat the size cap. The auth exchange additionally carries the client secret and
+        # minted accessToken in camelCase fields the name-based scrubbers don't recognise.
         # One session reused across every request so urllib3 keeps the connection alive.
-        self._session = make_tracked_session(redact_values=(client_secret,))
-        # The login exchange carries the client secret in its request body and the minted
-        # accessToken in its response — both in camelCase fields the name-based sample
-        # scrubbers don't recognise — so keep it out of HTTP sample capture entirely
-        # (data requests stay capturable).
+        self._session = make_tracked_session(redact_values=(client_secret,), capture=False)
         self._auth_session = make_tracked_session(redact_values=(client_secret,), capture=False)
         self._access_token: str | None = None
         self._token_refresh_at: float = 0.0

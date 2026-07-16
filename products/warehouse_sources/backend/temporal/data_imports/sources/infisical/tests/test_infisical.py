@@ -265,11 +265,12 @@ class TestTokenHandling:
         logins = [call for call in session.request.call_args_list if call.args[0] == "post"]
         assert len(logins) == 2
 
-    def test_login_exchange_is_excluded_from_sample_capture(self):
-        # The login body carries the client secret and its response the minted accessToken,
-        # both in camelCase fields the name-based sample scrubbers don't recognise — the
-        # exchange must ride a capture-disabled session, with the secret value-redacted on
-        # every session.
+    def test_both_sessions_disable_sample_capture(self):
+        # Sample capture reads response.text inside the adapter before _send's size cap runs,
+        # so both sessions must ride capture-disabled adapters to keep an unbounded body from
+        # a customer-controlled host out of memory. The auth body additionally carries the
+        # client secret and minted accessToken in camelCase fields the name-based scrubbers
+        # don't recognise. The secret is value-redacted on every session.
         data_session, auth_session = mock.MagicMock(), mock.MagicMock()
         auth_session.request.side_effect = [_login_response()]
         data_session.request.side_effect = [_response(json_data={"projects": [{"id": "1"}]})]
@@ -295,6 +296,7 @@ class TestTokenHandling:
 
         assert rows == [{"id": "1"}]
         data_session_kwargs, auth_session_kwargs = (call.kwargs for call in factory.call_args_list)
+        assert data_session_kwargs["capture"] is False
         assert auth_session_kwargs["capture"] is False
         assert "csecret" in auth_session_kwargs["redact_values"]
         assert "csecret" in data_session_kwargs["redact_values"]
