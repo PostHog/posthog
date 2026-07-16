@@ -12,7 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.pad
     PADDLE_BASE_URL,
     _base_url,
     _get_paddle_session,
-    _webhook_table_transformer,
+    _make_webhook_table_transformer,
     create_webhook,
     delete_webhook,
     get_external_webhook_info,
@@ -75,6 +75,10 @@ def _envelope(
     }
 
 
+def _transform(table: Any, required_field: Optional[str] = None) -> Any:
+    return _make_webhook_table_transformer(required_field)(table)
+
+
 class TestPaddleSession:
     def test_session_retries_rate_limits(self):
         session = _get_paddle_session("pdl_test_key")
@@ -119,11 +123,11 @@ class TestWebhookTableTransformer:
         table = table_from_py_list(
             [_envelope({"id": "txn_1", "status": "completed", "created_at": "2024-01-01T00:00:00Z"})]
         )
-        result = _webhook_table_transformer(table)
+        result = _transform(table)
 
         assert result.num_rows == 1
         row = result.to_pylist()[0]
-        # Rows must be entity-shaped and carry the merge key and the partition column.
+        # Rows must be entity-shaped and carry the merge key.
         assert row["id"] == "txn_1"
         assert row["created_at"] == "2024-01-01T00:00:00Z"
         assert row["status"] == "completed"
@@ -136,7 +140,7 @@ class TestWebhookTableTransformer:
         fresh = _envelope({"id": "txn_1", "status": "fresh"}, occurred_at="2024-01-01T00:00:48.123Z")
 
         for envelopes in ([stale, fresh], [fresh, stale]):
-            result = _webhook_table_transformer(table_from_py_list(envelopes))
+            result = _transform(table_from_py_list(envelopes))
             assert result.num_rows == 1
             assert result.to_pylist()[0]["status"] == "fresh"
 
@@ -144,7 +148,7 @@ class TestWebhookTableTransformer:
         first = _envelope({"id": "txn_1", "status": "first"}, occurred_at="2024-01-01T00:00:00Z")
         second = _envelope({"id": "txn_1", "status": "second"}, occurred_at="2024-01-01T00:00:00Z")
 
-        result = _webhook_table_transformer(table_from_py_list([first, second]))
+        result = _transform(table_from_py_list([first, second]))
 
         assert result.num_rows == 1
         # S3 files are read oldest-first, so on equal timestamps the later arrival wins.
@@ -154,7 +158,7 @@ class TestWebhookTableTransformer:
         envelope = _envelope({"id": "txn_1", "status": "completed"})
         envelope["data"] = orjson.dumps(envelope["data"]).decode()
 
-        result = _webhook_table_transformer(table_from_py_list([envelope]))
+        result = _transform(table_from_py_list([envelope]))
 
         assert result.num_rows == 1
         assert result.to_pylist()[0]["id"] == "txn_1"
@@ -170,28 +174,38 @@ class TestWebhookTableTransformer:
             _envelope({"status": "no id"}),
         ]
 
-        result = _webhook_table_transformer(table_from_py_list(envelopes))
+        result = _transform(table_from_py_list(envelopes))
 
         rows = result.to_pylist()
         assert [row["id"] for row in rows] == ["txn_1"]
 
-    def test_entities_missing_created_at_still_produce_the_partition_column(self):
-        # A batch whose rows all lack created_at must not drop the partition column —
-        # the datetime partition layer KeyErrors on a missing column and wedges the sync.
-        result = _webhook_table_transformer(table_from_py_list([_envelope({"id": "txn_1", "status": "billed"})]))
+    def test_transaction_drafts_without_billed_at_are_dropped(self):
+        # The webhook path mirrors the pull cursor (billed_at[GT]): draft transactions have no
+        # billed_at and must not enter, keeping billed_at (the partition key) non-null.
+        envelopes = [
+            _envelope({"id": "txn_draft", "status": "ready"}),
+            _envelope({"id": "txn_billed", "status": "billed", "billed_at": "2024-01-01T00:00:00Z"}),
+        ]
 
-        assert "created_at" in result.column_names
-        assert result.to_pylist()[0]["created_at"] is None
+        result = _transform(table_from_py_list(envelopes), "billed_at")
+
+        assert [row["id"] for row in result.to_pylist()] == ["txn_billed"]
+
+    def test_no_required_field_keeps_rows_without_it(self):
+        # Endpoints with no incremental field (e.g. customers) don't filter on a cursor.
+        result = _transform(table_from_py_list([_envelope({"id": "cus_1"}, event_type="customer.updated")]))
+
+        assert [row["id"] for row in result.to_pylist()] == ["cus_1"]
 
     def test_distinct_ids_all_kept(self):
         envelopes = [_envelope({"id": f"txn_{i}"}) for i in range(3)]
 
-        result = _webhook_table_transformer(table_from_py_list(envelopes))
+        result = _transform(table_from_py_list(envelopes))
 
         assert sorted(row["id"] for row in result.to_pylist()) == ["txn_0", "txn_1", "txn_2"]
 
     def test_missing_data_column_returns_empty(self):
-        result = _webhook_table_transformer(table_from_py_list([{"event_type": "transaction.updated"}]))
+        result = _transform(table_from_py_list([{"event_type": "transaction.updated"}]))
         assert result.num_rows == 0
 
 

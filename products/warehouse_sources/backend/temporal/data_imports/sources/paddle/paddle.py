@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import AsyncIterable, Iterable
+from collections.abc import AsyncIterable, Callable, Iterable
 from datetime import UTC, date, datetime, time
 from typing import Any, Optional
 
@@ -34,7 +34,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.set
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     PADDLE_WEBHOOK_EVENTS,
-    PARTITION_FIELD,
 )
 
 LOGGER = structlog.get_logger(__name__)
@@ -180,51 +179,59 @@ def _parse_occurred_at(value: Any) -> float:
         return 0.0
 
 
-def _webhook_table_transformer(table: pa.Table) -> pa.Table:
-    """Reshape buffered webhook envelopes into entity rows ready to merge on ``id``.
+def _make_webhook_table_transformer(required_field: Optional[str]) -> Callable[[pa.Table], pa.Table]:
+    """Build the transformer that reshapes buffered webhook envelopes into entity rows.
 
-    Delta merge only dedupes across syncs, so one batch carrying several events for the
-    same entity (e.g. transaction.created then transaction.updated) must be collapsed
-    here to the latest state per id, ordered by the envelope's occurred_at.
+    ``required_field`` is the endpoint's incremental cursor (``billed_at`` for transactions, ``None``
+    otherwise). Rows missing it are dropped, so the webhook path ingests the same set the pull path
+    does — pull filters on ``billed_at[GT]``, which never returns draft (unbilled) transactions — and
+    the partition key stays non-null, keeping ``billed_at`` stable across merges.
     """
-    if "data" not in table.column_names:
-        return table_from_py_list([])
 
-    data_col = table.column("data").to_pylist()
-    occurred_col = (
-        table.column("occurred_at").to_pylist() if "occurred_at" in table.column_names else [None] * table.num_rows
-    )
+    def _transform(table: pa.Table) -> pa.Table:
+        # Delta merge only dedupes across syncs, so one batch carrying several events for the same
+        # entity (e.g. transaction.created then transaction.updated) must be collapsed here to the
+        # latest state per id, ordered by the envelope's occurred_at.
+        if "data" not in table.column_names:
+            return table_from_py_list([])
 
-    best_by_id: dict[str, tuple[float, dict[str, Any]]] = {}
-    for data_value, occurred_at in zip(data_col, occurred_col):
-        if data_value is None:
-            continue
-        # `data` arrives as a struct or a JSON string depending on how the buffering layer
-        # serialized the nested envelope — accept both. Skip malformed rows instead of
-        # raising: a crash here leaves the S3 file in place and every retry re-crashes on it.
-        try:
-            entity = orjson.loads(data_value) if isinstance(data_value, (str, bytes)) else dict(data_value)
-        except (TypeError, ValueError):
-            continue
-        if not isinstance(entity, dict):
-            continue
-        entity_id = entity.get("id")
-        if not entity_id:
-            continue
-        # Guarantee the partition column exists even if the entity omits it — a batch whose
-        # rows all lack `created_at` would otherwise KeyError inside the partition layer,
-        # wedging the sync on the same buffered file. Null lands in the fallback bucket.
-        entity.setdefault(PARTITION_FIELD, None)
-        # occurred_at is RFC3339 with varying fractional precision, so compare parsed
-        # timestamps — lexicographic comparison would order "…48.12Z" after "…48.123Z".
-        ts = _parse_occurred_at(occurred_at)
-        existing = best_by_id.get(entity_id)
-        # >= keeps the last-seen event on equal timestamps; S3 files are read oldest-first,
-        # so last-seen is the latest arrival.
-        if existing is None or ts >= existing[0]:
-            best_by_id[entity_id] = (ts, entity)
+        data_col = table.column("data").to_pylist()
+        occurred_col = (
+            table.column("occurred_at").to_pylist() if "occurred_at" in table.column_names else [None] * table.num_rows
+        )
 
-    return table_from_py_list([entity for _, entity in best_by_id.values()])
+        best_by_id: dict[str, tuple[float, dict[str, Any]]] = {}
+        for data_value, occurred_at in zip(data_col, occurred_col):
+            if data_value is None:
+                continue
+            # `data` arrives as a struct or a JSON string depending on how the buffering layer
+            # serialized the nested envelope — accept both. Skip malformed rows instead of
+            # raising: a crash here leaves the S3 file in place and every retry re-crashes on it.
+            try:
+                entity = orjson.loads(data_value) if isinstance(data_value, (str, bytes)) else dict(data_value)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(entity, dict):
+                continue
+            entity_id = entity.get("id")
+            if not entity_id:
+                continue
+            # Drop rows missing the cursor field — draft transactions have no billed_at. Mirrors the
+            # pull cursor and guarantees the partition key is never null.
+            if required_field is not None and not entity.get(required_field):
+                continue
+            # occurred_at is RFC3339 with varying fractional precision, so compare parsed
+            # timestamps — lexicographic comparison would order "…48.12Z" after "…48.123Z".
+            ts = _parse_occurred_at(occurred_at)
+            existing = best_by_id.get(entity_id)
+            # >= keeps the last-seen event on equal timestamps; S3 files are read oldest-first,
+            # so last-seen is the latest arrival.
+            if existing is None or ts >= existing[0]:
+                best_by_id[entity_id] = (ts, entity)
+
+        return table_from_py_list([entity for _, entity in best_by_id.values()])
+
+    return _transform
 
 
 def paddle_source(
@@ -240,13 +247,20 @@ def paddle_source(
     column_mapping = get_dlt_mapping_for_external_table(f"paddle_{endpoint.lower()}")
     column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
 
+    incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
+    incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else None
+
     # Every Paddle endpoint has a list API, so nothing is webhook-only: the initial sync
     # backfills via the API and later runs read webhook-delivered rows from S3.
     webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=False)
 
     def items() -> Iterable[Any] | AsyncIterable[Any]:
         if webhook_enabled:
-            return webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)
+            # Drop rows without the cursor field so the webhook path ingests the same set as the pull
+            # path (transactions: only billed rows), keeping `billed_at` a stable partition key.
+            return webhook_source_manager.get_items(
+                table_transformer=_make_webhook_table_transformer(incremental_field_name)
+            )
         return get_rows(
             api_key=api_key,
             endpoint=endpoint,
@@ -263,15 +277,11 @@ def paddle_source(
         name=endpoint,
         column_hints=column_hints,
         sort_mode="asc",
-        # `created_at` is immutable and present on every entity in both list-API and webhook
-        # payloads, unlike the transactions cursor `billed_at` (null until billed) — a null or
-        # changing partition value would strand rows in the fallback bucket or duplicate them
-        # on merge. Deliberately decoupled from the incremental cursor.
-        partition_keys=[PARTITION_FIELD],
-        partition_mode="datetime",
-        partition_format="week",
+        partition_keys=[incremental_field_name] if incremental_field_name else None,
+        partition_mode="datetime" if incremental_field_name else None,
         partition_count=1,
         partition_size=1,
+        partition_format="week" if incremental_field_name else None,
     )
 
 

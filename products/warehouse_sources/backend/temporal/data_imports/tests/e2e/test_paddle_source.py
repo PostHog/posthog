@@ -141,18 +141,17 @@ def test_validate_credentials_missing_permissions(mock_request):
 
 @parameterized.expand(
     [
-        # Partitioning is decoupled from the incremental cursor: transactions keeps its
-        # billed_at cursor but must still partition on the stable created_at, like every
-        # other endpoint.
-        ("non_incremental", "products"),
-        ("incremental", "transactions"),
+        # Only the incremental endpoint (transactions/billed_at) is datetime-partitioned; the
+        # others carry no partition key and fall back to md5-on-id in the pipeline.
+        ("non_incremental", "products", None, None, None),
+        ("incremental", "transactions", ["billed_at"], "datetime", "week"),
     ]
 )
 @patch(MOCK_PATH)
 @patch(
     "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.get_dlt_mapping_for_external_table"
 )
-def test_paddle_source(_name, endpoint, mock_get_mapping, mock_request):
+def test_paddle_source(_name, endpoint, expected_keys, expected_mode, expected_format, mock_get_mapping, mock_request):
     mock_get_mapping.return_value = {"id": {"data_type": "text"}}
     logger = MagicMock()
     mock_manager = _get_mock_resumable_manager()
@@ -170,9 +169,9 @@ def test_paddle_source(_name, endpoint, mock_get_mapping, mock_request):
     assert response.name == endpoint
     assert response.primary_keys == ["id"]
     assert response.column_hints == {"id": "text"}
-    assert response.partition_keys == ["created_at"]
-    assert response.partition_mode == "datetime"
-    assert response.partition_format == "week"
+    assert response.partition_keys == expected_keys
+    assert response.partition_mode == expected_mode
+    assert response.partition_format == expected_format
     assert response.sort_mode == "asc"
 
 

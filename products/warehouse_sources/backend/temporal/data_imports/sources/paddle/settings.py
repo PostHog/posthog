@@ -30,36 +30,22 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     ],
 }
 
-# Partition key for every endpoint. `created_at` is set once and never changes on any Paddle
-# entity, in both list-API and webhook payloads. Deliberately decoupled from the transactions
-# incremental cursor (`billed_at`), which is null until a transaction is billed — null partition
-# values all collapse into the partition layer's fallback bucket.
-PARTITION_FIELD = "created_at"
-
-# Webhook event types per resource. The flat list below is subscribed regardless of which tables
-# are selected, so the notification destination self-heals as tables are enabled later.
+# Webhook event types per resource. Trimmed to the minimal set that still delivers every state we
+# care about: `<entity>.updated` fires on every state transition, so the convenience/status events
+# (billed, paid, activated, canceled, …) are redundant. We keep `created` (a transaction can be
+# created already billed) and `imported` (bulk imports don't fire `updated`). `transaction.payment_failed`
+# is kept because it does not change transaction state and so has no companion `updated`. The flat
+# list is subscribed regardless of which tables are selected, so the destination self-heals as tables
+# are enabled later.
 RESOURCE_TO_PADDLE_EVENTS: dict[str, list[str]] = {
     TRANSACTION_RESOURCE_NAME: [
-        "transaction.billed",
-        "transaction.canceled",
-        "transaction.completed",
         "transaction.created",
-        "transaction.paid",
-        "transaction.past_due",
         "transaction.payment_failed",
-        "transaction.ready",
-        "transaction.revised",
         "transaction.updated",
     ],
     SUBSCRIPTION_RESOURCE_NAME: [
-        "subscription.activated",
-        "subscription.canceled",
         "subscription.created",
         "subscription.imported",
-        "subscription.past_due",
-        "subscription.paused",
-        "subscription.resumed",
-        "subscription.trialing",
         "subscription.updated",
     ],
     CUSTOMER_RESOURCE_NAME: [
