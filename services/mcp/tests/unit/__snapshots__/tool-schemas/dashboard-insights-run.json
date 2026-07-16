@@ -21,13 +21,23 @@
             "type": "number"
         },
         "output_format": {
-            "description": "'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.",
-            "enum": ["json", "optimized"],
+            "default": "optimized",
+            "description": "'optimized' returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.\n\n* `optimized` - optimized\n* `json` - json",
+            "enum": ["optimized", "json"],
             "type": "string"
         },
         "refresh": {
-            "description": "Cache behavior. By default, stale results are returned while refreshing asynchronously, but a cache miss is calculated synchronously. 'force_cache' serves only cached results. 'blocking' uses cache if fresh, otherwise recalculates. 'force_async' always recalculates in the background. 'force_blocking' always recalculates.",
-            "enum": ["async_except_on_cache_miss", "blocking", "force_async", "force_blocking", "force_cache"],
+            "default": "async",
+            "description": "Cache behavior. By default, recent cached results are returned and missing or stale results are calculated asynchronously. 'false' and 'force_cache' serve only cached results. 'async_except_on_cache_miss' refreshes stale results asynchronously but calculates cache misses synchronously. 'blocking' uses cache if fresh, otherwise recalculates. 'true' and 'force_blocking' always recalculate synchronously.\n\n* `false` - false\n* `true` - true\n* `force_cache` - force_cache\n* `async` - async\n* `async_except_on_cache_miss` - async_except_on_cache_miss\n* `blocking` - blocking\n* `force_blocking` - force_blocking",
+            "enum": [
+                "false",
+                "true",
+                "force_cache",
+                "async",
+                "async_except_on_cache_miss",
+                "blocking",
+                "force_blocking"
+            ],
             "type": "string"
         },
         "variables_override": {
