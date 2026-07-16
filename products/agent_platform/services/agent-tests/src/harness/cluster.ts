@@ -457,7 +457,6 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         routingMode: opts.routingMode ?? 'path',
         pathPrefix: '/agents',
         domainSuffix: opts.domainSuffix,
-        identityCallbackBaseUrl: 'http://localhost:3030',
         slackSigningSecretResolver,
         authProvider: opts.authProvider,
         identities,

@@ -100,8 +100,6 @@ export interface BuildAppOpts {
     /** Path-mode public base URL the MCP connect-info endpoint advertises
      *  (`<publicBaseUrl>/agents/<slug>/mcp`). Ignored in domain mode. */
     publicBaseUrl?: string
-    /** Public base URL routed to the root-level OAuth callback handler. */
-    identityCallbackBaseUrl?: string
     /**
      * Resolves the Slack signing secret named by `slack.config.signing_secret_ref`
      * on the agent's spec. In production: pulls the entry from the agent's
@@ -360,7 +358,6 @@ export function buildApp(opts: BuildAppOpts): Express {
         routingMode: opts.routingMode,
         domainSuffix: opts.domainSuffix,
         publicBaseUrl: opts.publicBaseUrl,
-        identityCallbackBaseUrl: opts.identityCallbackBaseUrl,
         // Edge admission (Slack trigger).
         identityLinks: opts.identityLinks,
         identityCredentials: opts.identityCredentials,

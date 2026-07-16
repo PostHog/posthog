@@ -25,10 +25,7 @@ POSTHOG_SPEC = {
 }
 
 
-@override_settings(
-    AGENT_IDENTITY_CALLBACK_BASE_URL="https://identity.example.com",
-    AGENT_INGRESS_PUBLIC_URL="https://agents.example.com",
-)
+@override_settings(AGENT_INGRESS_PUBLIC_URL="https://ingress.example.com")
 class TestPostHogIdentityProvisioning(APIBaseTest):
     databases = {
         "default",
@@ -71,7 +68,7 @@ class TestPostHogIdentityProvisioning(APIBaseTest):
         self.assertEqual(app.client_type, OAuthApplication.CLIENT_PUBLIC)
         self.assertEqual(app.authorization_grant_type, OAuthApplication.GRANT_AUTHORIZATION_CODE)
         self.assertEqual(app.algorithm, "RS256")
-        self.assertEqual(app.redirect_uris, "https://identity.example.com/link/posthog/callback")
+        self.assertEqual(app.redirect_uris, "https://ingress.example.com/link/posthog/callback")
         self.assertEqual(list(app.scopes), ["user:read"])
 
         # The live spec carries the provisioned client_id for the runner.
@@ -97,19 +94,3 @@ class TestPostHogIdentityProvisioning(APIBaseTest):
         revision = self._ready_revision({"model": "anthropic/claude-sonnet-4-6"})
         self._promote(revision)
         self.assertEqual(len(self._identity_apps()), 0)
-
-    @override_settings(AGENT_IDENTITY_CALLBACK_BASE_URL="")
-    def test_promote_does_not_register_dead_callback_when_callback_base_is_unset(self) -> None:
-        revision = self._ready_revision(
-            {
-                "model": "anthropic/claude-sonnet-4-6",
-                "identity_providers": [
-                    {"kind": "posthog", "id": "posthog", "scopes": ["user:read"], "client_id": "stale"}
-                ],
-            }
-        )
-        self._promote(revision)
-
-        self.assertEqual(self._identity_apps(), [])
-        revision.refresh_from_db()
-        self.assertNotIn("client_id", revision.spec["identity_providers"][0])

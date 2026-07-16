@@ -29,10 +29,13 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+# Fallback when AGENT_INGRESS_PUBLIC_URL is unset — matches the runner's
+# linkRedirectBaseUrl default so the registered redirect URI lines up.
+_DEFAULT_INGRESS_BASE = "https://agents.posthog.com"
 
-def _identity_callback_base() -> str | None:
-    callback_base = settings.AGENT_IDENTITY_CALLBACK_BASE_URL
-    return callback_base.rstrip("/") if callback_base else None
+
+def _ingress_base() -> str:
+    return (settings.AGENT_INGRESS_PUBLIC_URL or _DEFAULT_INGRESS_BASE).rstrip("/")
 
 
 def _ensure_oauth_app(
@@ -88,20 +91,7 @@ def provision_posthog_identity_apps(
         return False
 
     organization = Team.objects.get(pk=application.team_id).organization
-    base = _identity_callback_base()
-
-    if not base:
-        mutated = False
-        for entry in posthog_entries:
-            if entry.pop("client_id", None) is not None:
-                mutated = True
-        logger.warning(
-            "agent_posthog_identity_app_skipped",
-            application_id=str(application.id),
-            revision_id=str(revision.id),
-            reason="identity_callback_url_unconfigured",
-        )
-        return mutated
+    base = _ingress_base()
 
     mutated = False
     for entry in posthog_entries:

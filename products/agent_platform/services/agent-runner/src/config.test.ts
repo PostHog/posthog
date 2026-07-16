@@ -28,7 +28,6 @@ describe('loadAgentRunnerConfig', () => {
         expect(cfg.logLevel).toBe('info')
         expect(cfg.bundleS3Bucket).toBe('prod-bundles')
         expect(cfg.memoryS3Bucket).toBe('prod-memory')
-        expect(cfg.linkRedirectBaseUrl).toBeUndefined()
         // The dev-only defaults must NOT leak into prod: their only guard is
         // `isDev()`, so without this assert a hardcoded phs_ / analytics key
         // could ship to prod unnoticed. Prod must inject these explicitly.
@@ -52,15 +51,6 @@ describe('loadAgentRunnerConfig', () => {
         expect(cfg.useAiGateway).toBe(true)
         expect(cfg.aiGatewayUrl).toBe('http://localhost:8080/v1')
         expect(cfg.posthogAiGatewayKey).toBe(DEV_GATEWAY_PHS)
-        expect(cfg.linkRedirectBaseUrl).toBe('http://localhost:3030')
-    })
-
-    it('uses the dedicated identity callback base instead of the trigger ingress URL', () => {
-        const cfg = loadAgentRunnerConfig({
-            AGENT_IDENTITY_CALLBACK_BASE_URL: 'https://identity.example.com',
-            AGENT_INGRESS_PUBLIC_URL: 'https://agents.example.com',
-        })
-        expect(cfg.linkRedirectBaseUrl).toBe('https://identity.example.com')
     })
 
     it('defaults sandboxBackend to docker in dev so bin/start works without configuration', () => {

@@ -72,7 +72,6 @@ describe('example: agent-builder bundle', () => {
         // agent's own runtime tools — S3 memory plus web search.
         expect(nativeIds.every((id) => id.startsWith('@posthog/memory-') || id === '@posthog/web-search')).toBe(true)
         expect(nativeIds.some((id) => id.startsWith('@posthog/agent-applications-'))).toBe(false)
-        expect(nativeIds).not.toContain('@posthog/identity-connect')
         // Whatever natives remain must still resolve in the catalog.
         const catalog = new Set(listNativeTools().map((t) => t.id))
         for (const id of nativeIds) {

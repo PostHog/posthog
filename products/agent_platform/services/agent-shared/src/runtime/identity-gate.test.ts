@@ -31,7 +31,6 @@ interface Over {
     agentUserId?: string | null
     unavailableReason?: string
     seed?: { resolve: (t: string) => Promise<Credential | null> }
-    redirectUriFor?: (providerId: string) => string
     log?: (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>) => void
 }
 
@@ -42,7 +41,7 @@ function deps(over: Over = {}): { provider: IdentityProvider; toolIdentity: Retu
         agentUserId: over.agentUserId === undefined ? 'au-1' : over.agentUserId,
         teamId: 7,
         applicationId: 'app-1',
-        redirectUriFor: over.redirectUriFor ?? ((p) => `https://cb.test/link/${p}/callback`),
+        redirectUriFor: (p) => `https://cb.test/link/${p}/callback`,
         unavailableReason: over.unavailableReason,
         seed: over.seed,
         log: over.log,
@@ -109,18 +108,6 @@ describe('createToolIdentity.resolve', () => {
 
         expect(res).toEqual({ kind: 'unavailable', provider: 'posthog', reason: 'identity_not_connected' })
         expect(provider.initiate).not.toHaveBeenCalled()
-    })
-
-    it('does not emit a link when the callback URL is unconfigured', async () => {
-        const { toolIdentity } = deps({
-            redirectUriFor: () => {
-                throw new Error('identity_callback_url_unconfigured')
-            },
-        })
-
-        const res = await toolIdentity.resolve('posthog')
-
-        expect(res).toEqual({ kind: 'unavailable', provider: 'posthog', reason: 'identity_callback_url_unconfigured' })
     })
 
     it('fails closed in a shared session WITHOUT consulting the seed (T1 confused-deputy guard)', async () => {

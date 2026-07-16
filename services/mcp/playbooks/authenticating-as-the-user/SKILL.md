@@ -95,12 +95,11 @@ Where the bearer comes from depends on the surface:
   persisted per-user and reused.
 
 **`@posthog/identity-connect`** mints a connect/reconnect link on demand for any
-declared provider. Add it explicitly to `spec.tools[]` when the agent is meant
-to let users connect accounts, then use it for an explicit request such as
-"connect my PostHog account." The runner does not inject this tool merely
-because an MCP or identity provider exists. If a linked grant is later missing
-a scope the service now requires, the same explicit path offers a **reconnect**
-link (re-authorize with the updated scopes).
+declared provider. The runtime makes it available when the agent declares an
+identity provider or an identity-backed MCP. Use it for an explicit connection
+need such as "connect my PostHog account"; merely opening an MCP never invokes
+it. If a linked grant is later missing a scope the service now requires, the
+same path offers a **reconnect** link (re-authorize with the updated scopes).
 
 ## Choosing scopes
 

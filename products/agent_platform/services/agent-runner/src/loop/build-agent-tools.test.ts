@@ -202,11 +202,14 @@ describe('buildAgentTools', () => {
         expect(withSkills.tools.map((t) => t.label)).toContain('@posthog/load-skill')
     })
 
-    it('only includes @posthog/identity-connect when the author explicitly configures it', async () => {
+    it('auto-includes @posthog/identity-connect when the agent has a linkable identity', async () => {
+        // No identity surface → no connect tool (it would just error on use).
         const none = await buildAgentTools(makeRev([]), makeDeps(makeRev([])))
         expect(none.tools.map((t) => t.label)).not.toContain('@posthog/identity-connect')
 
-        const mcpOnlyRev = makeRev(
+        // An MCP that authenticates through a provider makes connect available so
+        // the agent can hand the user a (re)link on demand.
+        const rev = makeRev(
             [],
             [],
             [
@@ -220,12 +223,8 @@ describe('buildAgentTools', () => {
                 },
             ]
         )
-        const mcpOnly = await buildAgentTools(mcpOnlyRev, makeDeps(mcpOnlyRev))
-        expect(mcpOnly.tools.map((t) => t.label)).not.toContain('@posthog/identity-connect')
-
-        const explicitRev = makeRev([{ kind: 'native', id: '@posthog/identity-connect' }])
-        const explicit = await buildAgentTools(explicitRev, makeDeps(explicitRev))
-        expect(explicit.tools.map((t) => t.label)).toContain('@posthog/identity-connect')
+        const built = await buildAgentTools(rev, makeDeps(rev))
+        expect(built.tools.map((t) => t.label)).toContain('@posthog/identity-connect')
     })
 
     describe('@posthog/web-search gating', () => {

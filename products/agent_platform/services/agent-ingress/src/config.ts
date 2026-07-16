@@ -67,15 +67,7 @@ export const AgentIngressConfigSchema = PlatformConfigSchema.extend({
         .string()
         .optional()
         .describe(
-            'Public URL this ingress is reachable at for agent trigger traffic and Slack/webhook setup. Optional in domain routing mode.'
-        ),
-    identityCallbackBaseUrl: z
-        .string()
-        .url()
-        .optional()
-        .transform((value): string | undefined => value ?? (isDev() ? 'http://localhost:3030' : undefined))
-        .describe(
-            'Public base URL routed to the root-level OAuth identity callback handler (`<base>/link/<provider>/callback`). This is deliberately independent of the public URL used for agent trigger traffic.'
+            'Public URL this ingress is reachable at from the outside world (e.g. `https://agents.us.posthog.com`, or a `https://<id>.trycloudflare.com` in local dev via `bin/agent-tunnel`). Optional and debug-only: when set it is logged on boot so you can spot mismatches with what Slack / webhooks are pointed at. Unset is normal — domain-mode routes by host, and Django builds the `slack_events_url` it returns from its own `AGENT_INGRESS_*` settings, not from this value.'
         ),
 })
 
@@ -88,7 +80,6 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentIngressConfig>(PLATFORM_ENV_KEY_MAP, {
     PATH_PREFIX: 'pathPrefix',
     AGENT_INTERNAL_SIGNING_KEY: 'internalSigningKey',
     AGENT_INGRESS_PUBLIC_URL: 'publicUrl',
-    AGENT_IDENTITY_CALLBACK_BASE_URL: 'identityCallbackBaseUrl',
 })
 
 export function loadAgentIngressConfig(env: NodeJS.ProcessEnv = process.env): AgentIngressConfig {

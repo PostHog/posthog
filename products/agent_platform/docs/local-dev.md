@@ -93,41 +93,6 @@ curl -s localhost:3031/healthz   # janitor
 The runner doesn't expose HTTP — check its mprocs pane for
 `starting worker loop` (the `ready_pattern`).
 
-### OAuth identity callbacks
-
-OAuth identity linking is an explicit agent capability. Declaring an MCP does
-not start this flow. A tool must request an identity from a provider configured
-in the agent spec, or the agent must explicitly include
-`@posthog/identity-connect`.
-
-The callback has three owners that must agree on the same
-`AGENT_IDENTITY_CALLBACK_BASE_URL`:
-
-- Django provisions the OAuth application with
-  `<base>/link/<provider>/callback`.
-- `agent-runner` sends that callback URL to the identity provider when linking
-  starts.
-- `agent-ingress` serves the root-level `GET /link/:provider/callback` route and
-  stores the resulting credential.
-
-In local development, Django, ingress, and the runner default the base to
-`http://localhost:3030`, which is the local ingress listener. The OAuth redirect
-returns through the browser running on the same machine, so PostHog identity
-linking works without public DNS. If a provider requires a public HTTPS callback,
-run `hogli agent:tunnel`, keep the tunnel open, and restart the full dev stack so
-Django, ingress, and runner all read the generated URL from `.env.local`.
-
-The identity callback URL is separate from `AGENT_INGRESS_PUBLIC_URL`, which
-describes agent trigger traffic and Slack/webhook setup. The callback handler
-still runs in agent-ingress because it owns the runtime identity state and
-credential exchange, but deployments may route `/link/<provider>/callback`
-through a dedicated stable host without exposing that coupling to agent specs.
-
-Production has no fallback callback hostname. Deployments that intentionally
-enable identity linking must set `AGENT_IDENTITY_CALLBACK_BASE_URL` for all
-three owners. When it is unset, OAuth app provisioning and link initiation fail
-closed instead of emitting a dead URL.
-
 ### Local ai-gateway (optional)
 
 The runner can route every model call through PostHog's external Go

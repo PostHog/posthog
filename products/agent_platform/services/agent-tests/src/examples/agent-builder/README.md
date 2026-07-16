@@ -105,13 +105,14 @@ The Agent Builder holds no fallback credential.
 
 The PostHog MCP is a first-party implementation detail of the builder, not a
 connection the user configures. MCP startup only reuses an existing trigger or
-linked credential; it never starts OAuth or reconnects automatically. Account
-authorization begins only through an explicit connect action.
+linked credential; it never starts OAuth or reconnects automatically. The
+identity-connect tool remains available for agents that intentionally support
+account linking, but startup never invokes it.
 
 The Agent Builder chat therefore does not use the ingress OAuth callback route.
 PostHog Code supplies the signed-in user's short-lived bearer at the trigger
 edge, and the runner passes that credential to the first-party MCP. The
-`/link/<provider>/callback` flow exists for agents that explicitly opt into
+`/link/<provider>/callback` flow exists for agents that intentionally support
 connecting an additional identity.
 
 The checked-in MCP URL is the local development endpoint. `seed.py` rewrites

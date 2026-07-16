@@ -354,17 +354,13 @@ export async function buildAskerIdentity(
         applicationId: rev.application_id,
         teamId: session.team_id,
     })
+    const base = deps.linkRedirectBaseUrl ?? 'https://agents.posthog.com'
     return createToolIdentity({
         registry,
         agentUserId,
         teamId: session.team_id,
         applicationId: rev.application_id,
-        redirectUriFor: (p) => {
-            if (!deps.linkRedirectBaseUrl) {
-                throw new Error('identity_callback_url_unconfigured')
-            }
-            return `${deps.linkRedirectBaseUrl}/link/${p}/callback`
-        },
+        redirectUriFor: (p) => `${base}/link/${p}/callback`,
         unavailableReason: sharedSession ? 'shared_session_unsupported' : undefined,
         seed: deps.credentialBroker ? { resolve: (t) => deps.credentialBroker!.resolve(session.id, t) } : undefined,
         log: deps.log,

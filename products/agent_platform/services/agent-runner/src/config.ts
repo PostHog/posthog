@@ -242,10 +242,9 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
     linkRedirectBaseUrl: z
         .string()
         .url()
-        .optional()
-        .transform((value): string | undefined => value ?? (isDev() ? 'http://localhost:3030' : undefined))
+        .default(() => (isDev() ? 'http://localhost:3030' : 'https://agents.posthog.com'))
         .describe(
-            'Public base URL of the ingress, used to build OAuth callback redirect URIs for identity linking (`<base>/link/<provider>/callback`). Dev defaults to the local ingress. When unset in prod, linking fails closed without emitting a callback URL.'
+            'Public base URL of the ingress, used to build OAuth callback redirect URIs for identity linking (`<base>/link/<provider>/callback`). Dev defaults to the local ingress; prod sets the deployed ingress URL.'
         ),
     webSearchProvider: z
         .enum(WEB_SEARCH_PROVIDER_NAMES)
@@ -319,7 +318,7 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     SANDBOX_OUTBOUND_CIDR_ALLOWLIST: 'sandboxOutboundCidrAllowlist',
     MODAL_APP_NAME: 'modalAppName',
     MODAL_REGION: 'modalRegion',
-    AGENT_IDENTITY_CALLBACK_BASE_URL: 'linkRedirectBaseUrl',
+    AGENT_INGRESS_PUBLIC_URL: 'linkRedirectBaseUrl',
     AGENT_WEB_SEARCH_PROVIDER: 'webSearchProvider',
     AGENT_WEB_SEARCH_FALLBACKS: 'webSearchFallbacks',
     EXA_API_KEY: 'exaApiKey',

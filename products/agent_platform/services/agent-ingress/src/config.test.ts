@@ -24,7 +24,6 @@ describe('loadAgentIngressConfig', () => {
         // Dev default — backs the preview-token gate + posthog_internal mode locally.
         expect(cfg.internalSigningKey).toBe('dev-internal-signing-key-do-not-use-in-prod')
         expect(cfg.publicUrl).toBeUndefined()
-        expect(cfg.identityCallbackBaseUrl).toBe('http://localhost:3030')
         expect(cfg.logLevel).toBe('info')
     })
 
@@ -39,23 +38,9 @@ describe('loadAgentIngressConfig', () => {
         expect(() => loadAgentIngressConfig({ AGENT_INTERNAL_SIGNING_KEY: 'k' })).toThrow(/REDIS_URL|HTTPS_PROXY/)
     })
 
-    it('does not invent an identity callback hostname in production', () => {
-        vi.stubEnv('NODE_ENV', 'production')
-        expect(loadAgentIngressConfig(PROD_REQUIRED).identityCallbackBaseUrl).toBeUndefined()
-    })
-
     it('publicUrl comes from AGENT_INGRESS_PUBLIC_URL', () => {
         const cfg = loadAgentIngressConfig({ AGENT_INGRESS_PUBLIC_URL: 'https://x.trycloudflare.com' })
         expect(cfg.publicUrl).toBe('https://x.trycloudflare.com')
-    })
-
-    it('keeps the identity callback base independent from the trigger ingress URL', () => {
-        const cfg = loadAgentIngressConfig({
-            AGENT_IDENTITY_CALLBACK_BASE_URL: 'https://identity.example.com',
-            AGENT_INGRESS_PUBLIC_URL: 'https://agents.example.com',
-        })
-        expect(cfg.identityCallbackBaseUrl).toBe('https://identity.example.com')
-        expect(cfg.publicUrl).toBe('https://agents.example.com')
     })
 
     it('coerces numeric env strings', () => {
