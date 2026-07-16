@@ -189,8 +189,8 @@ mod tests {
             .char_indices()
             .filter(|(_, character)| *character == '?')
             .filter(|(index, _)| {
-                sql[index + 1..].chars().next() != Some('?')
-                    && (*index == 0 || sql[..*index].chars().next_back() != Some('?'))
+                !sql[index + 1..].starts_with('?')
+                    && (*index == 0 || !sql[..*index].ends_with('?'))
             })
             .count();
         assert_eq!(unescaped_placeholders, 0, "a lone `?` survived escaping");
