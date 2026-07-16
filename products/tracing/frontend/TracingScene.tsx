@@ -93,6 +93,9 @@ function TracingSceneContents(): JSX.Element {
         durationHistogramLoading,
         visibleRowDurationRange,
         isDurationMode,
+        latencyHeatmapData,
+        latencyHeatmapLoading,
+        showHeatmap,
         activeTracingTab,
         compareActive,
     } = useValues(tracingSceneLogic())
@@ -109,6 +112,7 @@ function TracingSceneContents(): JSX.Element {
         loadMoreTraceSpans,
         setVisibleRowRange,
         setSort,
+        setChartType,
     } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
     const { facetRailCollapsed } = useValues(tracingConfigLogic)
@@ -194,13 +198,20 @@ function TracingSceneContents(): JSX.Element {
                 <SceneDivider />
                 <TracingSparkline
                     sparklineData={sparklineData}
-                    sparklineLoading={sparklineLoading || (isDurationMode && durationHistogramLoading)}
+                    sparklineLoading={sparklineLoading || (isDurationMode && !showHeatmap && durationHistogramLoading)}
                     onDateRangeChange={setDateRange}
                     displayTimezone="UTC"
                     compare={compareConfig}
                     visibleRowDateRange={visibleRowDateRange}
-                    durationHistogram={isDurationMode ? durationHistogramData : null}
+                    durationHistogram={isDurationMode && !showHeatmap ? durationHistogramData : null}
                     visibleRowDurationRange={visibleRowDurationRange}
+                    chartType={filters.chartType}
+                    onChartTypeChange={setChartType}
+                    latencyHeatmap={showHeatmap ? latencyHeatmapData : null}
+                    latencyHeatmapLoading={latencyHeatmapLoading}
+                    heatmapDisabledReason={
+                        compareActive ? 'The heatmap is unavailable while comparing time windows' : null
+                    }
                 />
                 <div className="flex flex-row gap-2 flex-1 min-h-0">
                     {facetRailEnabled && !facetRailCollapsed && <FacetRail />}
