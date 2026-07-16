@@ -13478,6 +13478,45 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `http` - http
+     * * `sse` - sse
+     */
+    export type ImportedMcpServerTypeEnum = typeof ImportedMcpServerTypeEnum[keyof typeof ImportedMcpServerTypeEnum];
+
+
+    export const ImportedMcpServerTypeEnum = {
+      Http: 'http',
+      Sse: 'sse',
+    } as const;
+
+    export interface ImportedMcpServerHeader {
+      /** @maxLength 256 */
+      name: string;
+      /** @maxLength 4096 */
+      value: string;
+    }
+
+    /**
+     * One client-imported MCP server, in the agent server's --mcpServers entry shape.
+     */
+    export interface ImportedMcpServer {
+      type: ImportedMcpServerTypeEnum;
+      /** @maxLength 64 */
+      name: string;
+      /** @maxLength 2048 */
+      url: string;
+      headers?: ImportedMcpServerHeader[];
+    }
+
+    /**
+     * One desktop-only MCP server relayed into the run — a name only, never configuration.
+     */
+    export interface RelayedMcpServer {
+      /** @maxLength 64 */
+      name: string;
+    }
+
+    /**
      * * `interactive` - interactive
      * * `background` - background
      */
@@ -13553,6 +13592,16 @@ export namespace Schemas {
      * Request body for creating a new task run
      */
     export interface ClaudeTaskRunCreateSchema {
+      /**
+         * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+         * @nullable
+         */
+      imported_mcp_servers?: ImportedMcpServer[] | null;
+      /**
+         * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+         * @nullable
+         */
+      relayed_mcp_servers?: RelayedMcpServer[] | null;
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
        *
        * * `interactive` - interactive
@@ -13914,6 +13963,16 @@ export namespace Schemas {
      * Request body for creating a new task run
      */
     export interface CodexTaskRunCreateSchema {
+      /**
+         * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+         * @nullable
+         */
+      imported_mcp_servers?: ImportedMcpServer[] | null;
+      /**
+         * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+         * @nullable
+         */
+      relayed_mcp_servers?: RelayedMcpServer[] | null;
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
        *
        * * `interactive` - interactive
@@ -24373,6 +24432,8 @@ export namespace Schemas {
       readonly status: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
       readonly is_legacy: boolean;
+      /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
+      readonly can_freeze_exposure: boolean;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -25018,6 +25079,8 @@ export namespace Schemas {
       readonly status: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
       readonly is_legacy: boolean;
+      /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
+      readonly can_freeze_exposure: boolean;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -34866,6 +34929,7 @@ export namespace Schemas {
      * * `close` - close
      * * `permission_response` - permission_response
      * * `set_config_option` - set_config_option
+     * * `mcp_response` - mcp_response
      */
     export type MethodEnum = typeof MethodEnum[keyof typeof MethodEnum];
 
@@ -34876,6 +34940,7 @@ export namespace Schemas {
       Close: 'close',
       PermissionResponse: 'permission_response',
       SetConfigOption: 'set_config_option',
+      McpResponse: 'mcp_response',
     } as const;
 
     /**
@@ -43177,6 +43242,8 @@ export namespace Schemas {
       readonly status?: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
       readonly is_legacy?: boolean;
+      /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
+      readonly can_freeze_exposure?: boolean;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -59933,6 +60000,16 @@ export namespace Schemas {
      * Request body for creating a task run without starting execution yet.
      */
     export interface TaskRunBootstrapCreateRequest {
+      /**
+         * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+         * @nullable
+         */
+      imported_mcp_servers?: ImportedMcpServer[] | null;
+      /**
+         * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+         * @nullable
+         */
+      relayed_mcp_servers?: RelayedMcpServer[] | null;
       /** Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.
        *
        * * `local` - local
@@ -60037,7 +60114,8 @@ export namespace Schemas {
        * * `cancel` - cancel
        * * `close` - close
        * * `permission_response` - permission_response
-       * * `set_config_option` - set_config_option */
+       * * `set_config_option` - set_config_option
+       * * `mcp_response` - mcp_response */
       method: MethodEnum;
       /** Parameters for the command */
       params?: TaskRunCommandRequestParams;
