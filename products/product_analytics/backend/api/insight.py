@@ -1150,8 +1150,11 @@ class InsightSerializer(InsightBasicSerializer):
                 )
 
                 shared_cache_age_seconds: int | None = None
+                cost_aware_shared_cache_age = False
                 if is_shared:
-                    execution_mode, shared_cache_age_seconds = shared_insights_execution_mode(execution_mode)
+                    execution_mode, shared_cache_age_seconds, cost_aware_shared_cache_age = (
+                        shared_insights_execution_mode(execution_mode)
+                    )
 
                 # Shared rendering bypasses the FE scene-tag flow, so set product/feature
                 # tags here. No-op overwrite for authenticated paths (same values).
@@ -1180,6 +1183,7 @@ class InsightSerializer(InsightBasicSerializer):
                         variables_override=variables_override,
                         tile_filters_override=tile_filters_override,
                         cache_age_seconds=shared_cache_age_seconds,
+                        cost_aware_cache_age=cost_aware_shared_cache_age,
                         analytics_props=get_request_analytics_properties(self.context["request"]),
                     )
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:

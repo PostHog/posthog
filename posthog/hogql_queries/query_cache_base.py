@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from typing import Optional
 
 from posthog import redis
+from posthog.settings.schedules import CACHED_RESULTS_TTL
 
 
 class QueryCacheManagerBase(ABC):
@@ -95,6 +96,22 @@ class QueryCacheManagerBase(ABC):
 
         redis_key = f"{self._redis_key_prefix()}:{self.team_id}"
         self.redis_client.zrem(redis_key, self.identifier)
+
+    def set_query_duration_ms(self, query_duration_ms: float) -> None:
+        self.redis_client.setex(
+            f"query_cost_proxy:{self.team_id}:{self.cache_key}",
+            CACHED_RESULTS_TTL,
+            str(query_duration_ms),
+        )
+
+    def get_query_duration_ms(self) -> float | None:
+        value = self.redis_client.get(f"query_cost_proxy:{self.team_id}:{self.cache_key}")
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     @abstractmethod
     def set_cache_data(self, *, response: dict, target_age: Optional[datetime]) -> None:
