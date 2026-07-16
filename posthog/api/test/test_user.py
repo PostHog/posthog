@@ -2225,7 +2225,7 @@ class TestLoginViews(APIBaseTest):
         cache.clear()
         self.assertFalse(any_users_exist())
 
-        create_user("first@posthog.com", self.CONFIG_PASSWORD, self.organization)
+        create_user("first@posthog.com", "12345678", self.organization)
         self.assertTrue(any_users_exist())
 
 
