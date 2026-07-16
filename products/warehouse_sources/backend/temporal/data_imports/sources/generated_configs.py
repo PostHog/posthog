@@ -2086,7 +2086,8 @@ class InstagramSourceConfig(config.Config):
 
 @config.config
 class InstanaSourceConfig(config.Config):
-    pass
+    base_url: str
+    api_token: str
 
 
 @config.config
