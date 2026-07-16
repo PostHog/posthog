@@ -1,5 +1,3 @@
-import '@testing-library/jest-dom'
-
 import { cleanup, render, screen } from '@testing-library/react'
 
 import { Region } from '~/types'
@@ -14,15 +12,13 @@ describe('AdminLoginButtons', () => {
             labelStyle: 'default descriptive',
             useRegionLabels: undefined,
             expectedLabels: ['Login as customer@example.com (US)', 'Login as customer@example.com (EU)'],
-            unexpectedLabels: ['US region', 'EU region'],
         },
         {
             labelStyle: 'compact region',
             useRegionLabels: true,
             expectedLabels: ['US region', 'EU region'],
-            unexpectedLabels: ['Login as customer@example.com (US)', 'Login as customer@example.com (EU)'],
         },
-    ])('renders $labelStyle labels', ({ useRegionLabels, expectedLabels, unexpectedLabels }) => {
+    ])('renders $labelStyle labels', ({ useRegionLabels, expectedLabels }) => {
         render(
             <AdminLoginButtons
                 ticketContext={{ ticketId: 'ticket-1', email: 'customer@example.com' }}
@@ -34,11 +30,6 @@ describe('AdminLoginButtons', () => {
             />
         )
 
-        for (const expectedLabel of expectedLabels) {
-            expect(screen.getByText(expectedLabel)).toBeInTheDocument()
-        }
-        for (const unexpectedLabel of unexpectedLabels) {
-            expect(screen.queryByText(unexpectedLabel)).not.toBeInTheDocument()
-        }
+        expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual(expectedLabels)
     })
 })
