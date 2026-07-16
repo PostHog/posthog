@@ -1,9 +1,7 @@
-import datetime as dt
 from functools import cached_property
 from typing import cast
-from zoneinfo import ZoneInfo
 
-from posthog.schema import CachedLogsQueryResponse, IntervalType, LogsQuery
+from posthog.schema import CachedLogsQueryResponse, LogsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -12,7 +10,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.logs.backend.logs_query_runner import (
     LogsFilterBuilder,
@@ -83,18 +80,6 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
             max_execution_time=30,
             max_bytes_to_read=10_000_000_000,
             read_overflow_mode="throw",
-        )
-
-    @cached_property
-    def _attributes_query_date_range(self) -> QueryDateRange:
-        # log_attributes is bucketed at 10-minute granularity; align bounds to it.
-        return QueryDateRange(
-            date_range=self.query.dateRange,
-            team=self.team,
-            interval=IntervalType.MINUTE,
-            interval_count=10,
-            now=dt.datetime.now(),
-            timezone_info=ZoneInfo("UTC"),
         )
 
     def _calculate(self) -> LogsQueryResponse:
@@ -171,28 +156,7 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
         # past the read cap at scale. The rollup carries severity_text and service_name, so severity
         # levels, service_name and other resource-attribute filters re-scope the counts; body-search
         # and log-attribute filters still aren't in the rollup.
-        date_range = self._attributes_query_date_range
-        where_exprs: list[ast.Expr] = []
-        if self.query.serviceNames:
-            where_exprs.append(
-                parse_expr(
-                    "service_name IN {serviceNames}",
-                    placeholders={
-                        "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
-                    },
-                )
-            )
-        if self.query.severityLevels:
-            where_exprs.append(
-                parse_expr(
-                    "severity_text IN {severityLevels}",
-                    placeholders={
-                        "severityLevels": ast.Tuple(
-                            exprs=[ast.Constant(value=str(sl)) for sl in self.query.severityLevels]
-                        )
-                    },
-                )
-            )
+        date_range = self.attributes_query_date_range
         # Cross-filter by other resource attributes, excluding this facet's own key so selecting a
         # value doesn't collapse the facet to that single value.
         filter_builder = LogsFilterBuilder(
@@ -201,6 +165,11 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
             date_range,
             exclude_resource_attribute=self.facet_resource_attribute,
         )
+        where_exprs: list[ast.Expr] = []
+        if (service_names := filter_builder.service_names_expr()) is not None:
+            where_exprs.append(service_names)
+        if (severity_levels := filter_builder.severity_levels_expr()) is not None:
+            where_exprs.append(severity_levels)
         where_exprs.append(filter_builder.resource_filter(existing_filters=where_exprs))
 
         query = parse_select(
