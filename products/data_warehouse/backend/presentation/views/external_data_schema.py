@@ -9,7 +9,7 @@ import temporalio
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import MethodNotAllowed, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -46,6 +46,10 @@ from products.data_warehouse.backend.facade.api import (
     trigger_external_data_workflow,
     unpause_external_data_schedule,
     update_external_job_status,
+)
+from products.data_warehouse.backend.presentation.views.source_api_versions import (
+    ExternalDataSourceApiVersionDeprecationSerializer,
+    api_version_deprecation_payload,
 )
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataJob,
@@ -325,6 +329,23 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "Applied on the next sync — not retroactive to already-synced rows."
         ),
     )
+    api_version = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=128,
+        help_text=(
+            "Vendor API version override for this schema. `null` (default) syncs on the source's "
+            "pinned version. Must be one of the source type's supported versions. User-managed: "
+            "version-migration tooling never changes it. Not available for webhook-sync schemas."
+        ),
+    )
+    api_version_deprecation = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Set when this schema's version override is deprecated by the vendor; null when there "
+            "is no override or it is not deprecated. The source-level field covers the source pin."
+        ),
+    )
     available_columns = serializers.SerializerMethodField(
         read_only=True,
         help_text="Column metadata (name, data type, nullable) for this schema. For SQL sources this is the "
@@ -366,6 +387,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "row_filters",
             "available_columns",
             "source",
+            "api_version",
+            "api_version_deprecation",
         ]
 
         read_only_fields = [
@@ -379,6 +402,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "description",
             "available_columns",
             "source",
+            "api_version_deprecation",
         ]
 
     @extend_schema_field(
@@ -428,6 +452,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 "supports_column_selection": {"type": "boolean"},
                 "supports_row_filters": {"type": "boolean"},
                 "user_access_level": {"type": "string", "nullable": True},
+                "api_version": {"type": "string", "nullable": True},
+                "supported_api_versions": {"type": "array", "items": {"type": "string"}},
             },
         }
     )
@@ -442,13 +468,64 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         user_access_control = getattr(view, "user_access_control", None)
         if user_access_control is not None:
             user_access_level = user_access_control.get_user_access_level(source)
+        try:
+            source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+            # The version the schema falls back to without an override, and the picker's options.
+            source_api_version: str | None = source_impl.resolve_api_version(source.api_version)
+            supported_api_versions = list(source_impl.supported_versions)
+        except ValueError:
+            source_api_version = None
+            supported_api_versions = []
         return {
             "id": str(source.id),
             "source_type": source.source_type,
             "supports_column_selection": source_supports_column_selection(source.source_type),
             "supports_row_filters": source_supports_row_filters(source.source_type),
             "user_access_level": user_access_level,
+            "api_version": source_api_version,
+            "supported_api_versions": supported_api_versions,
         }
+
+    @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
+    def get_api_version_deprecation(self, schema: ExternalDataSchema) -> dict[str, Any] | None:
+        # Only the schema-level override is judged here; a deprecated source pin surfaces on the
+        # source, not on every schema.
+        if not schema.api_version:
+            return None
+        return api_version_deprecation_payload(schema.source.source_type, schema.api_version)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        instance = cast(Optional[ExternalDataSchema], self.instance)
+        override = attrs["api_version"] if "api_version" in attrs else (instance.api_version if instance else None)
+        if override:
+            sync_type = attrs.get("sync_type", instance.sync_type if instance else None)
+            if sync_type == ExternalDataSchema.SyncType.WEBHOOK:
+                raise ValidationError(
+                    {
+                        "api_version": "API version overrides are not available for webhook-sync schemas — "
+                        "webhook payload versions are configured on the source at the vendor."
+                    }
+                )
+            # Membership is enforced only when the override actually changes: existing pins are
+            # honored verbatim even if the vendor version was later retired from
+            # supported_versions, so full-payload PATCHes (the sources list spreads the GET
+            # response back) never 400 on unrelated edits. The viewset 405s POST, so there is
+            # no create path to validate.
+            if "api_version" in attrs and instance is not None and override != instance.api_version:
+                try:
+                    source_impl = SourceRegistry.get_source(ExternalDataSourceType(instance.source.source_type))
+                except ValueError:
+                    raise ValidationError(
+                        {"api_version": "API version overrides are not supported for this source type."}
+                    )
+                if override not in source_impl.supported_versions:
+                    raise ValidationError(
+                        {
+                            "api_version": f"'{override}' is not a supported {instance.source.source_type} API version. "
+                            f"Supported versions: {', '.join(source_impl.supported_versions)}"
+                        }
+                    )
+        return attrs
 
     def get_status(self, schema: ExternalDataSchema) -> str | None:
         if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
@@ -548,6 +625,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).
         previous_cdc_table_mode = instance.cdc_table_mode
+
+        api_version_changed = "api_version" in validated_data and validated_data["api_version"] != instance.api_version
 
         # Snapshot sync_type_config before the branches below mutate it in place. The terminal save
         # diffs against this to persist only the keys this request changed. Shallow is enough: the
@@ -957,6 +1036,29 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
         updated_instance = self._save_merging_sync_type_config(instance, validated_data, original_sync_type_config)
 
+        # A version repin invalidates any in-flight import: retried/resumed activities re-resolve
+        # the version from the DB, so letting the run finish would mix two vendor API versions in
+        # one table. Cancel it; the user decides when to sync again.
+        if api_version_changed:
+            running_job = (
+                ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id)
+                .order_by("-created_at")
+                .first()
+            )
+            if running_job and running_job.workflow_id and running_job.status == "Running":
+
+                def cancel_running_import() -> None:
+                    try:
+                        cancel_external_data_workflow(running_job.workflow_id)
+                    except temporalio.service.RPCError as e:
+                        logger.exception(
+                            "Could not cancel running workflow after api_version change",
+                            schema_id=str(instance.id),
+                            exc_info=e,
+                        )
+
+                self._run_temporal_side_effect(cancel_running_import)
+
         if source.supports_scheduled_sync and (
             should_sync is not None or was_sync_frequency_updated or was_sync_time_of_day_updated
         ):
@@ -1102,6 +1204,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 source=source_impl,
                 source_id=str(source.pk),
                 eligible_schemas=[schema],
+                config=config,
             )
 
             if hog_fn_result.error or not hog_fn_result.hog_function:
@@ -1206,7 +1309,6 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
 class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "external_data_source"
     scope_object_write_actions = [
-        "create",
         "update",
         "partial_update",
         "patch",
@@ -1224,6 +1326,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["name"]
     ordering = "-created_at"
 
+    @extend_schema(exclude=True)
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Schemas are created by source schema discovery, never via the API. ModelViewSet would
+        # otherwise route POST here, whose serializer create path skips the api_version guards.
+        raise MethodNotAllowed("POST")
+
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
@@ -1233,13 +1341,16 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset):
         # `table__external_data_source` is read on every schema serialization (SimpleTableSerializer
-        # derives the dotted HogQL name from it), so join it for all actions to avoid a per-row query.
+        # derives the dotted HogQL name from it), and `source` by `get_api_version_deprecation` for
+        # any schema carrying a version override — join both for all actions to avoid per-row queries.
         queryset = (
-            queryset.exclude(deleted=True).prefetch_related("created_by").select_related("table__external_data_source")
+            queryset.exclude(deleted=True)
+            .prefetch_related("created_by")
+            .select_related("source", "table__external_data_source")
         )
         if self.action == "retrieve":
-            # retrieve additionally embeds the source summary + table credential.
-            queryset = queryset.select_related("source", "table__credential")
+            # retrieve additionally embeds the table credential.
+            queryset = queryset.select_related("table__credential")
         return queryset.order_by(self.ordering)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:

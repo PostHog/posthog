@@ -141,7 +141,8 @@ class TestRecentReviewsAPI(APIBaseTest):
         res = self.client.get(self.url)
 
         assert res.status_code == 200
-        rows = res.json()
+        assert res.json()["has_more"] is False
+        rows = res.json()["results"]
         assert [r["pr_number"] for r in rows] == [1]
         assert rows[0]["github_url"] == mine.pr_url
         assert rows[0]["published"] is False
@@ -160,8 +161,26 @@ class TestRecentReviewsAPI(APIBaseTest):
         res = self.client.get(self.url, {"scope": "everyone"})
 
         assert res.status_code == 200
-        assert {r["pr_number"] for r in res.json()} == {1, 2}
+        assert {r["pr_number"] for r in res.json()["results"]} == {1, 2}
         assert self.client.get(self.url, {"scope": "nonsense"}).status_code == 400
+
+    def test_list_limit_grows_the_page_and_has_more_flags_the_rest(self) -> None:
+        # "Show more" grows `limit` instead of offset-paging. has_more must flip false exactly when
+        # the page covers everything (off-by-one here strands or dead-ends the button), and
+        # out-of-range limits must 400 — proving the field is wired into the params serializer.
+        for pr_number in range(1, 8):
+            self._report(pr_number=pr_number, acting_user=self.user)
+
+        default_page = self.client.get(self.url).json()
+        assert len(default_page["results"]) == 5
+        assert default_page["has_more"] is True
+
+        full_page = self.client.get(self.url, {"limit": 7}).json()
+        assert len(full_page["results"]) == 7
+        assert full_page["has_more"] is False
+
+        assert self.client.get(self.url, {"limit": 0}).status_code == 400
+        assert self.client.get(self.url, {"limit": 101}).status_code == 400
 
     def test_counts_scope_to_the_latest_run_and_fall_back_to_the_branch_url(self) -> None:
         # Counts must reflect only the latest turn's VALID findings at their EFFECTIVE priority —
@@ -175,7 +194,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         res = self.client.get(self.url)
 
         assert res.status_code == 200
-        row = res.json()[0]
+        row = res.json()["results"][0]
         assert row["github_url"] == "https://github.com/PostHog/posthog/tree/feat-branch"
         assert (row["must_fix_count"], row["should_fix_count"], row["consider_count"]) == (1, 1, 0)
 
@@ -265,7 +284,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         res = self.client.get(self.url)
 
         assert res.status_code == 200
-        row = res.json()[0]
+        row = res.json()["results"][0]
         assert row["pr_title"] == "feat: current title"
         assert row["pr_author"] == "skoob13"
         assert (row["additions"], row["deletions"], row["changed_files"]) == (120, 8, 7)
@@ -330,7 +349,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         running = self._report(pr_number=2, acting_user=self.user, completed=False, run_count=0, head_sha="sha1")
         running_id = str(running.id)
 
-        rows = self.client.get(self.url).json()
+        rows = self.client.get(self.url).json()["results"]
         assert [r["pr_number"] for r in rows] == [2, 1]
         assert rows[0]["in_progress"] is True
         assert rows[0]["progress"] == {"review_stage": "fetching", "done": None, "total": None}
@@ -345,7 +364,7 @@ class TestRecentReviewsAPI(APIBaseTest):
             pr_comments=[],
             pr_files=[],
         )
-        assert self.client.get(self.url).json()[0]["progress"]["review_stage"] == "chunking"
+        assert self.client.get(self.url).json()["results"][0]["progress"]["review_stage"] == "chunking"
 
         persist_chunk_set(
             team_id=self.team.id,
@@ -354,7 +373,7 @@ class TestRecentReviewsAPI(APIBaseTest):
             chunks=ChunksList(chunks=[Chunk(chunk_id=i, files=[FileInfo(filename="a.py")]) for i in range(2)]),
         )
         # A chunked turn with no reads and no plan yet is the selector's window.
-        assert self.client.get(self.url).json()[0]["progress"] == {
+        assert self.client.get(self.url).json()["results"][0]["progress"] == {
             "review_stage": "selecting",
             "done": None,
             "total": None,
@@ -368,7 +387,11 @@ class TestRecentReviewsAPI(APIBaseTest):
         )
         # No persisted plan (a fallback run): the dense estimate — 2 chunks × (3 canonical
         # perspectives + the blind-spot sweep) = 8 expected reads.
-        assert self.client.get(self.url).json()[0]["progress"] == {"review_stage": "reviewing", "done": 2, "total": 8}
+        assert self.client.get(self.url).json()["results"][0]["progress"] == {
+            "review_stage": "reviewing",
+            "done": 2,
+            "total": 8,
+        }
 
         # Once the selector's plan lands, the total is exact: planned wave units + one blind spot per
         # chunk — without this, a pruned run's bar stalls below 100% against the dense estimate.
@@ -384,7 +407,11 @@ class TestRecentReviewsAPI(APIBaseTest):
                 ]
             ),
         )
-        assert self.client.get(self.url).json()[0]["progress"] == {"review_stage": "reviewing", "done": 2, "total": 3}
+        assert self.client.get(self.url).json()["results"][0]["progress"] == {
+            "review_stage": "reviewing",
+            "done": 2,
+            "total": 3,
+        }
 
         # All planned reads in (1 selected wave unit + 2 blind spots = 3) → the dedup window.
         persist_perspective_results(
@@ -393,7 +420,7 @@ class TestRecentReviewsAPI(APIBaseTest):
             head_sha="sha1",
             results={(1000, 0): _issues_review(0)},
         )
-        assert self.client.get(self.url).json()[0]["progress"] == {
+        assert self.client.get(self.url).json()["results"][0]["progress"] == {
             "review_stage": "deduplicating",
             "done": 3,
             "total": 3,
@@ -401,7 +428,7 @@ class TestRecentReviewsAPI(APIBaseTest):
 
         self._finding(running, "1-a", priority=IssuePriority.MUST_FIX)
         self._finding(running, "1-b", priority=IssuePriority.CONSIDER, judged=False)
-        assert self.client.get(self.url).json()[0]["progress"] == {
+        assert self.client.get(self.url).json()["results"][0]["progress"] == {
             "review_stage": "validating",
             "done": 1,
             "total": 2,
@@ -409,7 +436,7 @@ class TestRecentReviewsAPI(APIBaseTest):
 
         # Every finding judged → the turn is building + publishing, the moments before it completes.
         self._finding(running, "1-b", priority=IssuePriority.CONSIDER, is_valid=False)
-        assert self.client.get(self.url).json()[0]["progress"] == {
+        assert self.client.get(self.url).json()["results"][0]["progress"] == {
             "review_stage": "finalizing",
             "done": 2,
             "total": 2,
@@ -453,7 +480,7 @@ class TestRecentReviewsAPI(APIBaseTest):
             pr_files=[],
         )
 
-        row = self.client.get(self.url).json()[0]
+        row = self.client.get(self.url).json()["results"][0]
         assert (row["pr_title"], row["chunk_count"], row["must_fix_count"]) == ("completed title", 3, 1)
         assert row["in_progress"] is True
         assert row["progress"]["review_stage"] == "chunking"  # live head: snapshot yes, chunks not yet
@@ -474,7 +501,7 @@ class TestRecentReviewsAPI(APIBaseTest):
             last_run_at=datetime(2026, 6, 1, tzinfo=UTC)
         )
 
-        rows = self.client.get(self.url).json()
+        rows = self.client.get(self.url).json()["results"]
 
         assert len(rows) == 5
         assert rows[0]["pr_number"] == 99

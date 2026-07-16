@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from posthog.test.base import BaseTest
 
+from django.conf import settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -78,8 +79,8 @@ class TestVisionActionAlerts(BaseTest):
 
     def test_count_alert_fires_and_persists_deterministic_message(self) -> None:
         scanner = self._scanner()
-        self._observation(scanner, {"verdict": "yes", "reasoning": "user hit the bug"})
-        self._observation(scanner, {"verdict": "yes", "reasoning": "again"}, session_id="s2")
+        older = self._observation(scanner, {"verdict": "yes", "reasoning": "user hit the bug"}, age_days=0.01)
+        newest = self._observation(scanner, {"verdict": "yes", "reasoning": "again"}, session_id="s2")
         action = self._alert(scanner, {"metric": "count", "threshold": 2})
 
         result, run = self._evaluate(action)
@@ -88,25 +89,52 @@ class TestVisionActionAlerts(BaseTest):
         self.assertEqual(result.observation_count, 2)
         self.assertEqual(result.metric_value, 2.0)
         run.refresh_from_db()
-        self.assertIn("Alert: watcher", run.synthesized_markdown)
+        run_url = f"{settings.SITE_URL}/project/{self.team.id}/replay-vision/actions/{action.id}/runs/{run.pk}"
+        self.assertIn(f"Alert: [watcher]({run_url})", run.synthesized_markdown)
         self.assertIn("over the last 24 hours", run.synthesized_markdown)
         self.assertIn("at or above the threshold of 2", run.synthesized_markdown)
         self.assertIn("2 observations matched", run.synthesized_markdown)
-        self.assertTrue(run.output["slack"])
-        self.assertEqual(len(run.observation_ids), 2)
+        # Example lines cite observations by their position in observation_ids (newest first), so the
+        # in-app view and the Slack pass both resolve each citation to the right observation.
+        self.assertEqual(run.observation_ids, [str(newest.id), str(older.id)])
+        self.assertIn("[obs 1]", run.synthesized_markdown)
+        self.assertIn("[obs 2]", run.synthesized_markdown)
+        self.assertIn(f"<{run_url}|watcher>", run.output["slack"])
+        self.assertIn(f"/observations/{newest.id}|[1]>", run.output["slack"])
+        self.assertIn(f"/observations/{older.id}|[2]>", run.output["slack"])
+        # Every match is already listed, so there's no "see all" overflow link to add noise.
+        self.assertNotIn("See all", run.synthesized_markdown)
+
+    def test_many_matches_list_only_examples_and_link_to_the_run(self) -> None:
+        scanner = self._scanner()
+        for i in range(7):
+            self._observation(scanner, {"verdict": "yes"}, session_id=f"s{i}")
+        action = self._alert(scanner, {"metric": "count", "threshold": 7})
+
+        result, run = self._evaluate(action)
+
+        self.assertEqual(result.status, AlertStatus.FIRED)
+        run.refresh_from_db()
+        self.assertEqual(run.synthesized_markdown.count("- ("), 5)
+        run_url = f"{settings.SITE_URL}/project/{self.team.id}/replay-vision/actions/{action.id}/runs/{run.pk}"
+        self.assertIn(f"[See all 7 matches]({run_url})", run.synthesized_markdown)
+        self.assertIn(f"<{run_url}|See all 7 matches>", run.output["slack"])
 
     @parameterized.expand(
         [
-            ("below_threshold", 3, AlertStatus.NOT_BREACHED),
-            ("at_threshold", 2, AlertStatus.FIRED),
+            # direction defaults to above: fires when the metric is at or above the threshold.
+            ("above_under_threshold", {"threshold": 3}, AlertStatus.NOT_BREACHED),
+            ("above_at_threshold", {"threshold": 2}, AlertStatus.FIRED),
+            # below inverts the comparison (inclusive): fires when the metric is at or below it.
+            ("below_at_threshold", {"threshold": 2, "direction": "below"}, AlertStatus.FIRED),
+            ("below_over_threshold", {"threshold": 1, "direction": "below"}, AlertStatus.NOT_BREACHED),
         ]
     )
-    def test_threshold_semantics_over_count(self, _label: str, threshold: float, expected: AlertStatus) -> None:
-        # The only condition shape is "metric at or above threshold" — the operator knob was dropped.
+    def test_threshold_semantics_over_count(self, _label: str, config: dict, expected: AlertStatus) -> None:
         scanner = self._scanner(name=f"ops-{_label}")
         self._observation(scanner, {"verdict": "yes"})
         self._observation(scanner, {"verdict": "no"}, session_id="s2")
-        action = self._alert(scanner, {"metric": "count", "threshold": threshold})
+        action = self._alert(scanner, {"metric": "count", **config})
 
         result, run = self._evaluate(action)
 
@@ -114,6 +142,17 @@ class TestVisionActionAlerts(BaseTest):
         if expected == AlertStatus.NOT_BREACHED:
             run.refresh_from_db()
             self.assertEqual(run.synthesized_markdown, "")
+
+    def test_below_direction_message_says_at_or_below(self) -> None:
+        scanner = self._scanner(scanner_type=ScannerType.SCORER, name="floor-scorer")
+        self._observation(scanner, {"score": 2})
+        action = self._alert(scanner, {"metric": "avg_score", "threshold": 3, "direction": "below"})
+
+        result, run = self._evaluate(action)
+
+        self.assertEqual(result.status, AlertStatus.FIRED)
+        run.refresh_from_db()
+        self.assertIn("at or below the threshold of 3", run.synthesized_markdown)
 
     def test_slack_output_escapes_mrkdwn_control_sequences(self) -> None:
         # Freeform tags are observation-derived untrusted text that the alert message interpolates
@@ -169,10 +208,13 @@ class TestVisionActionAlerts(BaseTest):
         run.refresh_from_db()
         self.assertIn("average score over the last 24 hours was 3", run.synthesized_markdown)
 
-    def test_avg_over_empty_window_never_fires(self) -> None:
-        # An unmeasurable metric must not breach — a None average must not be coerced to a comparable 0.
-        scanner = self._scanner(scanner_type=ScannerType.SCORER, name="quiet-scorer")
-        action = self._alert(scanner, {"metric": "avg_score", "threshold": 0})
+    @parameterized.expand([("above", "above"), ("below", "below")])
+    def test_avg_over_empty_window_never_fires(self, _label: str, direction: str) -> None:
+        # An unmeasurable metric must not breach in either direction — a None average must not be
+        # coerced to a comparable 0 (below would otherwise fire on every quiet window).
+        scanner = self._scanner(scanner_type=ScannerType.SCORER, name=f"quiet-scorer-{_label}")
+        threshold = 0 if direction == "above" else 100
+        action = self._alert(scanner, {"metric": "avg_score", "threshold": threshold, "direction": direction})
 
         result, _ = self._evaluate(action)
 

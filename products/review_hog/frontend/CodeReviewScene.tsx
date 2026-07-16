@@ -51,7 +51,7 @@ import type {
 } from 'products/review_hog/frontend/generated/api.schemas'
 import { ReviewHogReviewsListScope } from 'products/review_hog/frontend/generated/api.schemas'
 
-import { ReviewDrawerTab, ReviewSkillKind, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
+import { REVIEWS_PAGE_SIZE, ReviewDrawerTab, ReviewSkillKind, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 
 /** "review-hog-perspective-logic-correctness" → "Logic correctness" */
 function prettifySkillName(skillName: string): string {
@@ -104,12 +104,13 @@ const URGENCY_STOPS: { key: UrgencyThresholdEnumApi; label: string; description:
     {
         key: 'consider',
         label: 'All issues',
-        description: 'Every validated finding is published, including the minor consider-level ones.',
+        description:
+            'Every validated finding is published, including the minor consider-level ones. This is the default.',
     },
     {
         key: 'should_fix',
         label: 'Should fix',
-        description: 'Recommended fixes and anything more serious — the default balance.',
+        description: 'Recommended fixes and anything more serious. Minor consider-level findings are dropped.',
     },
     {
         key: 'must_fix',
@@ -484,9 +485,15 @@ function RecentReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Ele
 
 /** Compact proof-of-life block under the hero — hidden entirely until the project has reviews. */
 function RecentReviewsSection(): JSX.Element | null {
-    const { recentReviews, recentReviewsLoading, reviewsScope, hasUserChosenReviewsScope } =
-        useValues(reviewHogSettingsLogic)
-    const { setReviewsScope } = useActions(reviewHogSettingsLogic)
+    const {
+        recentReviews,
+        recentReviewsPageLoading,
+        moreReviewsAvailable,
+        reviewsExpanding,
+        reviewsScope,
+        hasUserChosenReviewsScope,
+    } = useValues(reviewHogSettingsLogic)
+    const { setReviewsScope, showMoreReviews, showFewerReviews } = useActions(reviewHogSettingsLogic)
     const everyone = reviewsScope === ReviewHogReviewsListScope.Everyone
     const loadedEmpty = recentReviews !== null && recentReviews.length === 0
 
@@ -494,13 +501,13 @@ function RecentReviewsSection(): JSX.Element | null {
     // the section entirely. The scope flips before the reload lands, so an in-flight load keeps the
     // section mounted (skeleton below) instead of yanking the toggle away mid-click. An empty
     // For-you scope keeps the section (with an empty state) so the scope switch stays reachable.
-    if (loadedEmpty && everyone && !recentReviewsLoading) {
+    if (loadedEmpty && everyone && !recentReviewsPageLoading) {
         return null
     }
     // A stale EMPTY list must not render an empty state while a reload (scope switch, auto-default)
     // is in flight — but previous ROWS are kept during refreshes, so the in-progress poll never
     // flashes skeletons.
-    const emptyAwaitingReload = loadedEmpty && (recentReviewsLoading || !hasUserChosenReviewsScope)
+    const emptyAwaitingReload = loadedEmpty && (recentReviewsPageLoading || !hasUserChosenReviewsScope)
 
     return (
         // The one section without a top hairline — it reads as a continuation of the hero.
@@ -544,7 +551,30 @@ function RecentReviewsSection(): JSX.Element | null {
                         </div>
                     ))
                 ) : recentReviews.length ? (
-                    recentReviews.map((review) => <RecentReviewRow key={review.id} review={review} />)
+                    <>
+                        {recentReviews.map((review) => (
+                            <RecentReviewRow key={review.id} review={review} />
+                        ))}
+                        {(moreReviewsAvailable || recentReviews.length > REVIEWS_PAGE_SIZE) && (
+                            <div className="flex justify-center gap-2 px-4 py-1.5">
+                                {moreReviewsAvailable && (
+                                    <LemonButton
+                                        size="small"
+                                        type="tertiary"
+                                        onClick={showMoreReviews}
+                                        loading={reviewsExpanding}
+                                    >
+                                        Show more
+                                    </LemonButton>
+                                )}
+                                {recentReviews.length > REVIEWS_PAGE_SIZE && (
+                                    <LemonButton size="small" type="tertiary" onClick={showFewerReviews}>
+                                        Show fewer
+                                    </LemonButton>
+                                )}
+                            </div>
+                        )}
+                    </>
                 ) : (
                     <div className="px-4 py-6 text-center text-sm text-secondary">
                         No reviews of your pull requests yet. Switch to "Entire project" to see the whole team's.
@@ -995,7 +1025,7 @@ function UrgencySection(): JSX.Element {
 
     const activeIndex = Math.max(
         0,
-        URGENCY_STOPS.findIndex((stop) => stop.key === (settings?.urgency_threshold ?? 'should_fix'))
+        URGENCY_STOPS.findIndex((stop) => stop.key === (settings?.urgency_threshold ?? 'consider'))
     )
 
     return (

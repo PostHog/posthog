@@ -1,7 +1,7 @@
 import type { GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { isCloudApi, isLocalApi } from '@/lib/constants'
+import { isCloudApi, isLocalApi, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -106,7 +106,9 @@ export class RequestStateResolver {
             cachedProjectId = (await reqCtx.tokenCache.get('projectId')) ?? undefined
         }
 
-        const allFlagKeys = [...new Set(getRequiredFeatureFlags())]
+        // PRODUCT_DATA_CATALOG_FLAG gates instructions content (the metric-discovery prompt
+        // section), not a tool, so the tool-definition scan can't discover it.
+        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), PRODUCT_DATA_CATALOG_FLAG])]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined

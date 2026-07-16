@@ -66,6 +66,7 @@ APIScopeObject = Literal[
     "insight",
     "insight_variable",
     "integration",
+    "internal_run",
     "legal_document",
     "link",
     "live_debugger",
@@ -98,6 +99,7 @@ APIScopeObject = Literal[
     "signal_scout",
     "signal_scout_internal",
     "signal_scout_report",
+    "stamphog",
     "streamlit_app",
     "subscription",
     "survey",
@@ -139,6 +141,11 @@ API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     {
         "clickhouse_test_cluster_perf",
+        # Provenance marker on tokens minted server-side for a sandbox/agent run
+        # (never via the consent flow or a personal API key). The LLM gateway requires
+        # it on the internal products that share the PostHog Code OAuth app so a user's
+        # own credential can't reach them — see services/llm-gateway products/config.py.
+        "internal_run",
         # Sandbox-only writes for the headless Signals agent (memory create/delete,
         # finding emit). Read access for the same surface lives on the public
         # `signal_scout` object so user-grantable PAKs can still inspect runs/memory.

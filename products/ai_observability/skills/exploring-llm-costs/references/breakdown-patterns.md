@@ -4,6 +4,16 @@ Every cost question is a variation of the same template. Always set a time range
 Always include `$ai_embedding` alongside `$ai_generation` if the project uses
 embeddings — missing them silently under-counts.
 
+## Contents
+
+- Cost over time (daily)
+- Cost by model
+- Cost by user (top spenders)
+- Cost by trace (top expensive traces)
+- Cost by custom dimension
+- Cost per call (distribution)
+- Input vs output vs cache economics
+
 ## Cost over time (daily)
 
 ```sql
