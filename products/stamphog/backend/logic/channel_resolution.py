@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from django.db import IntegrityError
+from django.db import IntegrityError, router
 
 import structlog
 
@@ -70,8 +70,13 @@ def _declared_repo_channel_name(team_id: int, audience_key: str) -> str | None:
     # Gate on digest_enabled only, not review `enabled`: a digest-only repo (review off, digest on)
     # still stamps merges with a "repo:" audience, so its declared channel must resolve or those PRs
     # never get delivered.
+    # Writer pin: this gate decides an enabled channel plus the immediate Slack post — a lagged
+    # reader returning a stale digest_enabled=True row would post a digest the user just opted out of.
     repo_config = (
-        StamphogRepoConfig.objects.for_team(team_id).filter(repository=repository, digest_enabled=True).first()
+        StamphogRepoConfig.objects.for_team(team_id)
+        .using(router.db_for_write(StamphogRepoConfig))
+        .filter(repository=repository, digest_enabled=True)
+        .first()
     )
     if repo_config is None:
         return None

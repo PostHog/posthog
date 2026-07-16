@@ -580,6 +580,37 @@ def test_retry_dismisses_orphan_when_superseded_before_the_fresh_status_recheck(
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_retry_after_head_move_never_rewrites_a_terminal_run(team, stamphog_chain: StamphogChain) -> None:
+    # A retry can land after the terminal save committed (the trailing digest stamp crashed) AND the
+    # PR head moved meanwhile. The head-moved branch must not rewrite the delivered COMPLETED run to
+    # SUPERSEDED — terminal states are history; the approval itself is the sweep's job at the next
+    # delivery, not this retry's.
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    recorder.register_pr(REPO, 118, _pr_object(118, "devex-dev", "sha-newer"), _pr_files())
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=118, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha-older",
+        status=ReviewRunStatus.COMPLETED,
+        verdict=ReviewVerdict.APPROVED,
+        posted_review_id=555,
+        output={"reviewer_raw": fakes.approved_engine_output().splitlines()[-1]},
+    )
+
+    result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    assert result == {"verdict": "skipped_head_moved"}
+    run.refresh_from_db()
+    assert run.status == ReviewRunStatus.COMPLETED
+    assert run.verdict == ReviewVerdict.APPROVED
+    assert [w for w in recorder.github_writes if w["kind"] == "dismiss_review"] == []
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_bot_eyes_on_a_later_reactions_page_still_counts_as_in_flight(team, stamphog_chain: StamphogChain) -> None:
     # Anyone can react on a public PR, so an author could bury the trusted bot's fresh 👀 past the
     # first page with junk reactions; a first-page-only fetch would treat the bot as absent and let

@@ -79,7 +79,14 @@ def _adopt_preexisting_config(team_id: int, repository: str, installation_id: st
     someone else completes the install. Reinstall rows keep their settings: they were configured
     while verifiably bound to a real installation.
     """
-    existing = StamphogRepoConfig.objects.for_team(team_id).filter(provider="github", repository=repository).first()
+    # Writer pin: the writer-side unique constraint is what routed us here, so the row exists on the
+    # writer — a lagged reader missing it would mark the repo skipped and leave it unbound forever.
+    existing = (
+        StamphogRepoConfig.objects.for_team(team_id)
+        .using(router.db_for_write(StamphogRepoConfig))
+        .filter(provider="github", repository=repository)
+        .first()
+    )
     if existing is None:
         return None
     if existing.installation_id != installation_id:

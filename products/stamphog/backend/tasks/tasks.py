@@ -460,8 +460,11 @@ def _add_installation_repos(team_id: int, installation_id: str, repos: list[dict
     # New rows inherit the connecting user from a sibling of the same installation — webhooks carry
     # no PostHog identity, and the sandbox token for reviews is minted under this user. No sibling
     # with one set means the installation was never synced; the row stays null and reviews fail closed.
+    # Writer pin: an add arriving right after the sync/restamp must see the just-committed identity,
+    # or the new row is stored null and reviews fail at mint time once enabled.
     connected_by_user_id = (
         StamphogRepoConfig.objects.for_team(team_id)
+        .using(write_db)
         .filter(provider="github", installation_id=installation_id, connected_by_user_id__isnull=False)
         .values_list("connected_by_user_id", flat=True)
         .first()

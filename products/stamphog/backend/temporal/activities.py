@@ -483,9 +483,12 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     current_pr = client.get_pr(repo, pull_request.pr_number)
     current_head = ((current_pr.get("head") or {}).get("sha") or "").strip()
     if current_head and current_head != run.head_sha:
-        run.status = ReviewRunStatus.SUPERSEDED
-        run.completed_at = timezone.now()
-        run.save(update_fields=["status", "completed_at", "updated_at"])
+        # Conditional: a retry after the terminal save already committed (e.g. the trailing digest
+        # stamp crashed) must not rewrite a delivered COMPLETED outcome to SUPERSEDED — terminal
+        # states are history. The stale-approval sweep retires that approval on the next delivery.
+        ReviewRun.objects.for_team(input.team_id).filter(id=run.id).exclude(status__in=TERMINAL_STATUSES).update(
+            status=ReviewRunStatus.SUPERSEDED, completed_at=timezone.now(), updated_at=timezone.now()
+        )
         if run.verdict != ReviewVerdict.APPROVED:
             _dismiss_orphaned_approval(client, run, input.team_id)
         activity.logger.info(f"Skipping verdict for run {run.id}: head moved {run.head_sha} -> {current_head}")
