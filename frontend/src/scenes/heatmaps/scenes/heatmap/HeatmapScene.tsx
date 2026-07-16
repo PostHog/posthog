@@ -27,7 +27,7 @@ import { heatmapLogic } from './heatmapLogic'
 
 const HedgehogDirector = pngHoggie(directorPng)
 
-export const scene: SceneExport = {
+export const scene: SceneExport<{ id: string }> = {
     component: HeatmapScene,
     logic: heatmapLogic,
     paramsToProps: ({ params: { id } }) => ({ id }),
