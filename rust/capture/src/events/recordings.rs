@@ -781,6 +781,25 @@ mod tests {
                 expected.map(|h| json!(h)).as_ref(),
                 "stamp={stamp:?}"
             );
+            if expected.is_some() {
+                // Byte order in the serialized message is a contract: the anonymizer reads the
+                // stamp from the envelope prefix and stops at `$snapshot_items` without
+                // traversing it, so a stamp serialized after the items is silently ignored
+                // (collapse-all). serde_json's sorted map ordering provides this today; the
+                // assertion turns it into a requirement.
+                // Key form (with colon) — the bare string also occurs as the `event` name value.
+                let raw = &captured[0].event.data;
+                let host_at = raw
+                    .find("\"$snapshot_host\":")
+                    .expect("stamp key in output");
+                let items_at = raw
+                    .find("\"$snapshot_items\":")
+                    .expect("items key in output");
+                assert!(
+                    host_at < items_at,
+                    "$snapshot_host must serialize before $snapshot_items"
+                );
+            }
         }
     }
 
