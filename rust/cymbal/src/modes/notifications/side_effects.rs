@@ -4,12 +4,20 @@ use common_kafka::kafka_producer::{send_iter_to_kafka, KafkaContext, KafkaProduc
 use common_types::embedding::{EmbeddingModel, EmbeddingRequest};
 use rdkafka::producer::FutureProducer;
 use rdkafka::types::RDKafkaErrorCode;
+use serde_json::Value;
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::core::error::UnhandledError;
+use crate::metric_consts::FINGERPRINT_EMBEDDING_SKIPPED;
 use crate::modes::notifications::stacktrace::print_stacktrace;
 use crate::modes::notifications::types::NotificationIssue;
+use crate::modes::processing::fingerprinting::FingerprintRecordPart;
 use crate::types::OutputErrProps;
+
+/// SDKs whose fingerprint embeddings we don't generate — their events don't
+/// produce stack traces useful for embedding-based similarity grouping.
+const EMBEDDING_DISABLED_LIBS: &[&str] = &["posthog-elixir"];
 
 struct IssueLifecycleInternalEvent<'a, I: NotificationIssue> {
     event: &'static str,
@@ -26,6 +34,17 @@ pub async fn send_new_fingerprint_event<I: NotificationIssue>(
     issue: &I,
     output_props: &OutputErrProps,
 ) -> Result<(), UnhandledError> {
+    if let Some(reason) = skip_fingerprint_embedding_reason(output_props) {
+        metrics::counter!(FINGERPRINT_EMBEDDING_SKIPPED, "reason" => reason).increment(1);
+        debug!(
+            team_id = issue.team_id(),
+            fingerprint = %output_props.fingerprint,
+            reason,
+            "skipping fingerprint embedding request"
+        );
+        return Ok(());
+    }
+
     let request = fingerprint_embedding_request(issue, output_props);
 
     let res = send_iter_to_kafka(producer, embedding_worker_topic, &[request])
@@ -36,6 +55,27 @@ pub async fn send_new_fingerprint_event<I: NotificationIssue>(
         return Err(UnhandledError::KafkaProduceError(err));
     }
     Ok(())
+}
+
+/// Returns the reason a fingerprint embedding request should be skipped, or
+/// `None` if it should be sent. We don't embed manually-fingerprinted issues
+/// (grouped by the user's own key, so similarity grouping doesn't apply) nor
+/// events from SDKs in `EMBEDDING_DISABLED_LIBS`.
+fn skip_fingerprint_embedding_reason(output_props: &OutputErrProps) -> Option<&'static str> {
+    if output_props
+        .fingerprint_record
+        .iter()
+        .any(|part| matches!(part, FingerprintRecordPart::Manual))
+    {
+        return Some("manual_fingerprint");
+    }
+
+    let lib = output_props.other.get("$lib").and_then(Value::as_str);
+    if lib.is_some_and(|lib| EMBEDDING_DISABLED_LIBS.contains(&lib)) {
+        return Some("disabled_sdk");
+    }
+
+    None
 }
 
 fn fingerprint_embedding_request<I: NotificationIssue>(
@@ -206,5 +246,59 @@ async fn send_internal_event_with_producer<I: NotificationIssue>(
             Ok(())
         }
         Err(e) => Err(e.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn props_with(record: Vec<FingerprintRecordPart>, lib: Option<&str>) -> OutputErrProps {
+        let mut props = OutputErrProps {
+            fingerprint_record: record,
+            ..Default::default()
+        };
+        if let Some(lib) = lib {
+            props
+                .other
+                .insert("$lib".to_string(), Value::String(lib.to_string()));
+        }
+        props
+    }
+
+    #[test]
+    fn sends_embedding_for_automatic_fingerprint() {
+        let props = props_with(
+            vec![FingerprintRecordPart::Exception {
+                id: None,
+                pieces: vec!["boom".to_string()],
+            }],
+            Some("posthog-python"),
+        );
+        assert_eq!(skip_fingerprint_embedding_reason(&props), None);
+    }
+
+    #[test]
+    fn skips_embedding_for_manual_fingerprint() {
+        let props = props_with(vec![FingerprintRecordPart::Manual], Some("posthog-python"));
+        assert_eq!(
+            skip_fingerprint_embedding_reason(&props),
+            Some("manual_fingerprint")
+        );
+    }
+
+    #[test]
+    fn skips_embedding_for_elixir_sdk() {
+        let props = props_with(
+            vec![FingerprintRecordPart::Exception {
+                id: None,
+                pieces: vec!["boom".to_string()],
+            }],
+            Some("posthog-elixir"),
+        );
+        assert_eq!(
+            skip_fingerprint_embedding_reason(&props),
+            Some("disabled_sdk")
+        );
     }
 }
