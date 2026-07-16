@@ -481,14 +481,6 @@ class ExportedAssetViewSet(
         if not instance.is_session_recording_export and instance.created_by_id != self.request.user.id:
             raise NotFound()
 
-        # The creator of a session recording export can always retrieve it. They necessarily had the
-        # access required to create it, so retrieval must not be stricter than creation — otherwise the
-        # recording-viewer RBAC check below can 404 the very user who just made the export (e.g. when no
-        # SessionRecording row exists yet and the team's session_recording default is below viewer),
-        # which surfaces as an "Export complete!" toast followed by a blank error page.
-        if instance.is_session_recording_export and instance.created_by_id == self.request.user.id:
-            return instance
-
         export_context = instance.export_context or {}
         session_recording_id = export_context.get("session_recording_id")
 
@@ -503,9 +495,15 @@ class ExportedAssetViewSet(
         if resource is not None:
             if not self.user_access_control.check_access_level_for_object(resource, required_level="viewer"):
                 raise NotFound()
-        elif session_recording_id:
+        elif session_recording_id and instance.created_by_id != self.request.user.id:
             # No SessionRecording row — cannot run object-level RBAC; still enforce the team's
-            # session_recording resource default so detail/content are not fail-open.
+            # session_recording resource default for other users so detail/content are not fail-open.
+            # The creator is exempt from this fallback only: they necessarily had the access required
+            # to create the export, so retrieval must not be stricter than creation — otherwise a
+            # session_recording default below viewer 404s the very user who just took the screenshot,
+            # surfacing as an "Export complete!" toast followed by a blank error page. Explicit
+            # object-level denies (the branch above) still apply to the creator once a
+            # SessionRecording row exists.
             if not self.user_access_control.check_access_level_for_resource(
                 "session_recording", required_level="viewer"
             ):
