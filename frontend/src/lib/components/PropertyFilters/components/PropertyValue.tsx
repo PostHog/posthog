@@ -448,6 +448,7 @@ export function PropertyValue({
                 loading={propertyOptions?.status === 'loading' || isRefreshing}
                 value={formattedValues}
                 mode={isMultiSelect ? 'multiple' : 'single'}
+                bulkActions={isMultiSelect ? 'clear-all' : undefined}
                 singleValueAsSnack
                 allowCustomValues={propertyOptions?.allowCustomValues ?? true}
                 inputTransform={
