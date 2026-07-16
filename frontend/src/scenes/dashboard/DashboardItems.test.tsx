@@ -4,6 +4,7 @@ import { render } from '@testing-library/react'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
@@ -50,7 +51,7 @@ jest.mock('lib/hooks/useResizeObserver', () => ({
 }))
 
 jest.mock('lib/hooks/useFeatureFlag', () => ({
-    useFeatureFlag: () => true,
+    useFeatureFlag: jest.fn(),
 }))
 
 jest.mock('scenes/surveys/hooks/useSurveyLinkedInsights', () => ({
@@ -149,10 +150,12 @@ jest.mock('@posthog/products-dashboards/frontend/components/DashboardWidgetItem/
 const mockedUseValues = useValues as jest.Mock
 const mockedUseActions = useActions as jest.Mock
 const mockedUseAsyncActions = useAsyncActions as jest.Mock
+const mockedUseFeatureFlag = useFeatureFlag as jest.Mock
 
 describe('DashboardItems', () => {
     beforeEach(() => {
         jest.clearAllMocks()
+        mockedUseFeatureFlag.mockReturnValue(true)
 
         mockedUseValues.mockImplementation((logic) => {
             if (logic === dashboardLogic) {
@@ -251,6 +254,17 @@ describe('DashboardItems', () => {
         expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute(
             'data-compactor',
             'horizontal-compactor'
+        )
+    })
+
+    it('uses vertical compaction when layout compaction modes are disabled', () => {
+        mockedUseFeatureFlag.mockReturnValue(false)
+
+        const { container } = render(<DashboardItems />)
+
+        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute(
+            'data-compactor',
+            'vertical-compactor'
         )
     })
 

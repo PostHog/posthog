@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { DashboardLayoutCompactType } from '~/types'
 
 import { dashboardLogic } from './dashboardLogic'
@@ -9,8 +11,9 @@ import { dashboardLogic } from './dashboardLogic'
 export function DashboardCompactionControl(): JSX.Element | null {
     const { currentLayoutSize, layoutCompactType } = useValues(dashboardLogic)
     const { setLayoutCompactType } = useActions(dashboardLogic)
+    const layoutCompactionEnabled = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_LAYOUT_COMPACTION')
 
-    if (currentLayoutSize === 'xs') {
+    if (!layoutCompactionEnabled || currentLayoutSize === 'xs') {
         return null
     }
 

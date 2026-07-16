@@ -19,6 +19,7 @@ import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboard
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -105,6 +106,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         scrollToBottomSignal,
     } = useValues(dashboardLogic)
     const { layoutZoom = 1, layoutCompactType } = useValues(dashboardLogic)
+    const layoutCompactionEnabled = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_LAYOUT_COMPACTION')
     const {
         updateLayouts,
         updateContainerWidth,
@@ -509,7 +511,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         onWidthChange={handleWidthChange}
                         breakpoints={BREAKPOINTS}
                         cols={BREAKPOINT_COLUMN_COUNTS}
-                        compactor={LAYOUT_COMPACTORS[layoutCompactType]}
+                        compactor={layoutCompactionEnabled ? LAYOUT_COMPACTORS[layoutCompactType] : verticalCompactor}
                         onResizeStart={handleResizeStart}
                         onResize={handleResize}
                         onResizeStop={handleResizeStop}
