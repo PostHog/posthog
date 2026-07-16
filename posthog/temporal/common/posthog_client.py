@@ -69,8 +69,14 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # Cancellations (worker drain, activity timeout, workflow cancellation) and our own
             # egress-budget backpressure (a deliberate "defer and retry later" signal that our
             # rate limiter already records via record_outbound_decision) are expected control flow,
-            # not defects — re-raise without reporting them to error tracking.
-            if temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, EgressBudgetExhausted):
+            # not defects — re-raise without reporting them to error tracking. An exception can also
+            # opt out via a truthy `skip_error_capture` attribute when it represents an expected,
+            # already-surfaced condition (e.g. a revoked data-warehouse source credential).
+            if (
+                temporalio.exceptions.is_cancelled_exception(e)
+                or isinstance(e, EgressBudgetExhausted)
+                or getattr(e, "skip_error_capture", False)
+            ):
                 raise
             activity_info = activity.info()
             capture_kwargs = {
@@ -106,6 +112,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
                 raise  # Already captured at the activity level
             if temporalio.exceptions.is_cancelled_exception(e):
                 raise  # Expected cancellation (worker drain, timeout, cancel), not a defect
+            if getattr(e, "skip_error_capture", False):
+                raise  # Expected, already-surfaced condition that opted out of capture
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {

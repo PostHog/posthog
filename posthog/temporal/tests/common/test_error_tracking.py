@@ -116,6 +116,30 @@ class EgressBackpressureActivityWorkflow:
         )
 
 
+class _SkipCaptureError(Exception):
+    # An expected, already-surfaced condition (e.g. a revoked data-warehouse source credential) that
+    # opts out of error-tracking capture via this attribute.
+    skip_error_capture = True
+
+
+@activity.defn
+async def skip_capture_activity(inputs: OptionallyFailingInputs) -> None:
+    raise _SkipCaptureError("Expected, already-surfaced condition")
+
+
+@workflow.defn
+class SkipCaptureActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            skip_capture_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
 @workflow.defn
 class DirectlyFailingWorkflow:
     @workflow.run
@@ -245,6 +269,35 @@ async def test_egress_backpressure_is_not_captured(temporal_client: Client):
             with pytest.raises(WorkflowFailureError):
                 await temporal_client.execute_workflow(
                     "EgressBackpressureActivityWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_skip_error_capture_attribute_is_not_captured(temporal_client: Client):
+    """An exception marked with a truthy skip_error_capture attribute (an expected, already-surfaced
+    condition like a revoked data-warehouse source credential) must be re-raised without reporting it
+    to error tracking, so a routine token lapse doesn't mint a fresh issue on every sync."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[SkipCaptureActivityWorkflow],
+            activities=[skip_capture_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "SkipCaptureActivityWorkflow",
                     OptionallyFailingInputs(fail=True),
                     id=workflow_id,
                     task_queue=task_queue,

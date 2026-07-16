@@ -72,6 +72,20 @@ class NotionBadRequestError(Exception):
     the offending block/page and keep syncing rather than crashing the whole sync."""
 
 
+class NotionAuthError(Exception):
+    """Notion returned 401/403: the integration token is revoked or expired (401), or the integration
+    is missing a capability or the target pages were never shared with it (403). These are permanent
+    credential problems — retrying can never fix them — so they end the whole sync rather than being
+    skipped per-page. They are classified non-retryable (see NotionSource.get_non_retryable_errors),
+    which surfaces a "reconnect your token" message to the user.
+
+    ``skip_error_capture`` keeps this expected, already-surfaced failure out of error tracking: a token
+    lapse is a routine operational condition, and capturing it minted a fresh burst of issues on every
+    expiry. The Temporal activity interceptor (posthog/temporal/common/posthog_client.py) honors it."""
+
+    skip_error_capture = True
+
+
 @dataclasses.dataclass
 class NotionResumeConfig:
     # Cursor-paginated streams (search, users) persist the next page cursor.
@@ -172,6 +186,15 @@ def _request(
 
     url = f"{NOTION_BASE_URL}{path}"
     response = session.request(method, url, json=json_body, params=params, timeout=60)
+
+    # 401 (revoked/expired token) and 403 (missing capability, or the pages were never shared with the
+    # integration) are permanent credential failures. Surface them as a dedicated classified error so
+    # the sync ends cleanly with a user-facing "reconnect your token" message instead of leaking the
+    # raw HTTPError into error tracking on every token lapse. The message keeps the `<code> Client
+    # Error: <reason> for url: https://api.notion.com` shape that get_non_retryable_errors matches on.
+    if response.status_code in (401, 403):
+        reason = "Unauthorized" if response.status_code == 401 else "Forbidden"
+        raise NotionAuthError(f"{response.status_code} Client Error: {reason} for url: {url}")
 
     if response.status_code == 429:
         retry_after = _parse_retry_after(response.headers.get("Retry-After"))

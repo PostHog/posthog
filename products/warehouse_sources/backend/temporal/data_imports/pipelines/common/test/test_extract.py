@@ -14,14 +14,36 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     handle_corrupted_delta_log,
+    handle_non_retryable_error,
     handle_reset_or_full_refresh,
     persist_primary_keys,
     report_heartbeat_timeout,
     resolve_primary_keys,
     run_pre_write_defensive_compact,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
+
+
+class TestHandleNonRetryableError:
+    @pytest.mark.asyncio
+    async def test_expected_error_short_circuits_without_redis_or_capture(self) -> None:
+        # An error the source flagged as expected (a revoked credential the user already sees) must
+        # end the sync immediately with a flagged NonRetryableException — never entering the Redis
+        # retry loop, which would re-raise the raw error a few times and mint duplicate issues.
+        class _ExpectedError(Exception):
+            skip_error_capture = True
+
+        error = _ExpectedError("401 Client Error: Unauthorized for url: https://api.notion.com/v1/search")
+
+        with patch(f"{_EXTRACT_MODULE}._get_redis") as mock_redis:
+            with pytest.raises(NonRetryableException) as exc_info:
+                await handle_non_retryable_error(MagicMock(), str(error), AsyncMock(), error)
+
+        mock_redis.assert_not_called()
+        assert exc_info.value.skip_error_capture is True
+        assert exc_info.value.__cause__ is error
 
 
 class TestResolvePrimaryKeys:

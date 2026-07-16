@@ -17,6 +17,13 @@ from products.warehouse_sources.backend.temporal.data_imports.naming_convention 
 
 
 class NonRetryableException(Exception):
+    def __init__(self, *args: object, skip_error_capture: bool = False) -> None:
+        super().__init__(*args)
+        # When the underlying failure is an expected, already-surfaced condition (e.g. a revoked
+        # source credential), set this so the Temporal activity interceptor keeps it out of error
+        # tracking. See posthog/temporal/common/posthog_client.py.
+        self.skip_error_capture = skip_error_capture
+
     @property
     def cause(self) -> Optional[BaseException]:
         """Cause of the exception.
