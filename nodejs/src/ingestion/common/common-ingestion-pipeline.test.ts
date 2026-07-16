@@ -30,6 +30,26 @@ type TestRedirectOutput = typeof TEST_REDIRECT_OUTPUT
 
 type MessageOnly = { message: Message }
 
+interface Deferred {
+    promise: Promise<void>
+    resolve: () => void
+}
+
+function deferred(): Deferred {
+    let resolve!: () => void
+    const promise = new Promise<void>((r) => {
+        resolve = r
+    })
+    return { promise, resolve }
+}
+
+/** Flush pending microtasks and macrotasks so in-flight pipeline work settles. */
+async function tick(rounds: number = 10): Promise<void> {
+    for (let i = 0; i < rounds; i++) {
+        await new Promise((resolve) => setImmediate(resolve))
+    }
+}
+
 describe('CommonIngestionPipelineBuilder', () => {
     let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
     let mockTeamManager: jest.Mocked<TeamManager>
@@ -188,31 +208,61 @@ describe('CommonIngestionPipelineBuilder', () => {
 
     it('runs consecutive pre-team pipe steps element by element in one sequential block', async () => {
         const log: string[] = []
+        const gate = deferred()
         const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
             .parseHeaders()
-            .pipe(preTeamLogStep(log, 'A'))
+            .pipe(async function gatedStepA(input: { message: Message; headers: EventHeaders }) {
+                if (input.headers.distinct_id === 'user-0') {
+                    await gate.promise
+                }
+                log.push(`A:${input.headers.distinct_id}`)
+                return ok(input)
+            })
             .pipe(preTeamLogStep(log, 'B'))
             .parseMessage()
             .resolveTeam()
             .build()
 
-        await runPipeline(pipeline, [createMessage('user-0'), createMessage('user-1')])
+        const run = runPipeline(pipeline, [createMessage('user-0'), createMessage('user-1')])
+        await tick()
+
+        // user-0 is held inside the block's first step; a sequential block must
+        // not let user-1 start, so nothing may have been logged yet.
+        expect(log).toEqual([])
+
+        gate.resolve()
+        await run
 
         expect(log).toEqual(['A:user-0', 'B:user-0', 'A:user-1', 'B:user-1'])
     })
 
     it('pipeChunk closes the pre-team sequential block and receives the whole chunk at once', async () => {
         const log: string[] = []
+        const gate = deferred()
         const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
             .parseHeaders()
-            .pipe(preTeamLogStep(log, 'A'))
+            .pipe(async function gatedStepA(input: { message: Message; headers: EventHeaders }) {
+                if (input.headers.distinct_id === 'user-2') {
+                    await gate.promise
+                }
+                log.push(`A:${input.headers.distinct_id}`)
+                return ok(input)
+            })
             .pipeChunk(preTeamLogChunkStep(log, 'C'))
             .pipe(preTeamLogStep(log, 'D'))
             .parseMessage()
             .resolveTeam()
             .build()
 
-        await runPipeline(pipeline, [createMessage('user-0'), createMessage('user-1'), createMessage('user-2')])
+        const run = runPipeline(pipeline, [createMessage('user-0'), createMessage('user-1'), createMessage('user-2')])
+        await tick()
+
+        // The last element is held inside the block; the chunk step is a
+        // barrier, so neither C nor anything after it may have run yet.
+        expect(log).toEqual(['A:user-0', 'A:user-1'])
+
+        gate.resolve()
+        await run
 
         expect(log).toEqual([
             'A:user-0',
@@ -227,16 +277,31 @@ describe('CommonIngestionPipelineBuilder', () => {
 
     it('coalesces and chunk-splits team-aware steps the same way as pre-team steps', async () => {
         const log: string[] = []
+        const gate = deferred()
         const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
             .parseHeaders()
             .parseMessage()
             .resolveTeam()
-            .pipe(teamLogStep(log, 'X'))
+            .pipe(async function gatedStepX(input) {
+                if (input.event.distinct_id === 'user-0') {
+                    await gate.promise
+                }
+                log.push(`X:${input.event.distinct_id}`)
+                return ok(input)
+            })
             .pipeChunk(teamLogChunkStep(log, 'Y'))
             .pipe(teamLogStep(log, 'Z'))
             .build()
 
-        await runPipeline(pipeline, [createMessage('user-0'), createMessage('user-1')])
+        const run = runPipeline(pipeline, [createMessage('user-0'), createMessage('user-1')])
+        await tick()
+
+        // user-0 is held inside the team block's first step; user-1 must not
+        // overtake it and the chunk step must not fire.
+        expect(log).toEqual([])
+
+        gate.resolve()
+        await run
 
         expect(log).toEqual(['X:user-0', 'X:user-1', 'Y:[user-0,user-1]', 'Z:user-0', 'Z:user-1'])
     })
