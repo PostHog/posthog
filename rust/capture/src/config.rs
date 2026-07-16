@@ -306,6 +306,27 @@ pub struct Config {
     #[envconfig(default = "")]
     pub ai_secondary_kafka_client_id: String,
 
+    // --- Dedicated $ai_* topic routing on analytics deployments ---
+    /// Dedicated Kafka topic for `$ai_*` events. Unlike the `ai_secondary_*`
+    /// family above (which picks a secondary CLUSTER on `CaptureMode::Ai`
+    /// deployments), this picks a TOPIC on the same sink: per
+    /// `ai_events_topic_mode`, both the v0 pipeline (via `redirect_to_topic`)
+    /// and the v1 pipeline (via `Destination::AiEvents`) divert `$ai_*` events
+    /// here instead of the analytics main topic.
+    pub ai_events_topic: Option<String>,
+
+    /// Routing mode for `$ai_*` events into `ai_events_topic`: `primary`
+    /// (default) diverts nothing, `secondary` diverts all `$ai_*` events, and
+    /// `secondary_allowlist` diverts only tokens listed in
+    /// `ai_events_topic_allowlist_tokens`. `ai_events_topic` is required
+    /// whenever the mode is not `primary`.
+    #[envconfig(default = "primary")]
+    pub ai_events_topic_mode: AiSinkMode,
+
+    /// Comma-separated project API tokens whose `$ai_*` events are diverted to
+    /// `ai_events_topic` when `ai_events_topic_mode` is `secondary_allowlist`.
+    pub ai_events_topic_allowlist_tokens: Option<String>,
+
     // HTTP/1 header read timeout in milliseconds - closes connections that don't
     // send complete headers within this duration (slow loris protection).
     // Set env var to enable; unset to disable.
@@ -456,8 +477,46 @@ pub struct KafkaConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{AiRouting, AiSinkMode};
+    use super::{AiRouting, AiSinkMode, Config};
+    use std::collections::HashMap;
     use std::str::FromStr;
+
+    fn required_config_env() -> HashMap<String, String> {
+        [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("KAFKA_HOSTS", "localhost:9092"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+    }
+
+    #[test]
+    fn ai_events_topic_defaults() {
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
+        assert_eq!(config.ai_events_topic, None);
+        assert_eq!(config.ai_events_topic_mode, AiSinkMode::Primary);
+        assert_eq!(config.ai_events_topic_allowlist_tokens, None);
+    }
+
+    #[test]
+    fn ai_events_topic_parses() {
+        let mut env = required_config_env();
+        env.insert("AI_EVENTS_TOPIC".into(), "ai_events".into());
+        env.insert("AI_EVENTS_TOPIC_MODE".into(), "secondary_allowlist".into());
+        env.insert(
+            "AI_EVENTS_TOPIC_ALLOWLIST_TOKENS".into(),
+            "tok_a,tok_b".into(),
+        );
+        let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
+        assert_eq!(config.ai_events_topic.as_deref(), Some("ai_events"));
+        assert_eq!(config.ai_events_topic_mode, AiSinkMode::SecondaryAllowlist);
+        assert_eq!(
+            config.ai_events_topic_allowlist_tokens.as_deref(),
+            Some("tok_a,tok_b")
+        );
+    }
 
     #[test]
     fn ai_sink_mode_from_str() {

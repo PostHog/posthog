@@ -17,6 +17,7 @@ use limiters::overflow::OverflowLimiter;
 
 use crate::{
     api::CaptureError,
+    config::AiRouting,
     debug_or_info,
     event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
     events::overflow_stamping::stamp_overflow_reason,
@@ -209,10 +210,12 @@ pub fn process_single_event(
 
 /// Process a batch of analytics events.
 ///
-/// All routing policy lives here: token dropping, event restrictions, global
-/// rate limiting (per `token:distinct_id`), historical rerouting, and
-/// per-key overflow rerouting via [`OverflowLimiter`]. Overflow stamping
-/// goes through the shared [`stamp_overflow_reason`] helper, which the AI
+/// All routing policy lives here: token dropping, `$ai_*` topic diversion
+/// (per the deployment-level [`AiRouting`] policy and `AI_EVENTS_TOPIC`),
+/// event restrictions, global rate limiting (per `token:distinct_id`),
+/// historical rerouting, and per-key overflow rerouting via
+/// [`OverflowLimiter`]. Overflow stamping goes through the shared
+/// [`stamp_overflow_reason`] helper, which the AI
 /// (`ai_endpoint::ai_handler`) and OTEL (`otel::otel_handler`) paths also
 /// call so every `DataType::AnalyticsMain` event gets identical limiter
 /// semantics regardless of entry point. The kafka sink is a pure mechanism
@@ -228,6 +231,8 @@ pub async fn process_events(
     historical_cfg: router::HistoricalConfig,
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
+    ai_routing: &AiRouting,
+    ai_events_topic: Option<&str>,
     events: Vec<RawEvent>,
     context: &ProcessingContext,
 ) -> Result<(), CaptureError> {
@@ -284,6 +289,23 @@ pub async fn process_events(
     });
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered by token_dropper");
+
+    // Divert `$ai_*` events to the dedicated AI topic. A request carries a
+    // single token, so the decision is per batch. This runs before the event
+    // restriction stage so a restriction-driven redirect_to_topic can still
+    // override the diversion. Because prepare_record consults
+    // redirect_to_topic ahead of the DataType/overflow match, diverted events
+    // also skip overflow rerouting, mirroring v1 where Destination::AiEvents
+    // sits outside the analytics overflow path.
+    let ai_redirect_topic =
+        ai_events_topic.filter(|_| ai_routing.routes_to_secondary(&context.token));
+    if let Some(topic) = ai_redirect_topic {
+        for event in events.iter_mut() {
+            if event.event.event.starts_with("$ai_") && event.metadata.redirect_to_topic.is_none() {
+                event.metadata.redirect_to_topic = Some(topic.to_string());
+            }
+        }
+    }
 
     // Apply event restrictions, looking each event up under its `DataType`'s
     // pipeline. The single restriction service holds entries for all
@@ -698,6 +720,8 @@ mod tests {
             historical_cfg,
             None,
             None,
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -745,6 +769,8 @@ mod tests {
             Some(service),
             historical_cfg,
             None,
+            None,
+            &AiRouting::Primary,
             None,
             events,
             &context,
@@ -795,6 +821,8 @@ mod tests {
             historical_cfg,
             None,
             None,
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -843,6 +871,8 @@ mod tests {
             Some(service),
             historical_cfg,
             None,
+            None,
+            &AiRouting::Primary,
             None,
             events,
             &context,
@@ -900,6 +930,8 @@ mod tests {
             historical_cfg,
             None,
             None,
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -935,6 +967,8 @@ mod tests {
             None,
             historical_cfg,
             None,
+            None,
+            &AiRouting::Primary,
             None,
             events,
             &context,
@@ -990,6 +1024,8 @@ mod tests {
             historical_cfg,
             None,
             None,
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -1038,12 +1074,150 @@ mod tests {
             historical_cfg,
             None,
             None,
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
         .await;
 
         assert!(result.is_ok());
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(
+            captured[0].metadata.redirect_to_topic,
+            Some("custom_events_topic".to_string())
+        );
+    }
+
+    /// The `$ai_*` topic diversion is decided once per batch from the request
+    /// token: `secondary` diverts every `$ai_*` event, an allowlist diverts
+    /// only listed tokens, and `primary` (or a missing topic) never diverts.
+    /// Non-AI events stay on their normal route in every mode.
+    #[rstest]
+    #[case::secondary(AiRouting::Secondary, Some("ai_events"), true)]
+    #[case::allowlisted_token(
+        AiRouting::SecondaryAllowlist(["test_token".to_string()].into_iter().collect()),
+        Some("ai_events"),
+        true
+    )]
+    #[case::unlisted_token(
+        AiRouting::SecondaryAllowlist(["other_token".to_string()].into_iter().collect()),
+        Some("ai_events"),
+        false
+    )]
+    #[case::primary(AiRouting::Primary, Some("ai_events"), false)]
+    #[case::no_topic(AiRouting::Secondary, None, false)]
+    #[tokio::test]
+    async fn test_process_events_ai_topic_diversion(
+        #[case] routing: AiRouting,
+        #[case] topic: Option<&str>,
+        #[case] expect_diverted: bool,
+    ) {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![
+            create_test_event_with_name(
+                "$ai_generation",
+                Some("2023-01-01T11:00:00Z".to_string()),
+                None,
+                None,
+            ),
+            create_test_event_with_name(
+                "$pageview",
+                Some("2023-01-01T11:00:00Z".to_string()),
+                None,
+                None,
+            ),
+        ];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+
+        process_events(
+            sink.clone(),
+            dropper,
+            None,
+            historical_cfg,
+            None,
+            None,
+            &routing,
+            topic,
+            events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 2);
+        let ai_event = captured
+            .iter()
+            .find(|e| e.event.event == "$ai_generation")
+            .unwrap();
+        let expected = expect_diverted.then(|| "ai_events".to_string());
+        assert_eq!(ai_event.metadata.redirect_to_topic, expected);
+        // Diversion only sets the redirect topic; the data type (and thus the
+        // kafka partition key derived from event.key()) is untouched.
+        assert_eq!(ai_event.metadata.data_type, DataType::AnalyticsMain);
+        let pageview = captured
+            .iter()
+            .find(|e| e.event.event == "$pageview")
+            .unwrap();
+        assert_eq!(pageview.metadata.redirect_to_topic, None);
+    }
+
+    /// A restriction-driven RedirectToTopic must win over the AI diversion so
+    /// operators can still reroute an AI token's traffic ad hoc.
+    #[tokio::test]
+    async fn test_process_events_restriction_redirect_overrides_ai_diversion() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![create_test_event_with_name(
+            "$ai_generation",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
+        let mut manager = RestrictionManager::new();
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "test_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::RedirectToTopic,
+                scope: RestrictionScope::AllEvents,
+                args: Some(json!({"topic": "custom_events_topic"})),
+            }],
+        );
+        service.update(manager).await;
+
+        process_events(
+            sink.clone(),
+            dropper,
+            Some(service),
+            historical_cfg,
+            None,
+            None,
+            &AiRouting::Secondary,
+            Some("ai_events"),
+            events,
+            &context,
+        )
+        .await
+        .unwrap();
+
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
         assert_eq!(
@@ -1095,6 +1269,8 @@ mod tests {
             Some(service),
             historical_cfg,
             None,
+            None,
+            &AiRouting::Primary,
             None,
             events,
             &context,
@@ -1169,6 +1345,8 @@ mod tests {
             historical_cfg,
             None,
             None,
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -1241,6 +1419,8 @@ mod tests {
             historical_cfg,
             None,
             None,
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -1308,6 +1488,8 @@ mod tests {
             historical_cfg,
             None,
             None,
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -1367,6 +1549,8 @@ mod tests {
             historical_cfg,
             None,
             None,
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -1420,6 +1604,8 @@ mod tests {
             historical_cfg,
             None,
             None, // no overflow limiter
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -1456,6 +1642,8 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -1494,6 +1682,8 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -1534,6 +1724,8 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -1591,6 +1783,8 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -1630,6 +1824,8 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -1681,6 +1877,8 @@ mod tests {
             historical_cfg,
             Some(global_limiter),
             Some(overflow_limiter),
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -1744,6 +1942,8 @@ mod tests {
             historical_cfg,
             Some(global_limiter),
             None, // no overflow limiter -- isolate global RL behavior
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -1788,6 +1988,8 @@ mod tests {
             historical_cfg,
             Some(global_limiter),
             None, // no overflow limiter -- isolate global RL behavior
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -1844,6 +2046,8 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -1895,6 +2099,8 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -1949,6 +2155,8 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -2194,6 +2402,8 @@ mod tests {
             historical_cfg,
             None,
             None,
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -2242,6 +2452,8 @@ mod tests {
             historical_cfg,
             None,
             None,
+            &AiRouting::Primary,
+            None,
             events,
             &context,
         )
@@ -2278,6 +2490,8 @@ mod tests {
             None,
             historical_cfg,
             None,
+            None,
+            &AiRouting::Primary,
             None,
             events,
             &context,
@@ -2323,6 +2537,8 @@ mod tests {
             None,
             historical_cfg,
             None,
+            None,
+            &AiRouting::Primary,
             None,
             events,
             &context,

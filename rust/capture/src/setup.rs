@@ -348,12 +348,43 @@ pub async fn build_components(
         None
     };
 
-    let (v1_sink_router, ai_routing) = if !config.capture_v1_sinks.is_empty() {
-        let (router, ai_routing) = create_v1_sink_router(&config, &sink_env, v1_sink_handles)
-            .unwrap_or_else(|e| panic!("fatal: v1 sink router creation failed: {e:#}"));
-        (Some(router), ai_routing)
+    // Deployment-level policy for diverting `$ai_*` events to a dedicated
+    // topic, shared by the v0 and v1 analytics pipelines. Distinct from the AI
+    // secondary CLUSTER routing above: this stays on the same sink and only
+    // changes the destination topic.
+    let ai_routing = match config.ai_events_topic_mode {
+        AiSinkMode::Primary => AiRouting::Primary,
+        AiSinkMode::Secondary => AiRouting::Secondary,
+        AiSinkMode::SecondaryAllowlist => AiRouting::SecondaryAllowlist(
+            config
+                .ai_events_topic_allowlist_tokens
+                .as_deref()
+                .map(parse_token_allowlist)
+                .unwrap_or_default(),
+        ),
+    };
+    assert!(
+        config.ai_events_topic_mode == AiSinkMode::Primary
+            || config
+                .ai_events_topic
+                .as_deref()
+                .is_some_and(|t| !t.is_empty()),
+        "invalid configuration: AI_EVENTS_TOPIC must be set when AI_EVENTS_TOPIC_MODE is not primary (got {:?})",
+        config.ai_events_topic_mode,
+    );
+    info!(
+        ai_routing = ?ai_routing,
+        ai_events_topic = ?config.ai_events_topic,
+        "AI events topic routing policy"
+    );
+
+    let v1_sink_router = if !config.capture_v1_sinks.is_empty() {
+        Some(
+            create_v1_sink_router(&config, &sink_env, v1_sink_handles)
+                .unwrap_or_else(|e| panic!("fatal: v1 sink router creation failed: {e:#}")),
+        )
     } else {
-        (None, AiRouting::Primary)
+        None
     };
 
     let app = router::router(
@@ -387,6 +418,7 @@ pub async fn build_components(
         config.capture_v1_scatter_gather_min_batch,
         config.ai_gateway_signing_secret.clone(),
         ai_routing,
+        config.ai_events_topic.clone(),
     );
 
     info!(
@@ -437,34 +469,24 @@ fn parse_token_allowlist(csv: &str) -> HashSet<String> {
         .collect()
 }
 
-/// Builds the v1 sink router and the `AiRouting` policy for diverting `$ai_*`
-/// events to the default sink's dedicated topic (its kafka `topic_ai`). The
-/// policy is surfaced here, alongside where the sink configs are built, so
-/// `router::State` can gate AI routing without reaching back through the sink.
+/// Builds the v1 sink router. The dedicated `$ai_*` topic is deployment-level
+/// config (`AI_EVENTS_TOPIC`), so it is injected into every sink config here;
+/// the overwrite is unconditional so a stray per-sink `TOPIC_AI` env var
+/// cannot diverge from the shared policy.
 fn create_v1_sink_router(
     config: &Config,
     sink_env: &HashMap<String, String>,
     handles: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle>,
-) -> anyhow::Result<(Arc<crate::v1::sinks::Router>, AiRouting)> {
-    let sinks_cfg = crate::v1::sinks::load_sinks_from(&config.capture_v1_sinks, sink_env)
+) -> anyhow::Result<Arc<crate::v1::sinks::Router>> {
+    let mut sinks_cfg = crate::v1::sinks::load_sinks_from(&config.capture_v1_sinks, sink_env)
         .context("failed to parse CAPTURE_V1_SINKS")?;
     sinks_cfg
         .validate()
         .context("v1 sink config validation failed")?;
 
-    // validate() guarantees the default sink is present in configs.
-    let default_kafka = &sinks_cfg.configs[&sinks_cfg.default].kafka;
-    let ai_routing = match default_kafka.topic_ai_mode {
-        AiSinkMode::Primary => AiRouting::Primary,
-        AiSinkMode::Secondary => AiRouting::Secondary,
-        AiSinkMode::SecondaryAllowlist => AiRouting::SecondaryAllowlist(
-            default_kafka
-                .topic_ai_allowlist_tokens
-                .as_deref()
-                .map(parse_token_allowlist)
-                .unwrap_or_default(),
-        ),
-    };
+    for cfg in sinks_cfg.configs.values_mut() {
+        cfg.kafka.topic_ai = config.ai_events_topic.clone();
+    }
 
     let mut sink_map: HashMap<crate::v1::sinks::SinkName, Box<dyn crate::v1::sinks::sink::Sink>> =
         HashMap::new();
@@ -496,10 +518,9 @@ fn create_v1_sink_router(
     let router = crate::v1::sinks::Router::new(sinks_cfg.default, sink_map);
     info!(
         sinks = config.capture_v1_sinks.as_str(),
-        ai_routing = ?ai_routing,
         "V1 sink router initialized"
     );
-    Ok((Arc::new(router), ai_routing))
+    Ok(Arc::new(router))
 }
 
 async fn create_sink(

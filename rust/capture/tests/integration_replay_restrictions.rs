@@ -132,6 +132,7 @@ async fn setup_recordings_router_with_restriction(
         8,                  // capture_v1_scatter_gather_min_batch
         None,               // ai_gateway_signing_secret
         AiRouting::Primary, // ai_routing
+        None,               // ai_events_topic
     );
 
     (router, sink_clone)
@@ -503,6 +504,7 @@ async fn setup_recordings_router_with_redirect_to_topic(
         8,                  // capture_v1_scatter_gather_min_batch
         None,               // ai_gateway_signing_secret
         AiRouting::Primary, // ai_routing
+        None,               // ai_events_topic
     );
 
     (router, sink_clone)

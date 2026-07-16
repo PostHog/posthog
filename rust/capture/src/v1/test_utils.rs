@@ -173,12 +173,16 @@ pub fn test_kafka_config() -> crate::v1::sinks::kafka::config::Config {
         ("TOPIC_EXCEPTION", "error_tracking_events"),
         ("TOPIC_HEATMAP", "heatmaps_ingestion"),
         ("TOPIC_CLIENT_INGESTION_WARNING", "events_plugin_ingestion"),
-        ("TOPIC_AI", "ai_events"),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
     .collect();
-    envconfig::Envconfig::init_from_hashmap(&env).unwrap()
+    let mut cfg: crate::v1::sinks::kafka::config::Config =
+        envconfig::Envconfig::init_from_hashmap(&env).unwrap();
+    // Mirrors production, where setup injects the deployment-level
+    // AI_EVENTS_TOPIC into every sink config after env loading.
+    cfg.topic_ai = Some("ai_events".to_string());
+    cfg
 }
 
 // ---------------------------------------------------------------------------
@@ -856,6 +860,9 @@ impl TestStateBuilder {
             capture_v1_scatter_gather_min_batch: 8,
             ai_gateway_signing_secret: self.ai_gateway_signing_secret,
             ai_routing: self.ai_routing,
+            // The v1 pipeline resolves the AI topic from the sink config's
+            // topic_ai, not from this field; see test_kafka_config.
+            ai_events_topic: None,
         };
 
         TestState {

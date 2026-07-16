@@ -1,6 +1,5 @@
 use envconfig::Envconfig;
 
-use crate::config::AiSinkMode;
 use crate::v1::sinks::types::Destination;
 
 /// Per-sink Kafka producer configuration. Loaded via `Envconfig::init_from_hashmap`
@@ -106,21 +105,10 @@ pub struct Config {
     pub topic_heatmap: String,
     pub topic_client_ingestion_warning: String,
 
-    /// Optional dedicated topic for `$ai_*` events. Consulted according to
-    /// `topic_ai_mode`: it must be set whenever the mode diverts anything,
-    /// and is ignored (may stay unset) when the mode is `primary`.
+    /// Optional dedicated topic for `$ai_*` events. Not meant to be set via
+    /// per-sink env: setup injects the deployment-level `AI_EVENTS_TOPIC` into
+    /// every sink config, overwriting whatever the env parse produced.
     pub topic_ai: Option<String>,
-
-    /// Routing mode for `$ai_*` events into `topic_ai`: `primary` (default)
-    /// diverts nothing, `secondary` diverts all `$ai_*` events, and
-    /// `secondary_allowlist` diverts only batches whose token is listed in
-    /// `topic_ai_allowlist_tokens`.
-    #[envconfig(default = "primary")]
-    pub topic_ai_mode: AiSinkMode,
-
-    /// Comma-separated project API tokens whose batches are diverted to
-    /// `topic_ai` when `topic_ai_mode` is `secondary_allowlist`.
-    pub topic_ai_allowlist_tokens: Option<String>,
 }
 
 const VALID_ACKS: &[&str] = &["0", "1", "-1", "all"];
@@ -162,12 +150,6 @@ impl Config {
             self.metadata_refresh_interval_ms
         );
 
-        anyhow::ensure!(
-            self.topic_ai_mode == AiSinkMode::Primary || self.topic_ai.is_some(),
-            "TOPIC_AI must be set when TOPIC_AI_MODE is not primary (got {:?})",
-            self.topic_ai_mode
-        );
-
         Ok(())
     }
 
@@ -196,7 +178,6 @@ mod tests {
     use rstest::rstest;
 
     use super::Config;
-    use crate::config::AiSinkMode;
     use crate::v1::sinks::Destination;
 
     fn required_kafka_env() -> HashMap<String, String> {
@@ -422,48 +403,10 @@ mod tests {
 
     #[test]
     fn topic_ai_present_resolves_destination() {
-        let mut env = required_kafka_env();
-        env.insert("TOPIC_AI".into(), "ai_events".into());
-        let cfg = Config::init_from_hashmap(&env).unwrap();
-        assert_eq!(cfg.topic_ai.as_deref(), Some("ai_events"));
+        // Set the field directly, mirroring how setup injects AI_EVENTS_TOPIC
+        // into sink configs after env loading.
+        let mut cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
+        cfg.topic_ai = Some("ai_events".to_string());
         assert_eq!(cfg.topic_for(&Destination::AiEvents), Some("ai_events"));
-    }
-
-    #[test]
-    fn topic_ai_mode_defaults_to_primary() {
-        let cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
-        assert_eq!(cfg.topic_ai_mode, AiSinkMode::Primary);
-        assert_eq!(cfg.topic_ai_allowlist_tokens, None);
-    }
-
-    #[rstest]
-    #[case("secondary", AiSinkMode::Secondary)]
-    #[case("secondary_allowlist", AiSinkMode::SecondaryAllowlist)]
-    fn topic_ai_mode_parses(#[case] raw: &str, #[case] expected: AiSinkMode) {
-        let mut env = required_kafka_env();
-        env.insert("TOPIC_AI_MODE".into(), raw.into());
-        let cfg = Config::init_from_hashmap(&env).unwrap();
-        assert_eq!(cfg.topic_ai_mode, expected);
-    }
-
-    #[test]
-    fn validate_rejects_non_primary_mode_without_topic_ai() {
-        let mut env = required_kafka_env();
-        env.insert("TOPIC_AI_MODE".into(), "secondary".into());
-        let cfg = Config::init_from_hashmap(&env).unwrap();
-        let err = cfg.validate().unwrap_err();
-        assert!(
-            err.to_string().contains("TOPIC_AI must be set"),
-            "expected TOPIC_AI in error: {err}"
-        );
-    }
-
-    #[test]
-    fn validate_accepts_non_primary_mode_with_topic_ai() {
-        let mut env = required_kafka_env();
-        env.insert("TOPIC_AI_MODE".into(), "secondary".into());
-        env.insert("TOPIC_AI".into(), "ai_events".into());
-        let cfg = Config::init_from_hashmap(&env).unwrap();
-        assert!(cfg.validate().is_ok());
     }
 }
