@@ -57,6 +57,7 @@ from products.experiments.backend.presentation.serializers import (
     CreateFromPromptInputSerializer,
     EndExperimentSerializer,
     ExperimentBasicSerializer,
+    ExperimentFlagCleanupTaskSerializer,
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
     ExperimentSessionContextResponseSerializer,
@@ -91,6 +92,7 @@ from products.feature_flags.backend.models.evaluation_context import FeatureFlag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import has_tasks_access
 
 tracer = trace.get_tracer(__name__)
@@ -151,10 +153,10 @@ def list_is_legacy_annotation() -> Case:
 def _build_prompt_variants(versions: list[int]) -> list[dict[str, Any]]:
     """Build N feature flag variants from an ordered list of prompt versions.
 
-    First variant is keyed "control" (required by ExperimentService._validate_existing_flag
-    when the experiment is later launched). For the standard 2-variant case the second is
-    keyed "test", matching the rest of the codebase's defaults. For N >= 3 the trailing
-    variants are keyed "test-1", "test-2", … so each key stays unique.
+    First variant is keyed "control", matching the codebase's baseline convention (the
+    baseline defaults to 'control' when present). For the standard 2-variant case the
+    second is keyed "test", matching the rest of the codebase's defaults. For N >= 3 the
+    trailing variants are keyed "test-1", "test-2", … so each key stays unique.
     The human-readable prompt version goes in the variant name so chart legends stay readable.
     Splits are integers summing to 100; the last variant absorbs any remainder.
     """
@@ -416,7 +418,7 @@ class EnterpriseExperimentsViewSet(
         Validates the experiment is in draft state, activates its linked feature flag,
         sets start_date to the current server time, and transitions the experiment to running.
         Returns 400 if the experiment has already been launched or if the feature flag
-        configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
+        configuration is invalid (e.g. fewer than 2 variants).
         """
         experiment: Experiment = self.get_object()
         service = ExperimentService(team=self.team, user=request.user)
@@ -566,6 +568,43 @@ class EnterpriseExperimentsViewSet(
             request=request,
         )
         return Response(ExperimentSerializer(shipped_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentFlagCleanupTaskSerializer,
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
+    def flag_cleanup_task(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Status of the flag-cleanup Code task opened for this experiment.
+
+        When an experiment was ended or shipped with open_cleanup_pr=true, a Code task
+        removes the experiment's feature-flag code and opens a draft pull request. This
+        returns that task's latest run status and the PR URL once one is opened. Poll
+        until is_terminal is true. Returns 404 when no cleanup task was opened.
+        """
+        experiment: Experiment = self.get_object()
+        if not experiment.flag_cleanup_task_id:
+            raise NotFound("No flag cleanup task was opened for this experiment.")
+        # Read through the facade rather than the tasks API: cleanup tasks are creator-visible
+        # there, but their status should be visible to everyone who can see the experiment.
+        run = tasks_facade.get_latest_run_by_task([experiment.flag_cleanup_task_id]).get(
+            str(experiment.flag_cleanup_task_id)
+        )
+        # The PR URL comes from the task run's output blob — only pass it through when it
+        # actually points at GitHub, since the frontend renders it as a GitHub link.
+        pr_url = run.pr_url if run else None
+        if pr_url and not pr_url.startswith("https://github.com/"):
+            pr_url = None
+        response_serializer = ExperimentFlagCleanupTaskSerializer(
+            {
+                "task_id": experiment.flag_cleanup_task_id,
+                "run_status": run.status if run else "queued",
+                "is_terminal": run.is_terminal if run else False,
+                "pr_url": pr_url,
+            }
+        )
+        return Response(response_serializer.data)
 
     @extend_schema(
         request=None,
@@ -879,8 +918,7 @@ class EnterpriseExperimentsViewSet(
         Returns a paginated list of feature flags eligible for use in experiments.
 
         Eligible flags must:
-        - Be multivariate with at least 2 variants
-        - Have "control" as the first variant key
+        - Be multivariate with 2 to 20 variants
 
         Query parameters:
         - search: Filter by flag key or name (case insensitive)
@@ -1048,7 +1086,10 @@ class EnterpriseExperimentsViewSet(
                 asyncio.run(
                     temporal.start_workflow(
                         "experiment-metrics-recalculation-workflow",
-                        MetricsRecalcInputs(recalculation_id=recalculation_id),
+                        MetricsRecalcInputs(
+                            recalculation_id=recalculation_id,
+                            fairness_key=str(experiment.team.organization_id),
+                        ),
                         id=f"experiment-metrics-recalculation-{recalculation_id}",
                         task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
                     )

@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class FinnworldsSource(SimpleSource[FinnworldsSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://finnworlds.com/documentation/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -106,7 +107,6 @@ class FinnworldsSource(SimpleSource[FinnworldsSourceConfig]):
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Finnworlds",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Finnworlds API key to pull financial market data into the PostHog Data warehouse.
 
 You can find your API key in your [Finnworlds dashboard](https://finnworlds.com/dashboard/).

@@ -15,11 +15,115 @@ from products.warehouse_sources.backend.models.oom_event import ExternalDataSche
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
+    persist_primary_keys,
     report_heartbeat_timeout,
+    resolve_primary_keys,
     run_pre_write_defensive_compact,
 )
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
+
+
+class TestResolvePrimaryKeys:
+    @parameterized.expand(
+        [
+            # A persisted key (user override or earlier detection) always wins over live detection.
+            ("persisted_wins_over_live", ["user_pk"], ["live_pk"], {"columns": [{"name": "id"}]}, ["user_pk"]),
+            # No persisted key -> use what the source detected live this run.
+            ("live_used_when_no_persisted", None, ["live_pk"], {"columns": [{"name": "id"}]}, ["live_pk"]),
+            # Neither persisted nor live, but the table has `id` -> mirror the discovery-time fallback.
+            ("id_fallback_when_neither", None, None, {"columns": [{"name": "id"}, {"name": "name"}]}, ["id"]),
+            # Nothing to fall back on -> None, so the keyless-table guardrail still fires.
+            ("none_when_no_id_and_nothing_else", None, None, {"columns": [{"name": "name"}]}, None),
+            # Snowflake uppercases unquoted identifiers: the fallback must match `ID`
+            # case-insensitively AND return the actual stored casing — the merge indexes batches
+            # by the real column name, so a hardcoded lowercase `id` would fail it just the same.
+            ("uppercase_id_matched_with_actual_casing", None, None, {"columns": [{"name": "ID"}]}, ["ID"]),
+        ]
+    )
+    def test_precedence(
+        self,
+        _name: str,
+        persisted: list[str] | None,
+        live: list[str] | None,
+        schema_metadata: dict,
+        expected: list[str] | None,
+    ):
+        schema = MagicMock(primary_key_columns=persisted, schema_metadata=schema_metadata)
+        resource = MagicMock(primary_keys=live)
+        assert resolve_primary_keys(schema, resource) == expected
+
+
+class TestPersistPrimaryKeys:
+    @parameterized.expand(
+        [
+            # name, is_incremental, persisted_pk, resource_pks, db_config_before, expected_written (None = no write attempted)
+            # Full-refresh schemas don't merge on a PK — never touch sync_type_config.
+            ("skips_when_not_incremental", False, None, ["id"], {}, None),
+            # A stored PK is already the source of truth — nothing to backfill.
+            ("skips_when_already_persisted", True, ["existing"], ["id"], {}, None),
+            # No resolvable PK -> leave it empty so the keyless-table guardrail still fires.
+            ("skips_when_no_resolved_pk", True, None, None, {}, None),
+            # The fix: an incremental schema with no stored PK backfills the resolved one.
+            ("backfills_when_incremental_and_empty", True, None, ["id"], {}, {"primary_key_columns": ["id"]}),
+            # A concurrent API edit that landed a PK first must not be clobbered inside the lock.
+            (
+                "does_not_clobber_concurrent_write",
+                True,
+                None,
+                ["id"],
+                {"primary_key_columns": ["already"]},
+                {"primary_key_columns": ["already"]},
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_persists_only_when_incremental_and_empty(
+        self,
+        _name: str,
+        is_incremental: bool,
+        persisted: list[str] | None,
+        resource_pks: list[str] | None,
+        db_config_before: dict,
+        expected_written: dict | None,
+    ):
+        schema = MagicMock(id="s1", team_id=1, primary_key_columns=persisted)
+        resource = MagicMock(primary_keys=resource_pks)
+
+        captured: dict = {}
+
+        def fake_pool(fn):
+            async def _call(schema_id, team_id, *, mutate=None, **kwargs):
+                config = dict(db_config_before)
+                if mutate is not None:
+                    mutate(config)
+                captured["config"] = config
+                return config
+
+            return _call
+
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", fake_pool):
+            await persist_primary_keys(schema, resource, is_incremental, AsyncMock())
+
+        assert captured.get("config") == expected_written
+
+    @pytest.mark.asyncio
+    async def test_persistence_failure_does_not_raise(self):
+        # Best-effort: a DB failure while backfilling the PK must not fail an otherwise good sync.
+        schema = MagicMock(id="s1", team_id=1, primary_key_columns=None)
+        resource = MagicMock(primary_keys=["id"])
+        logger = AsyncMock()
+
+        def fake_pool(fn):
+            async def _call(*args, **kwargs):
+                raise RuntimeError("pooler dropped the connection")
+
+            return _call
+
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", fake_pool):
+            await persist_primary_keys(schema, resource, True, logger)
+
+        logger.aexception.assert_awaited_once()
 
 
 class TestRunPreWriteDefensiveCompact:
@@ -183,6 +287,11 @@ class TestHandleCorruptedDeltaLog:
         helper.reset_table.assert_awaited_once()
         job.refresh_from_db()
         assert job.billable is False
+        # The in-memory copy must be refreshed too: the pipeline keeps saving this same schema
+        # object for the rest of the run (incremental staging, partition bookkeeping), and a stale
+        # copy writes the marker back — re-arming a non-billable full rebuild on every sync.
+        assert "delta_revive_required" not in schema.sync_type_config
+        schema.stage_incremental_field_value("run-1", 5)
         schema.refresh_from_db()
         assert "delta_revive_required" not in schema.sync_type_config
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "reset_rebuild"
@@ -192,8 +301,11 @@ class TestHandleCorruptedDeltaLog:
         # rather than reset — the customer's data is recovered without a rebuild, so reset_table never runs
         # and the job stays billable. Guards the salvage-from-temp branch against regressing to a reset.
         schema, job = self._schema_and_job(team)
+        # A hollow-table marker can coexist with the interrupted swap (the repartition scan set it
+        # before the swap crashed) — the salvage must clear it in memory as well as in the DB.
         schema.sync_type_config = {
-            "repartition_swap": {"state": "ready", "temp_uri": "s3://bucket/temp", "live_uri": "s3://bucket/live"}
+            "repartition_swap": {"state": "ready", "temp_uri": "s3://bucket/temp", "live_uri": "s3://bucket/live"},
+            "delta_revive_required": {"reason": "repartition_scan_missing_data_file", "missing_path": "x/p.parquet"},
         }
         schema.save(update_fields=["sync_type_config"])
         helper = MagicMock(
@@ -219,6 +331,12 @@ class TestHandleCorruptedDeltaLog:
         helper.reset_table.assert_not_awaited()
         job.refresh_from_db()
         assert job.billable is True
+        # Same stale-copy guard as the reset path: a later full-config save off this schema object
+        # must not write the cleared marker back.
+        assert "delta_revive_required" not in schema.sync_type_config
+        schema.stage_incremental_field_value("run-1", 5)
+        schema.refresh_from_db()
+        assert "delta_revive_required" not in schema.sync_type_config
         # A salvage must be observable too, tagged as recovered-from-temp with the rebuild left billable.
         assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_revived"
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "salvaged"

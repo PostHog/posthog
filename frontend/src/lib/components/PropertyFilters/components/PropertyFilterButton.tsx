@@ -110,20 +110,21 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                 <span className="PropertyFilterButton-content" title={showGroupCard ? undefined : label}>
                     {midEllipsis(label, 32)}
                 </span>
-                {closable && !disabledReason && (
-                    // The context below prevents close button from going into active status when filter popover is open
-                    <PopoverReferenceContext.Provider value={null}>
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconX />}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                onClose()
-                            }}
-                            className="p-0.5"
-                        />
-                    </PopoverReferenceContext.Provider>
-                )}
+                {closable &&
+                    !disabledReason && (
+                        // The context below prevents close button from going into active status when filter popover is open
+                        <PopoverReferenceContext.Provider value={null}>
+                            <LemonButton
+                                size="xsmall"
+                                icon={<IconX />}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    onClose()
+                                }}
+                                className="p-0.5"
+                            />
+                        </PopoverReferenceContext.Provider>
+                    )}
             </ButtonComponent>
         )
 

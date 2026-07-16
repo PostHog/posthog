@@ -195,11 +195,15 @@ def get_group_types_for_project(project_id: int, *, caller_tag: str | None = Non
     if cached is not None:
         return cached
 
+    def _fetch() -> list[dict[str, Any]]:
+        # require_personhog_client() must run inside personhog_call so a missing client
+        # (RuntimeError) is wrapped as DatabaseError and recovered like any fetch failure.
+        return _fetch_group_types_via_personhog(require_personhog_client(), project_id)
+
     try:
-        client = require_personhog_client()
         result = personhog_call(
             "get_group_types_for_project",
-            lambda: _fetch_group_types_via_personhog(client, project_id),
+            _fetch,
             caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_project'}",
             reraise_as=DatabaseError,
         )
@@ -234,11 +238,16 @@ def _fetch_group_types_for_team_via_personhog(client: PersonHogClient, team_id: 
 
 def get_group_types_for_team(team_id: int, *, caller_tag: str | None = None) -> list[dict[str, Any]]:
     """Fetch group types for a team via personhog."""
+
+    def _fetch() -> list[dict[str, Any]]:
+        # require_personhog_client() must run inside personhog_call so a missing client
+        # (RuntimeError) is wrapped as DatabaseError and recovered like any fetch failure.
+        return _fetch_group_types_for_team_via_personhog(require_personhog_client(), team_id)
+
     try:
-        client = require_personhog_client()
         return personhog_call(
             "get_group_types_for_team",
-            lambda: _fetch_group_types_for_team_via_personhog(client, team_id),
+            _fetch,
             caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_team'}",
             reraise_as=DatabaseError,
         )
@@ -440,7 +449,7 @@ def get_group_types_for_projects(
     mapping. Callers must handle that case.
     """
 
-    def _fn() -> dict[int, list[dict[str, Any]]]:
+    def _fetch() -> dict[int, list[dict[str, Any]]]:
         client = require_personhog_client()
         result = _fetch_group_types_for_projects_via_personhog(client, project_ids)
         for pid in project_ids:
@@ -450,7 +459,7 @@ def get_group_types_for_projects(
     try:
         result = personhog_call(
             "get_group_types_for_projects",
-            _fn,
+            _fetch,
             caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_projects'}",
             reraise_as=DatabaseError,
         )
@@ -466,14 +475,18 @@ def count_group_type_mappings_per_team(*, caller_tag: str | None = None) -> list
     """Count group type mappings per team via personhog."""
     from posthog.personhog_client.proto import CountGroupTypeMappingsRequest
 
+    def _fetch() -> list[dict[str, int]]:
+        # require_personhog_client() must run inside personhog_call so a missing client
+        # (RuntimeError) is wrapped as DatabaseError and recovered like any fetch failure.
+        return [
+            {"team_id": c.team_id, "total": c.count}
+            for c in require_personhog_client().count_group_type_mappings(CountGroupTypeMappingsRequest()).counts
+        ]
+
     try:
-        client = require_personhog_client()
         return personhog_call(
             "count_group_type_mappings_per_team",
-            lambda: [
-                {"team_id": c.team_id, "total": c.count}
-                for c in client.count_group_type_mappings(CountGroupTypeMappingsRequest()).counts
-            ],
+            _fetch,
             caller_tag=f"group_type_mapping/{caller_tag or 'count_group_type_mappings_per_team'}",
             reraise_as=DatabaseError,
         )
@@ -556,10 +569,11 @@ def _fetch_group_types_for_project_direct(
     from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
     from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
 
-    client = require_personhog_client()
-    return personhog_call(
-        "get_group_types_for_project_direct",
-        lambda: sorted(
+    def _fetch() -> list[dict[str, Any]]:
+        # require_personhog_client() must run inside personhog_call so a missing client
+        # (RuntimeError) is wrapped as DatabaseError and recovered like any fetch failure.
+        client = require_personhog_client()
+        return sorted(
             [
                 proto_group_type_mapping_to_dict(m)
                 for m in client.get_group_type_mappings_by_project_id(
@@ -570,7 +584,11 @@ def _fetch_group_types_for_project_direct(
                 ).mappings
             ],
             key=lambda d: d["group_type_index"],
-        ),
+        )
+
+    return personhog_call(
+        "get_group_types_for_project_direct",
+        _fetch,
         caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_project_direct'}",
         reraise_as=DatabaseError,
     )

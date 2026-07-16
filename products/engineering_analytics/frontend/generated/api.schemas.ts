@@ -25,6 +25,73 @@ export interface WorkflowCostApi {
     excluded_jobs: number
 }
 
+/**
+ * * `breaking_master` - BREAKING_MASTER
+ * * `novel_burst` - NOVEL_BURST
+ * * `potentially_resolved` - POTENTIALLY_RESOLVED
+ * * `flaky` - FLAKY
+ * * `pr_only` - PR_ONLY
+ */
+export type BrokenTestRowStateEnumApi = (typeof BrokenTestRowStateEnumApi)[keyof typeof BrokenTestRowStateEnumApi]
+
+export const BrokenTestRowStateEnumApi = {
+    BreakingMaster: 'breaking_master',
+    NovelBurst: 'novel_burst',
+    PotentiallyResolved: 'potentially_resolved',
+    Flaky: 'flaky',
+    PrOnly: 'pr_only',
+} as const
+
+export interface BrokenTestRowApi {
+    /** Stable identity of this distinct failure: the failing test's node id plus a normalized error signature, so the same failure across runs groups into one row. */
+    fingerprint: string
+    /** The pytest node id from the CI 'FAILED <id>' line — the failing test. */
+    test_id: string
+    /** The trailing failure detail with volatile bits (numbers, hashes) normalized, shared across runs of the same failure. Empty when the FAILED line carried no detail. */
+    error_signature: string
+    /** The CI job the failure most recently came from. Matched against default-branch job status to decide whether trunk is currently broken by it. */
+    job_name: string
+    /** 'owner/name' repository the failure belongs to. */
+    repo: string
+    /** The classifier's verdict on how this failure is behaving right now: 'breaking_master' (failing on trunk, latest trunk run still red), 'novel_burst' (new within a day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk but trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' (confined to one branch — one PR's own problem).
+     *
+     * * `breaking_master` - BREAKING_MASTER
+     * * `novel_burst` - NOVEL_BURST
+     * * `potentially_resolved` - POTENTIALLY_RESOLVED
+     * * `flaky` - FLAKY
+     * * `pr_only` - PR_ONLY */
+    state: BrokenTestRowStateEnumApi
+    /** Earliest failure line for this fingerprint in the analysis window. */
+    first_seen: string
+    /** Most recent failure line for this fingerprint in the analysis window. */
+    last_seen: string
+    /** Total failure lines for this fingerprint in the window. An absolute count, never a rate — passing runs aren't in this data. */
+    occurrences: number
+    /** Distinct branches the failure appeared on in the window. */
+    branches: number
+    /** Failure lines on the default branch (master/main). 0 means it never reached trunk. */
+    master_hits: number
+    /** The most recent failing workflow run for this fingerprint — pass it to run_failure_logs to fetch the actual failing log lines. */
+    latest_run_id: number
+    /** The branch of the most recent failing run. */
+    latest_branch: string
+    /** Hourly failure counts over the last 24 hours, oldest first (fixed 24-slot array), for the row sparkline. All zeros when nothing failed in the last day. */
+    trend_24h?: number[]
+}
+
+export interface BrokenTestsResultApi {
+    /** Classified failures ranked by triage urgency — breaking trunk first, single-PR failures last. */
+    rows: BrokenTestRowApi[]
+    /** Default-branch job names whose latest completed run is failing — the 'what's on fire right now' summary. Empty when the job-level source isn't synced or trunk is green. */
+    breaking_master_jobs: string[]
+    /** Length in days of the analysis window the counts cover. */
+    window_days: number
+    /** True when more failures qualified than the cap; `rows` is the top `limit` by urgency. */
+    truncated: boolean
+    /** Maximum number of rows returned. */
+    limit: number
+}
+
 export interface CICardSummaryApi {
     /** Count of open pull requests. */
     open_prs: number
@@ -111,6 +178,8 @@ export interface FlakyTestItemApi {
     failed_count: number
     /** Distinct pull requests among the failed/error spans. Failures on master or unattributed branches carry no PR number and are excluded here (still in failed_count). */
     failed_pr_count: number
+    /** Failed/error spans on the default branch (master/main approximation) — the 'matters right now' signal that a flake is breaking the trunk, not just PR branches. */
+    master_failed_count: number
     /** Distinct git branches across all of the test's flaky-signal spans in the window. */
     branch_count: number
     /** Runs where the test failed while quarantined (xfail) — already masked in CI but still flaky. */
@@ -207,11 +276,24 @@ export interface RunCostApi {
     estimated_cost_usd: number | null
 }
 
+export interface PRLLMSpendApi {
+    /** Total agent LLM token cost in USD attributed to this PR (sum of $ai_total_cost_usd over the matched $ai_generation events). */
+    cost_usd: number
+    /** Total input (prompt) tokens across the attributed generations. */
+    input_tokens: number
+    /** Total output (completion) tokens across the attributed generations. */
+    output_tokens: number
+    /** Number of $ai_generation events attributed to this PR by git branch ($ai_git_branch). */
+    generations: number
+}
+
 export interface PRCostSummaryApi {
     /** Same spend broken down per workflow. */
     by_workflow: WorkflowCostApi[]
     /** Same spend broken down per workflow run, keyed by (run_id, run_attempt). */
     by_run: RunCostApi[]
+    /** Agent LLM token spend attributed to this PR by git branch ($ai_git_branch), or null when no generation matched — independent of the CI cost figures, so it can be present even when jobs_available is false. The UI hides the row when null. */
+    llm_spend?: PRLLMSpendApi | null
     /** False when the job-level source (github_workflow_jobs) isn't synced — every figure is then zero/null and the cost cards should be hidden. */
     jobs_available: boolean
     /** Billable CI minutes: each costed (self-hosted) job's elapsed time, summed. Parallel jobs add up, so this is compute time spent, not wall-clock run duration. */
@@ -679,13 +761,13 @@ export interface OpenToMergeBucketApi {
 }
 
 export interface RepoOverviewApi {
-    /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced. */
+    /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced or include_series=false. */
     cost_series: CostPerMergeBucketApi[]
-    /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null. */
+    /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     time_to_green_series: TimeToGreenBucketApi[]
-    /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null. */
+    /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     success_rate_series: PassRateBucketApi[]
-    /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null. */
+    /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     open_to_merge_series: OpenToMergeBucketApi[]
     /** Workflow runs started in the window, all branches and workflows. */
     run_count: number
@@ -705,6 +787,10 @@ export interface RepoOverviewApi {
     rerun_cycles: number
     /** Re-run cycles over the previous window. */
     rerun_cycles_prev: number
+    /** PRs merged in the window, all authors and bots included — the merge population that triggered the CI spend, so it divides cleanly into billable_minutes and estimated_cost_usd. */
+    merged_pr_count: number
+    /** Merged-PR count over the previous window. */
+    merged_pr_count_prev: number
     /**
      * Median merged_at - created_at over PRs merged in the window, bots and drafts excluded. Coarse by design: draft and ready-for-review time are fused. Null when nothing merged.
      * @nullable
@@ -781,6 +867,23 @@ export interface WorkflowRunActivityApi {
     limit: number
 }
 
+export interface BranchPRMatchApi {
+    /** Repository the pull request belongs to, as 'owner/name'. */
+    repo: string
+    /** Pull request number within the repository — pair with `repo` to link to it. */
+    number: number
+    /**
+     * Pull request title, or null when the snapshot carries no title.
+     * @nullable
+     */
+    title: string | null
+    /**
+     * Derived PR state ('open', 'closed', 'merged'), or null when the snapshot carries no state.
+     * @nullable
+     */
+    state: string | null
+}
+
 export interface RunFailureLogsApi {
     /** Failed CI jobs of this run with their thinned failure logs, grouped by job. */
     jobs: CIJobFailureLogApi[]
@@ -799,6 +902,86 @@ export interface GitHubSourceApi {
     repo: string
     /** User-chosen warehouse table-name prefix for this source, or '' when none. */
     prefix: string
+}
+
+export interface TeamTestSignalApi {
+    /** Reconstructed pytest nodeid (the CI span name), a stable grouping key. */
+    nodeid: string
+    /** Runnable pytest selector; exact when the CI reporter emitted it. */
+    selector: string
+    /** Failed + error + pass-on-retry spans in the current window (xfail excluded). */
+    signal_count: number
+    /** Same count over the equal-length window before date_from. */
+    signal_count_prior: number
+    /** Most recent signal span for this test, either window. */
+    last_seen_at: string
+}
+
+export interface TeamCIActivityApi {
+    /** The team's owned tests with signal in either window, ranked by the stronger window's count (the current-vs-prior pairs behind a before/after comparison). */
+    tests: TeamTestSignalApi[]
+    /** The team slug this activity is scoped to, or 'unowned'. */
+    owner_team: string
+    /** True when more owned tests had signal than the test cap. */
+    truncated_tests: boolean
+}
+
+export interface TeamCIHealthItemApi {
+    /** Owning team slug (the CODEOWNERS handle minus '@PostHog/', e.g. 'team-replay'), or the literal 'unowned' for tests whose spans carry no ownership stamp. */
+    owner_team: string
+    /** Owned tests meeting the flaky-leaderboard bar in the window (passed on retry or failed on enough distinct PRs). Compare with flaky_test_count_prior for the delta. */
+    flaky_test_count: number
+    /** Same count over the equal-length window immediately before date_from. */
+    flaky_test_count_prior: number
+    /** Signal spans on owned tests with final outcome 'failed' or 'error' in the window. An absolute count, not a rate: fast passing runs are not emitted. */
+    failed_count: number
+    /** Same count over the prior window. */
+    failed_count_prior: number
+    /** Spans on owned tests that failed, then passed on an automatic retry, the strongest flaky signal. Only rerun-enabled CI lanes emit it. */
+    rerun_passed_count: number
+    /** Same count over the prior window. */
+    rerun_passed_count_prior: number
+    /** Spans on owned tests that failed while quarantined (xfail): masked in CI but still flaky. */
+    xfailed_count: number
+    /** Same count over the prior window. */
+    xfailed_count_prior: number
+    /** Most recent signal span across the team's owned tests, either window. */
+    last_seen_at: string
+}
+
+export interface TeamCIHealthListApi {
+    /** Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. Teams are organizational owners of code surfaces; this never aggregates by author. */
+    items: TeamCIHealthItemApi[]
+    /** True when more teams had signal than the cap. */
+    truncated: boolean
+    /** Maximum number of teams returned in `items`. */
+    limit: number
+}
+
+export interface TeamMergeTrendPointApi {
+    /** Start of the day bucket (team timezone), keyed on merged_at. */
+    day: string
+    /**
+     * Median open→merge seconds of the PRs this team's members merged that day; null on a day the team merged nothing.
+     * @nullable
+     */
+    median_seconds: number | null
+    /**
+     * Average open→merge seconds over the same merges; diverges above the median when a few long-running PRs drag the mean. Null on a day the team merged nothing.
+     * @nullable
+     */
+    average_seconds: number | null
+    /** Merged PRs behind that day's median and average. */
+    merged_count: number
+}
+
+export interface TeamMergeTrendApi {
+    /** Daily median and average open→merge over the PRs this team's members merged, ascending by day. Coarse timing (open→merge combines draft and review time); bots excluded. */
+    points: TeamMergeTrendPointApi[]
+    /** The team slug this trend is scoped to. */
+    owner_team: string
+    /** False when the GitHub source has no team_members snapshot synced: the trend then has no honest team attribution and `points` is empty. */
+    has_membership_data: boolean
 }
 
 export interface WorkflowHealthBucketApi {
@@ -943,6 +1126,13 @@ export type EngineeringAnalyticsAuthorWorkflowCostsParams = {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsBrokenTestsParams = {
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -1128,6 +1318,10 @@ export type EngineeringAnalyticsRepoOverviewParams = {
      */
     date_to?: string
     /**
+     * Set false to skip the chart series (cost_series, time_to_green_series, success_rate_series, open_to_merge_series return empty) and their query cost — for headline-only consumers like the weekly digest. Defaults to true.
+     */
+    include_series?: boolean
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -1152,11 +1346,99 @@ export type EngineeringAnalyticsRepoRunActivityParams = {
     source_id?: string
 }
 
+export type EngineeringAnalyticsResolveBranchParams = {
+    /**
+     * Git branch (the PR's head ref) to resolve. Open PRs are returned first, then most recently updated.
+     */
+    branch: string
+    /**
+     * Optional 'owner/name' repository to narrow matching to a single repo.
+     */
+    repo?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+    /**
+     * Optional ISO8601 timestamp, e.g. the trace's capture time. When a branch name has been reused across PRs over time, the PR whose lifetime window contains this moment is ranked first so the result matches the PR that was active when the trace was captured. A preference only, not a filter; omit to rank purely by open state then recency.
+     */
+    timestamp?: string
+}
+
 export type EngineeringAnalyticsRunFailureLogsParams = {
     /**
      * Workflow run id whose failure logs to fetch.
      */
     run_id: number
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsTeamCiActivityParams = {
+    /**
+     * Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days. An equal-length prior window feeds the *_prior twins; near the 30-day ceiling that prior window can reach past Traces retention, deflating *_prior counts.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Owning team slug to scope to (as returned by team_ci_health), e.g. 'team-replay', or the literal 'unowned' for tests with no ownership stamp.
+     */
+    owner_team: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+    /**
+     * Maximum number of per-test signal rows to return (1-100). Defaults to 25.
+     */
+    test_limit?: number
+}
+
+export type EngineeringAnalyticsTeamCiHealthParams = {
+    /**
+     * Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days. An equal-length prior window is scanned for the *_prior twins; near the 30-day ceiling that prior window can reach past Traces retention, deflating *_prior counts and overstating deltas.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Maximum number of teams to return (1-200). Defaults to 100.
+     */
+    limit?: number
+    /**
+     * A test counts as flaky once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.
+     */
+    min_failed_prs?: number
+    /**
+     * A test counts as flaky once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.
+     */
+    min_rerun_passes?: number
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsTeamMergeTrendParams = {
+    /**
+     * Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Team slug to scope to (as returned by team_ci_health), matched against the GitHub org team slug of the source's team_members snapshot. The literal 'unowned' names an ownership gap, not an org team, and has no merge trend.
+     */
+    owner_team: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

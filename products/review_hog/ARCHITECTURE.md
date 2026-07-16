@@ -49,8 +49,8 @@ Check these four things before a local `run_review`; don't re-derive them from c
    Without them the Modal sandboxes can't reach the local backend / gateway / MCP.
 3. **Target PR is reviewable** — non-fork (fork PRs are rejected at fetch) and open. Drafts ARE
    reviewed and published (there is no draft gate) — warn the user before publishing on someone's
-   draft. The PR's additions count picks the chunking path: ≤1000 single chunk (no chunking LLM),
-   ≤5000 one-shot LLM chunking, above that sandbox chunking (slowest).
+   draft. The PR's reviewable additions count picks the chunking path: ≤400 single chunk (no
+   chunking LLM), ≤5000 one-shot LLM chunking, above that sandbox chunking (slowest).
 4. **Prior state** — check for an existing report so you know whether this is a fresh r1 or a
    re-review (same-SHA re-runs no-op at publish via the marker + `published_head_sha`):
 
@@ -265,6 +265,21 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-07-15 — reviewing-stage progress copy: "Reviewing chunks" → "Running review passes"
+
+Live misread on [posthog#71025](https://github.com/PostHog/posthog/pull/71025) (63 additions): the
+status comment read "Step 3/6 · Reviewing chunks · 2/3" and the author concluded the deterministic
+single-chunk gate had failed and split a tiny PR into 3 chunks. It hadn't — the persisted selection
+artefact showed one chunk (2 selected perspectives + the blind-spot unit = 3 review units, 2 done),
+and no chunking `$ai_generation` ran for the PR. The reviewing-stage counter has always counted
+(pass, chunk) review units, but the PR comment glued it onto a chunk-flavored label; the app UI
+renders a percentage, so only the comment invited the misread. Fix: the stage label is now "Running
+review passes" on both surfaces (`_STAGE_LABELS` + FE `progressLabel` — they must tell the same
+story), so the comment's raw `done/total` counter names its true unit. Grilled with the user
+2026-07-15: chunk count deliberately NOT added to the line ("keep it lean" — it stays visible in the
+drawer's Chunks tab). Same pass fixed the Preflight section's stale chunking-path numbers (still
+said the pre-2026-07-02 ≤1000 gate; the code's `SINGLE_CHUNK_GATE_ADDITIONS` is 400).
+
 ### ✅ BUILT 2026-07-08 — GitHub I/O moved to the gated egress transport (PyGithub removed)
 
 The `pygithub==2.7.0` dependency is gone; every ReviewHog GitHub call now goes through
@@ -423,7 +438,8 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
 - **`ReviewUserSettings`** (migration 0008; one row per team+user, `db_constraint=False` FKs):
   `review_inbox_prs` (default off; consumed by the Stage-6 inbox trigger since 2026-07-02),
   `review_labeled_prs` (default on), `urgency_threshold` (`consider`/`should_fix`/`must_fix`, default
-  `should_fix`, values mirror `IssuePriority`). GET/PATCH singleton at `review_hog/settings` — the
+  `consider` since 2026-07-16 — see the follow-up below; values mirror `IssuePriority`). GET/PATCH
+  singleton at `review_hog/settings` — the
   action method is `user_settings` because a method named `settings` shadows DRF's `APIView.settings`
   and breaks the whole view (found by test).
 - **Label gate:** `resolve_acting_user_activity` now returns the acting user's settings snapshot
@@ -436,8 +452,8 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
   from `BuildBodyInput.urgency_threshold` / `PublishInput.urgency_threshold` (dataclass defaults keep
   in-flight payloads deserializing) on the **workflow** path. "All issues" publishes `consider`
   findings inline too. The standalone `publish_review` command always uses `DEFAULT_URGENCY_THRESHOLD`
-  (should_fix) — see the adversarial-review follow-up below for why it doesn't take a per-user
-  threshold.
+  (`consider` since 2026-07-16) — see the adversarial-review follow-up below for why it doesn't take a
+  per-user threshold.
 - **Skill lists feed the drawer:** the three config list endpoints (+ PATCH responses) now include the
   skill `body`; "Edit skill ↗" links to `/skills/review-hog`.
 - **"Create your own …":** task kickoff mirroring Inbox "Make a scout" (`api.tasks.create` →
@@ -454,6 +470,20 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
   skip, the CLI-override bypass, and threshold threading into body+publish.
 - **Still deferred:** reset-to-canonical (needs the force-re-pull helper in `lazy_seed`); non-staff
   rollout. (The "Review all your Inbox PRs" behavior is **BUILT** — see Stage 6.)
+
+#### ✅ BUILT 2026-07-16 — default urgency threshold flipped to "All issues" (`consider`)
+
+The default `urgency_threshold` moved from `should_fix` to `consider`, so out of the box every
+validated finding reaches the pull request (consider-level findings survive validation too, so
+they're worth surfacing by default). Changed in one place each: the `ReviewUserSettings` field
+`default`/`db_default` and `DEFAULT_URGENCY_THRESHOLD` in `constants.py`; the temporal input
+dataclass defaults (`ResolveActingUserResult`/`BuildBodyInput`/`PublishInput`) follow so "defaults
+match the model's" stays true. Migration 0017 alters the column default and resets existing rows to
+`consider` (safe — no persisted rows yet; done for correctness). Slider copy moved the "default"
+annotation to "All issues" and the frontend fallbacks (`?? 'should_fix'`) now fall back to
+`consider`. The `should_fix`-threshold test fixtures were renamed `_DEFAULT_PUBLISHED` →
+`_SHOULD_FIX_PUBLISHED` (they exercise the publish gate at that threshold; they never meant "the
+product default").
 
 #### ✅ Follow-up 2026-07-02 — adversarial review (partial) caught a real regression; fixed 2, reverted 1 as overengineered
 
@@ -473,7 +503,7 @@ missing required argument`) — those call sites were never updated. Caught only
    adversarial reviewer ran the product's real `backend:test` script (`backend/tests` **+**
    `backend/reviewer/tests`); my own verification during the build had only run `backend/tests`,
    silently skipping the second directory the whole session. Fixed: all 8 call sites now pass a
-   `_DEFAULT_PUBLISHED = published_priorities_for(IssuePriority.SHOULD_FIX)` test constant (matching
+   `_SHOULD_FIX_PUBLISHED = published_priorities_for(IssuePriority.SHOULD_FIX)` test constant (matching
    prior implicit behavior), plus two comments that assumed the old "consider never publishes"
    absolute rule reworded to "below the default threshold." **Lesson: verify against a product's
    `package.json` `backend:test` script, not a hand-picked test path** — `backend/reviewer/tests/` is
@@ -639,6 +669,59 @@ payload into Python) from the turn's working-state artefacts, preferring the sna
   must not masquerade as another skill card. Hidden until data exists. In-progress row label format:
   "Step k/4 · <stage> · NN%" (stages fetching/chunking/reviewing/validating numbered 1-4).
 
+#### ✅ BUILT 2026-07-15 — "For you / Entire project" scope on the recent-reviews block
+
+Mirrors the Inbox scope switch: the block can now list every review on the project, not just the requesting user's.
+
+- **`GET review_hog/reviews/?scope=mine|everyone`** (`ReviewsListParamsSerializer`, default `mine`):
+  `everyone` drops the `acting_user` filter; everything else (running-first ordering, 5-row cap, DB-side enrichment) is unchanged.
+  Bad values 400 via `is_valid(raise_exception=True)`.
+  The `scope` ChoiceField's enum stays inline in the OpenAPI query parameter, so no `ScopeEnum` component collision (verified with `--fail-on-warn`).
+- **`retrieve` is now project-wide** (queries with `SCOPE_EVERYONE` internally) so any listed review opens;
+  another team's report id still 404s (`for_team`), garbage ids still 404.
+  `perspective_stats` stays personal — it describes _your_ reviewers' effectiveness.
+- **Index:** `(team, -last_run_at)` `reviewhog_rpt_team_recent_idx` (migration 0016, `SafeAddIndexConcurrently`) serves the everyone-scope completed slice;
+  the mine slice keeps the 0011 `(team, acting_user, -last_run_at)` index.
+- **UI/logic:** `LemonSegmentedButton` "For you / Entire project" on the section header;
+  `reviewsScope` + `hasUserChosenReviewsScope` persisted reducers in `reviewHogSettingsLogic`;
+  **auto-default** — an empty first mine-scope load flips to Entire project via `applyDefaultReviewsScope`, which is _not_ marked as a user choice so a later explicit pick wins (both directions jest-tested);
+  an explicit pick is mirrored to `?reviews_scope=` — the auto-default never writes the URL, since hydrating from a link counts as an explicit choice and would make the fallback permanent;
+  the loader takes a `breakpoint()` after the fetch so a scope flip mid-flight drops the stale response;
+  rows show `by <pr_author>` in everyone scope only;
+  an empty mine-scope shows an empty state instead of hiding the section (the toggle must stay reachable) — loaded-and-empty hides the section only in everyone scope.
+- Tests: everyone-scope list (teammate rows in, cross-team rows out, bad scope 400s as the params-serializer wiring guard);
+  retrieve contract flip (teammate's review 200, other team's 404);
+  2 jest tests for the auto-default rule.
+
+#### ✅ BUILT 2026-07-16 — "Show more / Show fewer" pagination on the recent-reviews list
+
+The 5-row cap became the first page: the list grows by a page per "Show more" click and collapses back in one click, on both scopes.
+
+- **Growing `limit`, not offset pages:** in-progress rows jump to the front and drop out between the 10s polls,
+  so offset pagination would shift page boundaries under the reader.
+  `GET reviews/?limit=N` (default 5, min 1, max 100 — enrichment is per-row work) caps all three merge slices;
+  the response is now a **page envelope `{results, has_more}`** (`ReviewRecentReviewsPageSerializer`),
+  with `has_more` computed server-side by probing `limit + 1` rows — no dead "Show more" click when the count is exactly the limit.
+- **`_PageEnvelopeSchema` (AutoSchema subclass):** drf-spectacular's `_is_list_view` heuristic wraps any `list` action's response in an array,
+  which generated `Promise<ReviewRecentReviewsPageApi[]>` — forced to False, and the operationId pinned back to `*_list`
+  (forcing the heuristic renames the operation `*_retrieve`, colliding with the real retrieve).
+  The two prior overrides in the codebase (event_filter_config, access_control property state) are singletons without a sibling retrieve, so they never hit the collision.
+- **Logic:** loader holds the envelope (`recentReviewsPage`); `recentReviews` / `moreReviewsAvailable` are selectors over it.
+  `reviewsLimit` reducer: +5 per `showMoreReviews`, reset to 5 on `showFewerReviews` **and on any scope change** (a different scope is a different list, user decision).
+  "Show fewer" collapses **instantly from already-loaded rows** (reducer slices, `has_more` forced true when rows were hidden)
+  while its listener refetches to reconcile — the refetch also breakpoint-drops any wider in-flight poll response that would resurrect the collapsed rows.
+  `reviewsExpanding` drives the "Show more" button's loading state (the loader's own `loading` would flash on every 10s poll);
+  `LemonButton.loading` hard-disables, so it's also the double-click guard.
+  Growth clamps at `MAX_REVIEWS_LIMIT` (100, mirroring reviews.py) and `moreReviewsAvailable` goes false at the ceiling even while `has_more` —
+  otherwise the 20th click sends `limit=105`, the API 400s, and the generic failure path strands the page in the settings-failed banner (PR review finding, fixed same day).
+  The limit is deliberately **not** mirrored to the URL — ephemeral view state, unlike scope.
+- **UI:** centered tertiary "Show more" / "Show fewer" footer row inside the card (divide-y gives the hairline);
+  "Show fewer" only when more than a page is showing, "Show more" only when `has_more`.
+  Copy is "Show fewer" (countable rows), per user's "whatever is grammatically correct".
+- Tests: BE — envelope + limit growth + has_more boundary at exact count + out-of-range 400s (wiring guard);
+  jest — grow/collapse cycle (instant collapse, has_more preserved, scope flip resets the limit).
+  Full suite: 503 backend + 3 jest green; `hogli build:openapi` regenerated cleanly (list function keeps its `reviewHogReviewsList` name).
+
 #### ✅ BUILT 2026-07-02 — authoring guide moved to a canonical skill (`review-hog-authoring`)
 
 The "Create your own …" frontend prompts were fat, self-describing instruction sets — an
@@ -654,7 +737,7 @@ is the canonical **`review-hog-authoring`** skill at `products/review_hog/skills
   (iterate with `skill-update`; never `skill-duplicate` a canonical — seeded metadata rides along and
   the sync may overwrite/prune the copy). Activation stays a human step in the tab (per-user
   enablement; the config API is INTERNAL-scoped, deliberately not agent-writable — the one divergence
-  from scouts' `signals-scout-config-create`).
+  from scouts' `scout-config-create`).
 - **Seeding:** `REVIEW_HOG_AUTHORING_PREFIX`/`_SKILL_NAME` (`skill_loader.py`),
   `discover_canonical_authoring` + `sync_canonical_authoring` (`lazy_seed.py` — same
   prefix-and-category reconcile), synced in two moments: the run path (`_sync_review_skills`,
@@ -2053,7 +2136,7 @@ pipeline just built + hardened).
 
 ```text
 reviewhog label on a non-fork PostHog/posthog PR
-  └─ .github/workflows/review-hog.yml   (gates: label==reviewhog, head.repo==base.repo, non-bot, non-draft, concurrency)
+  └─ .github/workflows/review-hog.yml   (gates: label==reviewhog by a human, head.repo==base.repo, concurrency; any author)
        └─ one authenticated curl  →  POST /api/review_hog/trigger  {repo, pr_number}   (Authorization: Bearer <secret>)
             └─ endpoint: verify shared secret · validate repo allowlist (forks blocked upstream by the Action
                  + downstream by the fetch activity) · resolve team-2 integration + run user
@@ -2118,9 +2201,16 @@ github-actions[bot] trick), and its Action carries **one** secret (no Anthropic 
    the review is **pinned to the reviewed `head_sha`** via `commit=repo_obj.get_commit(head_sha)`. Fork rejection is
    authoritative in the **fetch activity** (`PRMetadata.is_fork`, non-retryable `ApplicationError` before the report
    row is created).
-4. ✅ **The Action:** `.github/workflows/review-hog.yml` — `on: pull_request [labeled, ready_for_review, synchronize]`,
-   `permissions: {}`, per-PR concurrency, `if:` gates (label + non-fork + non-bot + non-draft), one `curl` with the
-   bearer secret. `pull_request` (not `pull_request_target`) ⇒ forks get no secret ⇒ can't trigger.
+4. ✅ **The Action:** `.github/workflows/review-hog.yml` — `on: pull_request_target [labeled]`,
+   `permissions: {}`, per-PR concurrency, `if:` gates (human-applied label + non-fork; any author — unmapped authors
+   resolve via the acting-user fallback), one `curl` with the bearer secret. `pull_request_target` runs the base
+   branch's version of the file (a PR can't edit its own trigger) and fires even on conflicted PRs; it exposes
+   secrets to fork PRs, so the non-fork `if:` gate is the fork barrier — safe because the job never runs PR code.
+   Residual gap: stacked PRs whose base branch predates this file still dispatch nothing (no workflow on the base).
+   A paired `bot-labeler-skip` job (Stamphog's pattern) turns the bot-labeler skip into feedback: it comments why
+   and strips the label so a human can re-add it.
+   **2026-07-14 update:** `synchronize` dropped (ADR 0002) — pushes no longer re-trigger; re-review = re-add the
+   label.
 5. ⏳ **Later (v2):** label lifecycle (strip-on-non-approval / keep-on-error / dismiss-stale-on-push). (`synchronize` /
    `ready_for_review` events are already wired in step 4.) Then **Stage 5b** (iterate-on-same-PR validation).
 
@@ -2193,7 +2283,7 @@ eval loop still recomputes to measure reviewer changes. New inline comments are 
 
 **📌 New comments at an unchanged head → nothing, for now (decision 2026-06-29).** When important new human/bot
 review comments appear but the SHA hasn't moved, ReviewHog currently does **nothing**: there's no comment-event
-trigger (the Action fires only on `[labeled, ready_for_review, synchronize]`), and a manual same-head re-trigger
+trigger (the Action fires only on `[labeled, ready_for_review]` since ADR 0002), and a manual same-head re-trigger
 hits the early-exit gate above (or, pre-publish, only re-feeds dedup). This is the right scope **while ReviewHog
 only _reviews_**. It changes once the **Action plane** ("not just find issues — fix them", see Stage 4 →
 _Action plane_) lands: a human reply ("this is wrong" / "please fix this" / answering a finding) should then
@@ -2673,17 +2763,20 @@ are enabled by the user via the toggle. A new canonical added later auto-enables
 row the user disabled is left alone (get_or_create no-op). Scouts call register-missing each coordinator tick
 (`config_registry.py`); we call it when resolving the acting user, before loading.
 
-**PR-author → PostHog user (mandatory gate, no fallback).** The acting user whose perspectives apply = the **PR
-author**, from `pr_metadata.author` (`tools/github_meta.py:244`), resolved via **`resolve_org_github_login_to_users(
-team_id, [login]) -> {login: User}`** (`products/signals/backend/report_generation/resolve_reviewers.py:241`;
-org-scoped, case-insensitive, backed by `User.get_github_login()` precedence UserIntegration-github →
-UserSocialAuth-github → team-integration login, `posthog/models/user.py:438`; already used in prod). **CORRECTION
-to earlier docs: this reverse-lookup DOES exist** (a prior research pass wrongly said it didn't). If the author does
-**not** map to a PostHog org user → **do not review** (no fallback / no canonical default — we rely on
-PostHog-stored skills, so the author must be a PostHog user with an org account). Gate **after fetch, before the
-perspective fan-out** — resolution is needed for selection anyway, so no dead code, nothing wasted. `inputs.user_id`
-today is the integration _creator_ (`trigger.py:54-57, 125`), NOT the PR author — keep it for sandbox/MCP auth, but
-resolve the PR author separately for perspective selection.
+**PR-author → PostHog user (label trigger falls back; other triggers don't).** The acting user whose perspectives
+apply = the **PR author**, from `pr_metadata.author` (`tools/github_meta.py:244`), resolved via
+**`resolve_org_github_login_to_users(team_id, [login]) -> {login: User}`**
+(`products/signals/backend/report_generation/resolve_reviewers.py:241`; org-scoped, case-insensitive, backed by
+`User.get_github_login()` precedence UserIntegration-github → UserSocialAuth-github → team-integration login,
+`posthog/models/user.py:438`; already used in prod). **CORRECTION to earlier docs: this reverse-lookup DOES exist**
+(a prior research pass wrongly said it didn't). When the author does **not** map to a PostHog org user, the **label
+trigger** falls back to the **run user** (`inputs.user_id`, threaded into the resolve activity as `default_user_id`
+— the same identity the sandboxes execute under, so acting and sandbox identity can never drift) — someone
+explicitly asked for the review, so a borrowed user's perspectives beat no review. The
+`review_labeled_prs` opt-out stays **author-only**: a fallback-resolved acting user never imports their personal
+switch into someone else's PR (forced True in the resolve snapshot). Inbox/manual/branch triggers keep the
+no-fallback contract → unmapped author = **no review**. Gate **after fetch, before the perspective fan-out**.
+`inputs.user_id` is the sandbox/MCP identity (integration creator lineage), resolved separately from the acting user.
 
 **Loader change** — `load_perspectives_for_run(team_id, acting_user_id)` (`skill_loader.py:50`): after
 `register_missing_perspective_configs`, read the user's enabled set
@@ -2827,6 +2920,36 @@ file to prove a gap and another agent read it mid-experiment.
 **Still deferred (own steps):** validator selection in the ReviewHog skills **UI** (ships with the perspective UI —
 API/MCP only for now); a partial unique index if a hard DB single-active guarantee is ever wanted (app-level matches
 perspectives today).
+
+##### ✅ BUILT 2026-07-16 — per-user VISIBILITY of custom review skills (menus show canonicals + your own)
+
+Custom review skills were team-visible: all three config menus (perspectives / validators / blind-spots) listed every team `LLMSkill` with the prefix,
+so one user's custom appeared in — and was enableable by exact name from — every teammate's Code review tab, with the clutter compounding as customs multiply.
+Locked with the user (AskUserQuestion, 2026-07-16):
+
+- **Visibility rule:** a skill is visible to a user iff its name is canonical (`CANONICAL_*_SKILL_NAMES` — by name, so a team-edited canonical stays visible to everyone)
+  OR the **earliest live version's `created_by`** is that user.
+  This refines the 2026-06-29 "`created_by` is audit-only" lock: still audit-only for identity and editing (edits mint new versions stamped with the _editor_ and do NOT transfer visibility);
+  the first version's author now governs **menu visibility only**.
+  Earliest _live_ version rather than literally `version=1`: deleted rows are excluded, so an archived name later recreated by another user belongs to the new author
+  (deleted `(name, version)` pairs can duplicate — the unique constraints only cover `deleted=False`).
+- **Strict, no grandfathering** (decided while the feature had no external adopters): `partial_update` 404s on a non-visible skill exactly like a missing one
+  (a distinct error would leak that the name exists), closing the enable-any-team-skill-by-name backdoor. No data migration; the loaders backstop instead.
+- **Loader backstop:** `load_perspectives_for_run` warn-and-skips an enabled name outside the acting user's visible set
+  (same posture and hole-preserving `pass_number` semantics as the dead-skill skip), and `_load_single_active_skill` falls back to the canonical on a foreign selection —
+  so a pre-fix foreign-enabled row stops running rather than running invisibly, self-healing with no migration.
+- **Scope:** all three review menus. The team-level Skills page (`/skills`) intentionally keeps showing all team skills —
+  this is a clutter fix, not confidentiality: bodies stay team-readable there, and teammates can still edit each other's customs (accepted risk).
+  Signals scouts share the identical all-team-menu pattern; same future problem, deliberately out of scope here.
+- **Consequences:** a custom whose author's account is deleted (`created_by` → NULL on SET_NULL) is visible to no one and stops running
+  (its config rows CASCADE with the account); cleanup is archiving from the Skills page.
+  A skill authored through an agent session is stamped with that session's user.
+  "Adopt a teammate's skill" is now duplicate-under-a-new-name (v1 `created_by` = the duplicator), not enable-by-name.
+
+Implementation: `visible_skill_names(team_id, user_id, prefix, canonical_names)` in `skill_loader.py` (one `DISTINCT ON (name) ORDER BY name, version` query over live rows),
+used by all three config viewsets (`list` + `partial_update`) and both loader paths.
+Tests: per surface, a teammate's custom is hidden from `list` and 404s on PATCH; the perspective loader skips a foreign-enabled row keeping pass-number holes;
+the single-active loader falls back to canonical on a foreign selection; existing custom-skill fixtures now stamp `created_by`.
 
 The fact that keeps all of this safe: **the output schema is fixed; only the skill (logic) is editable.** Every
 perspective validates against `IssuesReview`/`Issue`, the validator against `IssueValidation`, chunking against

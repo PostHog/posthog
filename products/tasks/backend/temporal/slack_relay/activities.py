@@ -5,7 +5,6 @@ from typing import Any
 from markdown_to_mrkdwn import SlackMarkdownConverter
 from temporalio import activity
 
-from posthog.storage import object_storage
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
@@ -34,7 +33,6 @@ _RE_LOCAL_DELIVERABLE_REFERENCE = re.compile(
     re.IGNORECASE,
 )
 _UNCONFIRMED_ATTACHMENT_NOTICE = "\n\n_Note: I can relay text here, but no file was attached to Slack for this run._"
-_ARTIFACT_LINKS_HEADER = "\n\n*Artifacts available in Slack:*"
 
 # Repair pattern: bold/italic markers placed *inside* the close of a Slack-style
 # angle-bracket link, e.g. ``**<https://example.com**>`` instead of
@@ -102,10 +100,9 @@ def _markdown_to_slack_mrkdwn(text: str) -> str:
 def _append_unconfirmed_attachment_notice(
     text: str,
     *,
-    artifacts: list[Any] | None,
     origin_product: str | None,
 ) -> str:
-    if origin_product != "slack" or artifacts:
+    if origin_product != "slack":
         return text
 
     normalized = " ".join(text.split())
@@ -117,41 +114,6 @@ def _append_unconfirmed_attachment_notice(
         return text
 
     return f"{text.rstrip()}{_UNCONFIRMED_ATTACHMENT_NOTICE}"
-
-
-def _append_artifact_links(
-    text: str,
-    *,
-    artifacts: list[Any] | None,
-    origin_product: str | None,
-) -> str:
-    if origin_product != "slack" or not artifacts:
-        return text
-
-    normalized = " ".join(text.split())
-    if not _RE_DELIVERY_CLAIM.search(normalized) and not _RE_LOCAL_DELIVERABLE_REFERENCE.search(normalized):
-        return text
-
-    lines: list[str] = []
-    for artifact in artifacts[:5]:
-        if not isinstance(artifact, dict):
-            continue
-        name = str(artifact.get("name") or "Artifact")
-        storage_path = artifact.get("storage_path")
-        if not storage_path:
-            continue
-        try:
-            url = object_storage.get_presigned_url(storage_path)
-        except Exception:
-            logger.warning("slack_relay_artifact_presign_failed", storage_path=storage_path, exc_info=True)
-            continue
-        if not url:
-            continue
-        lines.append(f"- <{url}|{name}>")
-
-    if not lines:
-        return text
-    return f"{text.rstrip()}{_ARTIFACT_LINKS_HEADER}\n" + "\n".join(lines)
 
 
 def _repair_link_trailing_markers(text: str) -> str:
@@ -420,16 +382,14 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         logger.info("slack_relay_empty_text", run_id=input.run_id, relay_id=input.relay_id)
         return
 
+    # Living-artifacts gating lives in the service: has_pending_slack_file_artifacts
+    # (and deliver_pending_slack_file_artifacts below) return falsy when the
+    # workspace's living-artifacts flag is off. Run-manifest artifacts are internal
+    # and must never surface here — Slack delivery goes through living artifacts only.
     has_pending_slack_files = has_pending_slack_file_artifacts(task_run)
     if not has_pending_slack_files:
         text = _append_unconfirmed_attachment_notice(
             text,
-            artifacts=task_run.artifacts,
-            origin_product=mapping.task.origin_product,
-        )
-        text = _append_artifact_links(
-            text,
-            artifacts=task_run.artifacts,
             origin_product=mapping.task.origin_product,
         )
 

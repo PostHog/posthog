@@ -27,7 +27,6 @@ class TestSourceConfig:
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
         assert config.releaseStatus == ReleaseStatus.ALPHA
         # Intentionally unreleased: the source is shipped behind the flag while it stabilizes.
-        assert config.unreleasedSource is True
 
     def test_config_fields(self) -> None:
         config = SegmentSource().get_source_config

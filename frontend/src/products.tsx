@@ -128,6 +128,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/engineering-analytics/pull-requests': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
     '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
     '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
+    '/engineering-analytics/teams': ['EngineeringAnalytics', 'engineeringAnalyticsTeams'],
+    '/engineering-analytics/teams/:ownerTeam': ['EngineeringAnalyticsTeam', 'engineeringAnalyticsTeam'],
     '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number': [
         'EngineeringAnalyticsPullRequest',
         'engineeringAnalyticsPullRequest',
@@ -191,6 +193,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/skills/scouts': ['Skills', 'skillsScouts'],
     '/skills/review-hog': ['Skills', 'skillsReviewHog'],
     '/skills/:name': ['Skill', 'skill'],
+    '/stamphog': ['Stamphog', 'stamphog'],
+    '/stamphog/install/callback': ['Stamphog', 'stamphogCallback'],
     '/subscriptions': ['Subscriptions', 'subscriptions'],
     '/subscriptions/new': ['Subscriptions', 'subscriptionNew'],
     '/subscriptions/:subscriptionId/edit': ['Subscriptions', 'subscriptionEdit'],
@@ -595,6 +599,13 @@ export const productConfiguration: Record<string, any> = {
         description: "One author's pull requests \u2014 a filtered view for finding work, not a ranking.",
         iconType: 'health',
     },
+    EngineeringAnalyticsTeam: {
+        projectBased: true,
+        name: 'Team CI health',
+        layout: 'app-container',
+        description: "One owning team's merge timing and the before/after signal on its owned tests.",
+        iconType: 'health',
+    },
     ErrorTracking: {
         projectBased: true,
         name: 'Error tracking',
@@ -770,6 +781,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'llm_prompts',
     },
     Skill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
+    Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog' },
     Subscriptions: {
         projectBased: true,
         name: 'Subscriptions',
@@ -1021,6 +1033,9 @@ export const productUrls = {
     engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pull-requests',
     engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
     engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
+    engineeringAnalyticsTeams: (): string => '/engineering-analytics/teams',
+    engineeringAnalyticsTeam: (ownerTeam: string): string =>
+        `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
     engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
         `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}`,
     engineeringAnalyticsWorkflowRun: (repoOwner: string, repoName: string, runId: number | string): string =>
@@ -1246,6 +1261,8 @@ export const productUrls = {
             version?: number
         }
     ): string => combineUrl(`/skills/${name}`, params).url,
+    stamphog: (): string => '/stamphog',
+    stamphogCallback: (): string => '/stamphog/install/callback',
     subscriptions: (): string => '/subscriptions',
     subscription: (id: string | number): string => `/subscriptions/${id}`,
     subscriptionNew: (): string => '/subscriptions/new',
@@ -1778,6 +1795,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'EngineeringAnalyticsWorkflowRun',
             'EngineeringAnalyticsWorkflowRuns',
             'EngineeringAnalyticsAuthor',
+            'EngineeringAnalyticsTeam',
         ],
     },
     {
@@ -2192,7 +2210,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-tracing-light)'] as FileSystemIconColor,
         href: urls.tracing(),
         flag: FEATURE_FLAGS.TRACING,
-        tags: ['alpha'],
+        tags: ['beta'],
         sceneKey: 'Tracing',
         sceneKeys: ['Tracing', 'TracingOperation'],
     },

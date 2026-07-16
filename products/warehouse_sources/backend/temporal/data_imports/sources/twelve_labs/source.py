@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class TwelveLabsSource(ResumableSource[TwelveLabsSourceConfig, TwelveLabsResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1.3",)
+    default_version = "v1.3"
+    api_docs_url = "https://docs.twelvelabs.io/v1.3/api-reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -49,7 +52,6 @@ class TwelveLabsSource(ResumableSource[TwelveLabsSourceConfig, TwelveLabsResumeC
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Twelve Labs",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Twelve Labs API key to sync your video understanding library into the PostHog Data warehouse.
 
 You can create an API key in your [Twelve Labs dashboard](https://playground.twelvelabs.io/dashboard/api-key).""",

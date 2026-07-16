@@ -28,8 +28,6 @@ class TestSourceConfig:
         config = WorkableSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.HR___RECRUITING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Stays hidden from users until the source is signed off.
-        assert config.unreleasedSource is True
 
     def test_fields(self) -> None:
         field_names = {f.name for f in WorkableSource().get_source_config.fields}

@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ChurnkeySource(ResumableSource[ChurnkeySourceConfig, ChurnkeyResumeConfig]):
+    api_docs_url = "https://docs.churnkey.co/data-integrations/data-api/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -54,7 +56,6 @@ class ChurnkeySource(ResumableSource[ChurnkeySourceConfig, ChurnkeyResumeConfig]
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Churnkey",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             keywords=["churn", "retention", "cancellation"],
             caption="""Enter your Churnkey **Data API** key and App ID to pull your cancel-flow session data into the PostHog Data warehouse.
 

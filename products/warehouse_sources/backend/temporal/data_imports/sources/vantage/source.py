@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class VantageSource(ResumableSource[VantageSourceConfig, VantageResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog - safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://docs.vantage.sh/api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -49,7 +52,6 @@ class VantageSource(ResumableSource[VantageSourceConfig, VantageResumeConfig]):
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Vantage",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Vantage API access token to pull your Vantage FinOps data into the PostHog Data warehouse.
 
 Create a read-scoped access token or a service token from your [Vantage settings](https://console.vantage.sh/settings/access_tokens). Only the `read` scope is required for imports.""",

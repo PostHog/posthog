@@ -33,8 +33,10 @@ from posthog.models.project import Project
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
+from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
@@ -680,6 +682,45 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
         with self.assertNumQueries(baseline + 11 + 9):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
+
+    def test_insight_alerts_do_not_nplus1_dashboard_gets(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        def _add_insight_with_alerts() -> None:
+            insight_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
+            threshold = Threshold.objects.create(
+                team=self.team,
+                insight_id=insight_id,
+                created_by=self.user,
+                configuration={"type": "absolute", "bounds": {"upper": 1}},
+            )
+            # one threshold alert and one detector alert — AlertSerializer emits threshold and
+            # subscribed_users per alert, the two relations that regress to per-alert queries
+            for alert_threshold in (threshold, None):
+                alert = AlertConfiguration.objects.create(
+                    team=self.team,
+                    insight_id=insight_id,
+                    created_by=self.user,
+                    name="alert",
+                    threshold=alert_threshold,
+                    condition={"type": "absolute_value"},
+                    config={"type": "TrendsAlertConfig", "series_index": 0},
+                    detector_config=None if alert_threshold else {"type": "zscore", "threshold": 3},
+                )
+                AlertSubscription.objects.create(user=self.user, alert_configuration=alert, created_by=self.user)
+
+        def _dashboard_query_count() -> int:
+            with capture_db_queries() as ctx:
+                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
+            return len(ctx.captured_queries)
+
+        _add_insight_with_alerts()
+        _dashboard_query_count()  # warmup: absorbs one-off writes like last_accessed_at
+        baseline = _dashboard_query_count()
+
+        _add_insight_with_alerts()
+        _add_insight_with_alerts()
+        self.assertEqual(_dashboard_query_count(), baseline)
 
     @snapshot_postgres_queries
     def test_listing_dashboards_is_not_nplus1(self) -> None:
@@ -2763,6 +2804,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "effective_privilege_level": 37,
                     "effective_restriction_level": 21,
                     "favorited": False,
+                    "filter_override_context": None,
                     "filters": {},
                     "filters_hash": ANY,
                     "hasMore": None,

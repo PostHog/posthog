@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 

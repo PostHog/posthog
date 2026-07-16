@@ -259,7 +259,31 @@ def validate_credentials(
             return True, None
         return False, f"Your Algolia API key is missing the ACL required to sync '{schema_name}'"
 
-    return False, f"Algolia API returned status {response.status_code}"
+    # Any other status is unexpected for a credential probe. Surface Algolia's own message when it
+    # sends one, and give the common 404 an actionable hint, rather than echoing a bare status code
+    # the user can't act on.
+    api_message = ""
+    try:
+        api_message = response.json().get("message", "")
+    except ValueError:
+        pass
+
+    if response.status_code == 404:
+        target = f"index '{index_name}'" if index_name else "requested resource"
+        detail = f" Algolia said: {api_message}." if api_message else ""
+        return (
+            False,
+            f"Algolia couldn't find the {target} (status 404). Check that your Application ID is "
+            f"correct and the index exists, then try again.{detail}",
+        )
+
+    if api_message:
+        return False, f"Algolia rejected the request (status {response.status_code}): {api_message}"
+    return (
+        False,
+        f"Algolia returned an unexpected status ({response.status_code}). Check your Application ID "
+        "and API key, then try again.",
+    )
 
 
 def algolia_source(

@@ -39,6 +39,9 @@ class GooglePageSpeedInsightsSource(SimpleSource[GooglePageSpeedInsightsSourceCo
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to render
     # in public docs without credentials.
     lists_tables_without_credentials = True
+    supported_versions = ("v5",)
+    default_version = "v5"
+    api_docs_url = "https://developers.google.com/speed/docs/insights/v5/get-started"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -51,7 +54,6 @@ class GooglePageSpeedInsightsSource(SimpleSource[GooglePageSpeedInsightsSourceCo
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Google PageSpeed Insights",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Google Cloud API key and the URLs you want to analyze to pull PageSpeed Insights (Lighthouse) scores into the PostHog Data warehouse.
 
 Create an API key in the [Google Cloud console](https://console.cloud.google.com/apis/credentials) and enable the **PageSpeed Insights API** for your project. A key raises your quota to 25,000 queries/day (400 per 100 seconds); without one, requests are heavily throttled.

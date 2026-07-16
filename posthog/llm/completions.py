@@ -17,9 +17,18 @@ def hit_openai(
     user: str,
     posthog_properties: Optional[dict[str, Any]] = None,
     posthog_groups: Optional[dict[str, Any]] = None,
+    timeout: float | None = None,
+    response_format: dict[str, Any] | None = None,
 ) -> tuple[str, int, int]:
     if not openai_client:
         raise ValueError("OPENAI_API_KEY environment variable not set")
+
+    # Only forward optional params when set, so callers that don't need them keep the client defaults.
+    optional_params: dict[str, Any] = {}
+    if timeout is not None:
+        optional_params["timeout"] = timeout
+    if response_format is not None:
+        optional_params["response_format"] = response_format
 
     result = openai_client.chat.completions.create(  # type: ignore
         model="gpt-4.1-mini",
@@ -28,6 +37,7 @@ def hit_openai(
         user=user,  # The user ID is for tracking within OpenAI in case of overuse/abuse
         posthog_properties=posthog_properties,
         posthog_groups=posthog_groups,
+        **optional_params,
     )
 
     content: str = ""

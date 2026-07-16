@@ -146,7 +146,6 @@ export const OAuthAuthorize = (): JSX.Element => {
         redirectUrl,
         scopesWereDefaulted,
         isMcpResource,
-        resourceScopesLoading,
         showCreateProject,
         newProjectLoading,
         selectedOrganization,
@@ -293,7 +292,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                 {scopesWereDefaulted && isMcpResource && (
                     <LemonBanner type="info" className="mb-4">
                         <strong>No permissions requested.</strong> This application didn't request specific permissions.
-                        Showing all permissions supported by this resource.
+                        Showing all permissions the PostHog MCP server supports.
                     </LemonBanner>
                 )}
 
@@ -407,63 +406,52 @@ export const OAuthAuthorize = (): JSX.Element => {
                                     </div>
                                 )}
                             </div>
-                            {resourceScopesLoading ? (
-                                <div className="flex items-center gap-2 py-2">
-                                    <Spinner className="text-muted" />
-                                    <span className="text-muted">Loading permissions...</span>
-                                </div>
-                            ) : (
-                                <>
-                                    {(identityScopeDescriptions.length > 0 || requiredScopeRows.length > 0) && (
-                                        <ul className="space-y-2">
-                                            {identityScopeDescriptions.map((description, idx) => (
-                                                <li key={idx} className="flex items-center space-x-2">
-                                                    <IconCheck color="var(--success)" className="shrink-0" />
-                                                    <span className="font-medium">{description}</span>
-                                                </li>
-                                            ))}
-                                            {requiredScopeRows.map((row) => (
-                                                <li key={row.key} className="flex items-center space-x-2">
-                                                    <IconCheck color="var(--success)" className="shrink-0" />
-                                                    <span className="font-medium">{row.description}</span>
-                                                    {!allScopesRequired && (
-                                                        <Tooltip title={`${appName} requires this permission`}>
-                                                            <LemonTag>Required</LemonTag>
-                                                        </Tooltip>
-                                                    )}
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    )}
-                                    {adjustableScopeRows.length > 0 && (
-                                        <div className="flex flex-col">
-                                            {adjustableScopeRows.map((row) => (
-                                                <ScopeAccessRow
-                                                    key={row.key}
-                                                    label={row.label}
-                                                    info={row.info}
-                                                    muted={row.value === 'none'}
-                                                    value={row.value}
-                                                    onChange={(value) =>
-                                                        setScopeAccess(row.key, value as ScopeAccessLevel)
-                                                    }
-                                                    noneDisabledReason={
-                                                        row.minLevel !== 'none'
-                                                            ? `${appName} requires at least ${row.minLevel} access`
-                                                            : undefined
-                                                    }
-                                                    writeDisabledReason={
-                                                        row.maxLevel !== 'write'
-                                                            ? `Not requested by ${appName}`
-                                                            : undefined
-                                                    }
-                                                    warning={row.warning}
-                                                />
-                                            ))}
-                                        </div>
-                                    )}
-                                </>
-                            )}
+                            <>
+                                {(identityScopeDescriptions.length > 0 || requiredScopeRows.length > 0) && (
+                                    <ul className="space-y-2">
+                                        {identityScopeDescriptions.map((description, idx) => (
+                                            <li key={idx} className="flex items-center space-x-2">
+                                                <IconCheck color="var(--success)" className="shrink-0" />
+                                                <span className="font-medium">{description}</span>
+                                            </li>
+                                        ))}
+                                        {requiredScopeRows.map((row) => (
+                                            <li key={row.key} className="flex items-center space-x-2">
+                                                <IconCheck color="var(--success)" className="shrink-0" />
+                                                <span className="font-medium">{row.description}</span>
+                                                {!allScopesRequired && (
+                                                    <Tooltip title={`${appName} requires this permission`}>
+                                                        <LemonTag>Required</LemonTag>
+                                                    </Tooltip>
+                                                )}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                                {adjustableScopeRows.length > 0 && (
+                                    <div className="flex flex-col">
+                                        {adjustableScopeRows.map((row) => (
+                                            <ScopeAccessRow
+                                                key={row.key}
+                                                label={row.label}
+                                                info={row.info}
+                                                muted={row.value === 'none'}
+                                                value={row.value}
+                                                onChange={(value) => setScopeAccess(row.key, value as ScopeAccessLevel)}
+                                                noneDisabledReason={
+                                                    row.minLevel !== 'none'
+                                                        ? `${appName} requires at least ${row.minLevel} access`
+                                                        : undefined
+                                                }
+                                                writeDisabledReason={
+                                                    row.maxLevel !== 'write' ? `Not requested by ${appName}` : undefined
+                                                }
+                                                warning={row.warning}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+                            </>
                         </div>
 
                         {redirectDomain && (
@@ -507,9 +495,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                                         ? 'Authorizing...'
                                         : isCanceling
                                           ? 'Processing...'
-                                          : resourceScopesLoading
-                                            ? 'Loading permissions...'
-                                            : undefined
+                                          : undefined
                                 }
                                 onClick={() => submitOauthAuthorization()}
                             >
