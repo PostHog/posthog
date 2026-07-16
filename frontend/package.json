@@ -328,7 +328,7 @@
         "jest-environment-jsdom": "^29.3.1",
         "jest-image-snapshot": "^6.1.0",
         "jest-junit": "^16.0.0",
-        "kea-typegen": "3.8.2",
+        "kea-typegen": "3.8.3",
         "less": "^3.12.2",
         "lint-staged": "catalog:",
         "mockdate": "^3.0.5",

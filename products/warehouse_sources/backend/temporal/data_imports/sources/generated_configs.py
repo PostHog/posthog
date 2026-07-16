@@ -4372,6 +4372,7 @@ class TypeformSourceConfig(config.Config):
     api_base_url: (
         Literal["https://api.typeform.com", "https://api.eu.typeform.com", "https://api.typeform.eu"] | None
     ) = config.value(default="https://api.typeform.com")
+    response_types: Literal["completed", "completed,partial,started"] | None = config.value(default="completed")
 
 
 @config.config
