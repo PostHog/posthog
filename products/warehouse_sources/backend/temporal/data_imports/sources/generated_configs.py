@@ -3217,7 +3217,7 @@ class RuddrSourceConfig(config.Config):
 
 @config.config
 class RunPodSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

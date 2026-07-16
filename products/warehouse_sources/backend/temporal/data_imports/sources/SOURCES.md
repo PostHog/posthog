@@ -347,6 +347,7 @@ the row lists both.
 | rootly                    | HTTP                        | requests                                                        | ✅                          |
 | rss                       | HTTP                        | requests                                                        | ✅                          |
 | ruddr                     | HTTP                        | requests                                                        | ✅                          |
+| runpod                    | HTTP                        | requests                                                        | ✅                          |
 | safetyculture             | HTTP                        | requests                                                        | ✅                          |
 | salesforce                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | salesflare                | HTTP                        | requests                                                        | ✅                          |
@@ -754,7 +755,6 @@ doesn't conflict with concurrent PRs.
 - rocketlane
 - rss
 - rudderstack
-- runpod
 - safetyculture
 - sage_hr
 - sage_intacct
