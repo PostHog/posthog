@@ -6843,15 +6843,20 @@ class TestGetRowsInitialReadLockTimeoutRetry:
     _LOCK_TIMEOUT = "canceling statement due to lock timeout"
 
     class _Cursor:
-        def __init__(self, *, batches, lock_on_execute):
+        # The read server cursor. `state["declare_locks_left"]` is how many DECLAREs (cursor.execute)
+        # should hit the source's lock_timeout before one succeeds; it's shared across reconnects so
+        # the in-process retry opens a fresh cursor that finally gets through. Batches drive the
+        # post-DECLARE fetch, and a batch that is an exception is raised mid-stream.
+        def __init__(self, *, batches, state):
             col = mock.Mock()
             col.name = "id"
             self.description = [col]
             self._batches = list(batches)
-            self._lock_on_execute = lock_on_execute
+            self._state = state
 
         def execute(self, *args, **kwargs):
-            if self._lock_on_execute:
+            if self._state["declare_locks_left"] > 0:
+                self._state["declare_locks_left"] -= 1
                 raise psycopg.errors.LockNotAvailable(TestGetRowsInitialReadLockTimeoutRetry._LOCK_TIMEOUT)
             return None
 
@@ -6870,19 +6875,19 @@ class TestGetRowsInitialReadLockTimeoutRetry:
             return False
 
     class _Connection:
-        def __init__(self, *, batches, lock_on_execute):
+        def __init__(self, *, batches, state):
             self.autocommit = False
             self.closed = False
             self.broken = False
             self.adapters = mock.Mock()
             self._batches = batches
-            self._lock_on_execute = lock_on_execute
+            self._state = state
 
         def cursor(self, *args, **kwargs):
+            # Only the named server cursor (the read under test) can hit the lock timeout; the unnamed
+            # setup cursor stays benign so the lock fires on the DECLARE, not on setup.
             if "name" in kwargs:
-                return TestGetRowsInitialReadLockTimeoutRetry._Cursor(
-                    batches=self._batches, lock_on_execute=self._lock_on_execute
-                )
+                return TestGetRowsInitialReadLockTimeoutRetry._Cursor(batches=self._batches, state=self._state)
             return mock.MagicMock()
 
         def commit(self):
@@ -6897,7 +6902,7 @@ class TestGetRowsInitialReadLockTimeoutRetry:
         def __exit__(self, *args):
             return False
 
-    def _run(self, connect_side_effect):
+    def _run(self, *, declare_locks_left, batches):
         @contextmanager
         def fake_tunnel():
             yield ("localhost", 5432)
@@ -6908,11 +6913,17 @@ class TestGetRowsInitialReadLockTimeoutRetry:
         fake_table.columns = []
         fake_table.__contains__ = mock.Mock(return_value=False)
 
+        # Shared across every read connection so the retry's fresh cursor sees the decremented count.
+        state = {"declare_locks_left": declare_locks_left}
+
+        def connect_side_effect(*args, **kwargs):
+            return self._Connection(batches=batches, state=state)
+
         module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
         with (
             patch(f"{module}.time.sleep"),
             patch(f"{module}.psycopg.connect", side_effect=connect_side_effect) as connect_mock,
-            patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(batches=[], lock_on_execute=False)),
+            patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(batches=[], state={"declare_locks_left": 0})),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
@@ -6936,35 +6947,22 @@ class TestGetRowsInitialReadLockTimeoutRetry:
                 team_id=1,
             )
             tables = list(cast(Iterable[Any], response.items()))
-        return tables, connect_mock
+        return tables, connect_mock, state
 
     def test_retries_read_when_lock_timeout_before_first_row(self):
-        calls = {"n": 0}
+        # The first read DECLARE hits the source's lock_timeout; the in-process retry opens a fresh
+        # server cursor that succeeds and serves the rows. If the retry branch were removed the
+        # LockNotAvailable would propagate and no rows would come back.
+        tables, _connect_mock, state = self._run(declare_locks_left=1, batches=[[(1,), (2,), (3,)]])
 
-        def connect_side_effect(*args, **kwargs):
-            calls["n"] += 1
-            # First read connect succeeds, but the server-cursor DECLARE hits the source's
-            # lock_timeout; the retry reconnects and serves the rows.
-            lock_on_execute = calls["n"] == 1
-            batches = [] if lock_on_execute else [[(1,), (2,), (3,)]]
-            return self._Connection(batches=batches, lock_on_execute=lock_on_execute)
-
-        tables, connect_mock = self._run(connect_side_effect)
-
-        assert connect_mock.call_count >= 2, "the read should have been retried after the DECLARE-time lock timeout"
+        assert state["declare_locks_left"] == 0, "the read DECLARE should have hit the lock timeout"
         assert sum(table.num_rows for table in tables) == 3
 
     def test_reraises_lock_timeout_after_rows_yielded(self):
         # A lock timeout after a chunk is already out must propagate: an unordered full-table scan
         # can't resume without duplicating rows, so the in-process retry must not swallow it.
-        def connect_side_effect(*args, **kwargs):
-            return self._Connection(
-                batches=[[(1,), (2,)], psycopg.errors.LockNotAvailable(self._LOCK_TIMEOUT)],
-                lock_on_execute=False,
-            )
-
         with pytest.raises(psycopg.errors.LockNotAvailable, match="canceling statement due to lock timeout"):
-            self._run(connect_side_effect)
+            self._run(declare_locks_left=0, batches=[[(1,), (2,)], psycopg.errors.LockNotAvailable(self._LOCK_TIMEOUT)])
 
 
 class TestPartitionIterationConnectRetry:
