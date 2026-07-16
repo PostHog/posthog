@@ -29,7 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BigMailerSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -95,22 +98,16 @@ Create an API key in your BigMailer console under **Account Settings → API Key
     ) -> list[SourceSchema]:
         # BigMailer has no server-side timestamp filter on any list endpoint, and cursor pagination
         # doesn't accept a sort param — an "incremental" sync would still page through everything, so
-        # every table is full refresh only.
-        def _build_schema(endpoint: str) -> SourceSchema:
-            endpoint_config = BIGMAILER_ENDPOINTS[endpoint]
-            return SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-                should_sync_default=endpoint_config.should_sync_default,
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # every table is full refresh only (no incremental fields declared).
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            {},
+            names,
+            should_sync_default={
+                endpoint: endpoint_config.should_sync_default
+                for endpoint, endpoint_config in BIGMAILER_ENDPOINTS.items()
+            },
+        )
 
     def validate_credentials(
         self, config: BigMailerSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -132,6 +129,7 @@ Create an API key in your BigMailer console under **Account Settings → API Key
         return bigmailer_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
-            manager=resumable_source_manager,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
         )
