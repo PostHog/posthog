@@ -14,11 +14,16 @@ use crate::stages::resolution::frame::FrameResolver;
 use crate::stages::resolution::ResolutionStage;
 use crate::types::Exception;
 use cymbal_proto::cymbal::resolution::v1::{
-    resolve_outcome, Accepted, Done, Error as ItemError, ResolveItem, ResolveOutcome,
+    resolve_outcome, Accepted, Done, Error as ItemError, ResolveItem, ResolveOutcome, Retry,
 };
 
 use super::codes;
 use crate::modes::resolution::load_monitor::LoadMonitor;
+
+/// Retry `code` surfaced to the caller for a transient infra failure. Callers
+/// treat any `Retry` outcome as retryable regardless of the code; this is a
+/// human-readable diagnostic tag only.
+const TRANSIENT_RETRY_CODE: &str = "transient_infra_error";
 
 const RESOLVE_REQUEST_DURATION_MS: &str = "cymbal_remote_resolution_server_request_duration_ms";
 const SERVER_ERROR_KINDS: &str = "cymbal_remote_resolution_server_error_kinds_total";
@@ -157,38 +162,7 @@ async fn process_item(
                 "done",
                 "ok",
             ),
-            Ok(Err(ItemFailure::InvalidPayload(msg))) => {
-                debug!(
-                    id,
-                    error = %msg,
-                    "rejecting item with invalid payload",
-                );
-                (
-                    error_result(codes::ErrorKind::InvalidPayload, msg),
-                    "error",
-                    "invalid_payload",
-                )
-            }
-            Ok(Err(ItemFailure::Overloaded(msg))) => {
-                warn!(id, "limiter closed mid-request, asking caller to retry");
-                (
-                    error_result(codes::ErrorKind::Overloaded, msg),
-                    "error",
-                    "overloaded",
-                )
-            }
-            Ok(Err(ItemFailure::Unhandled(err))) => {
-                warn!(
-                    id,
-                    error = %err,
-                    "unhandled error during resolution",
-                );
-                (
-                    error_result(codes::ErrorKind::Unhandled, err),
-                    "error",
-                    "unhandled",
-                )
-            }
+            Ok(Err(failure)) => failure_to_outcome(id, failure),
             Err(_) => (
                 error_result(
                     codes::ErrorKind::Overloaded,
@@ -203,12 +177,61 @@ async fn process_item(
     ProcessedItem { id, result }
 }
 
+/// Map a failed item to its wire outcome plus (item_outcome, item_kind) metric
+/// labels. Transient infra failures become a `Retry` outcome so the caller
+/// reroutes/retries that single item instead of failing the whole batch; only
+/// genuinely unhandled logic errors stay terminal.
+fn failure_to_outcome(
+    id: u64,
+    failure: ItemFailure,
+) -> (resolve_outcome::Result, &'static str, &'static str) {
+    match failure {
+        ItemFailure::InvalidPayload(msg) => {
+            debug!(id, error = %msg, "rejecting item with invalid payload");
+            (
+                error_result(codes::ErrorKind::InvalidPayload, msg),
+                "error",
+                "invalid_payload",
+            )
+        }
+        ItemFailure::Overloaded(msg) => {
+            warn!(id, "limiter closed mid-request, asking caller to retry");
+            (
+                error_result(codes::ErrorKind::Overloaded, msg),
+                "error",
+                "overloaded",
+            )
+        }
+        ItemFailure::Transient(msg) => {
+            warn!(id, error = %msg, "transient infra error during resolution, asking caller to retry item");
+            (retry_result(TRANSIENT_RETRY_CODE, msg), "retry", "transient")
+        }
+        ItemFailure::Unhandled(err) => {
+            warn!(id, error = %err, "unhandled error during resolution");
+            (
+                error_result(codes::ErrorKind::Unhandled, err),
+                "error",
+                "unhandled",
+            )
+        }
+    }
+}
+
 fn error_result(kind: codes::ErrorKind, message: String) -> resolve_outcome::Result {
     metrics::counter!(SERVER_ERROR_KINDS, "kind" => kind.metric_label()).increment(1);
     resolve_outcome::Result::Error(ItemError {
         kind: kind as i32,
         message,
         details_json: Vec::new(),
+    })
+}
+
+fn retry_result(code: &str, message: String) -> resolve_outcome::Result {
+    resolve_outcome::Result::Retry(Retry {
+        code: code.to_string(),
+        message,
+        // No server hint; the caller applies its own backoff policy.
+        retry_after_ms: 0,
     })
 }
 
@@ -227,6 +250,9 @@ fn record_item_metrics(started_at: Instant, outcome: &'static str, kind: &'stati
 enum ItemFailure {
     InvalidPayload(String),
     Overloaded(String),
+    // Transient infra failure (e.g. S3/IO). Retryable: the caller reroutes the
+    // single item instead of failing the batch.
+    Transient(String),
     Unhandled(String),
 }
 
@@ -242,6 +268,7 @@ async fn resolve_item(stage: &ResolutionStage, item: &ResolveItem) -> Result<Vec
             ResolveOneError::Overloaded => {
                 ItemFailure::Overloaded("symbol-resolution limiter unavailable".to_string())
             }
+            ResolveOneError::Transient(err) => ItemFailure::Transient(err),
             ResolveOneError::Unhandled(err) => ItemFailure::Unhandled(err),
         })?;
 
@@ -266,6 +293,9 @@ fn debug_images_from_metadata(metadata: &[u8]) -> Result<Vec<DebugImage>, ItemFa
 
 enum ResolveOneError {
     Overloaded,
+    // Transient infra failure (e.g. S3/IO) that should be retried/rerouted
+    // rather than captured as an unhandled exception or failing the batch.
+    Transient(String),
     Unhandled(String),
 }
 
@@ -308,6 +338,12 @@ async fn acquire_permit(
 }
 
 fn capture_unhandled(team_id: i32, err: UnhandledError) -> ResolveOneError {
+    // A transient infra blip (e.g. S3) is retryable and self-recovering, so we
+    // don't capture it as an unhandled exception (that only adds noise) and we
+    // tell the caller to reroute/retry this item rather than fail the batch.
+    if err.is_transient() {
+        return ResolveOneError::Transient(err.to_string());
+    }
     let err = Arc::new(err);
     common_posthog::capture_exception(err.clone(), [("team_id", json!(team_id))]);
     ResolveOneError::Unhandled(err.to_string())
@@ -346,6 +382,33 @@ mod test {
                 .unwrap();
         assert!(debug_images_from_metadata(&metadata).unwrap().is_empty());
         assert!(debug_images_from_metadata(&[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn transient_failure_becomes_retry_outcome() {
+        // A transient infra blip must not become a terminal Error the caller
+        // treats as batch-failing; it must be a retryable Retry outcome.
+        let (result, outcome, kind) =
+            failure_to_outcome(7, ItemFailure::Transient("s3 unavailable".to_string()));
+        assert!(matches!(
+            result,
+            resolve_outcome::Result::Retry(Retry { ref code, ref message, retry_after_ms: 0 })
+                if code == TRANSIENT_RETRY_CODE && message == "s3 unavailable"
+        ));
+        assert_eq!(outcome, "retry");
+        assert_eq!(kind, "transient");
+    }
+
+    #[test]
+    fn unhandled_failure_stays_terminal_error() {
+        let (result, _, kind_label) =
+            failure_to_outcome(7, ItemFailure::Unhandled("logic bug".to_string()));
+        assert!(matches!(
+            result,
+            resolve_outcome::Result::Error(ItemError { kind, .. })
+                if kind == codes::ErrorKind::Unhandled as i32
+        ));
+        assert_eq!(kind_label, "unhandled");
     }
 
     #[test]

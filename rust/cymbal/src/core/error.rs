@@ -55,6 +55,20 @@ pub enum UnhandledError {
     Other(String),
 }
 
+impl UnhandledError {
+    /// True for transient infrastructure failures (object storage / IO) that a
+    /// retry or reroute can recover from, as opposed to genuinely unhandled
+    /// logic errors. Callers use this to avoid failing a whole batch on a
+    /// storage blip that self-recovers, and to skip capturing it as an
+    /// unhandled exception.
+    pub fn is_transient(&self) -> bool {
+        matches!(
+            self,
+            UnhandledError::S3Error(_) | UnhandledError::ByteStreamError(_)
+        )
+    }
+}
+
 // These are errors that occur during frame resolution. This excludes e.g. network errors,
 // which are handled by the store - this is the error type that's handed to the frame to see
 // if it can still make something useful out of it.
