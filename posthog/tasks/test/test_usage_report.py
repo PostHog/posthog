@@ -5810,12 +5810,25 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
                 "$ai_span_id": "unsponsored-span",
             },
         )
+        for _ in range(3):
+            _create_event(
+                event="$ai_evaluation",
+                team=self.team,
+                distinct_id="gateway-user",
+                timestamp=self.begin + relativedelta(hours=4),
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_relay": True,
+                    "$ai_trace_id": trace_id,
+                    "$ai_evaluation_id": "evaluation-0",
+                },
+            )
         flush_persons_and_events()
 
         self.assertEqual(
             ai_count(),
-            baseline_count + 4,
-            "one overage, two replay copies, and one unmatched span stay billable",
+            baseline_count + 7,
+            "one overage, two span replays, two evaluation replays, and one unmatched span stay billable",
         )
 
     def test_conversations_events_excluded_from_billable_count(self) -> None:

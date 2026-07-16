@@ -352,6 +352,14 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
             "/i/v0/ai/otel/",
             post(otel::otel_handler).options(otel::options),
         )
+        .route(
+            "/i/v0/ai/otel/v1/traces",
+            post(otel::otel_handler).options(otel::options),
+        )
+        .route(
+            "/i/v0/ai/otel/v1/logs",
+            post(otel::logs_handler).options(otel::options),
+        )
         .layer(DefaultBodyLimit::max(otel::OTEL_BODY_SIZE));
 
     let mut router = match capture_mode {

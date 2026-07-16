@@ -122,6 +122,8 @@ export interface EvaluationRun {
     result: boolean | null
     sentiment_label?: string | null
     sentiment_score?: number | null
+    score_label?: string | null
+    score_value?: number | null
     applicable?: boolean
     reasoning: string
     status: 'completed' | 'failed' | 'running'

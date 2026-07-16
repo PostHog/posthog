@@ -11,7 +11,8 @@ type HmacSha256 = Hmac<Sha256>;
 
 const SIGNATURE_HEADER: &str = "PostHog-Ai-Gateway-Signature";
 const SIGNED_AT_HEADER: &str = "PostHog-Ai-Gateway-Signed-At";
-const SIGNATURE_SCOPE: &str = "otel-v1";
+pub const TRACE_SIGNATURE_SCOPE: &str = "otel-v1";
+pub const LOGS_SIGNATURE_SCOPE: &str = "otel-logs-v1";
 const GATEWAY_PREFIX: &str = "$ai_gateway";
 const VERIFIED_PROPERTY: &str = "$ai_gateway_verified";
 const RELAY_PROPERTY: &str = "$ai_gateway_relay";
@@ -25,14 +26,19 @@ pub enum Provenance {
     Invalid,
 }
 
+pub struct SignedRequest<'a> {
+    pub token: &'a str,
+    pub content_type: &'a str,
+    pub content_encoding: &'a str,
+    pub body: &'a [u8],
+    pub signature_scope: &'a str,
+}
+
 pub fn verify(
     headers: &HeaderMap,
     secret: Option<&str>,
-    token: &str,
-    content_type: &str,
-    content_encoding: &str,
-    body: &[u8],
     now: DateTime<Utc>,
+    request: SignedRequest<'_>,
 ) -> Provenance {
     let Some(secret) = secret.filter(|value| !value.is_empty()) else {
         return Provenance::Invalid;
@@ -44,12 +50,12 @@ pub fn verify(
         return Provenance::Invalid;
     };
 
-    let body_digest = hex::encode(Sha256::digest(body));
+    let body_digest = hex::encode(Sha256::digest(request.body));
     let message = canonical(&[
-        token,
-        SIGNATURE_SCOPE,
-        content_type,
-        content_encoding,
+        request.token,
+        request.signature_scope,
+        request.content_type,
+        request.content_encoding,
         &body_digest,
         &signed_at,
     ]);
@@ -146,11 +152,14 @@ mod tests {
             verify(
                 &signed_headers(),
                 Some(SECRET),
-                TOKEN,
-                "application/x-protobuf",
-                "gzip",
-                BODY,
                 now(),
+                SignedRequest {
+                    token: TOKEN,
+                    content_type: "application/x-protobuf",
+                    content_encoding: "gzip",
+                    body: BODY,
+                    signature_scope: TRACE_SIGNATURE_SCOPE,
+                },
             ),
             Provenance::Verified
         );
@@ -162,11 +171,14 @@ mod tests {
             verify(
                 &signed_headers(),
                 Some(SECRET),
-                TOKEN,
-                "application/x-protobuf",
-                "gzip",
-                b"tampered",
                 now(),
+                SignedRequest {
+                    token: TOKEN,
+                    content_type: "application/x-protobuf",
+                    content_encoding: "gzip",
+                    body: b"tampered",
+                    signature_scope: TRACE_SIGNATURE_SCOPE,
+                },
             ),
             Provenance::Invalid
         );
@@ -178,11 +190,14 @@ mod tests {
             verify(
                 &signed_headers(),
                 Some(SECRET),
-                TOKEN,
-                "application/x-protobuf",
-                "gzip",
-                BODY,
                 now() + Duration::seconds(FRESHNESS_WINDOW_SECS + 1),
+                SignedRequest {
+                    token: TOKEN,
+                    content_type: "application/x-protobuf",
+                    content_encoding: "gzip",
+                    body: BODY,
+                    signature_scope: TRACE_SIGNATURE_SCOPE,
+                },
             ),
             Provenance::Stale
         );

@@ -22,8 +22,10 @@ use integration_utils::{test_lifecycle_handlers, DEFAULT_TEST_TIME};
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
+use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::{any_value, AnyValue, KeyValue};
+use opentelemetry_proto::tonic::logs::v1::{LogRecord, ResourceLogs, ScopeLogs};
 use opentelemetry_proto::tonic::resource::v1::Resource;
 use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans, Span};
 use prost::Message;
@@ -196,6 +198,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
 }
 
 const ENDPOINT: &str = "/i/v0/ai/otel";
+const LOGS_ENDPOINT: &str = "/i/v0/ai/otel/v1/logs";
 
 async fn send_request(sink: &CapturingSink, request: &ExportTraceServiceRequest) -> u16 {
     let client = make_test_client(sink);
@@ -248,10 +251,19 @@ async fn send_signed_request_with_client(
 }
 
 fn sign_gateway_body(secret: &str, body: &[u8], signed_at: &str) -> String {
+    sign_gateway_body_with_scope(secret, body, signed_at, "otel-v1")
+}
+
+fn sign_gateway_body_with_scope(
+    secret: &str,
+    body: &[u8],
+    signed_at: &str,
+    signature_scope: &str,
+) -> String {
     let body_digest = hex::encode(Sha256::digest(body));
     let fields = [
         TOKEN,
-        "otel-v1",
+        signature_scope,
         "application/x-protobuf",
         "",
         body_digest.as_str(),
@@ -266,6 +278,46 @@ fn sign_gateway_body(secret: &str, body: &[u8], signed_at: &str) -> String {
     let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
     mac.update(&message);
     hex::encode(mac.finalize().into_bytes())
+}
+
+fn make_evaluation_logs_request() -> ExportLogsServiceRequest {
+    ExportLogsServiceRequest {
+        resource_logs: vec![ResourceLogs {
+            resource: Some(Resource {
+                attributes: vec![make_kv(
+                    "posthog.distinct_id",
+                    any_value::Value::StringValue("eval-user".to_string()),
+                )],
+                dropped_attributes_count: 0,
+            }),
+            scope_logs: vec![ScopeLogs {
+                scope: None,
+                log_records: vec![LogRecord {
+                    time_unix_nano: 1_704_067_200_000_000_000,
+                    trace_id: vec![1; 16],
+                    span_id: vec![2; 8],
+                    event_name: "gen_ai.evaluation.result".to_string(),
+                    attributes: vec![
+                        make_kv(
+                            "gen_ai.evaluation.name",
+                            any_value::Value::StringValue("correctness".to_string()),
+                        ),
+                        make_kv(
+                            "gen_ai.evaluation.score.value",
+                            any_value::Value::DoubleValue(0.9),
+                        ),
+                        make_kv(
+                            "gen_ai.evaluation.score.label",
+                            any_value::Value::StringValue("pass".to_string()),
+                        ),
+                    ],
+                    ..Default::default()
+                }],
+                schema_url: String::new(),
+            }],
+            schema_url: String::new(),
+        }],
+    }
 }
 
 fn parse_event_data(event: &ProcessedEvent) -> serde_json::Value {
@@ -401,6 +453,72 @@ async fn test_verified_gateway_batch_stamps_trusted_provenance() {
     let data = parse_event_data(&events[0]);
     assert_eq!(data["properties"]["$ai_gateway_verified"], true);
     assert_eq!(data["properties"]["$ai_gateway_relay"], true);
+}
+
+#[tokio::test]
+async fn test_verified_gateway_logs_batch_produces_evaluation() {
+    const SECRET: &str = "test-signing-secret";
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            ai_gateway_signing_secret: Some(SECRET.to_string()),
+            ..Default::default()
+        },
+    );
+    let body = make_evaluation_logs_request().encode_to_vec();
+    let signature = sign_gateway_body_with_scope(SECRET, &body, DEFAULT_TEST_TIME, "otel-logs-v1");
+
+    let response = client
+        .post(LOGS_ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .header("PostHog-Ai-Gateway-Signature", signature)
+        .header("PostHog-Ai-Gateway-Signed-At", DEFAULT_TEST_TIME)
+        .body(body)
+        .send()
+        .await;
+
+    assert_eq!(response.status().as_u16(), 200);
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+    let data = parse_event_data(&events[0]);
+    assert_eq!(events[0].event.event, "$ai_evaluation");
+    assert_eq!(data["properties"]["$ai_evaluation_name"], "correctness");
+    assert_eq!(data["properties"]["$ai_evaluation_score_label"], "pass");
+    assert_eq!(data["properties"]["$ai_gateway_verified"], true);
+}
+
+#[tokio::test]
+async fn test_logs_batch_does_not_trust_trace_signature_scope() {
+    const SECRET: &str = "test-signing-secret";
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            ai_gateway_signing_secret: Some(SECRET.to_string()),
+            ..Default::default()
+        },
+    );
+    let body = make_evaluation_logs_request().encode_to_vec();
+    let signature = sign_gateway_body(SECRET, &body, DEFAULT_TEST_TIME);
+
+    let response = client
+        .post(LOGS_ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .header("PostHog-Ai-Gateway-Signature", signature)
+        .header("PostHog-Ai-Gateway-Signed-At", DEFAULT_TEST_TIME)
+        .body(body)
+        .send()
+        .await;
+
+    assert_eq!(response.status().as_u16(), 200);
+    let events = sink.get_events().await;
+    let data = parse_event_data(&events[0]);
+    assert!(data["properties"].get("$ai_gateway_verified").is_none());
 }
 
 #[tokio::test]

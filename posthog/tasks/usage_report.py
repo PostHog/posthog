@@ -1346,6 +1346,13 @@ def get_teams_with_ai_event_count_in_period(
         "properties",
         use_new_events_schema=use_new,
     )
+    evaluation_id_expr, _ = get_property_string_expr(
+        "events",
+        "$ai_evaluation_id",
+        "'$ai_evaluation_id'",
+        "properties",
+        use_new_events_schema=use_new,
+    )
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.USAGE_REPORT):
         # nosemgrep: clickhouse-fstring-param-audit - property document/table expressions are internal fragments
@@ -1388,7 +1395,7 @@ def get_teams_with_ai_event_count_in_period(
                 SELECT
                     team_id,
                     trace_id,
-                    uniqExact(tuple(event, span_id)) AS relay_count
+                    uniqExact(tuple(event, relay_id)) AS relay_count
                 FROM (
                     SELECT
                         team_id,
@@ -1396,11 +1403,15 @@ def get_teams_with_ai_event_count_in_period(
                         {verified_expr} IN ('true', '1') AS verified,
                         {relay_expr} IN ('true', '1') AS relay,
                         if(verified AND relay, {trace_id_expr}, '') AS trace_id,
-                        if(verified AND relay, {span_id_expr}, '') AS span_id
+                        if(
+                            verified AND relay,
+                            if(event = '$ai_evaluation', {evaluation_id_expr}, {span_id_expr}),
+                            ''
+                        ) AS relay_id
                     FROM {events_read_table(use_new)}
                     WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
                 )
-                WHERE verified AND relay AND trace_id != '' AND span_id != ''
+                WHERE verified AND relay AND trace_id != '' AND relay_id != ''
                 GROUP BY team_id, trace_id
             ) AS relays
             INNER JOIN (

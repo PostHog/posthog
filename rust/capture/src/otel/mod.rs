@@ -3,6 +3,7 @@ mod fan_out;
 mod filtering;
 mod identity;
 mod ingestion;
+mod logs;
 mod provenance;
 mod providers;
 
@@ -13,6 +14,7 @@ use axum::response::{IntoResponse, Json, Response};
 use axum_client_ip::InsecureClientIp;
 use chrono::Utc;
 use metrics::{counter, histogram};
+use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use serde_json::json;
 use tracing::{debug, instrument, warn, Span};
@@ -26,14 +28,15 @@ use crate::token::validate_token;
 
 pub const OTEL_BODY_SIZE: usize = 4 * 1024 * 1024; // 4MB
 
-/// Maximum AI spans accepted after filtering. SDKs receive a 400 (non-retryable)
+/// Maximum AI events accepted after filtering. SDKs receive a 400 (non-retryable)
 /// if this is exceeded, so callers must batch sensibly.
-const MAX_SPANS_PER_REQUEST: usize = 100;
+const MAX_AI_EVENTS_PER_REQUEST: usize = 100;
 
-/// Maximum raw spans accepted before filtering. Set well above MAX_SPANS_PER_REQUEST
+/// Maximum raw spans or log records accepted before filtering. Set well above
+/// MAX_AI_EVENTS_PER_REQUEST
 /// to accommodate mixed-content batches (e.g. Next.js sending HTTP + AI spans together)
 /// while still bounding the cost of attribute scanning.
-const MAX_RAW_SPANS_PER_REQUEST: usize = 1000;
+const MAX_RAW_OTEL_RECORDS_PER_REQUEST: usize = 1000;
 
 fn count_spans(request: &ExportTraceServiceRequest) -> usize {
     request
@@ -134,11 +137,14 @@ pub async fn otel_handler(
     let gateway_provenance = provenance::verify(
         &headers,
         state.ai_gateway_signing_secret.as_deref(),
-        token,
-        normalized_content_type,
-        &content_encoding,
-        &body,
         state.timesource.current_time(),
+        provenance::SignedRequest {
+            token,
+            content_type: normalized_content_type,
+            content_encoding: &content_encoding,
+            body: &body,
+            signature_scope: provenance::TRACE_SIGNATURE_SCOPE,
+        },
     );
 
     let request = ingestion::parse_request(&body, &headers, OTEL_BODY_SIZE).map_err(|e| {
@@ -156,9 +162,9 @@ pub async fn otel_handler(
     // Cap raw spans before doing any expensive attribute conversion. The body
     // size limit (4 MB) bounds the absolute maximum, but compact protobuf can
     // pack many spans into that budget.
-    if raw_span_count > MAX_RAW_SPANS_PER_REQUEST {
+    if raw_span_count > MAX_RAW_OTEL_RECORDS_PER_REQUEST {
         let err = CaptureError::RequestParsingError(format!(
-            "Too many spans: {raw_span_count} exceeds limit of {MAX_RAW_SPANS_PER_REQUEST}"
+            "Too many spans: {raw_span_count} exceeds limit of {MAX_RAW_OTEL_RECORDS_PER_REQUEST}"
         ));
         report_internal_error_metrics(err.to_metric_tag(), "otel_validation");
         return Err(err.into_response());
@@ -181,9 +187,9 @@ pub async fn otel_handler(
         counter!("capture_ai_otel_requests_success").increment(1);
         return Ok(Json(json!({})));
     }
-    if span_count > MAX_SPANS_PER_REQUEST {
+    if span_count > MAX_AI_EVENTS_PER_REQUEST {
         let err = CaptureError::RequestParsingError(format!(
-            "Too many AI spans: {span_count} exceeds limit of {MAX_SPANS_PER_REQUEST}"
+            "Too many AI spans: {span_count} exceeds limit of {MAX_AI_EVENTS_PER_REQUEST}"
         ));
         report_internal_error_metrics(err.to_metric_tag(), "otel_validation");
         return Err(err.into_response());
@@ -192,10 +198,189 @@ pub async fn otel_handler(
     counter!("capture_ai_otel_spans_accepted").increment(span_count as u64);
     histogram!("capture_ai_otel_spans_per_request").record(span_count as f64);
 
+    process_events(
+        &state,
+        ip,
+        token.to_string(),
+        gateway_provenance,
+        span_events,
+        received_at,
+    )
+    .await?;
+
+    counter!("capture_ai_otel_events_ingested").increment(span_count as u64);
+    counter!("capture_ai_otel_requests_success").increment(1);
+
+    debug!(
+        "OTEL endpoint request processed successfully: {} spans",
+        span_count
+    );
+
+    Ok(Json(json!({})))
+}
+
+#[instrument(skip(state, body), fields(record_count, body_size))]
+pub async fn logs_handler(
+    State(state): State<AppState>,
+    ip: Option<InsecureClientIp>,
+    headers: HeaderMap,
+    body: Body,
+) -> Result<Json<serde_json::Value>, Response> {
+    let body = extract_body_with_timeout(
+        body,
+        OTEL_BODY_SIZE,
+        state.body_chunk_read_timeout,
+        state.body_read_chunk_size_kb,
+        "/i/v0/ai/otel/v1/logs",
+    )
+    .await
+    .map_err(|e| {
+        report_internal_error_metrics(e.to_metric_tag(), "otel_logs_body_read");
+        e.into_response()
+    })?;
+
+    if body.is_empty() {
+        let err = CaptureError::EmptyPayload;
+        report_internal_error_metrics(err.to_metric_tag(), "otel_logs_validation");
+        return Err(err.into_response());
+    }
+
+    let body_len = body.len();
+    Span::current().record("body_size", body_len);
+    histogram!("capture_ai_otel_logs_body_size_bytes").record(body_len as f64);
+
+    let content_type = headers
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("unknown");
+    let format = if content_type.starts_with("application/x-protobuf") {
+        "protobuf"
+    } else if content_type.starts_with("application/json") {
+        "json"
+    } else {
+        "unknown"
+    };
+    let normalized_content_type = match format {
+        "protobuf" => "application/x-protobuf",
+        "json" => "application/json",
+        _ => "unknown",
+    };
+    let content_encoding = headers
+        .get("content-encoding")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    counter!("capture_ai_otel_logs_requests_total", "format" => format).increment(1);
+
+    let auth_header = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    if !auth_header.starts_with("Bearer ") {
+        let err = CaptureError::NoTokenError;
+        report_internal_error_metrics(err.to_metric_tag(), "otel_logs_auth");
+        return Err(err.into_response());
+    }
+
+    let token = &auth_header[7..];
+    validate_token(token).map_err(|error| {
+        let err = CaptureError::from(error);
+        report_internal_error_metrics(err.to_metric_tag(), "otel_logs_auth");
+        err.into_response()
+    })?;
+
+    if state.token_dropper.should_drop(token, "") {
+        report_dropped_events("token_dropper", 1);
+        return Ok(Json(json!({})));
+    }
+
+    let gateway_provenance = provenance::verify(
+        &headers,
+        state.ai_gateway_signing_secret.as_deref(),
+        state.timesource.current_time(),
+        provenance::SignedRequest {
+            token,
+            content_type: normalized_content_type,
+            content_encoding: &content_encoding,
+            body: &body,
+            signature_scope: provenance::LOGS_SIGNATURE_SCOPE,
+        },
+    );
+
+    let request: ExportLogsServiceRequest =
+        ingestion::parse_logs_request(&body, &headers, OTEL_BODY_SIZE).map_err(|error| {
+            report_internal_error_metrics(error.to_metric_tag(), "otel_logs_parsing");
+            error.into_response()
+        })?;
+    let raw_record_count = logs::count_records(&request);
+    if raw_record_count == 0 {
+        counter!("capture_ai_otel_logs_requests_success").increment(1);
+        return Ok(Json(json!({})));
+    }
+    if raw_record_count > MAX_RAW_OTEL_RECORDS_PER_REQUEST {
+        let err = CaptureError::RequestParsingError(format!(
+            "Too many log records: {raw_record_count} exceeds limit of {MAX_RAW_OTEL_RECORDS_PER_REQUEST}"
+        ));
+        report_internal_error_metrics(err.to_metric_tag(), "otel_logs_validation");
+        return Err(err.into_response());
+    }
+
+    let received_at = Utc::now();
+    let request_fallback_distinct_id = identity::request_fallback_distinct_id();
+    let mut events = logs::expand_into_events(&request, &request_fallback_distinct_id);
+    provenance::apply(&mut events, gateway_provenance);
+    let event_count = events.len();
+    Span::current().record("record_count", event_count);
+
+    let dropped_record_count = raw_record_count.saturating_sub(event_count);
+    if dropped_record_count > 0 {
+        counter!("capture_ai_otel_log_records_filtered").increment(dropped_record_count as u64);
+    }
+    if event_count == 0 {
+        counter!("capture_ai_otel_logs_requests_success").increment(1);
+        return Ok(Json(json!({})));
+    }
+    if event_count > MAX_AI_EVENTS_PER_REQUEST {
+        let err = CaptureError::RequestParsingError(format!(
+            "Too many evaluation records: {event_count} exceeds limit of {MAX_AI_EVENTS_PER_REQUEST}"
+        ));
+        report_internal_error_metrics(err.to_metric_tag(), "otel_logs_validation");
+        return Err(err.into_response());
+    }
+
+    process_events(
+        &state,
+        ip,
+        token.to_string(),
+        gateway_provenance,
+        events,
+        received_at,
+    )
+    .await?;
+
+    counter!("capture_ai_otel_log_records_accepted").increment(event_count as u64);
+    counter!("capture_ai_otel_logs_events_ingested").increment(event_count as u64);
+    counter!("capture_ai_otel_logs_requests_success").increment(1);
+    debug!(
+        "OTEL logs request processed successfully: {} records",
+        event_count
+    );
+
+    Ok(Json(json!({})))
+}
+
+async fn process_events(
+    state: &AppState,
+    ip: Option<InsecureClientIp>,
+    token: String,
+    gateway_provenance: provenance::Provenance,
+    span_events: Vec<fan_out::SpanEvent>,
+    received_at: chrono::DateTime<Utc>,
+) -> Result<(), Response> {
     let client_ip = ip
         .map(|InsecureClientIp(addr)| addr.to_string())
         .unwrap_or_else(|| "127.0.0.1".to_string());
-    let token = token.to_string();
 
     // All-or-nothing quota check: reject the entire batch if any span is over quota
     if let Err(outcome) = filtering::check_quota(
@@ -247,16 +432,7 @@ pub async fn otel_handler(
         e.into_response()
     })?;
 
-    counter!("capture_ai_otel_events_ingested").increment(span_count as u64);
-    counter!("capture_ai_otel_requests_success").increment(1);
-
-    debug!(
-        "OTEL endpoint request processed successfully: {} spans",
-        span_count
-    );
-
-    // Return empty JSON object per OTLP spec
-    Ok(Json(json!({})))
+    Ok(())
 }
 
 pub async fn options() -> Result<CaptureResponse, CaptureError> {
