@@ -314,8 +314,13 @@ async def _handle_import_error(
     Errors the source classifies as non-retryable (bad credentials, a deleted or
     misconfigured remote — e.g. a MongoDB ``mongodb+srv://`` hostname whose DNS record no
     longer resolves) are handed to ``handle_non_retryable_error``, which stops the job after
-    a few attempts instead of retrying up to the activity's maximum. Everything else is
-    re-raised so Temporal retries it as usual.
+    a few attempts instead of retrying up to the activity's maximum.
+
+    Errors the source classifies as transient-retryable (an upstream 5xx the source already
+    retries and recovers from) are logged at warning level and re-raised — Temporal retries the
+    activity, which usually recovers, so we avoid capturing an exception for a self-healing hiccup.
+
+    Everything else is captured as an exception and re-raised so Temporal retries it as usual.
     """
     source_cls = SourceRegistry.get_source(job_inputs.job_type)
     non_retryable_errors = source_cls.get_non_retryable_errors()
@@ -325,6 +330,9 @@ async def _handle_import_error(
     )
     if is_non_retryable_error:
         await handle_non_retryable_error(job_inputs, error_msg, logger, error)
+    elif isinstance(error, source_cls.get_transient_retryable_errors()):
+        await logger.awarning(f"Transient retryable error during import_data_activity, re-raising: {error_msg}")
+        raise error
     else:
         await logger.aexception(error_msg)
         await logger.adebug("Error encountered during import_data_activity - re-raising")

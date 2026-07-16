@@ -196,6 +196,16 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return {}
 
+    def get_transient_retryable_errors(self) -> tuple[type[Exception], ...]:
+        """Exception types representing transient upstream failures the source already retries
+        internally and recovers from (e.g. an upstream 5xx). When one exhausts the source's own
+        retries and bubbles up, Temporal retries the whole activity — which usually recovers — so
+        it's logged at warning level rather than captured as an exception. Avoids minting an
+        error-tracking issue for a hiccup that self-heals.
+        """
+
+        return ()
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         """Curated, documentation-sourced descriptions for this source's well-known tables/endpoints.
 

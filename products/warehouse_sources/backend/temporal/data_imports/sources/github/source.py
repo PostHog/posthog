@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.git
     ORG_SCOPED_ENDPOINTS,
     GithubEgressIdentity,
     GithubResumeConfig,
+    GithubRetryableError,
     check_org_endpoint_permission,
     delete_repo_webhook,
     ensure_repo_webhook,
@@ -248,6 +249,12 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             "Integration not found": "The linked GitHub integration no longer exists. Please reconnect your GitHub account.",
             "Missing integration ID": "Integration ID is not configured. Please reconnect your GitHub account.",
         }
+
+    def get_transient_retryable_errors(self) -> tuple[type[Exception], ...]:
+        # A retry-exhausted GitHub 5xx is a transient upstream outage that Temporal's own activity
+        # retry recovers from, so don't capture an exception (and mint an error-tracking issue) for
+        # every GitHub hiccup.
+        return (GithubRetryableError,)
 
     def get_oauth_accounts(
         self, integration_id: int, team_id: int, search: str | None = None
