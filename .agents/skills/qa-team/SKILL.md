@@ -84,7 +84,7 @@ tokens — to be re-ingested at full price by every agent. Four rules follow:
    ingest it at cache-read prices instead of each re-paying write prices for a
    file-read tool result.
 2. **The launch scripts are built by a shipped build tool, never typed by the
-   orchestrator.** `scripts/build_launch_scripts.py` JSON-encodes the prompt (diff
+   orchestrator.** `scripts/build_launch_scripts.js` JSON-encodes the prompt (diff
    included) into two Workflow script files, so the diff never passes through the model
    as output tokens and the two scripts' prompts cannot drift apart by a stray byte.
 3. **Per-agent divergence (the persona) arrives via a tool result, not the prompt.** Each
@@ -182,11 +182,11 @@ directory, then build the two Workflow launch scripts from the run directory's c
 ```bash
 SKILL_DIR="<this skill's base directory>"
 cp "$SKILL_DIR/scripts/claim_persona.sh" "$RUN_DIR/"
-python3 "$SKILL_DIR/scripts/build_launch_scripts.py" "$RUN_DIR"
+node "$SKILL_DIR/scripts/build_launch_scripts.js" "$RUN_DIR"
 ```
 
 `claim_persona.sh` atomically hands each caller the next unclaimed persona (`mv` is
-atomic, so concurrent agents each win a distinct one). `build_launch_scripts.py`
+atomic, so concurrent agents each win a distinct one). `build_launch_scripts.js`
 JSON-encodes the shared review prompt — claim instruction, changed files, commit
 messages, and the full diff (or a read-from-disk instruction when the diff exceeds
 ~200 KB) — into `$RUN_DIR/launch_first.js` and `$RUN_DIR/launch_rest.js`, sizing the
