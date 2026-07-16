@@ -102,7 +102,9 @@ class TestMaterializedColumnsCapacityFallback(TestCase):
             assert MaterializedColumn._get_all("events") == []
 
     def test_falls_back_to_stale_cache_when_clickhouse_at_capacity(self):
-        cached = [("mat_foo", "column_materializer::properties::foo", "String", False, [])]
+        cached: list[tuple[str, str, str, bool, list[str]]] = [
+            ("mat_foo", "column_materializer::properties::foo", "String", False, [])
+        ]
         cache.set(get_materialized_columns_cache_key("events"), cached, MATERIALIZED_COLUMNS_CACHE_TIMEOUT)
 
         # Force the probabilistic cache bypass (only reachable outside TEST mode) so the query path
