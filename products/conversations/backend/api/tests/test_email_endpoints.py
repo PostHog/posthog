@@ -897,7 +897,9 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         config1 = self._create_config("support@example.com", "aaa111")
         self._create_config("billing@example.com", "bbb222")
         ticket = self._create_ticket(config1)
-        ticket.cc_participants = ["cc1@example.com", "cc2@example.com"]
+        # Legacy tickets may carry the requester in cc_participants; they must not
+        # be delivered to twice (they're already the To recipient).
+        ticket.cc_participants = ["cc1@example.com", "customer@test.com", "cc2@example.com"]
         ticket.save(update_fields=["cc_participants"])
 
         _, outbox = self._run_reply(ticket)
@@ -908,7 +910,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         # Regression guard: must use the ticket's domain, not a shared/global one.
         assert args[0] == "example.com"
 
-        # Recipients include the customer and every CC participant.
+        # Recipients include the customer and every CC participant, minus the requester.
         assert kwargs["recipients"] == ["customer@test.com", "cc1@example.com", "cc2@example.com"]
 
         # MIME body carries the From header with the config's from_email.
