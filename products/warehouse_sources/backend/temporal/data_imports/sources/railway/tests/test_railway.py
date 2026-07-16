@@ -240,7 +240,7 @@ class TestRailway:
         session.post.return_value = _response({}, status_code=status_code)
 
         with pytest.raises(RailwayRetryableError):
-            railway._execute.__wrapped__(session, {}, "query {}", {}, mock.MagicMock())
+            railway._execute.__wrapped__(session, {}, "query {}", {}, mock.MagicMock())  # type: ignore[attr-defined]
 
     def test_source_response_shape_per_endpoint(self):
         manager = FakeResumableSourceManager()
