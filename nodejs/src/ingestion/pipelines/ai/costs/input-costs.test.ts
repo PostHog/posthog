@@ -242,6 +242,15 @@ describe('calculateInputCost()', () => {
                 expectedCost: '0.004575',
             },
             {
+                name: 'mixed-TTL numeric strings',
+                cacheCreationTokens: 300,
+                ttlProperties: {
+                    $ai_cache_creation_5m_input_tokens: '100',
+                    $ai_cache_creation_1h_input_tokens: '200',
+                },
+                expectedCost: '0.004575',
+            },
+            {
                 name: 'legacy aggregate-only',
                 cacheCreationTokens: 300,
                 ttlProperties: {},
