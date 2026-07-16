@@ -2288,6 +2288,33 @@ describe('processResultsForSurveyQuestions', () => {
             // The translated label is folded into the base choice, not surfaced on its own.
             expect(dataMap.has('分析')).toBe(false)
         })
+
+        it('keeps base-language matching when a translation reuses another base choice', () => {
+            const questions = [
+                {
+                    id: 'single-q1',
+                    type: SurveyQuestionType.SingleChoice as const,
+                    question: 'Pick one',
+                    choices: ['Yes', 'No'],
+                    // A translator reused the English "Yes" for the second option — it must not
+                    // remap base "Yes" responses onto "No".
+                    translations: {
+                        fr: { choices: ['Oui', 'Yes'] },
+                    },
+                },
+            ]
+            const rows: [string, string, number][] = [
+                ['single-q1', 'Yes', 3],
+                ['single-q1', 'Oui', 2],
+            ]
+
+            const processed = processResultsForSurveyQuestions(questions, rows)
+            const singleData = processed['single-q1'] as ChoiceQuestionProcessedResponses
+
+            const dataMap = new Map(singleData.data.map((item) => [item.label, item]))
+            expect(dataMap.get('Yes')).toEqual({ label: 'Yes', value: 5, isPredefined: true })
+            expect(dataMap.get('No')).toEqual({ label: 'No', value: 0, isPredefined: true })
+        })
     })
 
     describe('Open Questions', () => {
