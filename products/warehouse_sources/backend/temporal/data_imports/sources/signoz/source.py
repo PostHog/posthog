@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SigNozSource(ResumableSource[SigNozSourceConfig, SigNozResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://signoz.io/api-reference/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

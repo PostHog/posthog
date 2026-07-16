@@ -56,9 +56,11 @@ export interface accountNotesLogicActions {
     } // customerAnalyticsSceneLogic
     loadUserSuccess: (
         user: UserType | null,
-        payload?: {
-            resetOnFailure: boolean | undefined
-        }
+        payload?:
+            | {
+                  resetOnFailure: boolean | undefined
+              }
+            | undefined
     ) => {
         payload?: {
             resetOnFailure: boolean | undefined
