@@ -61,7 +61,7 @@ class BillingAlertEventSerializer(serializers.ModelSerializer):
     baseline_value = serializers.DecimalField(max_digits=20, decimal_places=6, read_only=True, allow_null=True)
     absolute_delta = serializers.DecimalField(max_digits=20, decimal_places=6, read_only=True, allow_null=True)
     relative_delta_percentage = serializers.DecimalField(
-        max_digits=12,
+        max_digits=28,
         decimal_places=6,
         read_only=True,
         allow_null=True,
@@ -321,10 +321,14 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
     ) -> BillingAlertConfiguration:
         snooze_until = validated_data.get("snooze_until", _NOT_PROVIDED)
         threshold_fields = {
+            "metric",
+            "currency",
             "threshold_type",
             "threshold_percentage",
             "threshold_value",
             "minimum_value",
+            "baseline_window_days",
+            "evaluation_delay_hours",
         }
         with transaction.atomic():
             locked = BillingAlertConfiguration.objects.select_for_update().get(pk=instance.pk)
