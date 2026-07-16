@@ -20,8 +20,12 @@ export const variableDataLogic = kea<variableDataLogicType>([
                     if (isSharedView()) {
                         return []
                     }
-                    const insights = await api.insightVariables.list()
-                    return insights.results
+                    try {
+                        const insights = await api.insightVariables.list()
+                        return insights.results
+                    } catch {
+                        return values.variables
+                    }
                 },
                 deleteVariable: async (variableId: string) => {
                     try {
