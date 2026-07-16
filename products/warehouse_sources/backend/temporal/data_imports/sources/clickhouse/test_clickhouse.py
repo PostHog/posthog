@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
     _MAX_CONNECT_ATTEMPTS,
+    _MAX_RATE_LIMIT_ATTEMPTS,
     YIELD_TARGET_ROWS,
     ClickHouseColumn,
     ClickHouseConnectionError,
@@ -19,10 +20,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     _get_client,
     _get_incremental_row_count,
     _has_duplicate_primary_keys,
+    _is_rate_limited,
     _is_transient_connect_drop,
     _parse_mv_target,
     _project_columns,
     _quote_identifier,
+    _rate_limit_backoff_seconds,
     _strip_type_modifiers,
     filter_clickhouse_incremental_fields,
     get_primary_keys_for_schemas,
@@ -661,6 +664,9 @@ class TestClickHouseSourceNonRetryableErrors:
             # Transient gateway errors must stay retryable — only 404 is permanent.
             "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 502",
             "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 503",
+            # HTTP 429 stays retryable at the Temporal level: `_get_client` backs off
+            # in-process first, then falls back to Temporal's activity retry.
+            "HTTPDriver for https://db-access.improvado.io:8443 returned response code 429",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
@@ -745,6 +751,67 @@ class TestGetClientTransientRetry:
                 self._connect()
         assert mock_get_client.call_count == 1
         mock_sleep.assert_not_called()
+
+
+class TestIsRateLimited:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "HTTPDriver for https://db-access.improvado.io:8443 returned response code 429",
+            "Error ... returned response code 429 executing HTTP request",
+        ],
+    )
+    def test_matches_429(self, message):
+        assert _is_rate_limited(message)
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "HTTPDriver for https://host:8443 returned response code 404",
+            "HTTPDriver for https://host:8443 returned response code 503",
+            "Code: 516. DB::Exception: Authentication failed",
+        ],
+    )
+    def test_does_not_match_others(self, message):
+        assert not _is_rate_limited(message)
+
+    @pytest.mark.parametrize(
+        "attempt,expected",
+        [(1, 5), (2, 10), (3, 20), (4, 40), (5, 60)],  # exponential, capped at 60s
+    )
+    def test_backoff_is_exponential_and_capped(self, attempt, expected):
+        assert _rate_limit_backoff_seconds(attempt) == expected
+
+
+class TestGetClientRateLimitRetry:
+    """`_get_client` backs off and retries an HTTP 429 during connect before giving up to Temporal."""
+
+    def _connect(self):
+        return _get_client(
+            host="h", port=8443, database="default", user="default", password=None, secure=True, verify=True
+        )
+
+    def test_retries_429_then_succeeds(self):
+        client = MagicMock()
+        rate_limited = ClickHouseError("HTTPDriver for https://h:8443 returned response code 429")
+        with (
+            patch.object(ch_module.time, "sleep") as mock_sleep,
+            patch.object(ch_module, "get_client", side_effect=[rate_limited, client]) as mock_get_client,
+        ):
+            assert self._connect() is client
+        assert mock_get_client.call_count == 2
+        # Backed off before retrying rather than re-raising immediately.
+        mock_sleep.assert_called_once()
+
+    def test_gives_up_after_max_attempts(self):
+        rate_limited = ClickHouseError("HTTPDriver for https://h:8443 returned response code 429")
+        with (
+            patch.object(ch_module.time, "sleep"),
+            patch.object(ch_module, "get_client", side_effect=rate_limited) as mock_get_client,
+        ):
+            with pytest.raises(ClickHouseConnectionError):
+                self._connect()
+        assert mock_get_client.call_count == _MAX_RATE_LIMIT_ATTEMPTS
 
 
 class TestTranslateError:
