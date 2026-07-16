@@ -13478,6 +13478,37 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `http` - http
+     * * `sse` - sse
+     */
+    export type ImportedMcpServerTypeEnum = typeof ImportedMcpServerTypeEnum[keyof typeof ImportedMcpServerTypeEnum];
+
+
+    export const ImportedMcpServerTypeEnum = {
+      Http: 'http',
+      Sse: 'sse',
+    } as const;
+
+    export interface ImportedMcpServerHeader {
+      /** @maxLength 256 */
+      name: string;
+      /** @maxLength 4096 */
+      value: string;
+    }
+
+    /**
+     * One client-imported MCP server, in the agent server's --mcpServers entry shape.
+     */
+    export interface ImportedMcpServer {
+      type: ImportedMcpServerTypeEnum;
+      /** @maxLength 64 */
+      name: string;
+      /** @maxLength 2048 */
+      url: string;
+      headers?: ImportedMcpServerHeader[];
+    }
+
+    /**
      * * `interactive` - interactive
      * * `background` - background
      */
@@ -13553,6 +13584,11 @@ export namespace Schemas {
      * Request body for creating a new task run
      */
     export interface ClaudeTaskRunCreateSchema {
+      /**
+         * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+         * @nullable
+         */
+      imported_mcp_servers?: ImportedMcpServer[] | null;
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
        *
        * * `interactive` - interactive
@@ -13914,6 +13950,11 @@ export namespace Schemas {
      * Request body for creating a new task run
      */
     export interface CodexTaskRunCreateSchema {
+      /**
+         * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+         * @nullable
+         */
+      imported_mcp_servers?: ImportedMcpServer[] | null;
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
        *
        * * `interactive` - interactive
@@ -59939,6 +59980,11 @@ export namespace Schemas {
      * Request body for creating a task run without starting execution yet.
      */
     export interface TaskRunBootstrapCreateRequest {
+      /**
+         * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+         * @nullable
+         */
+      imported_mcp_servers?: ImportedMcpServer[] | null;
       /** Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.
        *
        * * `local` - local

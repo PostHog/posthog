@@ -773,10 +773,26 @@ export const TasksPresenceCreateBody = /* @__PURE__ */ zod
  * Create a new task run and kick off the workflow.
  * @summary Run task
  */
+export const tasksRunCreateBodyOneImportedMcpServersItemNameMax = 64
+
+export const tasksRunCreateBodyOneImportedMcpServersItemUrlMax = 2048
+
+export const tasksRunCreateBodyOneImportedMcpServersItemHeadersItemNameMax = 256
+
+export const tasksRunCreateBodyOneImportedMcpServersItemHeadersItemValueMax = 4096
+
 export const tasksRunCreateBodyOneModeDefault = `background`
 export const tasksRunCreateBodyOneBranchMax = 255
 
 export const tasksRunCreateBodyOnePendingUserArtifactIdsItemMax = 128
+
+export const tasksRunCreateBodyTwoImportedMcpServersItemNameMax = 64
+
+export const tasksRunCreateBodyTwoImportedMcpServersItemUrlMax = 2048
+
+export const tasksRunCreateBodyTwoImportedMcpServersItemHeadersItemNameMax = 256
+
+export const tasksRunCreateBodyTwoImportedMcpServersItemHeadersItemValueMax = 4096
 
 export const tasksRunCreateBodyTwoModeDefault = `background`
 export const tasksRunCreateBodyTwoBranchMax = 255
@@ -789,6 +805,32 @@ export const tasksRunCreateBodyThreeBranchMax = 255
 export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
     zod
         .object({
+            imported_mcp_servers: zod
+                .array(
+                    zod
+                        .object({
+                            type: zod.enum(['http', 'sse']).describe('\* `http` - http\n\* `sse` - sse'),
+                            name: zod.string().max(tasksRunCreateBodyOneImportedMcpServersItemNameMax),
+                            url: zod.url().max(tasksRunCreateBodyOneImportedMcpServersItemUrlMax),
+                            headers: zod
+                                .array(
+                                    zod.object({
+                                        name: zod
+                                            .string()
+                                            .max(tasksRunCreateBodyOneImportedMcpServersItemHeadersItemNameMax),
+                                        value: zod
+                                            .string()
+                                            .max(tasksRunCreateBodyOneImportedMcpServersItemHeadersItemValueMax),
+                                    })
+                                )
+                                .optional(),
+                        })
+                        .describe("One client-imported MCP server, in the agent server's --mcpServers entry shape.")
+                )
+                .nullish()
+                .describe(
+                    'Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.'
+                ),
             mode: zod
                 .enum(['interactive', 'background'])
                 .describe('\* `interactive` - interactive\n\* `background` - background')
@@ -886,6 +928,32 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
         .describe('Request body for creating a new task run'),
     zod
         .object({
+            imported_mcp_servers: zod
+                .array(
+                    zod
+                        .object({
+                            type: zod.enum(['http', 'sse']).describe('\* `http` - http\n\* `sse` - sse'),
+                            name: zod.string().max(tasksRunCreateBodyTwoImportedMcpServersItemNameMax),
+                            url: zod.url().max(tasksRunCreateBodyTwoImportedMcpServersItemUrlMax),
+                            headers: zod
+                                .array(
+                                    zod.object({
+                                        name: zod
+                                            .string()
+                                            .max(tasksRunCreateBodyTwoImportedMcpServersItemHeadersItemNameMax),
+                                        value: zod
+                                            .string()
+                                            .max(tasksRunCreateBodyTwoImportedMcpServersItemHeadersItemValueMax),
+                                    })
+                                )
+                                .optional(),
+                        })
+                        .describe("One client-imported MCP server, in the agent server's --mcpServers entry shape.")
+                )
+                .nullish()
+                .describe(
+                    'Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.'
+                ),
             mode: zod
                 .enum(['interactive', 'background'])
                 .describe('\* `interactive` - interactive\n\* `background` - background')
@@ -1233,6 +1301,14 @@ export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.o
  * Create a new run for a specific task without starting execution.
  * @summary Create task run
  */
+export const tasksRunsCreateBodyImportedMcpServersItemNameMax = 64
+
+export const tasksRunsCreateBodyImportedMcpServersItemUrlMax = 2048
+
+export const tasksRunsCreateBodyImportedMcpServersItemHeadersItemNameMax = 256
+
+export const tasksRunsCreateBodyImportedMcpServersItemHeadersItemValueMax = 4096
+
 export const tasksRunsCreateBodyEnvironmentDefault = `local`
 export const tasksRunsCreateBodyModeDefault = `background`
 export const tasksRunsCreateBodyBranchMax = 255
@@ -1241,6 +1317,30 @@ export const tasksRunsCreateBodyHomeQuickActionMax = 120
 
 export const TasksRunsCreateBody = /* @__PURE__ */ zod
     .object({
+        imported_mcp_servers: zod
+            .array(
+                zod
+                    .object({
+                        type: zod.enum(['http', 'sse']).describe('\* `http` - http\n\* `sse` - sse'),
+                        name: zod.string().max(tasksRunsCreateBodyImportedMcpServersItemNameMax),
+                        url: zod.url().max(tasksRunsCreateBodyImportedMcpServersItemUrlMax),
+                        headers: zod
+                            .array(
+                                zod.object({
+                                    name: zod.string().max(tasksRunsCreateBodyImportedMcpServersItemHeadersItemNameMax),
+                                    value: zod
+                                        .string()
+                                        .max(tasksRunsCreateBodyImportedMcpServersItemHeadersItemValueMax),
+                                })
+                            )
+                            .optional(),
+                    })
+                    .describe("One client-imported MCP server, in the agent server's --mcpServers entry shape.")
+            )
+            .nullish()
+            .describe(
+                'Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.'
+            ),
         environment: zod
             .enum(['local', 'cloud'])
             .describe('\* `local` - local\n\* `cloud` - cloud')
