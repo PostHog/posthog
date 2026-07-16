@@ -1450,7 +1450,7 @@ export interface TaskRunDetailDTOApi {
      * @nullable
      */
     log_url?: string | null
-    /** Presigned S3 URLs for every JSONL log in the run's resume chain, oldest first (each valid for 1 hour). Concatenated they form the run's full session history. Empty when presigning is unavailable; fall back to the session_logs endpoint. */
+    /** Presigned S3 URLs for every JSONL log in the run's resume chain, oldest first (each valid for 1 hour). Concatenated they form the run's full session history. Only populated on the run detail endpoint; empty elsewhere or when presigning is unavailable — fall back to the session_logs endpoint. */
     log_urls?: string[]
     /** @nullable */
     error_message: string | null

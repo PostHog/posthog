@@ -4276,6 +4276,15 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertIsNone(data["log_url"])
         self.assertEqual(data["log_urls"], [])
 
+    def test_list_runs_omits_chain_log_urls(self):
+        task = self.create_task()
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual([run["log_urls"] for run in response.json()["results"]], [[]])
+
     def test_list_runs_only_returns_task_runs(self):
         task1 = self.create_task("Task 1")
         task2 = self.create_task("Task 2")

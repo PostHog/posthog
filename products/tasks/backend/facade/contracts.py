@@ -384,10 +384,11 @@ class TaskRunDetailDTO:
     parent task id (rendered as a string, matching the original ``PrimaryKeyRelatedField``).
     The SMF-derived fields are computed in the facade mapper ``_task_run_detail_to_dto``:
     ``log_url`` is a presigned S3 URL (cached); ``log_urls`` carries presigned URLs for every
-    log in the run's resume chain, oldest first (empty when presigning is unavailable);
-    ``runtime_adapter`` / ``provider`` / ``model`` / ``reasoning_effort`` are parsed off the
-    run ``state``. ``artifacts`` carries the run's artifact manifest entries verbatim. Reused
-    by the run-detail responses and nested as ``latest_run`` by the task detail response.
+    log in the run's resume chain, oldest first — populated only by the run-detail retrieve
+    path (empty for other consumers and when presigning is unavailable); ``runtime_adapter`` /
+    ``provider`` / ``model`` / ``reasoning_effort`` are parsed off the run ``state``.
+    ``artifacts`` carries the run's artifact manifest entries verbatim. Reused by the
+    run-detail responses and nested as ``latest_run`` by the task detail response.
     """
 
     id: UUID

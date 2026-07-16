@@ -366,12 +366,14 @@ def _task_run_chain_log_urls(run: TaskRun) -> list[str]:
     return urls
 
 
-def _task_run_detail_to_dto(run: TaskRun) -> contracts.TaskRunDetailDTO:
+def _task_run_detail_to_dto(run: TaskRun, *, include_log_urls: bool = False) -> contracts.TaskRunDetailDTO:
     """Map a ``TaskRun`` to its HTTP detail DTO.
 
     Reproduces the SMF-derived fields ``TaskRunDetailSerializer`` computed: ``log_url`` does
     presigned-URL I/O (with caching), and ``runtime_adapter`` / ``provider`` / ``model`` /
-    ``reasoning_effort`` are parsed off the run ``state``.
+    ``reasoning_effort`` are parsed off the run ``state``. ``log_urls`` (the resume-chain
+    presigns) needs a chain walk per run, so only the run-detail retrieve path — the one
+    clients bootstrap history from — opts in; every other caller gets an empty list.
     """
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         parse_run_state,
@@ -390,7 +392,7 @@ def _task_run_detail_to_dto(run: TaskRun) -> contracts.TaskRunDetailDTO:
         model=state.model,
         reasoning_effort=state.reasoning_effort.value if state.reasoning_effort is not None else None,
         log_url=_task_run_log_url(run),
-        log_urls=_task_run_chain_log_urls(run),
+        log_urls=_task_run_chain_log_urls(run) if include_log_urls else [],
         error_message=run.error_message,
         output=run.output,
         state=run.state or {},
@@ -1698,7 +1700,7 @@ def list_task_runs(task_id: str | UUID, team_id: int) -> list[contracts.TaskRunD
 def get_task_run_detail(run_id: str | UUID, task_id: str | UUID, team_id: int) -> contracts.TaskRunDetailDTO | None:
     """A single run as a detail DTO, scoped to its task + team."""
     run = _get_visible_run(run_id, task_id, team_id)
-    return _task_run_detail_to_dto(run) if run is not None else None
+    return _task_run_detail_to_dto(run, include_log_urls=True) if run is not None else None
 
 
 def get_task_run_stream_info(

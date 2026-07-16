@@ -268,7 +268,8 @@ class TaskRunDetailSerializer(DataclassSerializer):
         help_text=(
             "Presigned S3 URLs for every JSONL log in the run's resume chain, oldest first "
             "(each valid for 1 hour). Concatenated they form the run's full session history. "
-            "Empty when presigning is unavailable; fall back to the session_logs endpoint."
+            "Only populated on the run detail endpoint; empty elsewhere or when presigning "
+            "is unavailable — fall back to the session_logs endpoint."
         ),
     )
     artifacts = TaskRunArtifactResponseSerializer(many=True, read_only=True)
