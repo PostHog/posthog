@@ -341,14 +341,14 @@ class ReplayScannerPromptSuggestionViewSet(
             "`session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to "
             "`evaluation_session_cap`). Each successful re-run charges credits like a normal observation of "
             "the same model. The request is refused with 402 when the planned credits exceed what is left of "
-            "the monthly limit. Only monitor and classifier scanners are supported. Requires session "
-            "recording edit access."
+            "the monthly limit. Only monitor and classifier scanners are supported. Requires editor "
+            "access to the scanner."
         ),
     )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
     def evaluate(self, request: Request, **kwargs: Any) -> Response:
         scanner = self._scanner_for_url()
-        self._require_editor()
+        self._require_editor(scanner)
         suggestion = self.get_object()
         input_serializer = EvaluatePromptSuggestionRequestSerializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
