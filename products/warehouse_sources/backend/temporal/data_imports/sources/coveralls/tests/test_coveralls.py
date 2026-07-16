@@ -304,9 +304,9 @@ class TestGetRepositoryRows:
         # response omits them.
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
             mock_session.return_value.get.side_effect = [
-                _response(200, {"comment_on_pull_requests": True}),
+                _response(200, {"comment_on_pull_requests": True, "repo_token": "secret-upload-token"}),
                 _response(404),
-                _response(200, {"name": "acme/gadgets", "send_build_status": False}),
+                _response(200, {"name": "acme/gadgets", "send_build_status": False, "token": "secret"}),
             ]
 
             batches = list(
@@ -319,6 +319,9 @@ class TestGetRepositoryRows:
         assert batches[0][0]["service"] == "github"
         assert batches[0][0]["name"] == "acme/widgets"
         assert batches[1][0]["name"] == "acme/gadgets"
+        # The response's secret coverage-upload token must never be persisted as warehouse data.
+        for batch in batches:
+            assert not any("token" in key for key in batch[0])
 
     def test_sends_token_header(self):
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:

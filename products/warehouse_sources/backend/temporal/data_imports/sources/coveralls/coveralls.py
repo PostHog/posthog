@@ -236,6 +236,23 @@ def get_builds_rows(
             resumable_source_manager.save_state(CoverallsResumeConfig(repository=remaining[index + 1], page=1))
 
 
+# Documented configuration fields of the /api/v1/repos response. Rows are built from this
+# allowlist rather than passed through: the response also carries the secret repo token used to
+# submit coverage jobs, and a pass-through would persist that credential as queryable warehouse
+# data. Fail-closed — any undocumented field is dropped.
+_REPOSITORY_FIELDS = (
+    "id",
+    "service",
+    "name",
+    "comment_on_pull_requests",
+    "send_build_status",
+    "commit_status_fail_threshold",
+    "commit_status_fail_change_threshold",
+    "created_at",
+    "updated_at",
+)
+
+
 def get_repository_rows(
     service: str,
     repositories: list[str],
@@ -244,8 +261,8 @@ def get_repository_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     """One row per configured repository from the ``/api/v1/repos`` endpoint.
 
-    The endpoint needs a personal API token. Its exact response shape isn't publicly verifiable
-    without a token, so rows are passed through as returned, stamped with the ``service`` and
+    The endpoint needs a personal API token. Rows carry only the allowlisted configuration
+    fields (never the repo's secret coverage-upload token), stamped with the ``service`` and
     ``name`` the primary key needs in case the API omits them.
     """
     if not api_token:
@@ -266,7 +283,7 @@ def get_repository_rows(
                 "tracked on Coveralls or the API token may lack access; skipping"
             )
             continue
-        row = dict(data)
+        row = {key: data[key] for key in _REPOSITORY_FIELDS if key in data}
         row.setdefault("service", service)
         row.setdefault("name", repository)
         yield [row]
