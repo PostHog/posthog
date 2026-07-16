@@ -111,6 +111,10 @@ from products.data_warehouse.backend.presentation.views.external_data_schema imp
     unsupported_row_filter_reason,
 )
 from products.data_warehouse.backend.presentation.views.public_source_configs import build_source_configs
+from products.data_warehouse.backend.presentation.views.source_api_versions import (
+    ExternalDataSourceApiVersionDeprecationSerializer,
+    api_version_deprecation_payload,
+)
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.facade.api import (
     mysql_columns_to_dwh_columns,
@@ -811,6 +815,21 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "Defaults to false for new sources; ignored for pure direct-query sources."
         ),
     )
+    api_version = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe "
+            "date version). Null resolves to the source type's default version at sync time."
+        ),
+    )
+    api_version_deprecation = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Set when the vendor has deprecated the API version this source is pinned to; "
+            "null otherwise. Drives the in-product deprecation warning."
+        ),
+    )
 
     class Meta:
         model = ExternalDataSource
@@ -836,6 +855,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "user_access_level",
             "supports_webhooks",
             "supports_column_selection",
+            "api_version",
+            "api_version_deprecation",
         ]
         read_only_fields = [
             "id",
@@ -852,6 +873,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "access_method",
             "supports_webhooks",
             "supports_column_selection",
+            "api_version",
+            "api_version_deprecation",
         ]
 
     def to_representation(self, instance):
@@ -908,6 +931,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     def get_supports_column_selection(self, instance: ExternalDataSource) -> bool:
         return source_supports_column_selection(instance.source_type)
+
+    @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
+    def get_api_version_deprecation(self, instance: ExternalDataSource) -> dict[str, Any] | None:
+        return api_version_deprecation_payload(instance.source_type, instance.api_version)
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
@@ -2099,6 +2126,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             team=self.team,
             status="Running",
             source_type=source_type_model,
+            api_version=source.default_version,
             job_inputs=source_config.to_dict(),
             prefix=prefix,
             description=description,
@@ -4303,7 +4331,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         return Response(status=status.HTTP_200_OK, data=SourceConnectLinkSerializer(data).data)
 
     @extend_schema(responses=ExternalDataSourceConnectionOptionSerializer(many=True))
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, pagination_class=None, filter_backends=[])
     def connections(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         queryset = (
             ExternalDataSource._base_manager.filter(

@@ -251,8 +251,13 @@ def resolve_primary_keys(
         return schema.primary_key_columns
     if resource.primary_keys:
         return list(resource.primary_keys)
-    if "id" in extract_available_column_names(schema.schema_metadata):
-        return ["id"]
+    # Case-insensitive: engines like Snowflake uppercase unquoted identifiers, so the column
+    # arrives as `ID`. Return the actual stored casing — the merge indexes batches by real name.
+    id_column = next(
+        (name for name in extract_available_column_names(schema.schema_metadata) if name.lower() == "id"), None
+    )
+    if id_column is not None:
+        return [id_column]
     return None
 
 

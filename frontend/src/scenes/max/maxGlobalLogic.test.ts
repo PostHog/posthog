@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -71,6 +72,27 @@ describe('maxGlobalLogic', () => {
                 sidePanelMax?.unmount()
             }
         )
+    })
+
+    // The conversation detail endpoint can return an empty body; letting that null into
+    // conversationHistory crashes every consumer that dereferences entries (e.g. the AI chat nav tab).
+    describe('loadConversation', () => {
+        it.each([
+            { case: 'a conversation already in history', conversationId: MOCK_CONVERSATION_ID },
+            { case: 'a conversation not in history', conversationId: 'unknown-conversation-id' },
+        ])('keeps history intact when the API returns a null body for $case', async ({ conversationId }) => {
+            // Let the mount-time loadConversationHistory settle so it can't overwrite the seeded history
+            await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+            logic.actions.prependOrReplaceConversation(MOCK_CONVERSATION)
+            jest.spyOn(api.conversations, 'get').mockResolvedValue(null as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadConversation(conversationId)
+            }).toFinishAllListeners()
+
+            expect(logic.values.conversationHistory).toHaveLength(1)
+            expect(logic.values.conversationHistory[0]?.id).toBe(MOCK_CONVERSATION_ID)
+        })
     })
 
     describe('isMaxAvailable selector', () => {
