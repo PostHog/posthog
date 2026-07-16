@@ -7,7 +7,7 @@ import { CyclotronJobInputSchemaType } from '~/types'
 
 import type { UserType } from '../../../../../frontend/src/types'
 import { WorkflowLogicProps, workflowLogic } from '../workflowLogic'
-import type { HogFlow, HogFlowAction } from './types'
+import type { HogFlow } from './types'
 
 const parseValue = (value: string, variableType: string): any => {
     if (value === '') {

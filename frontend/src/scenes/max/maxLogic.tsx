@@ -162,6 +162,8 @@ export interface maxLogicValues {
     actions: ActionType[] // actionsModel
     conversationHistory: ConversationDetail[] // maxGlobalLogic
     conversationHistoryLoading: boolean // maxGlobalLogic
+    dataProcessingAccepted: boolean // maxGlobalLogic
+    dataProcessingApprovalDisabledReason: string | null // maxGlobalLogic
     effectivePhaiView: PhaiViewMode // maxGlobalLogic
     toolSuggestions: string[] // maxGlobalLogic
     tools: ToolRegistration[] // maxGlobalLogic
@@ -318,8 +320,8 @@ export interface maxLogicMeta {
             conversationHistory: ConversationDetail[],
             conversationId: string | null
         ) => ConversationDetail | null
-        toolHeadlines: (tools: import('./max-constants').ToolRegistration[]) => (string | undefined)[]
-        toolDescriptions: (tools: import('./max-constants').ToolRegistration[]) => (string | undefined)[]
+        toolHeadlines: (tools: ToolRegistration[]) => (string | undefined)[]
+        toolDescriptions: (tools: ToolRegistration[]) => (string | undefined)[]
         headline: (
             conversation: ConversationDetail | null,
             toolHeadlines: (string | undefined)[],
