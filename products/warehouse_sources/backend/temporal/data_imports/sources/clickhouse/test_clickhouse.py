@@ -22,8 +22,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     _is_transient_connect_drop,
     _parse_mv_target,
     _project_columns,
+    _query_settings,
     _quote_identifier,
     _strip_type_modifiers,
+    _writable_query_settings,
     filter_clickhouse_incremental_fields,
     get_primary_keys_for_schemas,
 )
@@ -705,6 +707,40 @@ class TestIsTransientConnectDrop:
     )
     def test_does_not_match_deterministic_failures(self, message):
         assert not _is_transient_connect_drop(message)
+
+
+class TestWritableQuerySettings:
+    @staticmethod
+    def _client(readonly_by_setting: dict[str, int]) -> MagicMock:
+        from clickhouse_connect.driver.models import SettingDef
+
+        client = MagicMock()
+        client.server_settings = {
+            name: SettingDef(name=name, value="0", readonly=readonly) for name, readonly in readonly_by_setting.items()
+        }
+        return client
+
+    def test_read_only_profile_drops_all_settings(self):
+        # A `readonly=1` source user can't change any setting; every perf
+        # setting must be dropped so the sync proceeds instead of aborting.
+        keys = _query_settings(chunk_size=1000).keys()
+        client = self._client(dict.fromkeys(keys, 1))
+        assert _writable_query_settings(client, 1000, MagicMock()) == {}
+
+    def test_writable_profile_keeps_all_settings(self):
+        settings = _query_settings(chunk_size=1000)
+        client = self._client(dict.fromkeys(settings, 0))
+        assert _writable_query_settings(client, 1000, MagicMock()) == settings
+
+    def test_unknown_setting_is_dropped(self):
+        # A setting the server doesn't report can't be validated, so it must
+        # be dropped rather than sent (which clickhouse-connect would reject).
+        settings = _query_settings(chunk_size=1000)
+        known = dict.fromkeys(settings, 0)
+        known.pop("max_block_size")
+        result = _writable_query_settings(self._client(known), 1000, MagicMock())
+        assert "max_block_size" not in result
+        assert result == {k: v for k, v in settings.items() if k != "max_block_size"}
 
 
 class TestGetClientTransientRetry:

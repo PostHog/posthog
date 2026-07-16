@@ -1058,6 +1058,11 @@ def _query_settings(chunk_size: int) -> dict[str, Any]:
     These tune the streaming Arrow output and prevent runaway resource use
     on the source side. They are intentionally conservative — operators
     can override per-source via chunk_size_override on the schema.
+
+    They are all performance/streaming hints: a sync still produces correct
+    data without them, just less efficiently. `_writable_query_settings`
+    drops any the source user isn't allowed to change so a read-only profile
+    still syncs.
     """
     return {
         # Stream Arrow record batches in chunks of `chunk_size` rows. This is
@@ -1082,6 +1087,44 @@ def _query_settings(chunk_size: int) -> dict[str, Any]:
         # memory, slow path degrades gracefully.
         "max_bytes_before_external_sort": 500 * 1024 * 1024,
     }
+
+
+def _writable_query_settings(client: ClickHouseClient, chunk_size: int, logger: FilteringBoundLogger) -> dict[str, Any]:
+    """Return the perf settings the connected source user is allowed to set.
+
+    clickhouse-connect validates every setting against the server when it is
+    applied, and its default action for an unknown or read-only setting is to
+    raise. A source whose user connects under a read-only profile
+    (`readonly=1`) can't change any query settings, so passing these at connect
+    time aborted the whole sync before a single row was read
+    (`Setting max_block_size is unknown or readonly`).
+
+    We instead consult the server's own view of each setting — populated in
+    `client.server_settings` at connect time — and keep only the ones this user
+    can actually change. A read-only source then syncs without the streaming/
+    perf tuning rather than failing.
+    """
+    settings = _query_settings(chunk_size)
+    server_settings = getattr(client, "server_settings", {})
+
+    accepted: dict[str, Any] = {}
+    dropped: list[str] = []
+    for key, value in settings.items():
+        setting_def = server_settings.get(key)
+        # readonly != 1 mirrors clickhouse-connect's own writability check;
+        # an unknown setting (None) is treated as not settable.
+        if setting_def is not None and setting_def.readonly != 1:
+            accepted[key] = value
+        else:
+            dropped.append(key)
+
+    if dropped:
+        logger.warning(
+            f"Source ClickHouse user cannot set {sorted(dropped)}; "
+            f"syncing without these performance settings. This is expected for a read-only source user."
+        )
+
+    return accepted
 
 
 def clickhouse_source(
@@ -1195,6 +1238,9 @@ def clickhouse_source(
         # Open a fresh tunnel + client for the streaming read so the
         # connection used for discovery isn't held open longer than needed.
         with tunnel() as (stream_host, stream_port):
+            # Connect without the perf settings so a read-only source user
+            # (who can't change any settings) doesn't get rejected at connect
+            # time. We apply the settings the server allows per-query below.
             stream_client = _get_client(
                 host=stream_host,
                 port=stream_port,
@@ -1204,7 +1250,6 @@ def clickhouse_source(
                 secure=secure,
                 verify=verify,
                 query_timeout=DATA_QUERY_TIMEOUT_SECONDS,
-                settings=_query_settings(chunk_size),
             )
 
             try:
@@ -1234,7 +1279,8 @@ def clickhouse_source(
                 pending: list[pa.RecordBatch] = []
                 pending_rows = 0
                 pending_bytes = 0
-                with stream_client.query_arrow_stream(query, parameters=parameters) as stream:
+                query_settings = _writable_query_settings(stream_client, chunk_size, logger)
+                with stream_client.query_arrow_stream(query, parameters=parameters, settings=query_settings) as stream:
                     for chunk in stream:
                         if chunk.num_rows == 0:
                             continue
