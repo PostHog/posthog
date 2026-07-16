@@ -212,51 +212,13 @@ impl DirtyIndex {
     /// were pruned.
     pub fn prune_partition(&self, partition: u32, committed: i64) -> usize {
         let mut removed = 0;
-        'pass: loop {
-            let Some(queue) = self
-                .queues
-                .get(&partition)
-                .map(|entry| Arc::clone(entry.value()))
-            else {
+        loop {
+            let (chunk_removed, exhausted) = self.prune_chunk(partition, committed);
+            removed += chunk_removed;
+            if exhausted {
                 break;
-            };
-            let mut queue = queue.lock().expect("dirty index queue lock poisoned");
-            let mut budget = PRUNE_CHUNK;
-            while budget > 0 {
-                let Some(&(offset, _)) = queue.front() else {
-                    break 'pass;
-                };
-                if offset >= committed {
-                    break 'pass;
-                }
-                budget -= 1;
-                let (_, key) = queue.pop_front().expect("front was just observed");
-                // The removal re-checks the map's offset under the shard
-                // lock: between the pop and here the key may have been
-                // re-marked, and removing the newer mark would silently
-                // reopen the stale-fallback hole.
-                if self
-                    .map
-                    .remove_if(&key, |_, mark| mark.offset < committed)
-                    .is_some()
-                {
-                    removed += 1;
-                } else if let Some(mark) = self.map.get(&key) {
-                    // Superseded: the live mark is ahead of the committed
-                    // offset, and the entry just popped was this key's only
-                    // queue presence (`mark` enqueues keys once). Dropping
-                    // it would leave the mark unreclaimable — pops are the
-                    // only reclaim path — so re-enqueue at the map's
-                    // offset. The tail lands past the committed threshold,
-                    // so the head check terminates the pass before
-                    // re-processing it; the resulting disorder only delays
-                    // that key's reclaim, since removal is always re-proved
-                    // against the map.
-                    queue.push_back((mark.offset, key.clone()));
-                }
             }
         }
-        self.size.fetch_sub(removed, Ordering::Relaxed);
         // A queue never shrinks on pop, so after a catch-up it would pin
         // its backlog-peak buffer until the partition is released.
         if removed > 0 {
@@ -272,6 +234,62 @@ impl DirtyIndex {
             }
         }
         removed
+    }
+
+    /// One bounded slice of a prune pass: re-fetch the queue, hold its
+    /// lock for at most `PRUNE_CHUNK` pops, and report how many marks
+    /// were removed plus whether the pass is exhausted. Exhaustion means
+    /// the head is unapplied, the queue is empty, or the queue was
+    /// detached by a concurrent `clear_partition` — the re-fetch is what
+    /// lets a release end an in-flight pass instead of racing its drain.
+    fn prune_chunk(&self, partition: u32, committed: i64) -> (usize, bool) {
+        let Some(queue) = self
+            .queues
+            .get(&partition)
+            .map(|entry| Arc::clone(entry.value()))
+        else {
+            return (0, true);
+        };
+        let mut queue = queue.lock().expect("dirty index queue lock poisoned");
+        let mut removed = 0;
+        let mut budget = PRUNE_CHUNK;
+        while budget > 0 {
+            let Some(&(offset, _)) = queue.front() else {
+                self.size.fetch_sub(removed, Ordering::Relaxed);
+                return (removed, true);
+            };
+            if offset >= committed {
+                self.size.fetch_sub(removed, Ordering::Relaxed);
+                return (removed, true);
+            }
+            budget -= 1;
+            let (_, key) = queue.pop_front().expect("front was just observed");
+            // The removal re-checks the map's offset under the shard
+            // lock: between the pop and here the key may have been
+            // re-marked, and removing the newer mark would silently
+            // reopen the stale-fallback hole.
+            if self
+                .map
+                .remove_if(&key, |_, mark| mark.offset < committed)
+                .is_some()
+            {
+                removed += 1;
+            } else if let Some(mark) = self.map.get(&key) {
+                // Superseded: the live mark is ahead of the committed
+                // offset, and the entry just popped was this key's only
+                // queue presence (`mark` enqueues keys once). Dropping
+                // it would leave the mark unreclaimable — pops are the
+                // only reclaim path — so re-enqueue at the map's
+                // offset. The tail lands past the committed threshold,
+                // so the head check terminates the pass before
+                // re-processing it; the resulting disorder only delays
+                // that key's reclaim, since removal is always re-proved
+                // against the map.
+                queue.push_back((mark.offset, key.clone()));
+            }
+        }
+        self.size.fetch_sub(removed, Ordering::Relaxed);
+        (removed, false)
     }
 
     /// Drop every mark on `partition` — used when the partition is released
@@ -452,6 +470,38 @@ mod tests {
 
         // A catch-up reclaims across chunk boundaries in a single call.
         assert_eq!(index.prune_partition(0, total), total as usize);
+        assert!(index.is_empty());
+    }
+
+    #[test]
+    fn clear_between_chunks_ends_the_pass_without_leaking_marks() {
+        let total = PRUNE_CHUNK as i64 + 500;
+        let index = DirtyIndex::new(usize::MAX);
+        for offset in 0..total {
+            index.mark(key(offset), mark(offset, 0));
+        }
+
+        // The first chunk of an in-flight pass reclaims its bounded slice
+        // and reports the pass unfinished.
+        let (removed, exhausted) = index.prune_chunk(0, total);
+        assert_eq!(removed, PRUNE_CHUNK);
+        assert!(!exhausted);
+
+        // A release lands between chunks: it detaches the queue and
+        // drains every remaining mark — nothing escapes.
+        assert_eq!(index.clear_partition(0), 500);
+        assert_eq!(index.len(), 0);
+
+        // The paused pass re-fetches, observes the detachment, and ends
+        // instead of racing the drain it would otherwise double-count.
+        let (removed, exhausted) = index.prune_chunk(0, total);
+        assert_eq!(removed, 0);
+        assert!(exhausted);
+
+        // Ownership re-acquired after the release: fresh marks live in a
+        // fresh queue that a new pass reclaims normally.
+        index.mark(key(1), mark(total + 1, 0));
+        assert_eq!(index.prune_partition(0, total + 2), 1);
         assert!(index.is_empty());
     }
 
