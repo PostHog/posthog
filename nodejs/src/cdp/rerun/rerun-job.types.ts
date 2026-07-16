@@ -85,6 +85,15 @@ export interface RerunJobProgress {
     /** Last error from a page; non-fatal — the next reschedule retries. */
     last_error?: string
     /**
+     * Consecutive page errors since the last page that made progress. Bumped on
+     * every errored page and reset to 0 whenever a page succeeds. Once it hits
+     * `RERUN_MAX_CONSECUTIVE_PAGE_ERRORS` the paginator gives up (throws) so the
+     * worker fails the wrapper job terminally instead of rescheduling it forever
+     * — an unbounded retry loop bumps the SMALLINT `transition_count` on every
+     * reschedule until it overflows (`smallint out of range`), poisoning the row.
+     */
+    consecutive_errors?: number
+    /**
      * Number of pages that have committed progress to this job. Bumped per
      * call to `processPage`. Surfaces on the wrapper lifecycle row as `attempts`
      * so the Invocations UI can show "this re-run has worked X pages so far".
@@ -101,3 +110,15 @@ export interface RerunJobState {
 
 /** Hard cap on rows fetched per rerun page (also caps a by-IDs request slice). */
 export const RERUN_PAGE_SIZE = 200
+
+/**
+ * How many consecutive errored pages a rerun tolerates before the paginator
+ * gives up and fails the wrapper job terminally (recorded as a replayable
+ * failure). A single stuck page (malformed filter, undecodable globals,
+ * persistent ClickHouse error) otherwise reschedules every ~1s indefinitely,
+ * and each reschedule increments the SMALLINT `transition_count` until it
+ * overflows at 32767 — which then poisons the row so even dequeue fails. The
+ * cap keeps total transitions far below that ceiling while still absorbing
+ * transient blips (a successful page resets the counter to 0).
+ */
+export const RERUN_MAX_CONSECUTIVE_PAGE_ERRORS = 25

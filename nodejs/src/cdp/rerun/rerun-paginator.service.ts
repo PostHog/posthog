@@ -23,7 +23,13 @@ import {
     HogFunctionInvocationGlobalsWithInputs,
 } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
-import { RERUN_PAGE_SIZE, RerunFunctionKind, RerunJobProgress, RerunJobState } from './rerun-job.types'
+import {
+    RERUN_MAX_CONSECUTIVE_PAGE_ERRORS,
+    RERUN_PAGE_SIZE,
+    RerunFunctionKind,
+    RerunJobProgress,
+    RerunJobState,
+} from './rerun-job.types'
 
 // Function types whose stored globals carry inbound `request.headers`
 // (sender credentials) that must be stripped before a rerun rehydrates them.
@@ -252,10 +258,22 @@ export class RerunPaginatorService {
                 error: errMessage,
             })
             counterRerunPageProcessed.labels(function_kind, 'error').inc()
-            // Surface the error in job state but don't mark done — the worker
-            // will reschedule, the janitor's transition_count guards against
-            // infinite loops on poisoned jobs.
-            const errorProgress = { ...progress, last_error: errMessage }
+
+            // Give up once a page has errored too many times in a row. Rethrow
+            // so the worker's handler fails the wrapper job terminally (and
+            // records a replayable failure row) rather than rescheduling. An
+            // unbounded retry loop would bump the SMALLINT `transition_count` on
+            // every reschedule until it overflows at 32767 — poisoning the row
+            // so even dequeue fails with `smallint out of range`.
+            const consecutiveErrors = (progress.consecutive_errors ?? 0) + 1
+            if (consecutiveErrors >= RERUN_MAX_CONSECUTIVE_PAGE_ERRORS) {
+                throw err
+            }
+
+            // Below the cap: surface the error in job state but don't mark done,
+            // so the worker reschedules and retries the same page. Track the
+            // consecutive-error streak — a page that later succeeds resets it.
+            const errorProgress = { ...progress, last_error: errMessage, consecutive_errors: consecutiveErrors }
             await this.writeWrapperUpdate(teamId, state, context, errorProgress, err)
             return { state: { ...state, progress: errorProgress } }
         }
