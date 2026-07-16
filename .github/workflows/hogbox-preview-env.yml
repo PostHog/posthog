@@ -57,7 +57,30 @@
 # The box is driven entirely by the posthog-hogland SDK (pip-installable, keyless
 # over hogplane's HTTP API) — no `hogland` CLI binary and no box SSH key needed.
 
-name: Hogbox Preview Environment
+# --- WHY EVERY CHECK HERE IS OPTIONAL -------------------------------------------
+# A preview environment is a convenience, never a merge gate: a hogland/tailnet
+# hiccup says nothing about the PR's code, so it must not paint the PR red. Two
+# halves make that true, and BOTH are load-bearing:
+#   1. `deploy` fails OPEN (see the FAIL-OPEN note on that job) — the box is best
+#      effort, and its real status is reported on the PR as a Deployment + the
+#      sticky comment, which is where preview status belongs (same as Vercel et
+#      al). GitHub gives a job no "yellow": a check can only be
+#      success/failure/cancelled/skipped, and job-level `continue-on-error` still
+#      renders a red X on the PR (it only flips `needs.<job>.result`). So
+#      fail-open means step-level `continue-on-error`, and a green check here
+#      means "the attempt ran", NOT "the preview works".
+#   2. Hence the `[optional, does not block merge]` name prefix, matching the
+#      Depot shadow workflows. It sits on the JOB names, not just the workflow
+#      name, because a GitHub Actions check run is named after the JOB alone —
+#      the workflow name never appears in the PR's checks list. Prefix (never
+#      suffix) so it survives truncation in that narrow column.
+# `build PR frontend` is the deliberate exception: it stays hard-failing. It runs
+# the PR's own code, so its failure IS about the PR, and `deploy` distinguishes
+# "no dist because the FE build broke" from "no dist because the PR didn't touch
+# the frontend" purely by reading that job's conclusion. Fail it open and the two
+# collapse — the reviewer gets a green "ready" link claiming "frontend unchanged
+# by this PR" when the truth is their frontend didn't compile.
+name: '[optional, does not block merge] Hogbox Preview Environment'
 
 on:
     pull_request:
@@ -107,7 +130,7 @@ jobs:
     # unlabeled-cancel trap: a no-op event runs only this job, never touches the
     # `preview`/`teardown` concurrency group, so it can't cancel an active build.
     decide:
-        name: decide eligibility
+        name: '[optional, does not block merge] decide eligibility'
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
@@ -206,7 +229,7 @@ jobs:
     # per-PR concurrency group: announcing must never cancel an in-flight
     # deploy; build-frontend/deploy below do the coalescing.
     announce:
-        name: announce build
+        name: '[optional, does not block merge] announce build'
         needs: decide
         if: needs.decide.outputs.build == 'true'
         runs-on: ubuntu-24.04
@@ -269,8 +292,11 @@ jobs:
     # completion wasted (~3.5 min of runner time). No correctness impact — its
     # artifact is namespaced to its own run_id, so a stale build can't leak into
     # the winning run's swap.
+    # NOTE: deploy's "Wait for the PR frontend build" step finds this job by its
+    # literal `name` over the API — keep the two in sync. (A job's `name:` can't
+    # read the `env` context, so the string can't be hoisted into one constant.)
     build-frontend:
-        name: build PR frontend
+        name: '[optional, does not block merge] build PR frontend'
         needs: decide
         if: needs.decide.outputs.build == 'true'
         runs-on: ubuntu-24.04
@@ -381,8 +407,28 @@ jobs:
     # "ready" — a reviewer must never open a green link and get :master's
     # frontend for their frontend PR. The FE build (~3m27s) hides entirely under
     # the longer bring-up (~6m), so the pipeline is bring-up-bound, not their sum.
+    #
+    # --- FAIL-OPEN ------------------------------------------------------------
+    # Every step from the tailnet join down carries `continue-on-error: true` and
+    # gates on the previous step's `outcome`, so a hogland/tailnet/box failure
+    # leaves this job GREEN and only reports through the Deployment + sticky
+    # comment. A dead tailnet is not the PR author's problem and must not read as
+    # "your PR is broken" (see the WHY EVERY CHECK HERE IS OPTIONAL note at the
+    # top for why there's no yellow to reach for instead).
+    # Consequences to respect when editing:
+    #   - `success()` / `failure()` are USELESS here: continue-on-error keeps the
+    #     job "successful" no matter what, so `if: success()` would post a green
+    #     "ready" comment with an empty URL over a box that never came up. The
+    #     `outcome` step below is the single source of truth; the two reporters
+    #     are exact negations of its one flag, so no failure mode can fall
+    #     through and strand the comment on "building…".
+    #   - the fork guard deliberately has NO continue-on-error: it's the security
+    #     gate, and it must hard-stop the job before the tailnet + token come
+    #     online. It works because the steps after it either have no `if:` (so
+    #     they inherit the implicit `success()` and skip) or gate on an `outcome`
+    #     that is then 'skipped' — never `always()`, which would run them anyway.
     deploy:
-        name: deploy preview
+        name: '[optional, does not block merge] deploy preview'
         needs: [decide, announce]
         # Runs whenever an eligible build was attempted — even if announce
         # failed, so the failure reporter below still flips the Deployment +
@@ -432,7 +478,12 @@ jobs:
               with:
                   ref: ${{ github.event.repository.default_branch }}
 
+            # The tailnet join is the single most common failure here, and it's
+            # pure infra (the action already retries `tailscale up` 3x internally
+            # before giving up). Fail open — see the FAIL-OPEN note on the job.
             - name: Connect to Tailscale (tag:hogland-ci)
+              id: tailnet
+              continue-on-error: true
               uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
               with:
                   oauth-client-id: ${{ vars.TS_HOGLAND_CI_CLIENT_ID }}
@@ -440,6 +491,9 @@ jobs:
                   tags: tag:hogland-ci
 
             - name: Mint hogland OIDC token
+              id: token
+              if: steps.tailnet.outcome == 'success'
+              continue-on-error: true
               # Retry the mint across transient GitHub OIDC hiccups (a ~12-min
               # outage on 2026-07-09 leaked two preview pens). curl -sf makes an
               # HTTP error a non-zero exit, but a `curl | jq` pipe takes jq's exit
@@ -463,11 +517,16 @@ jobs:
             # the SDK into an ephemeral env. posthog-hogland is first-party and
             # exempted from the 7-day soak in [tool.uv].
             - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              id: uv
+              if: steps.token.outcome == 'success'
+              continue-on-error: true
               with:
                   version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
             - name: Bring up preview
               id: build
+              if: steps.uv.outcome == 'success'
+              continue-on-error: true
               run: |
                   # Restore the golden, check out the PR, mount its backend source
                   # (posthog/ee/products) over the :master image's /code,
@@ -501,10 +560,14 @@ jobs:
             # FE build has usually long finished, so this returns near-instantly.
             - name: Wait for the PR frontend build
               id: fe
+              if: steps.build.outcome == 'success'
+              continue-on-error: true
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
               with:
                   script: |
-                      const jobName = 'build PR frontend';
+                      // Must match the build-frontend job's `name:` exactly — a
+                      // rename there strands this poll until the deadline below.
+                      const jobName = '[optional, does not block merge] build PR frontend';
                       // Ceiling must cover build-frontend's own 30m timeout PLUS
                       // queue time, minus the ~6m of bring-up already elapsed;
                       // 32m keeps us inside deploy's 40m job timeout with margin.
@@ -540,14 +603,18 @@ jobs:
                       core.setOutput('swap', swap ? 'true' : 'false');
 
             - name: Download frontend dist
+              id: dist
               if: steps.fe.outputs.swap == 'true'
+              continue-on-error: true
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   name: hogbox-preview-frontend-dist
                   path: ${{ runner.temp }}/fe-dist
 
             - name: Swap in the PR frontend
-              if: steps.fe.outputs.swap == 'true'
+              id: swap
+              if: steps.dist.outcome == 'success'
+              continue-on-error: true
               working-directory: tools/hogbox-preview
               run: |
                   # Lay the freshly-built dist over the running box + re-collectstatic.
@@ -558,8 +625,33 @@ jobs:
                     --name "preview-pr-${PR}" \
                     swap-frontend --frontend-dist "${RUNNER_TEMP}/fe-dist/frontend-dist.tgz"
 
+            # Did the reviewer actually get what the "ready" comment would claim?
+            # Every step above swallows its own failure, so this flag — not
+            # success()/failure() — decides which reporter runs. `dist`/`swap` are
+            # 'skipped' (not 'failure') for a backend-only PR, which is a pass:
+            # that preview legitimately serves the golden's :master SPA. But a
+            # frontend PR whose dist download or swap FAILED must not be reported
+            # ready — the box would be serving :master under a comment claiming
+            # the frontend is "unchanged by this PR".
+            - name: Decide preview outcome
+              id: outcome
+              if: ${{ !cancelled() }}
+              env:
+                  BRING_UP: ${{ steps.build.outcome }}
+                  FE_WAIT: ${{ steps.fe.outcome }}
+                  DIST: ${{ steps.dist.outcome }}
+                  SWAP: ${{ steps.swap.outcome }}
+              run: |
+                  ok=false
+                  if [ "$BRING_UP" = success ] && [ "$FE_WAIT" = success ] \
+                     && [ "$DIST" != failure ] && [ "$SWAP" != failure ]; then
+                      ok=true
+                  fi
+                  echo "bring-up=$BRING_UP fe-wait=$FE_WAIT dist=$DIST swap=$SWAP -> ok=$ok"
+                  echo "ok=$ok" >> "$GITHUB_OUTPUT"
+
             - name: Report ready (deployment + comment)
-              if: success()
+              if: steps.outcome.outputs.ok == 'true'
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
               # SHA + DEP come from the job env (announce job outputs).
               env:
@@ -621,8 +713,12 @@ jobs:
                       if (ex) await github.rest.issues.updateComment({ ...context.repo, comment_id: ex.id, body });
                       else await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body });
 
+            # The exact negation of the flag above (`!= 'true'` vs `== 'true'`),
+            # so there's no third path where neither reporter runs. Like the
+            # `failure()` it replaces, it stays skipped on cancellation: a
+            # superseded push's run must not stomp the winning run's comment.
             - name: Report failure (deployment + comment)
-              if: failure()
+              if: steps.outcome.outputs.ok != 'true'
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
               with:
                   script: |
@@ -639,7 +735,9 @@ jobs:
                       const body =
                           `${marker}\n### 🦔 Hogbox preview &middot; ❌ build failed\n\n` +
                           `The preview didn't come up for commit \`${(process.env.SHA || '').slice(0, 7)}\`. ` +
-                          `See the **[build log](${runUrl})** for the failing step. It'll retry on the next push.`;
+                          `See the **[build log](${runUrl})** for the failing step. It'll retry on the next push.\n\n` +
+                          `<sub>Previews are optional and never block merging. A failure here is often a hogland or tailnet ` +
+                          `hiccup rather than anything in your PR, so the check stays green and this comment is the status.</sub>`;
                       const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: pr });
                       const ex = comments.find(c => c.body.includes(marker));
                       if (ex) await github.rest.issues.updateComment({ ...context.repo, comment_id: ex.id, body });
@@ -652,7 +750,7 @@ jobs:
     # nothing is up). The daily stale-sweep in hogbox-preview-cleanup.yml is the
     # backstop; PR *close* teardown lives in pr-closed.yml.
     teardown:
-        name: tear down preview
+        name: '[optional, does not block merge] tear down preview'
         needs: decide
         if: needs.decide.outputs.teardown == 'true'
         # Share the preview job's per-PR group so the latest intent wins: a
