@@ -5750,6 +5750,7 @@ export const API_SCOPE_OBJECTS = [
     'signal_scout',
     'signal_scout_internal',
     'signal_scout_report',
+    'stamphog',
     'streamlit_app',
     'subscription',
     'survey',
