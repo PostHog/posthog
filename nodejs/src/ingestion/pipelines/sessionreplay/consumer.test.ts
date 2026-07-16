@@ -204,6 +204,27 @@ describe('SessionRecordingIngester', () => {
         expect(await lagHistogramCount('0')).toBe(1)
     })
 
+    it('retains pending lag samples when a flush fails, reporting them on the next successful flush', async () => {
+        ingestionLagHistogram.reset()
+        createIngester({ SESSION_RECORDING_MAX_BATCH_AGE_MS: 0 })
+
+        // The first flush fails at the offset-store step, after the batch's capture timestamp was buffered.
+        jest.mocked(ingester.kafkaConsumer).offsetsStore.mockImplementationOnce(() => {
+            throw new Error('offset store failed')
+        })
+        runPipelineMock.mockResolvedValue(new Map([[0, 42]]))
+        await expect(ingester.handleEachBatch([kafkaMessage(0, 42, Date.now() - 5000)])).rejects.toThrow(
+            'offset store failed'
+        )
+        // The flush threw, so nothing is observed and the sample stays pending for the next flush.
+        expect(await lagHistogramCount('0')).toBeUndefined()
+
+        // The next batch flushes cleanly and reports both the retained and the new sample.
+        runPipelineMock.mockResolvedValue(new Map([[0, 43]]))
+        await ingester.handleEachBatch([kafkaMessage(0, 43, Date.now() - 5000)])
+        expect(await lagHistogramCount('0')).toBe(2)
+    })
+
     it('start() wires the revoke hook, and the hook flushes the tracked offsets', async () => {
         await ingester.start()
         const connectMock = jest.mocked(ingester.kafkaConsumer).connect

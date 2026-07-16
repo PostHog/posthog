@@ -13,6 +13,13 @@ export type LagReportableMessage = Pick<Message, 'partition' | 'headers'>
  * The consumer records each poll batch's messages as they are processed and flushes the reporter after
  * the session batch flush succeeds. Only the capture timestamps (epoch ms) are retained per partition;
  * the messages themselves are never held.
+ *
+ * Unlike the per-event `record-ingestion-lag` step, which samples only events that were actually
+ * ingested, this samples every consumed message — including ones the pipeline dropped or DLQ'd — because
+ * it records the raw batch. That is intentional: dropped and DLQ'd messages still advance the committed
+ * offset, so the metric reads as committed-offset progress versus capture time for the replay consumer.
+ * On a flush failure with batch redelivery, retried messages can be sampled twice, consistent with the
+ * consumer's existing batch-retry behavior.
  */
 export class SessionReplayLagReporter {
     private pendingByPartition: Map<number, number[]> = new Map()
