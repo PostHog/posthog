@@ -8282,6 +8282,19 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                 },
             ),
             (
+                # bool is an int subclass — the isinstance(code, bool) guard must still reject it.
+                "mcp_response_bool_error_code",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "mcp_response",
+                    "params": {
+                        "requestId": "relay-1",
+                        "server": "playwright",
+                        "error": {"code": True, "message": "boom"},
+                    },
+                },
+            ),
+            (
                 "mcp_response_oversized_params",
                 {
                     "jsonrpc": "2.0",

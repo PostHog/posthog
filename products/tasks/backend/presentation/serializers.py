@@ -1511,6 +1511,23 @@ MAX_IMPORTED_MCP_SERVERS_BYTES = 32768
 RESERVED_IMPORTED_MCP_SERVER_NAMES = {"posthog"}
 
 
+def _validate_unique_unreserved_mcp_names(value: list[dict]) -> None:
+    """Reject reserved names and case-insensitive duplicates within an MCP-server list.
+
+    Shared by the imported and relayed validators; the per-field caps (count, payload size) stay
+    in each caller since they differ.
+    """
+    seen: set[str] = set()
+    for server in value:
+        name = server["name"]
+        name_key = name.lower()
+        if name_key in RESERVED_IMPORTED_MCP_SERVER_NAMES:
+            raise serializers.ValidationError(f"'{name}' is a reserved MCP server name.")
+        if name_key in seen:
+            raise serializers.ValidationError(f"Duplicate MCP server name: '{name}'.")
+        seen.add(name_key)
+
+
 class ImportedMcpServerHeaderSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=256)
     value = serializers.CharField(
@@ -1557,15 +1574,7 @@ class ImportedMcpServersFieldMixin(serializers.Serializer):
             return None
         if len(value) > MAX_IMPORTED_MCP_SERVERS:
             raise serializers.ValidationError(f"At most {MAX_IMPORTED_MCP_SERVERS} imported MCP servers are allowed.")
-        seen: set[str] = set()
-        for server in value:
-            name = server["name"]
-            name_key = name.lower()
-            if name_key in RESERVED_IMPORTED_MCP_SERVER_NAMES:
-                raise serializers.ValidationError(f"'{name}' is a reserved MCP server name.")
-            if name_key in seen:
-                raise serializers.ValidationError(f"Duplicate MCP server name: '{name}'.")
-            seen.add(name_key)
+        _validate_unique_unreserved_mcp_names(value)
         if len(json.dumps(value)) > MAX_IMPORTED_MCP_SERVERS_BYTES:
             raise serializers.ValidationError("Imported MCP servers payload is too large.")
         return value
@@ -1601,15 +1610,7 @@ class RelayedMcpServersFieldMixin(serializers.Serializer):
             return None
         if len(value) > MAX_RELAYED_MCP_SERVERS:
             raise serializers.ValidationError(f"At most {MAX_RELAYED_MCP_SERVERS} relayed MCP servers are allowed.")
-        seen: set[str] = set()
-        for server in value:
-            name = server["name"]
-            name_key = name.lower()
-            if name_key in RESERVED_IMPORTED_MCP_SERVER_NAMES:
-                raise serializers.ValidationError(f"'{name}' is a reserved MCP server name.")
-            if name_key in seen:
-                raise serializers.ValidationError(f"Duplicate MCP server name: '{name}'.")
-            seen.add(name_key)
+        _validate_unique_unreserved_mcp_names(value)
         return value
 
 

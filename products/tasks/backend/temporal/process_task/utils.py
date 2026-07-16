@@ -506,8 +506,11 @@ def get_relayed_mcp_server_names(task_run: TaskRun, existing_names: Iterable[str
     skipped rather than failing the launch; the shape was validated at run creation, so this only
     guards against drift in stored data.
 
-    Not adapter-gated (unlike imported servers): relay endpoints are loopback in the sandbox and
-    always answer, so codex reachability probing is satisfied.
+    Not adapter-gated (unlike imported servers): the relay endpoints are loopback HTTP servers in
+    the sandbox that always accept the connection and return an HTTP response (a relayed result, or
+    a 503 on a genuine mid-run desktop disconnect). Codex's reachability probe treats any HTTP
+    response — including a 503 — as reachable and only prunes on a transport failure, so a relay
+    endpoint never gets pruned from a codex session the way an unreachable remote URL would.
     """
     relayed_servers = task_run.relayed_mcp_servers
     if not isinstance(relayed_servers, list):

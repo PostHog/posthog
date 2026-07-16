@@ -18,6 +18,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     build_imported_mcp_server_configs,
     get_git_identity_env_vars,
     get_github_credential_source,
+    get_imported_mcp_server_configs,
     get_relayed_mcp_server_names,
     get_sandbox_github_token,
     get_sandbox_ph_mcp_configs,
@@ -931,6 +932,26 @@ class TestBuildImportedMcpServerConfigs(TestCase):
             ),
             McpServerConfig(type="http", name="docs", url="https://docs.example.com/mcp", headers=[]),
         ]
+
+
+class TestGetImportedMcpServerConfigs(TestCase):
+    """The claude-only adapter gate — codex-acp hard-fails a session on any unreachable MCP server
+    and the sandbox does no reachability pruning, so imported servers must not enter a codex run."""
+
+    _SERVERS = [{"type": "http", "name": "grafana", "url": "https://mcp.grafana.example.com/mcp"}]
+
+    @staticmethod
+    def _task_run(runtime_adapter):
+        state = {} if runtime_adapter is None else {"runtime_adapter": runtime_adapter}
+        return MagicMock(imported_mcp_servers=TestGetImportedMcpServerConfigs._SERVERS, state=state)
+
+    @parameterized.expand([("claude", "claude"), ("unset", None)])
+    def test_resolves_configs_for_claude_or_unset_adapter(self, _name, adapter):
+        configs = get_imported_mcp_server_configs(self._task_run(adapter), set())
+        assert [c.name for c in configs] == ["grafana"]
+
+    def test_returns_empty_for_codex_adapter(self):
+        assert get_imported_mcp_server_configs(self._task_run("codex"), set()) == []
 
 
 class TestGetRelayedMcpServerNames(TestCase):
