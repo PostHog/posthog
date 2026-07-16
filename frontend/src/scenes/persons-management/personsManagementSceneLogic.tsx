@@ -88,14 +88,18 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
         ],
         crmFeatureFlag: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet) => featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet) =>
+                featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE],
         ],
         groupTabs: [
             (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
             (
-                groupTypes: Map<GroupTypeIndex, GroupType>,
+                groupTypes: Map<import('../../types').GroupTypeIndex, import('../../types').GroupType>,
                 groupsAccessStatus: GroupsAccessStatus,
-                aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+                aggregationLabel: (
+                    groupTypeIndex: number | null | undefined,
+                    deferToUserWording?: boolean
+                ) => import('~/models/groupsModel').Noun
             ): PersonsManagementTab[] => {
                 const showGroupsIntroductionPage = [
                     GroupsAccessStatus.HasAccess,

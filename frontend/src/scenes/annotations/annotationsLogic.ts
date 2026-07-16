@@ -89,7 +89,7 @@ export const annotationsLogic = kea<annotationsLogicType>([
         ],
         filteredAnnotations: [
             (s) => [s.annotations, s.scope],
-            (annotations: AnnotationType[], scope: AnnotationScope | null): AnnotationType[] => {
+            (annotations: AnnotationType[], scope: AnnotationType['scope'] | null): AnnotationType[] => {
                 return scope
                     ? annotations.filter((annotation) => {
                           return annotation.scope === scope

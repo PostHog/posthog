@@ -27,7 +27,7 @@ import type { ProductKey } from '../../queries/schema/schema-general'
 import { calculateFreeTier, createGaugeItems, isAddonVisible, isProductVariantPrimary } from './billing-utils'
 import { getBillingLimitConfig } from './billingLimitConfig'
 import { billingLogic } from './billingLogic'
-import type { UnsubscribeError } from './billingLogic'
+import type { BillingAlertConfig, SwitchPlanPayload, UnsubscribeError } from './billingLogic'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
@@ -181,8 +181,8 @@ export interface billingProductLogicActions {
         billing: BillingType
         payload?: any
     } // billingLogic
-    setProductSpecificAlert: (productSpecificAlert: null | import('./billingLogic').BillingAlertConfig) => {
-        productSpecificAlert: null | import('./billingLogic').BillingAlertConfig
+    setProductSpecificAlert: (productSpecificAlert: BillingAlertConfig | null) => {
+        productSpecificAlert: BillingAlertConfig | null
     } // billingLogic
     setScrollToProductKey: (scrollToProductKey: ProductKey | null) => {
         scrollToProductKey: ProductKey | null
@@ -190,9 +190,7 @@ export interface billingProductLogicActions {
     setSwitchPlanLoading: (productKey: string | null) => {
         productKey: string | null
     } // billingLogic
-    switchFlatrateSubscriptionPlan: (
-        data: import('./billingLogic').SwitchPlanPayload
-    ) => import('./billingLogic').SwitchPlanPayload // billingLogic
+    switchFlatrateSubscriptionPlan: (data: SwitchPlanPayload) => SwitchPlanPayload // billingLogic
     updateBillingLimits: (limits: { [key: string]: number | null }) => {
         [key: string]: number | null
     } // billingLogic
@@ -688,8 +686,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (s) => [s.currentAndUpgradePlans, s.timeRemainingInSeconds, s.timeTotalInSeconds],
             (
                 currentAndUpgradePlans: {
-                    currentPlan: any
-                    upgradePlan: any
+                    currentPlan: BillingPlanType | null
+                    upgradePlan: BillingPlanType
                 },
                 timeRemainingInSeconds: number,
                 timeTotalInSeconds: number
@@ -708,8 +706,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (
                 billing: BillingType | null,
                 currentAndUpgradePlans: {
-                    currentPlan: any
-                    upgradePlan: any
+                    currentPlan: BillingPlanType | null
+                    upgradePlan: BillingPlanType
                 },
                 proratedAmount: number
             ): boolean => {

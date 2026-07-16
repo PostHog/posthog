@@ -26,8 +26,16 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb, OnboardingProduct, OnboardingStepKey } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { BillingType, OrganizationType, PreflightStatus, TeamPublicType, TeamType, UserType } from '../../../types'
-import type { BillingProductV2Type } from '../../../types'
+import type {
+    BillingProductV2Type,
+    BillingType,
+    OrganizationType,
+    PreflightStatus,
+    SidePanelTab,
+    TeamPublicType,
+    TeamType,
+    UserType,
+} from '../../../types'
 import { onboardingEventUsageLogic } from '../onboardingEventUsageLogic'
 import { arraysEqual, parseProductsParam, stepKeyToTitle } from './onboardingFlowUtils'
 import { appendSharedTrailingSteps } from './sharedSteps'
@@ -96,19 +104,19 @@ export interface onboardingLogicActions {
         productKey: string
     } // onboardingEventUsageLogic
     openSidePanel: (
-        tab: import('~/types').SidePanelTab,
-        options?: string | undefined
+        tab: SidePanelTab,
+        options?: string
     ) => {
         options: string | undefined
-        tab: import('~/types').SidePanelTab
+        tab: SidePanelTab
     } // sidePanelStateLogic
-    recordProductIntentOnboardingComplete: (args_0: { product_type: ProductKey }) => {
+    recordProductIntentOnboardingComplete: ({ product_type }: { product_type: ProductKey }) => {
         product_type: ProductKey
     } // teamLogic
     updateCurrentTeam: (payload: Partial<TeamType>) => Partial<TeamType> // teamLogic
     updateCurrentTeamSuccess: (
         currentTeam: TeamPublicType | TeamType,
-        payload?: Partial<TeamType> | undefined
+        payload?: Partial<TeamType>
     ) => {
         currentTeam: TeamPublicType | TeamType
         payload?: Partial<TeamType>
@@ -356,11 +364,15 @@ export const onboardingLogic = kea<onboardingLogicType>([
     selectors({
         onboardingFlowVariant: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): string => resolveOnboardingFlowVariant(featureFlags),
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): string =>
+                resolveOnboardingFlowVariant(featureFlags),
         ],
         canInviteTeammates: [
             (s) => [s.currentOrganization, s.user],
-            (currentOrganization: OrganizationType | null, user: UserType | null): boolean => {
+            (
+                currentOrganization: null | import('~/types').OrganizationType,
+                user: null | import('~/types').UserType
+            ): boolean => {
                 if (currentOrganization?.members_can_invite) {
                     return true
                 }
@@ -370,7 +382,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         ],
         billingProduct: [
             (s) => [s.billing, s.productKey],
-            (billing: BillingType | null, productKey: ProductKey | null) =>
+            (billing: null | import('~/types').BillingType, productKey: ProductKey | null) =>
                 billing?.products?.find((p) => p.type === productKey) ?? null,
         ],
         shouldShowBillingStep: [
@@ -378,8 +390,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             (
                 subscribedDuringOnboarding: boolean,
                 isCloudOrDev: boolean | undefined,
-                billing: BillingType | null,
-                billingProduct: BillingProductV2Type | null,
+                billing: null | import('~/types').BillingType,
+                billingProduct: null | import('~/types').BillingProductV2Type,
                 stepId: string
             ): boolean => {
                 if (!isCloudOrDev || !billing?.products || !billingProduct) {
@@ -413,9 +425,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
             (
                 primary: ProductKey | null,
                 secondaries: ProductKey[],
-                currentTeam: TeamPublicType | TeamType | null,
-                billing: BillingType | null,
-                billingProduct: BillingProductV2Type | null,
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
+                billing: null | import('~/types').BillingType,
+                billingProduct: null | import('~/types').BillingProductV2Type,
                 shouldShowBilling: boolean,
                 isCloudOrDev: boolean | undefined,
                 subscribedDuringOnboarding: boolean,

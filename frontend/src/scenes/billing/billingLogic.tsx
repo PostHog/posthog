@@ -281,7 +281,7 @@ export interface billingLogicActions {
         value: true
     } // lemonBannerLogic
     loadCurrentOrganization: () => any // organizationLogic
-    loadUser: (resetOnFailure?: boolean | undefined) => {
+    loadUser: (resetOnFailure?: boolean) => {
         resetOnFailure: boolean | undefined
     } // userLogic
     deactivateProduct: (key: string) => string
@@ -1027,12 +1027,15 @@ export const billingLogic = kea<billingLogicType>([
     selectors({
         minimumBillingAccessLevel: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): OrganizationMembershipLevel =>
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): OrganizationMembershipLevel =>
                 getMinimumBillingAccessLevel(!!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]),
         ],
         canAccessBilling: [
             (s) => [s.currentOrganization, s.featureFlags],
-            (currentOrganization: OrganizationType | null, featureFlags: FeatureFlagsSet): boolean =>
+            (
+                currentOrganization: null | import('~/types').OrganizationType,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
+            ): boolean =>
                 canAccessBillingUtil(
                     currentOrganization?.membership_level,
                     !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
@@ -1041,7 +1044,7 @@ export const billingLogic = kea<billingLogicType>([
         upgradeLink: [(s) => [s.preflight], (): string => '/organization/billing'],
         isUnlicensedDebug: [
             (s) => [s.preflight, s.billing],
-            (preflight: PreflightStatus | null, billing: BillingType | null): boolean =>
+            (preflight: null | import('~/types').PreflightStatus, billing: BillingType | null): boolean =>
                 !!preflight?.is_debug && !billing?.billing_period,
         ],
         supportPlans: [
@@ -1149,7 +1152,7 @@ export const billingLogic = kea<billingLogicType>([
                 cc_last_four: null
                 collection_method: null
                 credit_brackets: never[]
-                eligible: boolean
+                eligible: false
                 email: null
                 estimated_monthly_credit_amount_usd: null
                 invoice_url: null
@@ -1184,7 +1187,7 @@ export const billingLogic = kea<billingLogicType>([
                 cc_last_four: null
                 collection_method: null
                 credit_brackets: never[]
-                eligible: boolean
+                eligible: false
                 email: null
                 estimated_monthly_credit_amount_usd: null
                 invoice_url: null

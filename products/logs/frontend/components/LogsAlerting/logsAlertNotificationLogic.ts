@@ -10,6 +10,7 @@ import { HogFunctionType, IntegrationType } from '~/types'
 
 import { logsAlertsDestinationsCreate, logsAlertsDestinationsDeleteCreate } from 'products/logs/frontend/generated/api'
 
+import type { UserBasicType } from '../../../../../frontend/src/types'
 import {
     buildLogsAlertFilterConfig,
     groupLogsAlertDestinations,
@@ -51,7 +52,7 @@ export interface logsAlertNotificationLogicActions {
         integrations: {
             config: any
             created_at: string
-            created_by?: null | import('~/types').UserBasicType | undefined
+            created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
             icon_url: any
@@ -101,7 +102,7 @@ export interface logsAlertNotificationLogicActions {
         integrations: {
             config: any
             created_at: string
-            created_by?: null | import('~/types').UserBasicType | undefined
+            created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
             icon_url: any

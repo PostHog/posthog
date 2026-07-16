@@ -24,7 +24,7 @@ import type {
     _LogsPatternsResponseApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
-import type { LogSeverityLevel } from '../../../../../frontend/src/queries/schema/schema-general'
+import type { DateRange, LogSeverityLevel } from '../../../../../frontend/src/queries/schema/schema-general'
 import type { LogsViewerViewMode, PatternsBaselineMode } from '../LogsViewer/config/logsViewerConfigLogic'
 import type { LogsViewerFilters } from '../LogsViewer/config/types'
 
@@ -114,8 +114,8 @@ export interface logsPatternsLogicActions {
     setViewMode: (viewMode: LogsViewerViewMode) => {
         viewMode: LogsViewerViewMode
     } // logsViewerConfigLogic
-    setDateRange: (dateRange: import('~/queries/schema').DateRange) => {
-        dateRange: import('~/queries/schema').DateRange
+    setDateRange: (dateRange: DateRange) => {
+        dateRange: DateRange
     } // logsViewerFiltersLogic
     setFilterGroup: (
         filterGroup: UniversalFiltersGroup,
@@ -326,7 +326,7 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
         patternsQueryBody: [
             (s) => [s.filters, s.utcDateRange, s.queryFilterGroup],
             (
-                filters: LogsViewerFilters,
+                filters: import('../LogsViewer/config/types').LogsViewerFilters,
                 utcDateRange: {
                     date_from: string | null | undefined
                     date_to: string | null | undefined

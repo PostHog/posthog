@@ -195,7 +195,7 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
         ],
         connectGitHubUrl: [
             (s) => [s.currentStepProductKey],
-            (currentStepProductKey: ProductKey | null): string => {
+            (currentStepProductKey: null | import('../../../../queries/schema').ProductKey): string => {
                 // Full-page redirect to install/authorize the GitHub App, then back to
                 // the install step. integrationsLogic's callback appends the new
                 // integration id, and loadIntegrations() repopulates githubIntegration,
@@ -209,7 +209,10 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
         ],
         // The cloud wizard auto-detects the framework, so this is a hint rather than a
         // requirement — only set when the user happens to have picked an SDK manually.
-        skillId: [(s) => [s.selectedSDK], (selectedSDK: SDK | null): string | undefined => selectedSDK?.key],
+        skillId: [
+            (s) => [s.selectedSDK],
+            (selectedSDK: null | import('~/types').SDK): string | undefined => selectedSDK?.key,
+        ],
     }),
     listeners(({ values, actions }) => ({
         startCloudRun: async () => {

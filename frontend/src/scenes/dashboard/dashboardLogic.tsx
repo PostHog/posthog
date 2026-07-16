@@ -1074,6 +1074,78 @@ export interface dashboardLogicMeta {
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
         ) => MaxContextInput[]
     }
+    __keaTypeGenInternalReducerActions: {
+        'tile moved to dashboard (models.dashboardsModel)': (
+            tile: DashboardTile<QueryBasedInsightModel>,
+            dashboardId: number
+        ) => {
+            payload: {
+                dashboardId: number
+                tile: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>
+            }
+            type: 'tile moved to dashboard (models.dashboardsModel)'
+        }
+        'update dashboard insight (models.dashboardsModel)': (
+            insight: QueryBasedInsightModel,
+            extraDashboardIds?: number[],
+            sourceDashboardId?: number
+        ) => {
+            payload: {
+                extraDashboardIds: number[] | undefined
+                insight: QueryBasedInsightModel<Node<Record<string, any>>>
+                sourceDashboardId: number | undefined
+            }
+            type: 'update dashboard insight (models.dashboardsModel)'
+        }
+        'update dashboard success (models.dashboardsModel)': (
+            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined,
+            payload?: any
+        ) => {
+            payload: {
+                dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined
+                payload?: any
+            }
+            type: 'update dashboard success (models.dashboardsModel)'
+        }
+        'rename insight success (models.insightsModel)': (item: QueryBasedInsightModel) => {
+            payload: {
+                item: QueryBasedInsightModel<Node<Record<string, any>>>
+            }
+            type: 'rename insight success (models.insightsModel)'
+        }
+        'update dashboard failure (models.dashboardsModel)': (
+            error: string,
+            errorObject?: any
+        ) => {
+            payload: {
+                error: string
+                errorObject?: any
+            }
+            type: 'update dashboard failure (models.dashboardsModel)'
+        }
+        'duplicate insight success (models.insightsModel)': (item: QueryBasedInsightModel) => {
+            payload: {
+                item: QueryBasedInsightModel<Node<Record<string, any>>>
+            }
+            type: 'duplicate insight success (models.insightsModel)'
+        }
+        'tile added to dashboard (models.dashboardsModel)': (dashboardId: number) => {
+            payload: {
+                dashboardId: number
+            }
+            type: 'tile added to dashboard (models.dashboardsModel)'
+        }
+        'load variables success (queries.nodes.DataVisualization.Components.Variables.variableDataLogic)': (
+            variables: Variable[],
+            payload?: any
+        ) => {
+            payload: {
+                payload?: any
+                variables: Variable[]
+            }
+            type: 'load variables success (queries.nodes.DataVisualization.Components.Variables.variableDataLogic)'
+        }
+    }
 }
 
 export type dashboardLogicType = MakeLogicType<
@@ -2275,7 +2347,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
     selectors(() => ({
         shouldUseStreaming: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => {
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean => {
                 const hasFeatureFlag = !!featureFlags[FEATURE_FLAGS.SSE_DASHBOARDS]
                 const hasSSESupport = typeof EventSource !== 'undefined'
                 return hasFeatureFlag && hasSSESupport
@@ -2283,7 +2355,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         canAutoPreview: [
             (s) => [s.insightTiles],
-            (insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]) => {
+            (
+                insightTiles: DashboardTile<
+                    QueryBasedInsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>>
+                >[]
+            ) => {
                 const payload = getFeatureFlagPayload(FEATURE_FLAGS.DASHBOARD_AUTO_PREVIEW_LIMIT)
                 const limit = typeof payload === 'number' ? payload : DEFAULT_AUTO_PREVIEW_TILE_LIMIT
                 // The limit is about the number of insights on a dashboard (per the flag's intent),
@@ -2316,7 +2392,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         effectiveEditBarFilters: [
             (s) => [s.dashboard, s.externalFilters, s.urlFilters, s.intermittentFilters],
             (
-                dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
                 externalFilters: DashboardFilter,
                 urlFilters: DashboardFilter,
                 intermittentFilters: DashboardFilter
@@ -2342,10 +2418,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         effectiveDashboardVariableOverrides: [
             (s) => [s.dashboard, s.urlVariables],
-            (
-                dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
-                urlVariables: Record<string, HogQLVariable>
-            ) => ({ ...dashboard?.persisted_variables, ...urlVariables }),
+            (dashboard: DashboardType<QueryBasedInsightModel> | null, urlVariables: Record<string, HogQLVariable>) => ({
+                ...dashboard?.persisted_variables,
+                ...urlVariables,
+            }),
         ],
         hasUnsavedLayoutChanges: [
             (s) => [s.dashboard, s.dashboardLayouts],
@@ -2509,19 +2585,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         tiles: [
             (s) => [s.dashboard],
-            (dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null) =>
+            (dashboard: DashboardType<QueryBasedInsightModel> | null) =>
                 dashboard?.tiles?.filter((t) => !t.deleted) || [],
         ],
         widgetTiles: [
             (s) => [s.tiles],
-            (tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]) =>
-                tiles.filter((t) => !!t.widget),
+            (
+                tiles: DashboardTile<
+                    QueryBasedInsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>>
+                >[]
+            ) => tiles.filter((t) => !!t.widget),
         ],
         dashboardWidgetsEnabled: [
             (s) => [s.featureFlags, s.tiles, s.placement],
             (
-                featureFlags: FeatureFlagsSet,
-                tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[],
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                tiles: DashboardTile<
+                    QueryBasedInsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>>
+                >[],
                 placement: DashboardPlacement
             ): boolean => {
                 // Shared dashboards don't receive team feature flags; render widget tiles when
@@ -2534,17 +2615,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         inlineTileInsertionEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION],
         ],
         insightTiles: [
             (s) => [s.tiles],
-            (tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]) =>
-                tiles.filter((t) => !!t.insight).filter((i) => !i.insight?.deleted),
+            (
+                tiles: DashboardTile<
+                    QueryBasedInsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>>
+                >[]
+            ) => tiles.filter((t) => !!t.insight).filter((i) => !i.insight?.deleted),
         ],
         textTiles: [
             (s) => [s.tiles],
-            (tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]) =>
-                tiles.filter((t) => !!t.text),
+            (
+                tiles: DashboardTile<
+                    QueryBasedInsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>>
+                >[]
+            ) => tiles.filter((t) => !!t.text),
         ],
         itemsLoading: [
             (s) => [s.dashboardLoading, s.dashboardStreaming, s.refreshStatus, s.initialVariablesLoaded],
@@ -2576,7 +2664,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         sortedDates: [
             (s) => [s.insightTiles],
-            (insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]): Dayjs[] => {
+            (
+                insightTiles: DashboardTile<
+                    QueryBasedInsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>>
+                >[]
+            ): Dayjs[] => {
                 if (!insightTiles || !insightTiles.length) {
                     return []
                 }
@@ -2632,7 +2724,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         canEditDashboard: [
             (s) => [s.dashboard],
-            (dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null) => {
+            (dashboard: DashboardType<QueryBasedInsightModel> | null) => {
                 return dashboard?.user_access_level
                     ? accessLevelSatisfied(
                           AccessControlResourceType.Dashboard,
@@ -2652,7 +2744,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // Sync conditions with backend can_user_restrict
             (s) => [s.dashboard, userLogic.selectors.user, teamLogic.selectors.currentTeam],
             (
-                dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
                 user: null | import('~/types').UserType,
                 currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
             ): boolean =>
@@ -2672,7 +2764,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         layouts: [
             (s) => [s.tiles],
-            (tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]) => calculateLayouts(tiles),
+            (
+                tiles: DashboardTile<
+                    QueryBasedInsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>>
+                >[]
+            ) => calculateLayouts(tiles),
             // Tile refreshes replace `tiles` once per insight response without touching geometry;
             // keeping the result reference stable stops react-grid-layout re-laying-out every tile
             // N times per dashboard refresh cycle.
@@ -2755,9 +2851,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.dashboard],
-            (
-                dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
-            ): SidePanelSceneContext | null => {
+            (dashboard: DashboardType<QueryBasedInsightModel> | null): SidePanelSceneContext | null => {
                 return dashboard
                     ? {
                           activity_scope: ActivityScope.DASHBOARD,
@@ -2777,7 +2871,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         maxContext: [
             (s) => [s.dashboard],
-            (dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null): MaxContextInput[] => {
+            (dashboard: DashboardType<QueryBasedInsightModel> | null): MaxContextInput[] => {
                 if (!dashboard) {
                     return []
                 }

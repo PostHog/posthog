@@ -64,7 +64,7 @@ export interface logsExportLogicValues {
 export interface logsExportLogicActions {
     openSidePanel: (
         tab: SidePanelTab,
-        options?: string | undefined
+        options?: string
     ) => {
         options: string | undefined
         tab: SidePanelTab

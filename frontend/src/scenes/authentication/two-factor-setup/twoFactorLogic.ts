@@ -79,7 +79,7 @@ export interface twoFactorLogicActions {
     loadAllMembers: () => {
         value: true
     } // membersLogic
-    loadUser: (resetOnFailure?: boolean | undefined) => {
+    loadUser: (resetOnFailure?: boolean) => {
         resetOnFailure: boolean | undefined
     } // userLogic
     clearGeneralError: () => {
@@ -313,7 +313,10 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
     }),
     selectors({
         is2FAEnabled: [(s) => [s.status], (status: TwoFactorStatus | null): boolean => !!status?.is_enabled],
-        canSwitchOrg: [(s) => [s.user], (user: UserType | null): boolean => (user?.organizations || []).length > 1],
+        canSwitchOrg: [
+            (s) => [s.user],
+            (user: null | import('../../../types').UserType): boolean => (user?.organizations || []).length > 1,
+        ],
     }),
     loaders(({ values, actions }) => ({
         startSetup: [

@@ -12,6 +12,8 @@ import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsVie
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
+import type { LogMessage } from '../../../../../frontend/src/queries/schema/schema-general'
+import type { PropertyFilterType, PropertyOperator } from '../../../../../frontend/src/types'
 import { LogsOrderBy, ParsedLogMessage } from '../../types'
 import { attributeLookupExpression, LogsColumnConfig } from './config/columns'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
@@ -134,18 +136,18 @@ export interface logsViewerLogicActions {
     clearLogs: () => {
         value: true
     } // logsViewerDataLogic
-    setLogs: (logs: import('~/queries/schema').LogMessage[]) => {
-        logs: import('~/queries/schema').LogMessage[]
+    setLogs: (logs: LogMessage[]) => {
+        logs: LogMessage[]
     } // logsViewerDataLogic
     addFilter: (
         key: string,
         value: string,
-        operator?: import('~/types').PropertyOperator | undefined,
-        propertyType?: import('~/types').PropertyFilterType | undefined
+        operator?: PropertyOperator | undefined,
+        propertyType?: PropertyFilterType | undefined
     ) => {
         key: string
-        operator: import('~/types').PropertyOperator
-        propertyType: import('~/types').PropertyFilterType
+        operator: PropertyOperator
+        propertyType: PropertyFilterType
         value: string
     } // logsViewerFiltersLogic
     setPrettifyJson: (prettifyJson: boolean) => {

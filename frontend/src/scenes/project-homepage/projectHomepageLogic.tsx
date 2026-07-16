@@ -120,10 +120,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
         ],
         recentItems: [
             (s) => [s.recentInsights, s.recentDashboards],
-            (
-                recentInsights: QueryBasedInsightModel<Node<Record<string, any>>>[],
-                recentDashboards: DashboardBasicType[]
-            ): RecentItem[] => {
+            (recentInsights: QueryBasedInsightModel[], recentDashboards: DashboardBasicType[]): RecentItem[] => {
                 return [
                     ...recentInsights.map((i) => ({ ...i, itemType: 'insight' as const })),
                     ...recentDashboards.map((d) => ({ ...d, itemType: 'dashboard' as const })),
@@ -139,7 +136,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
             (
                 rawDashboards: Record<
                     string,
-                    DashboardBasicType | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>
+                    DashboardBasicType | import('~/types').DashboardType<QueryBasedInsightModel>
                 >
             ): DashboardBasicType[] => {
                 return Object.values(rawDashboards).filter((d) => d.last_viewed_at && !d.deleted)

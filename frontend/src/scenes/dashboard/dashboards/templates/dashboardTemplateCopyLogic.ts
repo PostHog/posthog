@@ -160,7 +160,7 @@ export const dashboardTemplateCopyLogic = kea<dashboardTemplateCopyLogicType>([
     selectors({
         teamOptions: [
             (s) => [s.currentOrganization, s.currentTeamId],
-            (currentOrganization: OrganizationType | null, currentTeamId: number | null) =>
+            (currentOrganization: null | import('~/types').OrganizationType, currentTeamId: number | null) =>
                 (currentOrganization?.teams ?? [])
                     .filter((team) => team.id !== currentTeamId)
                     .sort((a, b) => a.name.localeCompare(b.name))

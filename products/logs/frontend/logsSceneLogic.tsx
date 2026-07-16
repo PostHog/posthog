@@ -34,6 +34,7 @@ import {
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 
+import type { LogMessage } from '../../../frontend/src/queries/schema/schema-general'
 import type { LogsOrderBy } from './types'
 
 export const getLogsSqlEditorTabId = (id: string): string => `logs-sql-editor-${id}`
@@ -97,10 +98,10 @@ export interface logsSceneLogicActions {
         viewMode: LogsViewerViewMode
     } // logsViewerConfigLogic
     fetchLogsSuccess: (
-        logs: import('~/queries/schema').LogMessage[],
+        logs: LogMessage[],
         payload?: any
     ) => {
-        logs: import('~/queries/schema').LogMessage[]
+        logs: LogMessage[]
         payload?: any
     } // logsViewerDataLogic
     handleQueryChange: (

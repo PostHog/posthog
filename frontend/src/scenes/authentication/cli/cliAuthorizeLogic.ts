@@ -132,11 +132,9 @@ export interface cliAuthorizeLogicValues {
 export interface cliAuthorizeLogicActions {
     loadUserSuccess: (
         user: UserType | null,
-        payload?:
-            | {
-                  resetOnFailure: boolean | undefined
-              }
-            | undefined
+        payload?: {
+            resetOnFailure: boolean | undefined
+        }
     ) => {
         payload?: {
             resetOnFailure: boolean | undefined
@@ -341,7 +339,10 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
         },
     })),
     selectors(() => ({
-        organizations: [(s) => [s.user], (user: UserType | null): OrganizationBasicType[] => user?.organizations ?? []],
+        organizations: [
+            (s) => [s.user],
+            (user: null | import('~/types').UserType): OrganizationBasicType[] => user?.organizations ?? [],
+        ],
         formScopeRadioValues: [
             (s) => [s.authorize],
             (authorize: CLIAuthorizeForm): Record<string, string> => {

@@ -16,6 +16,7 @@ import { urls } from 'scenes/urls'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
+import type { ProductIntentProperties } from '../../../../lib/utils/product-intents'
 import type { TeamPublicType, TeamType } from '../../../../types'
 import type { UseCaseDefinition } from '../productRecommendations'
 import {
@@ -52,13 +53,11 @@ export interface productSelectionLogicValues {
 export interface productSelectionLogicActions {
     reportOnboardingProductSelectionPath: (
         path: 'ai' | 'browsing_history' | 'manual' | 'use_case',
-        properties?:
-            | {
-                  hasBrowsingHistory?: boolean
-                  recommendedProducts?: string[]
-                  useCase?: string
-              }
-            | undefined
+        properties?: {
+            hasBrowsingHistory?: boolean
+            recommendedProducts?: string[]
+            useCase?: string
+        }
     ) => {
         path: 'ai' | 'browsing_history' | 'manual' | 'use_case'
         properties:
@@ -84,9 +83,7 @@ export interface productSelectionLogicActions {
     setOnCompleteOnboardingRedirectUrl: (url: string | null) => {
         url: string | null
     } // onboardingLogic
-    addProductIntent: (
-        properties: import('../../../../lib/utils/product-intents').ProductIntentProperties
-    ) => import('../../../../lib/utils/product-intents').ProductIntentProperties // teamLogic
+    addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     clearUseCase: () => {
         value: true
     }

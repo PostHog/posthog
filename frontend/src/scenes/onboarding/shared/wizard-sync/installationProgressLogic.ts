@@ -519,9 +519,9 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
             (
                 taskRunState: TaskRunStreamState | null,
                 progressSteps: TaskRunProgressStep[],
-                taskConnectionStatus: TaskRunConnectionStatus,
+                taskConnectionStatus: import('./taskRunStreamLogic').TaskRunConnectionStatus,
                 latestSession: WizardSessionDTOApi | null,
-                sessionConnectionStatus: WizardConnectionStatus,
+                sessionConnectionStatus: import('products/wizard/frontend/wizardSessionStreamLogic').WizardConnectionStatus,
                 sessionIsCurrent: boolean,
                 isStalled: boolean,
                 dismissedSessionId: string | null,

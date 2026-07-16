@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import type { FieldName } from 'kea-forms/lib/index'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -75,10 +76,10 @@ export interface logsAlertDetailSceneLogicActions {
         values?: LogsAlertFormType
     } // logsAlertFormLogic
     setAlertFormValue: (
-        key: import('node_modules/kea-forms/lib').FieldName,
+        key: FieldName,
         value: any
     ) => {
-        name: import('node_modules/kea-forms/lib').FieldName
+        name: FieldName
         value: any
     } // logsAlertFormLogic
     submitAlertForm: () => {

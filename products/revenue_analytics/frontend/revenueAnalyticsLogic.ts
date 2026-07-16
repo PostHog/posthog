@@ -190,11 +190,9 @@ export interface revenueAnalyticsLogicActions {
                   previous: null
                   results: never[]
               },
-        payload?:
-            | {
-                  value: true
-              }
-            | undefined
+        payload?: {
+            value: true
+        }
     ) => {
         dataWarehouseSources:
             | PaginatedResponse<ExternalDataSource>
@@ -419,11 +417,14 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             ],
         ],
 
-        revenueEnabledEvents: [(s) => [s.events], (events: RevenueAnalyticsEventItem[]) => events],
+        revenueEnabledEvents: [
+            (s) => [s.events],
+            (events: import('~/queries/schema').RevenueAnalyticsEventItem[]) => events,
+        ],
 
         revenueEnabledDataWarehouseSources: [
             (s) => [s.dataWarehouseSources],
-            (dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null) =>
+            (dataWarehouseSources: null | import('lib/api').PaginatedResponse<import('~/types').ExternalDataSource>) =>
                 dataWarehouseSources === null
                     ? null
                     : dataWarehouseSources.results.filter((source) => source.revenue_analytics_config.enabled),
@@ -443,14 +444,14 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
 
         hasRevenueEvents: [
             (s) => [s.revenueEnabledEvents],
-            (events: RevenueAnalyticsEventItem[]): boolean => {
+            (events: import('~/queries/schema').RevenueAnalyticsEventItem[]): boolean => {
                 return events.length > 0
             },
         ],
 
         hasRevenueTables: [
             (s) => [s.revenueEnabledDataWarehouseSources],
-            (dataWarehouseSources: ExternalDataSource[] | null): boolean | null => {
+            (dataWarehouseSources: import('~/types').ExternalDataSource[] | null): boolean | null => {
                 // Indicate loading state with `null` if we haven't loaded this yet
                 if (dataWarehouseSources === null) {
                     return null

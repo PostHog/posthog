@@ -5,6 +5,8 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 import { DashboardTemplateType, TemplateAvailabilityContext } from '~/types'
 
+import type { DashboardTemplateVariableType } from '../../../../types'
+import type { NewDashboardForm } from '../../newDashboardLogic'
 import { runBlankDashboardFlow, runDashboardTemplateClickFlow } from './dashboardTemplateCreationFlows'
 import { DashboardTemplateProps, dashboardTemplatesLogic } from './dashboardTemplatesLogic'
 
@@ -67,19 +69,19 @@ export interface dashboardTemplateChooserLogicActions {
     setTemplateFilter: (search: string) => {
         search: string
     } // dashboardTemplatesLogic
-    addDashboard: (form: Partial<import('scenes/dashboard/newDashboardLogic').NewDashboardForm>) => {
-        form: Partial<import('scenes/dashboard/newDashboardLogic').NewDashboardForm>
+    addDashboard: (form: Partial<NewDashboardForm>) => {
+        form: Partial<NewDashboardForm>
     } // newDashboardLogic
     createDashboardFromTemplate: (
         template: DashboardTemplateType,
-        variables: import('~/types').DashboardTemplateVariableType[],
+        variables: DashboardTemplateVariableType[],
         redirectAfterCreation?: boolean | undefined,
         creationContext?: string | null | undefined
     ) => {
         creationContext: string | null
         redirectAfterCreation: boolean | undefined
         template: DashboardTemplateType
-        variables: import('~/types').DashboardTemplateVariableType[]
+        variables: DashboardTemplateVariableType[]
     } // newDashboardLogic
     setActiveDashboardTemplate: (template: DashboardTemplateType) => {
         template: DashboardTemplateType

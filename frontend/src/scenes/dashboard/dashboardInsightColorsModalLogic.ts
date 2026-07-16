@@ -165,10 +165,8 @@ export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalL
         breakdownValues: [
             (s) => [s.insightTiles, s.allCohorts],
             (
-                insightTiles:
-                    | DashboardTile<QueryBasedInsightModel<import('../../queries/schema').Node<Record<string, any>>>>[]
-                    | null,
-                allCohorts: CountedPaginatedResponse<CohortType>
+                insightTiles: DashboardTile<QueryBasedInsightModel>[] | null,
+                allCohorts: import('../../lib/api').CountedPaginatedResponse<CohortType>
             ) => extractBreakdownValues(insightTiles, allCohorts?.results),
         ],
     }),

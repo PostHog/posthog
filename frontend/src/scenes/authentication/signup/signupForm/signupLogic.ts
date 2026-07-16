@@ -850,7 +850,7 @@ export const signupLogic = kea<signupLogicType>([
         ],
         passkeySignupEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => {
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean => {
                 return !!featureFlags[FEATURE_FLAGS.PASSKEY_SIGNUP_ENABLED]
             },
         ],
@@ -859,7 +859,7 @@ export const signupLogic = kea<signupLogicType>([
             (
                 panel: number,
                 passkeySignupEnabled: boolean,
-                preflight: PreflightStatus | null,
+                preflight: null | import('../../../../types').PreflightStatus,
                 pendingInvite: PendingInvite | null
             ): string => {
                 if (panel === 0 && pendingInvite) {

@@ -257,7 +257,7 @@ export const setupWizardStatusLogic = kea<setupWizardStatusLogicType>([
         liveRunHandle: [
             (s) => [s.activeCloudRun, s.discoveredRun],
             (
-                activeCloudRun: CloudRunHandle | null,
+                activeCloudRun: null | import('./wizard-sync/activeCloudRunLogic').CloudRunHandle,
                 discoveredRun: DiscoveredSetupRun | null
             ): SetupRunHandle | null => {
                 if (activeCloudRun) {

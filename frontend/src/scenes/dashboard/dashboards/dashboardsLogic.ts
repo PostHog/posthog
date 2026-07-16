@@ -136,12 +136,7 @@ export interface dashboardsLogicMeta {
             )[],
             rawDashboards: Record<
                 string,
-                | DashboardBasicType
-                | import('~/types').DashboardType<
-                      import('~/types').QueryBasedInsightModel<
-                          import('../../../queries/schema').Node<Record<string, any>>
-                      >
-                  >
+                DashboardBasicType | import('~/types').DashboardType<import('~/types').QueryBasedInsightModel>
             >,
             searchedDashboards: DashboardBasicType[] | null,
             filters: DashboardsFilters,
@@ -302,17 +297,12 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 allDashboards: unknown[],
                 rawDashboards: Record<
                     string,
-                    | DashboardBasicType
-                    | import('~/types').DashboardType<
-                          import('~/types').QueryBasedInsightModel<
-                              import('../../../queries/schema').Node<Record<string, any>>
-                          >
-                      >
+                    DashboardBasicType | import('~/types').DashboardType<import('~/types').QueryBasedInsightModel>
                 >,
                 searchedDashboards: DashboardBasicType[] | null,
                 filters: DashboardsFilters,
                 currentTab: DashboardsTab,
-                user: UserType | null
+                user: null | import('~/types').UserType
             ) => {
                 // When a search term is active we trust the server's trigram word similarity
                 // ranking; otherwise we use the model's alphabetised list. This keeps the exact

@@ -141,7 +141,7 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
     selectors({
         isAdmin: [
             (s) => [s.currentOrganization],
-            (currentOrganization: OrganizationType | null): boolean =>
+            (currentOrganization: null | import('../../types').OrganizationType): boolean =>
                 !!(
                     currentOrganization?.membership_level &&
                     currentOrganization.membership_level >= OrganizationMembershipLevel.Admin

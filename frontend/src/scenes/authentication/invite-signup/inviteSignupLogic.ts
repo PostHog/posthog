@@ -375,7 +375,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
         ],
         passkeySignupEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => {
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean => {
                 return !!featureFlags[FEATURE_FLAGS.PASSKEY_SIGNUP_ENABLED]
             },
         ],

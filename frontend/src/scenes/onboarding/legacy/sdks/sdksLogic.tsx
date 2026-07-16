@@ -16,8 +16,7 @@ import { hogql } from '~/queries/utils'
 import { SDK, SDKInstructionsMap, SDKTag, SDKTagOverrides } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../lib/logic/featureFlagLogic'
-import type { SDKKey } from '../../../../types'
-import type { UserType } from '../../../../types'
+import type { SDKKey, UserType } from '../../../../types'
 import { onboardingLogic } from '../onboardingLogic'
 import { ALL_SDKS } from './allSDKs'
 

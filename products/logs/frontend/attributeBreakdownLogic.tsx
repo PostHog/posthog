@@ -50,10 +50,10 @@ export const attributeBreakdownLogic = kea<attributeBreakdownLogicType>([
     })),
 
     selectors(({ props }) => ({
-        logCount: [(s) => [s.logs], (logs: ParsedLogMessage[]): number => logs.length],
+        logCount: [(s) => [s.logs], (logs: import('./types').ParsedLogMessage[]): number => logs.length],
         attributeValues: [
             (s) => [s.logs],
-            (logs: ParsedLogMessage[]): string[] => {
+            (logs: import('./types').ParsedLogMessage[]): string[] => {
                 let attributesKey: 'attributes' | 'resource_attributes' = 'attributes'
                 if (props.type === PropertyFilterType.LogResourceAttribute) {
                     attributesKey = 'resource_attributes'

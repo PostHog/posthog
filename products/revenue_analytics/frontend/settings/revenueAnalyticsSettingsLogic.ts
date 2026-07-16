@@ -27,8 +27,12 @@ import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/l
 
 import type { PaginatedResponse } from '../../../../frontend/src/lib/api'
 import type { DatabaseSchemaQueryResponse } from '../../../../frontend/src/queries/schema/schema-general'
-import type { TeamPublicType, TeamType } from '../../../../frontend/src/types'
-import type { DataWarehouseViewLink } from '../../../../frontend/src/types'
+import type {
+    DataWarehouseViewLink,
+    ExternalDataSourceRevenueAnalyticsConfig,
+    TeamPublicType,
+    TeamType,
+} from '../../../../frontend/src/types'
 
 const createEmptyConfig = (): RevenueAnalyticsConfig => ({
     events: [],
@@ -101,11 +105,14 @@ export interface revenueAnalyticsSettingsLogicActions {
     deleteJoin: (join: DataWarehouseViewLink) => {
         join: DataWarehouseViewLink
     } // sourceManagementLogic
-    updateSourceRevenueAnalyticsConfig: (args_0: {
-        config: Partial<import('~/types').ExternalDataSourceRevenueAnalyticsConfig>
+    updateSourceRevenueAnalyticsConfig: ({
+        source,
+        config,
+    }: {
+        config: Partial<ExternalDataSourceRevenueAnalyticsConfig>
         source: ExternalDataSource
     }) => {
-        config: Partial<import('~/types').ExternalDataSourceRevenueAnalyticsConfig>
+        config: Partial<ExternalDataSourceRevenueAnalyticsConfig>
         source: ExternalDataSource
     } // sourceManagementLogic
     updateCurrentTeam: (payload: Partial<TeamType>) => Partial<TeamType> // teamLogic
@@ -443,7 +450,9 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
 
         enabledDataWarehouseSources: [
             (s) => [s.dataWarehouseSources],
-            (dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null): ExternalDataSource[] => {
+            (
+                dataWarehouseSources: null | import('lib/api').PaginatedResponse<ExternalDataSource>
+            ): ExternalDataSource[] => {
                 return dataWarehouseSources?.results?.filter((source) => source.revenue_analytics_config.enabled) ?? []
             },
         ],
@@ -489,7 +498,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
 
         joins: [
             (s) => [s.database],
-            (database: Required<DatabaseSchemaQueryResponse> | null) => {
+            (database: Required<import('~/queries/schema').DatabaseSchemaQueryResponse> | null) => {
                 return database?.joins || []
             },
         ],

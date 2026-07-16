@@ -13,6 +13,7 @@ import type {
     OrderGroupsByEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
+import type { DateRange, LogSeverityLevel, LogsQuery } from '../../../../../frontend/src/queries/schema/schema-general'
 import type { UniversalFiltersGroup } from '../../../../../frontend/src/types'
 import type { LogsViewerGroupBy } from '../LogsViewer/config/logsViewerConfigLogic'
 import type { LogsViewerFilters } from '../LogsViewer/config/types'
@@ -51,8 +52,8 @@ export interface logsGroupByLogicActions {
     setGroupBy: (groupBy: LogsViewerGroupBy | null) => {
         groupBy: LogsViewerGroupBy | null
     } // logsViewerConfigLogic
-    setDateRange: (dateRange: import('~/queries/schema').DateRange) => {
-        dateRange: import('~/queries/schema').DateRange
+    setDateRange: (dateRange: DateRange) => {
+        dateRange: DateRange
     } // logsViewerFiltersLogic
     setFilterGroup: (
         filterGroup: UniversalFiltersGroup,
@@ -77,8 +78,8 @@ export interface logsGroupByLogicActions {
     setServiceNames: (serviceNames: string[]) => {
         serviceNames: string[]
     } // logsViewerFiltersLogic
-    setSeverityLevels: (severityLevels: import('~/queries/schema').LogSeverityLevel[]) => {
-        severityLevels: import('~/queries/schema').LogSeverityLevel[]
+    setSeverityLevels: (severityLevels: LogSeverityLevel[]) => {
+        severityLevels: LogSeverityLevel[]
     } // logsViewerFiltersLogic
     zoomDateRange: (multiplier: number) => {
         multiplier: number
