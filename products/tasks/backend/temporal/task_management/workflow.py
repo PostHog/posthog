@@ -74,6 +74,8 @@ _PATCH_ID_CLOSED_CHILD_COMPLETION_RECOVERY = "tasks-task-management-closed-child
 _PATCH_ID_CLOSED_CHILD_ACK_RETRY_RECOVERY = "tasks-task-management-closed-child-ack-retry-recovery"
 _PATCH_ID_CLEAR_STEER_ON_SANDBOX_BOUNDARY = "tasks-task-management-clear-steer-on-sandbox-boundary"
 _PATCH_ID_BOUNDED_SANDBOX_REPLACEMENT_RECOVERY = "tasks-task-management-bounded-sandbox-replacement-recovery"
+_PATCH_ID_PERSIST_REPLACEMENT_BUDGET = "tasks-task-management-persist-replacement-budget"
+_PATCH_ID_ACCEPTED_ACK_RESETS_REPLACEMENT_BUDGET = "tasks-task-management-accepted-ack-resets-replacement-budget"
 _CHILD_SIGNAL_TERMINAL_ERROR_TYPES = {
     "ExternalWorkflowExecutionNotFound",
     "NamespaceNotFound",
@@ -691,8 +693,18 @@ class TaskManagementWorkflow(PostHogWorkflow):
             return
         failures = self._consecutive_sandbox_replacement_failures
         if failures >= MAX_CONSECUTIVE_SANDBOX_REPLACEMENT_FAILURES:
-            raise RuntimeError(
-                f"Sandbox replacement failed {failures} consecutive times before acknowledging a follow-up"
+            if not _patch_enabled(_PATCH_ID_PERSIST_REPLACEMENT_BUDGET):
+                raise RuntimeError(
+                    f"Sandbox replacement failed {failures} consecutive times before acknowledging a follow-up"
+                )
+            if await self._persist_pending_followups():
+                raise RuntimeError(
+                    f"Sandbox replacement failed {failures} consecutive times before acknowledging a follow-up"
+                )
+            workflow.logger.warning(
+                "task_management_sandbox_replacement_budget_persist_failed",
+                run_id=self._run_id,
+                consecutive_failures=failures,
             )
         if failures == 0:
             return
@@ -707,11 +719,17 @@ class TaskManagementWorkflow(PostHogWorkflow):
 
     async def _recover_closed_sandbox(self, error: Exception) -> None:
         child_acks_by_id = {ack.ack_id: ack for ack in self._child_acks}
+        accepted_followup_ack = False
         requeued = 0
         for ack_id, slot in self._pending_ack_slots.items():
             ack = child_acks_by_id.get(ack_id)
-            if ack is not None and (ack.accepted or ack.detail != SHUTDOWN_REJECTION_DETAIL):
-                continue
+            if ack is not None:
+                if ack.accepted:
+                    if slot.signal_name in {SEND_FOLLOWUP_SIGNAL, SEND_STEER_SIGNAL}:
+                        accepted_followup_ack = True
+                    continue
+                if ack.detail != SHUTDOWN_REJECTION_DETAIL:
+                    continue
             if slot.signal_name not in {SEND_FOLLOWUP_SIGNAL, SEND_STEER_SIGNAL} or slot.signal_args is None:
                 continue
             _ack_id, message, artifact_ids, source, *_legacy = slot.signal_args
@@ -725,6 +743,8 @@ class TaskManagementWorkflow(PostHogWorkflow):
             )
             requeued += 1
 
+        if accepted_followup_ack and _patch_enabled(_PATCH_ID_ACCEPTED_ACK_RESETS_REPLACEMENT_BUDGET):
+            self._consecutive_sandbox_replacement_failures = 0
         self._clear_pending_steer_intent()
         if requeued:
             self._record_sandbox_replacement_failure()
@@ -854,7 +874,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
             count=len(result.followups),
         )
 
-    async def _persist_pending_followups(self) -> None:
+    async def _persist_pending_followups(self) -> bool:
         """Mirror the in-memory queue into `TaskRun.state`.
 
         Best-effort: failure here doesn't compromise the current execution,
@@ -864,10 +884,10 @@ class TaskManagementWorkflow(PostHogWorkflow):
         and an empty-to-empty no-op would still take a row lock.
         """
         if self._run_id is None:
-            return
+            return False
         payload = [asdict(f) for f in self._pending_external_followups]
         if payload == self._last_persisted_followups:
-            return
+            return True
         try:
             await workflow.execute_activity(
                 persist_pending_followups,
@@ -876,12 +896,14 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             self._last_persisted_followups = payload
+            return True
         except Exception as e:
             workflow.logger.warning(
                 "task_management_persist_pending_failed",
                 run_id=self._run_id,
                 error=str(e),
             )
+            return False
 
     # ------------------------------------------------------------------
     # Sandbox workflow management

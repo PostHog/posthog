@@ -364,17 +364,42 @@ The combined regression covers:
 - A promptless overlapping tail whose persisted final response and completion must be removed.
 - A live-only event before those duplicates that must remain present.
 
+## Replacement budget persistence and leaf-tail hydration scope
+
+### Replacement exhaustion persists the complete pending queue
+
+New task-management histories persist the current in-memory follow-up queue before failing at the five-attempt sandbox replacement boundary.
+
+This includes messages that arrived after the last successful queue snapshot. The workflow raises only after persistence succeeds. If persistence fails, it keeps the queue in memory, waits with the existing deterministic backoff, and continues replacement recovery instead of claiming the messages are safely parked.
+
+The behavior is selected with a Temporal patch so existing histories retain their recorded command sequence. Regressions cover both replay paths and the persistence-failure recovery path.
+
+### Accepted acknowledgements reset the replacement failure budget first
+
+Closed-child recovery now reconciles accepted follow-up and steer acknowledgements before it counts the current replacement failure.
+
+If follow-up A was accepted but its acknowledgement was still queued when follow-up B discovers the closed child, A resets the consecutive failure counter. B then becomes the first failure in the new sequence instead of incorrectly exhausting the previous budget.
+
+This ordering change is independently replay-gated. The regression verifies that four prior failures become one after acknowledged progress and the current closed-child recovery.
+
+### Promptless live tails cannot align with an ancestor turn
+
+Promptless live events are reconciled only against the immediate remaining hydrated suffix turn. They never search backward across earlier prompt or run occurrences for an identical completion or response payload.
+
+Repeated prompt occurrences are pre-indexed by prompt identity and task run. Event keys are cached once per turn. Prompt-bearing lookup is logarithmic in the number of matching occurrences, while promptless reconciliation inspects only one scoped candidate.
+
+The regression covers hydrated ancestor prompt and completion followed by the current prompt, with a live promptless completion identical to the ancestor. The current completion remains present and the current prompt can terminalize normally.
+
 ## Automated validation
 
 Latest validation:
 
 - Backend `process_task` workflow suite: 48 passed.
 - Backend `execute_sandbox` workflow suite: 62 passed.
-- Backend `task_management` workflow suite: 70 passed.
+- Backend `task_management` workflow suite: 74 passed.
 - Backend `task_management` activity suite: 16 passed.
-- Combined focused backend workflow run: 180 passed.
-- Focused PostHog Code session host suite: 142 passed.
-- PostHog Code UI suite: 1,523 passed across 172 files.
+- Focused PostHog Code session host suite: 143 passed.
+- PostHog Code UI suite: 1,524 passed across 172 files.
 - PostHog Code `@posthog/core` and `@posthog/ui` typechecks passed.
 - Ruff, Python compilation, Biome, and diff checks passed for the changed files.
 
@@ -394,6 +419,29 @@ The running local backend and PostHog Code desktop app were tested after a full 
 Earlier validation across the branch also covered the full UI and agent packages, OpenAPI generation, Python compilation, shared and agent typechecks, and the focused Temporal, activity, client, adapter, and app-server suites.
 
 ## Live cloud-run verification
+
+### Replacement budget and promptless leaf completion verification
+
+- Task: `0c1eaa63-7484-424f-a762-892bae079b3c`
+- Initial run: `659505ac-0cad-47d0-a2f1-a3f654b78e1a`
+- Resumed run: `38facbda-5833-493d-a272-7b977bb21dd1`
+
+The current backend and PostHog Code working trees ran through the configured backend and LLM gateway tunnels after a full Electron main-process restart.
+
+Verified:
+
+- The baseline Codex turn completed normally.
+- A queued follow-up started `sleep 40`. While it was active, the cloud control switched to Steer and accepted `E2E716STEERED` into the same turn.
+- The accepted steer returned exactly once, the superseded long-turn instruction produced no requested response, and the run had no terminal error or pending prompt.
+- The initial workflow was terminalized before the next message. The next message created a distinct resumed run linked through `state.resume_from_run_id`.
+- Before cold hydration, the resumed session was leaf-only with one restored-sandbox boundary and a complete current turn.
+- After a full Electron restart and cold reopen, the transcript contained the complete initial and resumed history. The current promptless completion remained attached to the leaf turn instead of matching the ancestor completion.
+- Semantic counts were stable: each completed prompt/reply marker appeared exactly twice, the superseded long-turn marker appeared only in its prompt, and `Restored sandbox` appeared once.
+- The cold session had `processedLineCount=54`, `eventCount=167`, no pending prompt, no error, and a complete final turn.
+- A new post-cold live follow-up returned `E2E716POSTCOLD` exactly twice. Its prompt and completion appended without a cursor gap or transcript replacement.
+- Both database runs reached `completed`, and the resumed run pointed to the exact initial run.
+
+The configured tunnels remained reachable throughout the run. The earlier tunnel URLs were stale, but `.env` already contained healthy replacements.
 
 ### Replay-gated recovery and repeated-prompt hydration verification
 

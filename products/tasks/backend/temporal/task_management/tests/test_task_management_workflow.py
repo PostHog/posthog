@@ -502,7 +502,14 @@ class TestDrainExternalSignals:
         bootstrap_mock.assert_awaited_once()
         signal_mock.assert_awaited_once()
 
-    async def test_replacement_budget_fails_before_starting_another_sandbox(self, monkeypatch, silent_workflow_logger):
+    @pytest.mark.parametrize(("persist_patch_enabled", "persist_count"), [(False, 0), (True, 1)])
+    async def test_replacement_budget_fails_before_starting_another_sandbox(
+        self,
+        monkeypatch,
+        silent_workflow_logger,
+        persist_patch_enabled: bool,
+        persist_count: int,
+    ):
         workflow = TaskManagementWorkflow()
         workflow._run_id = "run-id"
         workflow._sandbox_workflow_id = "sandbox-wf"
@@ -513,15 +520,59 @@ class TestDrainExternalSignals:
         )
 
         bootstrap_mock = AsyncMock()
+        persist_mock = AsyncMock(return_value=True)
         monkeypatch.setattr(workflow, "_ensure_sandbox_workflow_started", bootstrap_mock)
+        monkeypatch.setattr(workflow, "_persist_pending_followups", persist_mock)
+        monkeypatch.setattr(
+            task_management_workflow_module,
+            "_patch_enabled",
+            lambda patch_id: (
+                persist_patch_enabled
+                if patch_id == task_management_workflow_module._PATCH_ID_PERSIST_REPLACEMENT_BUDGET
+                else True
+            ),
+        )
 
         with pytest.raises(RuntimeError, match="before acknowledging a follow-up"):
             await workflow._drain_external_signals()
 
+        assert persist_mock.await_count == persist_count
         bootstrap_mock.assert_not_awaited()
         assert workflow._pending_external_followups == [
             PendingExternalFollowup(message="park me", artifact_ids=[], source="user")
         ]
+
+    async def test_replacement_budget_keeps_running_when_queue_cannot_be_persisted(
+        self, monkeypatch, silent_workflow_logger
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._sandbox_alive = False
+        workflow._consecutive_sandbox_replacement_failures = MAX_CONSECUTIVE_SANDBOX_REPLACEMENT_FAILURES
+        workflow._pending_external_followups.append(
+            PendingExternalFollowup(message="keep trying", artifact_ids=[], source="user")
+        )
+
+        persist_mock = AsyncMock(return_value=False)
+        sleep_mock = AsyncMock()
+
+        async def mark_replacement_alive() -> None:
+            workflow._sandbox_alive = True
+
+        bootstrap_mock = AsyncMock(side_effect=mark_replacement_alive)
+        signal_mock = AsyncMock(return_value=True)
+        monkeypatch.setattr(workflow, "_persist_pending_followups", persist_mock)
+        monkeypatch.setattr(task_management_workflow_module.workflow, "sleep", sleep_mock)
+        monkeypatch.setattr(workflow, "_ensure_sandbox_workflow_started", bootstrap_mock)
+        monkeypatch.setattr(workflow, "_signal_child_followup", signal_mock)
+
+        await workflow._drain_external_signals()
+
+        persist_mock.assert_awaited()
+        sleep_mock.assert_awaited_once()
+        bootstrap_mock.assert_awaited_once()
+        signal_mock.assert_awaited_once()
 
     async def test_closed_child_clears_all_steers_and_rebootstraps_in_order(
         self, monkeypatch, fixed_now, silent_workflow_logger
@@ -691,6 +742,68 @@ class TestSignalChildFollowup:
         # signal_args must mirror the exact bytes we sent so the retry loop
         # can replay them — the child dedupes on ack_id so a replay is safe.
         assert slot.signal_args == ["ack-generated", "m", ["a"], "ci"]
+
+    @pytest.mark.parametrize(("reset_patch_enabled", "expected_failures"), [(False, 5), (True, 1)])
+    async def test_accepted_ack_resets_replacement_budget_before_closed_child_recovery(
+        self,
+        monkeypatch,
+        fixed_now,
+        silent_workflow_logger,
+        reset_patch_enabled: bool,
+        expected_failures: int,
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._sandbox_alive = True
+        workflow._consecutive_sandbox_replacement_failures = 4
+        workflow._pending_ack_slots["ack-accepted"] = PendingAckSlot(
+            signal_name="send_followup_message",
+            sent_at=fixed_now.now,
+            signal_args=["ack-accepted", "accepted", [], "user"],
+            sequence=1,
+        )
+        workflow._child_acks.append(
+            ChildAck(
+                signal_name="send_followup_message",
+                ack_id="ack-accepted",
+                accepted=True,
+                detail=None,
+                received_at=fixed_now.now,
+            )
+        )
+
+        handle = Mock()
+        handle.signal = AsyncMock(
+            side_effect=ApplicationError(
+                "child workflow closed",
+                type="ExternalWorkflowExecutionNotFound",
+            )
+        )
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "get_external_workflow_handle",
+            Mock(return_value=handle),
+        )
+        monkeypatch.setattr(task_management_workflow_module.workflow, "uuid4", Mock(return_value="ack-closed"))
+        monkeypatch.setattr(
+            task_management_workflow_module,
+            "_patch_enabled",
+            lambda patch_id: (
+                reset_patch_enabled
+                if patch_id == task_management_workflow_module._PATCH_ID_ACCEPTED_ACK_RESETS_REPLACEMENT_BUDGET
+                else True
+            ),
+        )
+        monkeypatch.setattr(workflow, "_persist_pending_followups", AsyncMock())
+
+        delivered = await workflow._signal_child_followup("retry", [], sequence=2)
+
+        assert delivered is False
+        assert workflow._consecutive_sandbox_replacement_failures == expected_failures
+        assert workflow._pending_external_followups == [
+            PendingExternalFollowup(message="retry", artifact_ids=[], source="user", sequence=2)
+        ]
 
     @pytest.mark.parametrize(
         ("patch_enabled", "protocol_version", "expected_signal"),
