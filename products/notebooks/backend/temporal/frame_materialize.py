@@ -11,9 +11,12 @@ turns it into a 302 to a presigned GET.
 Load protection mirrors the Celery async path (`process_query_task`): a Redis Lua
 concurrency limiter gates activity starts (global + per-team), slot exhaustion and
 ClickHouse overload raise retryable errors, and Temporal's retry policy provides the
-exponential backoff with a hard schedule-to-close deadline. ClickHouse `priority` is
-deliberately not set: every other query runs at priority 0 (unprioritized), so a nonzero
-value here would participate in a scheduling class of one.
+exponential backoff with a hard schedule-to-close deadline. Queries run on the OFFLINE
+pool (batch exports' home) as the dedicated `notebooks` ClickHouse user, so a whale
+materialization contends with batch work rather than interactive queries, and the user's
+server-side profile/quota is a ceiling no application bug can exceed. ClickHouse
+`priority` is deliberately not set: every other query runs at priority 0 (unprioritized),
+so a nonzero value here would participate in a scheduling class of one.
 """
 
 import time
@@ -40,9 +43,11 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, RateLimit
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.clickhouse.workload import Workload
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControl
@@ -393,6 +398,10 @@ def _fetch_query_log_exception(ch_query_id: str) -> tuple[int, str] | None:
                 LIMIT 1
                 """,
                 {"cluster": settings.CLICKHOUSE_CLUSTER, "query_id": ch_query_id},
+                # Failure-path housekeeping for a query that ran on the offline pool —
+                # keep the lookup connection there too, off the interactive nodes.
+                workload=Workload.OFFLINE,
+                ch_user=ClickHouseUser.NOTEBOOKS,
             )
         except Exception:
             return None
@@ -438,10 +447,16 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
         # ClickHouse may still be draining, and the failure path looks the id up in
         # system.query_log to recover the real error.
         ch_query_id = f"{inputs.query_id}_{attempt}"
+        # Dedicated `notebooks` CH user (server-side profile/quota backstop no application
+        # bug can exceed); falls back to the default credentials where not provisioned.
+        ch_user, ch_password = get_clickhouse_creds(ClickHouseUser.NOTEBOOKS)
         client = ClickHouseClient(
-            url=settings.CLICKHOUSE_HTTP_URL,
-            user=settings.CLICKHOUSE_USER,
-            password=settings.CLICKHOUSE_PASSWORD,
+            # The offline pool (batch exports' home): a whale materialization must not
+            # contend with interactive queries. Falls back to the online URL where no
+            # offline cluster exists (EU, self-hosted, dev/test).
+            url=settings.CLICKHOUSE_OFFLINE_HTTP_URL,
+            user=ch_user,
+            password=ch_password,
             database=settings.CLICKHOUSE_DATABASE,
             output_format_arrow_string_as_string="true",
             cancel_http_readonly_queries_on_client_close=1,

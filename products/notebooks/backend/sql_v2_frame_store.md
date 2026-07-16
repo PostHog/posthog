@@ -119,14 +119,16 @@ token-authed; only the bulk-bytes leg moves to object storage.
 
 ## Resource governance — not hammering ClickHouse
 
-Materialization is **user-facing** — someone is waiting on their cell — so it belongs on the ONLINE pool with
-interactive queries (OFFLINE is where batch exports, usage reports, and cohort calculations run, with
-explicitly accepted latency variance and failure rates; a user-waiting query must not queue behind those).
-The risk is different: a single materialization can be far more expensive than an insight query, an
-**uncapped whale in a pool tuned for bounded queries**. The governance goal is therefore not relocation but
-making the whale impossible. Note the cap that matters is not the row count — an insight query with
-`LIMIT 50000` can still scan billions of rows; cost is bounded by execution time, bytes read, memory,
-and threads.
+Materialization runs on the **OFFLINE pool** (batch exports' home), as a **dedicated `notebooks` ClickHouse
+user**. An earlier draft argued for ONLINE — someone is waiting on their cell — but the query itself is
+batch-shaped: a 500k-row streaming pull with minutes-scale deadlines (the kernel's object-delivery poll
+already tolerates 11 minutes), far closer to a batch export than to an insight query. The decisive risk runs
+the other way: a single materialization can be far more expensive than an insight query, an **uncapped whale
+in a pool tuned for bounded queries** — so it contends with batch work, whose latency variance the async flow
+absorbs, instead of degrading interactive latency. Where no offline cluster exists (EU, self-hosted, dev/test)
+the offline URL falls back to the online one, and the remaining levers below still bound the whale. Note the
+cap that matters is not the row count — an insight query with `LIMIT 50000` can still scan billions of rows;
+cost is bounded by execution time, bytes read, memory, and threads.
 
 Layered levers:
 
@@ -140,24 +142,25 @@ Layered levers:
   for tier 1 (the typed `MEMORY_LIMIT_EXCEEDED` handling is the backstop). Further levers if data demands:
   `max_memory_usage`, `max_bytes_before_external_sort/group_by` (spill to disk), `max_network_bandwidth`
   to throttle the S3 write rate.
-- **Scheduler priority, not pool exile.** CH's `priority` setting could let materialization run ONLINE while
-  yielding CPU to interactive queries under genuine contention. Phase 1 deliberately does not set it:
-  everything else runs unprioritized (0), so a nonzero value would form a scheduling class of one — revisit
-  if the cluster ever adopts priorities broadly.
+- **No scheduler priority.** CH's `priority` setting could make materialization yield CPU to other offline
+  work under genuine contention. Phase 1 deliberately does not set it: everything else runs unprioritized
+  (0), so a nonzero value would form a scheduling class of one — revisit if the cluster ever adopts
+  priorities broadly.
 - **Tiered row ceiling.** Don't jump 50k → 2M in one step: raise to ~500k with the phase-1 transport,
   watch the footprint, then raise toward `_MATERIALIZE_ROW_CAP`.
 - **Admission control above CH.** One operation per notebook is already enforced by the operations logic;
   phase 1 adds the Redis-Lua concurrency slots (global 10, per-team 2) acquired at Temporal activity start.
   The refs resolver already minimizes demand — only frames the code actually reads are materialized.
-- **Dedicated ClickHouse user as the backstop.** The repo already splits traffic across CH users
-  (`ClickHouseUser.APP` / `API`), each governed by a server-side settings profile. A materialization user gets
-  profile limits, QUOTAs, and `max_concurrent_queries_for_user` — a hard server-enforced ceiling no
-  application bug can exceed.
+- **Dedicated ClickHouse user as the backstop (shipped).** The repo already splits traffic across CH users
+  (`ClickHouseUser.APP` / `API`), each governed by a server-side settings profile. Materializations run as
+  `ClickHouseUser.NOTEBOOKS` (credentials from `CLICKHOUSE_NOTEBOOKS_USER`/`CLICKHOUSE_NOTEBOOKS_PASSWORD`,
+  falling back to the default user where not provisioned), so the user gets profile limits, QUOTAs, and
+  `max_concurrent_queries_for_user` — a hard server-enforced ceiling no application bug can exceed.
 - **Demand elimination.** Phase 3's `query_hash` reuse means an unchanged upstream query never re-executes;
   long-term this is the strongest lever.
-- **Escalation path.** If notebooks' share of online capacity becomes meaningful, the router already supports
-  product-specific pools (`Workload.ENDPOINTS` is precedent) — a dedicated notebooks pool with online-grade
-  latency is the growth answer, decided with data rather than up front.
+- **Escalation path.** If notebooks' share of offline capacity becomes meaningful (or batch-export contention
+  starts hurting frame latency), the router already supports product-specific pools (`Workload.ENDPOINTS` is
+  precedent) — a dedicated notebooks pool is the growth answer, decided with data rather than up front.
 
 The flow is already measurable: the data plane tags queries with `Product.NOTEBOOKS`, and the Dagster
 query-log exports make its CH footprint analyzable, so the knobs can be tightened with data.
@@ -205,6 +208,10 @@ _Rollout prerequisites (per environment, before flipping the flag on):_
 - Confirm `OBJECT_STORAGE_PUBLIC_ENDPOINT` resolves and routes **from the sandbox kernel's network** — the
   kernel fetches the presigned URL directly. An internal-only host (or the local SeaweedFS docker name)
   makes every download fail (loud, not silent).
+- Provision the `notebooks` ClickHouse user (settings profile, QUOTAs, `max_concurrent_queries_for_user`) and
+  set `CLICKHOUSE_NOTEBOOKS_USER`/`CLICKHOUSE_NOTEBOOKS_PASSWORD` on the general-purpose Temporal worker
+  fleet. Deliberately fail-open: until provisioned, the flow runs as the default CH user (dev/self-hosted
+  parity), so this is a hardening prerequisite for scale, not a hard blocker for the first flip.
 - Provision the bucket lifecycle TTL (~24h) on the `notebooks/frames/` prefix **before** enabling.
   Successful objects are never deleted by app code, and query-text variations (even comment-only edits)
   mint new hashes, so without the lifecycle rule an authenticated user can accumulate unbounded durable
@@ -226,8 +233,8 @@ Two decisions locked in for this phase:
   CH query = one upload — but the materialize workflow runs on the **shared** general-purpose Temporal queue,
   so queue slots alone don't cap notebooks. The shipped throttle is the Redis-Lua concurrency limiter
   (the `process_query_task` mechanism): slots acquired at activity start, global 10 / per-team 2, bounding CH
-  concurrency, worker memory, and S3 parallelism with one knob — no dedicated CH user needed for v1 (that
-  stays as hardening), and a dedicated notebooks task queue stays a later infra option. Throttling moves load
+  concurrency, worker memory, and S3 parallelism with one knob — the dedicated `notebooks` CH user is the
+  server-side backstop behind it, and a dedicated notebooks task queue stays a later infra option. Throttling moves load
   in time (retry backoff), never above the cap; the real amplification risk is impatient re-runs, and the
   async manager's `cache_key` dedup (`get_running_query_by_cache_key`) closes it: enqueue with
   `cache_key = notebook-frame:{team}:{sha256(user_id + query)}` (user-scoped, so differently-permissioned
