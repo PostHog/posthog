@@ -146,6 +146,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return self.sync_type == self.SyncType.XMIN
 
     @property
+    def sync_halted(self) -> bool:
+        """True when syncing will not resume without user action: the sync toggle is off, CDC is
+        marked broken, or the CDC extraction schedule was paused after a non-retryable error."""
+        config = self.sync_type_config or {}
+        return not self.should_sync or bool(config.get("cdc_broken")) or bool(config.get("cdc_extraction_paused"))
+
+    @property
     def xmin_last_value(self) -> int | None:
         if self.sync_type_config:
             return self.sync_type_config.get("xmin_last_value", None)

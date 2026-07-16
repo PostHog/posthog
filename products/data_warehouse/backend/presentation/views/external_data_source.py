@@ -3983,7 +3983,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # Must be inside the atomic block so a failed schema-state reset rolls this back too.
             for schema_id in cdc_schema_ids:
                 try:
-                    update_sync_type_config_keys(schema_id, instance.team_id, removes=["cdc_broken"])
+                    update_sync_type_config_keys(
+                        schema_id, instance.team_id, removes=["cdc_broken", "cdc_extraction_paused"]
+                    )
                 except ExternalDataSchema.DoesNotExist:
                     pass
 

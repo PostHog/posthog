@@ -76,14 +76,17 @@ def notify_external_data_sync_failures(team_id: int) -> None:
             .filter(team_id=team_id, status=ExternalDataSchema.Status.FAILED)
             .filter(Q(last_error_notified_at__isnull=True) | Exists(newer_failed_job))
             .select_related("source")
-            # Paused (should_sync=False) schemas first — they need user action.
-            .order_by("should_sync", "name")
+            .order_by("name")
         )
         if not failing_schemas:
             return
 
+        # Halted schemas (paused, CDC broken, extraction paused) first — they need user action.
+        # sync_halted reads sync_type_config, so this sort happens in Python, not SQL.
+        failing_schemas.sort(key=lambda schema: not schema.sync_halted)
+
         # The template regroups on source_id, which needs schemas consecutive per
-        # source; sources with paused schemas come first.
+        # source; sources with halted schemas come first.
         schemas_by_source: dict[str, list[ExternalDataSchema]] = {}
         for schema in failing_schemas:
             schemas_by_source.setdefault(str(schema.source_id), []).append(schema)
@@ -91,7 +94,7 @@ def notify_external_data_sync_failures(team_id: int) -> None:
             schema
             for group in sorted(
                 schemas_by_source.values(),
-                key=lambda group: (group[0].should_sync, str(group[0].source.source_type).lower()),
+                key=lambda group: (not group[0].sync_halted, str(group[0].source.source_type).lower()),
             )
             for schema in group
         ]
@@ -113,7 +116,7 @@ def notify_external_data_sync_failures(team_id: int) -> None:
                     # The template truncates for display (truncatechars), and the rendered
                     # HTML is what crosses the Celery boundary — no need to cap here.
                     "error": schema.latest_error or "Unknown error",
-                    "paused": not schema.should_sync,
+                    "paused": schema.sync_halted,
                     "url": f"{source_url}?schema={quote(schema.name)}",
                 }
             )

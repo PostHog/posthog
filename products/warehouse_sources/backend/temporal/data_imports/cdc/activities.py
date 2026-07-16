@@ -1212,11 +1212,8 @@ class CDCExtractActivity:
 
         now = dt.datetime.now(tz=dt.UTC)
         for schema in self.cdc_schemas:
-            schema.status = ExternalDataSchema.Status.COMPLETED
-            schema.latest_error = None
-            schema.last_synced_at = now
-            schema.save(update_fields=["status", "latest_error", "last_synced_at", "updated_at"])
-            self._record_run_heartbeat(schema, now)
+            if not self._repaint_schema_healthy(schema, now):
+                continue
             # Per-schema breadcrumb so the Syncs UI shows _why_ the latest run produced no rows.
             self._schema_log(schema).info(
                 "cdc_extract_no_changes",
@@ -1403,22 +1400,49 @@ class CDCExtractActivity:
                 schema.status = ExternalDataSchema.Status.FAILED
                 schema.latest_error = friendly
                 schema.save(update_fields=["status", "latest_error", "updated_at"])
+                if not info.retryable:
+                    # Persisted so the failure digest email can tell "paused, action required"
+                    # apart from "will retry" — the schedule pause itself leaves no DB trace.
+                    self._update_schema_sync_type_config(
+                        schema,
+                        updates={
+                            "cdc_extraction_paused": {
+                                "reason": info.category.value,
+                                "at": dt.datetime.now(tz=dt.UTC).isoformat(),
+                            }
+                        },
+                    )
             # User-facing column gets the friendly copy; the raw error still routes to structured
             # logs / the Syncs log viewer for debugging.
             self._schema_log(schema).error(
                 "cdc_extract_schema_failed", error=str(exc), category=info.category, retryable=info.retryable
             )
+        terminal = not info.retryable or activity.info().attempt >= CDC_MAX_EXTRACTION_ATTEMPTS
         # A failure before the first micro-flush creates no ExternalDataJob, so the Syncs tab stays
         # empty while the schema reads FAILED. Backfill a terminal FAILED row per schema so the run
         # is visible — but only once retries are exhausted or the error is non-retryable, otherwise
         # every transient retry would leave a stray failed row.
-        if not self.created_jobs and (activity.info().attempt >= CDC_MAX_EXTRACTION_ATTEMPTS or not info.retryable):
+        if not self.created_jobs and terminal:
             try:
                 self._create_failure_visibility_jobs(friendly)
             except Exception:
                 self.log.warning("cdc_failure_visibility_jobs_failed", exc_info=True)
+        # mark_cdc_broken schedules the digest itself; every other terminal failure schedules it
+        # here, mirroring what update_external_job_status does for non-CDC syncs.
+        if terminal and not marked_broken:
+            self._schedule_failure_digest()
         self._emit_run_duration("failed")
         return info
+
+    def _schedule_failure_digest(self) -> None:
+        try:
+            # Deferred: the tasks module pulls Celery wiring onto the import path.
+            from products.data_warehouse.backend.facade.tasks import schedule_external_data_failure_digest
+
+            schedule_external_data_failure_digest(self.inputs.team_id, trigger="cdc")
+        except Exception:
+            # Best-effort: the daily catch-up still delivers via the FAILED job rows.
+            self.log.warning("cdc_digest_schedule_failed", exc_info=True)
 
     def _capture_non_retryable(self, info: CDCErrorInfo) -> None:
         # Best-effort: analytics must never mask the NonRetryableException the caller is about to raise.
@@ -1469,15 +1493,37 @@ class CDCExtractActivity:
             updates={"cdc_last_run_at": run_at.isoformat(), "cdc_last_run_event_count": self.event_count},
         )
 
+    def _repaint_schema_healthy(self, schema: ExternalDataSchema, now: dt.datetime) -> bool:
+        """Mark a schema COMPLETED after a successful run, respecting the absorbing broken state.
+
+        The sweeper can mark the source broken while a run is in flight (see jobs.py for the
+        loader-side twin of this guard); repainting here would hide the breakage from the UI and
+        the failure digest. Returns whether the repaint happened.
+        """
+        try:
+            schema.refresh_from_db(fields=["sync_type_config"])
+        except ExternalDataSchema.DoesNotExist:
+            return False
+        config = schema.sync_type_config or {}
+        if config.get("cdc_broken"):
+            self._schema_log(schema).info("cdc_success_repaint_skipped_broken")
+            return False
+        if config.get("cdc_extraction_paused"):
+            # A successful run proves extraction is running again; drop the stale marker.
+            self._update_schema_sync_type_config(schema, removes=["cdc_extraction_paused"])
+        schema.status = ExternalDataSchema.Status.COMPLETED
+        schema.latest_error = None
+        schema.last_synced_at = now
+        schema.save(update_fields=["status", "latest_error", "last_synced_at", "updated_at"])
+        self._record_run_heartbeat(schema, now)
+        return True
+
     def _finalize_success(self) -> None:
         now = dt.datetime.now(tz=dt.UTC)
         synced_tables = {tracker.table_name for tracker in self.write_trackers.values()}
         for schema in self.cdc_schemas:
-            schema.status = ExternalDataSchema.Status.COMPLETED
-            schema.latest_error = None
-            schema.last_synced_at = now
-            schema.save(update_fields=["status", "latest_error", "last_synced_at", "updated_at"])
-            self._record_run_heartbeat(schema, now)
+            if not self._repaint_schema_healthy(schema, now):
+                continue
             # Breadcrumb for idle tables; _handle_no_changes only covers the whole-source-quiet case.
             if schema.name not in synced_tables:
                 self._schema_log(schema).info("cdc_extract_no_changes")

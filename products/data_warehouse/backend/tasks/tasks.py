@@ -42,6 +42,18 @@ EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS = 15 * 60
 EXTERNAL_DATA_FAILURE_DIGEST_LOCK_TIMEOUT_SECONDS = 120
 
 
+def schedule_external_data_failure_digest(team_id: int, *, trigger: str = "inline") -> None:
+    """Schedule the per-team failure digest email after the burst-collapse delay.
+
+    Safe to call on every failure: the task dedupes via a per-team lock and a
+    per-digest-day campaign key.
+    """
+    send_external_data_failure_digest_task.apply_async(
+        args=[team_id], countdown=EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS
+    )
+    EXTERNAL_DATA_FAILURE_DIGEST_SCHEDULED_COUNTER.labels(trigger=trigger).inc()
+
+
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.send_external_data_failure_digest_task")
 @skip_team_scope_audit
 def send_external_data_failure_digest_task(team_id: int) -> None:
