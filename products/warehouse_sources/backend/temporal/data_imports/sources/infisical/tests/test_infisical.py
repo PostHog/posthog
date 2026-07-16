@@ -260,6 +260,43 @@ class TestTokenHandling:
         logins = [call for call in session.request.call_args_list if call.args[0] == "post"]
         assert len(logins) == 2
 
+    def test_login_exchange_is_excluded_from_sample_capture(self):
+        # The login body carries the client secret and its response the minted accessToken,
+        # both in camelCase fields the name-based sample scrubbers don't recognise — the
+        # exchange must ride a capture-disabled session, with the secret value-redacted on
+        # every session.
+        data_session, auth_session = mock.MagicMock(), mock.MagicMock()
+        auth_session.request.side_effect = [_login_response()]
+        data_session.request.side_effect = [_response(json_data={"projects": [{"id": "1"}]})]
+        factory = mock.MagicMock(side_effect=[data_session, auth_session])
+        with (
+            mock.patch.object(infisical_module, "make_tracked_session", factory),
+            mock.patch.object(infisical_module, "_is_host_safe", return_value=(True, None)),
+        ):
+            rows = [
+                row
+                for batch in get_rows(
+                    base_url="https://app.infisical.com",
+                    client_id="cid",
+                    client_secret="csecret",
+                    organization_id="org-123",
+                    endpoint="projects",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=mock.MagicMock(),
+                    team_id=1,
+                )
+                for row in batch
+            ]
+
+        assert rows == [{"id": "1"}]
+        data_session_kwargs, auth_session_kwargs = (call.kwargs for call in factory.call_args_list)
+        assert auth_session_kwargs["capture"] is False
+        assert "csecret" in auth_session_kwargs["redact_values"]
+        assert "csecret" in data_session_kwargs["redact_values"]
+        # Only the login POST goes through the capture-disabled session.
+        assert [call.args[0] for call in auth_session.request.call_args_list] == ["post"]
+        assert [call.args[0] for call in data_session.request.call_args_list] == ["get"]
+
     def test_requests_never_follow_redirects(self):
         page = _response(json_data={"projects": [{"id": "1"}]})
         _rows, session, _manager = _run_get_rows([_login_response(), page], "projects")

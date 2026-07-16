@@ -173,7 +173,12 @@ class InfisicalClient:
         self._client_secret = client_secret
         self._logger = logger
         # One session reused across every request so urllib3 keeps the connection alive.
-        self._session = make_tracked_session()
+        self._session = make_tracked_session(redact_values=(client_secret,))
+        # The login exchange carries the client secret in its request body and the minted
+        # accessToken in its response — both in camelCase fields the name-based sample
+        # scrubbers don't recognise — so keep it out of HTTP sample capture entirely
+        # (data requests stay capturable).
+        self._auth_session = make_tracked_session(redact_values=(client_secret,), capture=False)
         self._access_token: str | None = None
         self._token_refresh_at: float = 0.0
 
@@ -187,7 +192,7 @@ class InfisicalClient:
 
         try:
             response = _send(
-                self._session,
+                self._auth_session,
                 "post",
                 f"{self._base_url}/api/v1/auth/universal-auth/login",
                 self._logger,
