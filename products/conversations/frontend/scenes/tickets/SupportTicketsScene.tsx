@@ -236,10 +236,13 @@ interface SupportTicketsTableProps {
 }
 
 function SupportTicketsBulkActions(): JSX.Element {
-    const { selectedTicketIds, selectedTickets, bulkUpdating } = useValues(supportTicketsSceneLogic)
+    const { selectedTicketIds, selectedTickets, editableSelectedTicketIds, bulkUpdating } =
+        useValues(supportTicketsSceneLogic)
     const { bulkUpdateStatus } = useActions(supportTicketsSceneLogic)
 
     const hasSelection = selectedTicketIds.length > 0
+    const editableTicketIds = editableSelectedTicketIds
+    const hasRestrictedSelection = editableTicketIds.length < selectedTicketIds.length
     const selectedStatuses = selectedTickets.map((t) => t.status)
     const currentStatus = selectedStatuses.reduce<TicketStatus | 'mixed' | null>((acc, s) => {
         if (acc === null) {
@@ -252,15 +255,28 @@ function SupportTicketsBulkActions(): JSX.Element {
         <AccessControlAction resourceType={AccessControlResourceType.Ticket} minAccessLevel={AccessControlLevel.Editor}>
             <LemonSelect
                 onChange={(value) => {
-                    if (!value || value === currentStatus) {
+                    if (!value || value === currentStatus || editableTicketIds.length === 0) {
                         return
                     }
-                    bulkUpdateStatus(selectedTicketIds, value as TicketStatus)
+                    bulkUpdateStatus(editableTicketIds, value as TicketStatus)
                 }}
                 value={null}
                 placeholder="Mark as"
                 loading={bulkUpdating}
-                disabledReason={!hasSelection ? 'Select tickets first' : bulkUpdating ? 'Updating…' : undefined}
+                disabledReason={
+                    !hasSelection
+                        ? 'Select tickets first'
+                        : bulkUpdating
+                          ? 'Updating…'
+                          : editableTicketIds.length === 0
+                            ? "You don't have edit access to any of the selected tickets"
+                            : undefined
+                }
+                tooltip={
+                    hasRestrictedSelection && editableTicketIds.length > 0
+                        ? `${selectedTicketIds.length - editableTicketIds.length} selected ticket(s) will be skipped — you don't have edit access to them`
+                        : undefined
+                }
                 options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
                 size="small"
             />

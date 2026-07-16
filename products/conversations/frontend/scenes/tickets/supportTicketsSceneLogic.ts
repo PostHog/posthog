@@ -5,9 +5,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { TeamType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, TeamType } from '~/types'
 
 import type {
     AITriageFilterValue,
@@ -233,6 +234,24 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 const idSet = new Set(selectedIds)
                 return tickets.filter((t) => idSet.has(t.id))
             },
+        ],
+        // A selection can mix tickets the user can and can't edit (per-ticket object-level
+        // access). The backend would silently skip the non-editable ones anyway, but filtering
+        // here means bulk actions only ever ask for tickets we already know are editable.
+        editableSelectedTicketIds: [
+            (s) => [s.selectedTickets],
+            (selectedTickets: Ticket[]): string[] =>
+                selectedTickets
+                    .filter(
+                        (t) =>
+                            !t.user_access_level ||
+                            accessLevelSatisfied(
+                                AccessControlResourceType.Ticket,
+                                t.user_access_level,
+                                AccessControlLevel.Editor
+                            )
+                    )
+                    .map((t) => t.id),
         ],
         currentFilters: [
             (s) => [
