@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from functools import cache
 from time import perf_counter
 from types import UnionType
 from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
@@ -210,6 +211,33 @@ def get_survey_query_metric_labels(query: Any) -> dict[str, str] | None:
         "query_type": getattr(query, "kind", "Other"),
         "query_name": getattr(tags, "name", None) or UNKNOWN_QUERY_METRIC_LABEL,
     }
+
+
+def _annotation_mentions_base_model(annotation: Any) -> bool:
+    if annotation is None:
+        return False
+    if isinstance(annotation, type):
+        return issubclass(annotation, BaseModel)
+    return any(_annotation_mentions_base_model(arg) for arg in get_args(annotation))
+
+
+@cache
+def response_results_contain_models(response_class: type[BaseModel]) -> bool:
+    """Whether the class's `results` annotation can hold pydantic models (e.g. list[RetentionResult]).
+
+    Responses are only ever built by validating plain data (a cached JSON blob, or the dict a fresh
+    calculation was dumped to), so model instances can appear in `results` exactly where the
+    annotation declares a model type — `Any`/`dict[str, Any]` positions stay plain data.
+
+    Response classes are split on this roughly down the middle: many type `results` items as models,
+    while others — including the largest payloads (trends, funnels) — type them as plain data.
+    That split is historical, not a pattern to extend; this helper only exists to serve both
+    correctly, and should disappear if the response classes ever converge on one style.
+    """
+    field = response_class.model_fields.get("results")
+    if field is None:
+        return False
+    return _annotation_mentions_base_model(field.annotation)
 
 
 def execution_mode_from_refresh(refresh_requested: bool | str | None) -> ExecutionMode:
