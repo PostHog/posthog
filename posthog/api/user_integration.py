@@ -86,6 +86,11 @@ class UserGitHubIntegrationItemSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Installation account metadata from GitHub.",
     )
+    github_login = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="The connected user's own GitHub login (distinct from the installation account).",
+    )
     uses_shared_installation = serializers.BooleanField(
         help_text="True when this installation id matches a team-level GitHub integration on the active project.",
     )
@@ -792,6 +797,9 @@ def _serialize_github_integration(
         "installation_id": integration.integration_id,
         "repository_selection": integration.config.get("repository_selection"),
         "account": integration.config.get("account"),
+        # The user's own GitHub login (distinct from `account`, which is the installation's
+        # org/user). Lets the frontend tell which PR comments/reactions are the user's own.
+        "github_login": (integration.config.get("github_user") or {}).get("login"),
         "uses_shared_installation": integration.integration_id in team_integration_installation_ids,
         "created_at": integration.created_at,
     }

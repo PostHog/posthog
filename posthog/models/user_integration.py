@@ -8,6 +8,7 @@ from django.db import models
 import requests
 import structlog
 
+from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase
@@ -282,6 +283,155 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         token = self.user_access_token
         assert token is not None, "user_access_token cleared unexpectedly after refresh"
         return token
+
+    def create_pull_request_review_comment(
+        self,
+        repository: str,
+        pr_number: int,
+        body: str,
+        *,
+        in_reply_to: str | None = None,
+        commit_id: str | None = None,
+        path: str | None = None,
+        line: int | None = None,
+        side: str | None = None,
+    ) -> dict[str, Any]:
+        """Post an inline PR review comment as the user (user-to-server token).
+
+        Two shapes, matching GitHub's API: a reply to an existing thread needs only
+        ``in_reply_to`` (the thread root comment id); a new thread needs ``commit_id``
+        (the PR head SHA) + ``path`` + ``line`` (+ ``side``). The comment is attributed
+        to the user's GitHub identity, not the app.
+
+        Raises :class:`ReauthorizationRequired` when the stored user token is unusable
+        and :class:`GitHubRateLimitError` on rate limits; other failures return
+        ``{"success": False, "error": ...}``.
+        """
+        token = self.get_usable_user_access_token()
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        payload: dict[str, Any]
+        if in_reply_to is not None:
+            url = f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/comments/{in_reply_to}/replies"
+            endpoint = "/repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies"
+            payload = {"body": body}
+        else:
+            if not (commit_id and path and line):
+                return {"success": False, "error": "New comment threads need commit_id, path, and line"}
+            url = f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/comments"
+            endpoint = "/repos/{owner}/{repo}/pulls/{pull_number}/comments"
+            payload = {"body": body, "commit_id": commit_id, "path": path, "line": line, "side": side or "RIGHT"}
+
+        response = github_request(
+            "POST",
+            url,
+            source="signals_pr_review_comment",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            installation_id=self.github_installation_id,
+            priority=Priority.CRITICAL,
+            endpoint=endpoint,
+            json=payload,
+            timeout=15,
+        )
+        raise_if_github_rate_limited(response)
+        if response.status_code not in (200, 201):
+            logger.warning(
+                "UserGitHubIntegration: review comment post failed",
+                status_code=response.status_code,
+                repository=repo_path,
+                pr_number=pr_number,
+            )
+            return {
+                "success": False,
+                "error": f"GitHub rejected the comment (HTTP {response.status_code})",
+                "status_code": response.status_code,
+            }
+        return {"success": True, "comment": response.json()}
+
+    def _user_review_comment_request(
+        self,
+        method: str,
+        repository: str,
+        path_suffix: str,
+        *,
+        source: str,
+        json: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Shared transport for user-authored edits to a review comment (edit/delete/react).
+
+        ``path_suffix`` is appended to ``/repos/{repo}/pulls/comments`` — e.g. ``/{id}`` for a
+        comment or ``/{id}/reactions`` for its reactions. Returns ``{"success", ...}``; raises
+        :class:`ReauthorizationRequired`/:class:`GitHubRateLimitError` like the create path.
+        """
+        token = self.get_usable_user_access_token()
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        response = github_request(
+            method,
+            f"https://api.github.com/repos/{repo_path}/pulls/comments{path_suffix}",
+            source=source,
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            installation_id=self.github_installation_id,
+            priority=Priority.CRITICAL,
+            json=json,
+            timeout=15,
+        )
+        raise_if_github_rate_limited(response)
+        if response.status_code not in (200, 201, 204):
+            logger.warning(
+                "UserGitHubIntegration: review comment edit failed",
+                method=method,
+                status_code=response.status_code,
+                repository=repo_path,
+            )
+            return {
+                "success": False,
+                "error": f"GitHub rejected the change (HTTP {response.status_code})",
+                "status_code": response.status_code,
+            }
+        body = response.json() if response.status_code != 204 and response.content else None
+        return {"success": True, "result": body}
+
+    def update_pull_request_review_comment(self, repository: str, comment_id: str, body: str) -> dict[str, Any]:
+        """Edit an existing review comment's body as the user."""
+        result = self._user_review_comment_request(
+            "PATCH", repository, f"/{comment_id}", source="signals_pr_review_comment_edit", json={"body": body}
+        )
+        if result.get("success"):
+            return {"success": True, "comment": result.get("result")}
+        return result
+
+    def delete_pull_request_review_comment(self, repository: str, comment_id: str) -> dict[str, Any]:
+        """Delete a review comment as the user."""
+        return self._user_review_comment_request(
+            "DELETE", repository, f"/{comment_id}", source="signals_pr_review_comment_delete"
+        )
+
+    def add_pull_request_review_comment_reaction(
+        self, repository: str, comment_id: str, content: str
+    ) -> dict[str, Any]:
+        """Add an emoji reaction to a review comment as the user. ``content`` is a GitHub reaction
+        key (``+1``, ``-1``, ``laugh``, ``hooray``, ``confused``, ``heart``, ``rocket``, ``eyes``)."""
+        result = self._user_review_comment_request(
+            "POST",
+            repository,
+            f"/{comment_id}/reactions",
+            source="signals_pr_review_comment_reaction",
+            json={"content": content},
+        )
+        if result.get("success"):
+            return {"success": True, "reaction": result.get("result")}
+        return result
+
+    def delete_pull_request_review_comment_reaction(
+        self, repository: str, comment_id: str, reaction_id: str
+    ) -> dict[str, Any]:
+        """Remove one of the user's own reactions from a review comment."""
+        return self._user_review_comment_request(
+            "DELETE",
+            repository,
+            f"/{comment_id}/reactions/{reaction_id}",
+            source="signals_pr_review_comment_reaction_delete",
+        )
 
     def _apply_user_token_payload(self, payload: dict[str, Any]) -> None:
         """Write a fresh user token pair + expirations onto the integration row."""

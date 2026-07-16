@@ -2,6 +2,7 @@ import {
     MakeLogicType,
     actions,
     afterMount,
+    connect,
     kea,
     key,
     listeners,
@@ -17,6 +18,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SignalNode } from 'scenes/debug/signals/types'
+import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -25,12 +27,18 @@ import {
     signalsReportArtefactsDiff,
     signalsReportPrChecks,
     signalsReportPrComments,
+    signalsReportPrReviewCommentDestroy,
+    signalsReportPrReviewCommentReactionDestroy,
+    signalsReportPrReviewCommentReactionsCreate,
+    signalsReportPrReviewCommentsCreate,
+    signalsReportPrReviewCommentUpdate,
     signalsReportsSignalsRetrieve,
 } from 'products/signals/frontend/generated/api'
 import type {
     CommitDiffResponseApi,
     PullRequestCheckApi,
     PullRequestCommentApi,
+    PullRequestCommentReactionApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
 import type { SignalNodeApi } from '../../../../../products/signals/frontend/generated/api.schemas'
@@ -93,6 +101,44 @@ const PR_CHECKS_POLL_INTERVAL_MS = 15000
 export function getTaskPrUrl(task: Task): string | null {
     const prUrl = task.latest_run?.output?.pr_url
     return typeof prUrl === 'string' && prUrl.length > 0 ? prUrl : null
+}
+
+/**
+ * A PR comment plus client-only state layered on top of the generated shape: `pending` marks an
+ * optimistic create/edit still in flight (or failed), so the UI can show it immediately instead of
+ * letting it vanish during the request.
+ */
+export interface ClientPullRequestComment extends PullRequestCommentApi {
+    pending?: 'sending' | 'failed'
+}
+
+/** An inline review-comment thread anchored to a diff line: the root comment plus its replies, in order. */
+export interface ReviewThread {
+    /** Root comment id — the id GitHub reply calls target. */
+    rootId: string
+    path: string
+    /** Anchor line in the diff (the end line for multi-line comments). */
+    line: number
+    /** GitHub diff side: 'RIGHT' = additions, 'LEFT' = deletions. */
+    side: 'LEFT' | 'RIGHT'
+    comments: ClientPullRequestComment[]
+}
+
+/** A not-yet-posted thread the user opened on a diff line. */
+export interface DraftThread {
+    path: string
+    line: number
+    side: 'LEFT' | 'RIGHT'
+}
+
+/** Stable key for a thread or draft anchor, used for posting state and annotation metadata. */
+export function threadKey(anchor: { path: string; line: number; side: string }): string {
+    return `${anchor.path}:${anchor.side}:${anchor.line}`
+}
+
+/** Pull the most specific message out of a review-comment API error, falling back to `fallback`. */
+function reviewCommentError(error: any, fallback: string): string {
+    return error?.data?.error || error?.detail || error?.message || fallback
 }
 
 /**
@@ -310,7 +356,33 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     props({} as InboxReportDetailLogicProps),
     key((props) => props.reportId),
 
+    connect(() => ({
+        // Personal GitHub connection state gates the inline comment composer (comments post as the user).
+        values: [personalIntegrationsLogic, ['integrations as personalIntegrations']],
+    })),
+
     actions({
+        // Open a not-yet-posted comment thread on a diff line (one draft at a time).
+        openDraftThread: (draft: DraftThread) => ({ draft }),
+        closeDraftThread: true,
+        // Post an inline review comment: a reply when `inReplyTo` is set, else a new thread on the draft anchor.
+        postReviewComment: (payload: {
+            body: string
+            inReplyTo?: string
+            path?: string
+            line?: number
+            side?: 'LEFT' | 'RIGHT'
+            /** Thread/draft key the composer belongs to, for per-thread posting state. */
+            key: string
+        }) => ({ payload }),
+        postReviewCommentFinished: true,
+        // Edit / delete one of the user's own review comments (optimistic, reverts on failure).
+        editReviewComment: (commentId: string, body: string) => ({ commentId, body }),
+        deleteReviewComment: (commentId: string) => ({ commentId }),
+        // Add or remove the user's own reaction of `content` on a review comment (optimistic toggle).
+        toggleReviewCommentReaction: (commentId: string, content: string) => ({ commentId, content }),
+        // Which comment is being edited inline (null = none).
+        setEditingCommentId: (commentId: string | null) => ({ commentId }),
         setReport: (report: SignalReport | null) => ({ report }),
         // Optimistically replace the reviewer list while the PUT is in flight, then reload from the server.
         // Addressed by report (not artefact) so a report with no reviewers yet can still be assigned one.
@@ -538,6 +610,31 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 loadPrCommentsFailure: () => "Couldn't load the PR comments from GitHub.",
             },
         ],
+        // The one in-progress draft thread on a diff line. Reset when the report changes.
+        draftThread: [
+            null as DraftThread | null,
+            {
+                openDraftThread: (_, { draft }) => draft,
+                closeDraftThread: () => null,
+                setReport: () => null,
+            },
+        ],
+        // Which thread's composer has a post in flight — gates its submit button and textarea.
+        postingThreadKey: [
+            null as string | null,
+            {
+                postReviewComment: (_, { payload }) => payload.key,
+                postReviewCommentFinished: () => null,
+            },
+        ],
+        // Which comment is open for inline editing. Cleared on a successful edit or when the report changes.
+        editingCommentId: [
+            null as string | null,
+            {
+                setEditingCommentId: (_, { commentId }) => commentId,
+                setReport: () => null,
+            },
+        ],
     }),
 
     selectors({
@@ -568,6 +665,63 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         hasImplementationPr: [
             (s) => [s.report],
             (report: SignalReport | null): boolean => !!report?.implementation_pr_url,
+        ],
+        // Whether the current user has a personal GitHub connection — required to post review comments
+        // (they're attributed to the user's own GitHub identity, not the app's).
+        hasPersonalGithub: [
+            (s) => [s.personalIntegrations],
+            (personalIntegrations): boolean => (personalIntegrations ?? []).length > 0,
+        ],
+        // The current user's GitHub login (from their personal connection) — used to attribute optimistic
+        // comments and to tell which comments/reactions are the user's own (editable/removable). Note this
+        // is `github_login`, NOT `account.name` (which is the installation's org/user, e.g. "PostHog").
+        currentUserGithubLogin: [
+            (s) => [s.personalIntegrations],
+            (personalIntegrations): string | null => personalIntegrations?.[0]?.github_login ?? null,
+        ],
+        // Inline review threads grouped by file path: thread roots (review comments with a line anchor
+        // and no in_reply_to) plus their replies, in chronological order. Outdated comments (null line)
+        // are excluded here — they still show in the Comments section.
+        inlineThreadsByFile: [
+            (s) => [s.prComments],
+            (prComments: readonly PullRequestCommentApi[] | null): Record<string, ReviewThread[]> => {
+                if (!prComments) {
+                    return {}
+                }
+                const threads = new Map<string, ReviewThread>()
+                for (const comment of prComments) {
+                    if (comment.comment_type !== 'review' || !comment.path || comment.in_reply_to_id) {
+                        continue
+                    }
+                    if (comment.line == null) {
+                        continue
+                    }
+                    threads.set(comment.id, {
+                        rootId: comment.id,
+                        path: comment.path,
+                        line: comment.line,
+                        side: comment.side === 'LEFT' ? 'LEFT' : 'RIGHT',
+                        comments: [comment],
+                    })
+                }
+                for (const comment of prComments) {
+                    if (comment.comment_type !== 'review' || !comment.in_reply_to_id) {
+                        continue
+                    }
+                    threads.get(comment.in_reply_to_id)?.comments.push(comment)
+                }
+                const byFile: Record<string, ReviewThread[]> = {}
+                for (const thread of threads.values()) {
+                    ;(byFile[thread.path] ??= []).push(thread)
+                }
+                return byFile
+            },
+        ],
+        // Total inline threads, for the Files changed toolbar summary.
+        inlineThreadCount: [
+            (s) => [s.inlineThreadsByFile],
+            (inlineThreadsByFile: Record<string, ReviewThread[]>): number =>
+                Object.values(inlineThreadsByFile).reduce((sum, threads) => sum + threads.length, 0),
         ],
         // The most recent `commit` artefact — its branch is treated as the report's branch to diff
         // against the repository default branch. A report's code work may span several pushes; the
@@ -708,6 +862,162 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             } finally {
                 // Clear the optimistic override; the freshly-loaded artefact is now the source of truth.
                 actions.setOptimisticReviewers(null)
+            }
+        },
+        // Post an inline review comment as the user. The comment is inserted optimistically (marked
+        // `pending: 'sending'`) and the composer/draft closes immediately, so nothing vanishes during
+        // the request. On success the optimistic entry is replaced by the real comment; on failure it's
+        // flagged `pending: 'failed'` (kept visible so the text isn't lost) and a toast explains why.
+        postReviewComment: async ({ payload }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            const tempId = `optimistic-${payload.key}-${values.prComments?.length ?? 0}-${payload.body.length}`
+            const login = values.currentUserGithubLogin
+            const optimistic: ClientPullRequestComment = {
+                id: tempId,
+                pending: 'sending',
+                author: login,
+                author_avatar_url: login ? `https://github.com/${login}.png` : null,
+                body: payload.body,
+                created_at: new Date().toISOString(),
+                url: null,
+                comment_type: 'review',
+                path: payload.path ?? null,
+                line: payload.line ?? null,
+                start_line: null,
+                side: payload.side ?? 'RIGHT',
+                diff_hunk: null,
+                in_reply_to_id: payload.inReplyTo ?? null,
+                commit_id: null,
+                reactions: [],
+            }
+            actions.loadPrCommentsSuccess([...(values.prComments ?? []), optimistic])
+            actions.closeDraftThread()
+            try {
+                const response = await signalsReportPrReviewCommentsCreate(String(teamId), props.reportId, {
+                    body: payload.body,
+                    in_reply_to: payload.inReplyTo ?? null,
+                    path: payload.path ?? null,
+                    line: payload.line ?? null,
+                    side: payload.side ?? null,
+                })
+                actions.loadPrCommentsSuccess(
+                    (values.prComments ?? []).map((c) => (c.id === tempId ? response.comment : c))
+                )
+            } catch (error: any) {
+                actions.loadPrCommentsSuccess(
+                    (values.prComments ?? []).map((c) =>
+                        c.id === tempId ? { ...(c as ClientPullRequestComment), pending: 'failed' } : c
+                    )
+                )
+                lemonToast.error(reviewCommentError(error, "Couldn't post the comment to GitHub"))
+            } finally {
+                actions.postReviewCommentFinished()
+            }
+        },
+        // Edit one of the user's own review comments. Optimistically swaps the body in, reverts the whole
+        // list on failure so nothing is half-applied.
+        editReviewComment: async ({ commentId, body }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            const prev = values.prComments ?? []
+            actions.setEditingCommentId(null)
+            actions.loadPrCommentsSuccess(
+                prev.map((c) =>
+                    c.id === commentId ? { ...(c as ClientPullRequestComment), body, pending: 'sending' } : c
+                )
+            )
+            try {
+                const response = await signalsReportPrReviewCommentUpdate(String(teamId), props.reportId, commentId, {
+                    body,
+                })
+                actions.loadPrCommentsSuccess(
+                    (values.prComments ?? []).map((c) => (c.id === commentId ? response.comment : c))
+                )
+            } catch (error: any) {
+                actions.loadPrCommentsSuccess(prev)
+                lemonToast.error(reviewCommentError(error, "Couldn't save the edit"))
+            }
+        },
+        // Delete one of the user's own review comments. Optimistically removes it; restores on failure.
+        deleteReviewComment: async ({ commentId }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            const prev = values.prComments ?? []
+            actions.loadPrCommentsSuccess(prev.filter((c) => c.id !== commentId))
+            try {
+                await signalsReportPrReviewCommentDestroy(String(teamId), props.reportId, commentId)
+            } catch (error: any) {
+                actions.loadPrCommentsSuccess(prev)
+                lemonToast.error(reviewCommentError(error, "Couldn't delete the comment"))
+            }
+        },
+        // Toggle the user's own reaction of `content` on a comment. Optimistically adds/removes the
+        // reaction, then confirms with the server (add returns the real reaction id); reverts on failure.
+        toggleReviewCommentReaction: async ({ commentId, content }) => {
+            const teamId = teamLogic.values.currentTeamId
+            const login = values.currentUserGithubLogin
+            if (!teamId || !login) {
+                return
+            }
+            const prev = values.prComments ?? []
+            const comment = prev.find((c) => c.id === commentId)
+            const mine = comment?.reactions?.find((r) => r.content === content && r.user_login === login)
+            const setReactions = (
+                list: readonly PullRequestCommentApi[],
+                reactions: PullRequestCommentReactionApi[]
+            ): PullRequestCommentApi[] => list.map((c) => (c.id === commentId ? { ...c, reactions } : c))
+
+            if (mine) {
+                actions.loadPrCommentsSuccess(
+                    setReactions(
+                        prev,
+                        (comment?.reactions ?? []).filter((r) => r.id !== mine.id)
+                    )
+                )
+                try {
+                    await signalsReportPrReviewCommentReactionDestroy(
+                        String(teamId),
+                        props.reportId,
+                        commentId,
+                        mine.id
+                    )
+                } catch (error: any) {
+                    actions.loadPrCommentsSuccess(prev)
+                    lemonToast.error(reviewCommentError(error, "Couldn't remove the reaction"))
+                }
+                return
+            }
+
+            const tempId = `optimistic-rx-${commentId}-${content}`
+            const optimisticReaction: PullRequestCommentReactionApi = { id: tempId, content, user_login: login }
+            actions.loadPrCommentsSuccess(setReactions(prev, [...(comment?.reactions ?? []), optimisticReaction]))
+            try {
+                const response = await signalsReportPrReviewCommentReactionsCreate(
+                    String(teamId),
+                    props.reportId,
+                    commentId,
+                    { content: content as any }
+                )
+                actions.loadPrCommentsSuccess(
+                    (values.prComments ?? []).map((c) =>
+                        c.id === commentId
+                            ? {
+                                  ...c,
+                                  reactions: (c.reactions ?? []).map((r) => (r.id === tempId ? response.reaction : r)),
+                              }
+                            : c
+                    )
+                )
+            } catch (error: any) {
+                actions.loadPrCommentsSuccess(prev)
+                lemonToast.error(reviewCommentError(error, "Couldn't add the reaction"))
             }
         },
         // The artefact log is the single source for the activity timeline AND the task associations,

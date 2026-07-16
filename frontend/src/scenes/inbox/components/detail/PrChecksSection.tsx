@@ -2,9 +2,9 @@ import { useValues } from 'kea'
 
 import {
     IconCheckCircle,
+    IconCircleDashed,
     IconClockRewind,
     IconExternal,
-    IconMinus,
     IconSpinner,
     IconWarning,
     IconX,
@@ -77,7 +77,7 @@ const VARIANT_META: Record<
         summaryClassName: 'text-success',
     },
     neutral: {
-        icon: <IconMinus />,
+        icon: <IconCircleDashed />,
         label: 'Skipped',
         iconClassName: 'text-muted',
         summaryClassName: 'text-tertiary',
@@ -146,7 +146,7 @@ export function PrChecksSection({ report }: { report: SignalReport }): JSX.Eleme
             title="CI checks"
             collapsible
             defaultCollapsed={sorted.length > 0 && !hasChecksNeedingAttention}
-            rightSlot={
+            meta={
                 sorted.length > 0 ? (
                     <span className="flex items-center justify-end gap-x-2.5 gap-y-1 flex-wrap text-[0.6875rem]">
                         {VARIANT_ORDER.map((variant) => (

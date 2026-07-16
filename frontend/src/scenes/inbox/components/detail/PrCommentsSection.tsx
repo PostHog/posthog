@@ -80,7 +80,7 @@ export function PrCommentsSection({ report }: { report: SignalReport }): JSX.Ele
             title="Comments"
             collapsible
             defaultCollapsed
-            rightSlot={
+            meta={
                 prComments && prComments.length > 0 ? (
                     <span className="text-[0.6875rem] text-tertiary tabular-nums">
                         {prComments.length} comment{prComments.length === 1 ? '' : 's'}
