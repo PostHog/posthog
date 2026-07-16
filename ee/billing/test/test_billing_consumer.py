@@ -93,12 +93,14 @@ class TestBillingConsumerBillingActivity(BaseTest):
         assert log.detail["changes"][0]["after"] == 1000
 
     def test_writes_system_activity_when_distinct_id_absent(self):
-        # System-origin changes (Stripe webhooks, dunning) carry no actor.
+        # System-origin changes (Stripe webhooks, dunning) carry no actor. Even though the
+        # message carries an IP, it must not be pinned to an unattributed system row.
         self._build_consumer()._process_billing_activity(self._message(distinct_id=None))
 
         log = ActivityLog.objects.get(scope="Billing")
         assert log.user_id is None
         assert log.is_system is True
+        assert log.ip_address is None
 
     def test_does_not_attribute_distinct_id_from_another_organization(self):
         # distinct_id is globally unique; a user outside this org must never be
@@ -111,6 +113,8 @@ class TestBillingConsumerBillingActivity(BaseTest):
         log = ActivityLog.objects.get(scope="Billing")
         assert log.user_id is None
         assert log.is_system is True
+        # A foreign actor is not attributed, so its IP must not be persisted either.
+        assert log.ip_address is None
 
     @parameterized.expand(
         [
