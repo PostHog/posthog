@@ -70,7 +70,12 @@ def _headers(api_token: str) -> dict[str, str]:
 def _get_session(api_token: str) -> requests.Session:
     # The environment URL is user-supplied, so pin redirects off so host validation and the
     # outbound request stay on the same target (SSRF defense-in-depth). Redact the token from logs.
-    return make_tracked_session(headers=_headers(api_token), redact_values=(api_token,), allow_redirects=False)
+    # Body capture stays off: event properties and audit-log patches are free-form customer data
+    # that can carry secrets under keys the name-based scrubbers can't recognize. Requests are
+    # still metered and logged.
+    return make_tracked_session(
+        headers=_headers(api_token), redact_values=(api_token,), allow_redirects=False, capture=False
+    )
 
 
 def _validated_hostname(base_url: str) -> Optional[str]:
