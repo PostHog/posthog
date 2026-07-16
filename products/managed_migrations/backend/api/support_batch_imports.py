@@ -15,6 +15,7 @@ from products.managed_migrations.backend.models.batch_import_utils import (
     extract_batch_import_info,
     get_batch_import_created_by_info,
     redact_part_key,
+    redact_urls_in_text,
 )
 from products.managed_migrations.backend.models.batch_imports import BatchImport
 
@@ -56,6 +57,12 @@ class BatchImportSupportListSerializer(serializers.ModelSerializer):
 
     team_id = serializers.IntegerField(help_text="ID of the team (project) the import belongs to.")
     team_name = serializers.CharField(source="team.name", help_text="Name of the team the import belongs to.")
+    status_message = serializers.SerializerMethodField(
+        help_text="Developer-facing status message written by the worker or an operator - the primary debugging signal. Not shown to the customer. Embedded URLs have their query string and userinfo redacted, since url_list part keys can carry presigned tokens or credentials."
+    )
+    display_status_message = serializers.SerializerMethodField(
+        help_text="Customer-facing status message shown in the PostHog UI. Embedded URLs are redacted the same way as status_message."
+    )
     display_status = serializers.SerializerMethodField(
         help_text="Effective status: 'waiting_to_start' when the job is running but no worker has claimed it yet (lease_id is null), otherwise the raw status."
     )
@@ -115,10 +122,6 @@ class BatchImportSupportListSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "id": {"help_text": "UUID of the batch import job."},
             "status": {"help_text": "Raw persisted status of the job."},
-            "status_message": {
-                "help_text": "Developer-facing status message written by the worker or an operator - the primary debugging signal. Not shown to the customer."
-            },
-            "display_status_message": {"help_text": "Customer-facing status message shown in the PostHog UI."},
             "lease_id": {
                 "help_text": "Lease token of the worker currently holding the job, or null when unclaimed. Claims lease for 30 minutes; the running heartbeat renews for 5 minutes."
             },
@@ -131,6 +134,14 @@ class BatchImportSupportListSerializer(serializers.ModelSerializer):
             "created_at": {"help_text": "When the import was created."},
             "updated_at": {"help_text": "Last write to the row - the worker heartbeats this while processing."},
         }
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_status_message(self, obj: BatchImport) -> str | None:
+        return redact_urls_in_text(obj.status_message)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_display_status_message(self, obj: BatchImport) -> str | None:
+        return redact_urls_in_text(obj.display_status_message)
 
     @extend_schema_field(serializers.ChoiceField(choices=DISPLAY_STATUSES))
     def get_display_status(self, obj: BatchImport) -> str:

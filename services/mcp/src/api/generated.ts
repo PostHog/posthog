@@ -12238,15 +12238,15 @@ export namespace Schemas {
       /** Effective status: 'waiting_to_start' when the job is running but no worker has claimed it yet (lease_id is null), otherwise the raw status. */
       readonly display_status: DisplayStatusEnum;
       /**
-         * Developer-facing status message written by the worker or an operator - the primary debugging signal. Not shown to the customer.
+         * Developer-facing status message written by the worker or an operator - the primary debugging signal. Not shown to the customer. Embedded URLs have their query string and userinfo redacted, since url_list part keys can carry presigned tokens or credentials.
          * @nullable
          */
-      status_message?: string | null;
+      readonly status_message: string | null;
       /**
-         * Customer-facing status message shown in the PostHog UI.
+         * Customer-facing status message shown in the PostHog UI. Embedded URLs are redacted the same way as status_message.
          * @nullable
          */
-      display_status_message?: string | null;
+      readonly display_status_message: string | null;
       /** Worker part progress summary derived from the raw state blob. */
       readonly parts_progress: BatchImportPartsProgress;
       /** Source the job imports from (e.g. s3, mixpanel, amplitude, urls, folder), or 'unknown' if unset. */
@@ -12347,15 +12347,15 @@ export namespace Schemas {
       /** Effective status: 'waiting_to_start' when the job is running but no worker has claimed it yet (lease_id is null), otherwise the raw status. */
       readonly display_status: DisplayStatusEnum;
       /**
-         * Developer-facing status message written by the worker or an operator - the primary debugging signal. Not shown to the customer.
+         * Developer-facing status message written by the worker or an operator - the primary debugging signal. Not shown to the customer. Embedded URLs have their query string and userinfo redacted, since url_list part keys can carry presigned tokens or credentials.
          * @nullable
          */
-      status_message?: string | null;
+      readonly status_message: string | null;
       /**
-         * Customer-facing status message shown in the PostHog UI.
+         * Customer-facing status message shown in the PostHog UI. Embedded URLs are redacted the same way as status_message.
          * @nullable
          */
-      display_status_message?: string | null;
+      readonly display_status_message: string | null;
       /** Worker part progress summary derived from the raw state blob. */
       readonly parts_progress: BatchImportPartsProgress;
       /** Source the job imports from (e.g. s3, mixpanel, amplitude, urls, folder), or 'unknown' if unset. */

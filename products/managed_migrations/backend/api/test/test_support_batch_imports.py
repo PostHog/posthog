@@ -13,7 +13,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.managed_migrations.backend.api.support_batch_imports import BatchImportSupportDetailSerializer
-from products.managed_migrations.backend.models.batch_import_utils import redact_part_key
+from products.managed_migrations.backend.models.batch_import_utils import redact_part_key, redact_urls_in_text
 from products.managed_migrations.backend.models.batch_imports import BatchImport, ContentType
 
 
@@ -44,6 +44,27 @@ class TestRedactPartKey(SimpleTestCase):
     )
     def test_redact_part_key(self, _name, key, expected):
         self.assertEqual(redact_part_key(key), expected)
+
+    @parameterized.expand(
+        [
+            ("none_passthrough", None, None),
+            ("empty_passthrough", "", ""),
+            ("no_url_unchanged", "Invalid JSON syntax at offset 42", "Invalid JSON syntax at offset 42"),
+            (
+                # The worker's parse-failure shape: key quoted inside the message.
+                "worker_parse_message",
+                "Parsing data in file 'https://u:p@example.com/d.jsonl?X-Amz-Signature=abc' failed: bad utf-8",
+                "Parsing data in file 'https://example.com/d.jsonl' failed: bad utf-8",
+            ),
+            (
+                "multiple_urls",
+                "Failed https://a.com/x?t=1 then https://u:p@b.com/y",
+                "Failed https://a.com/x then https://b.com/y",
+            ),
+        ]
+    )
+    def test_redact_urls_in_text(self, _name, text, expected):
+        self.assertEqual(redact_urls_in_text(text), expected)
 
 
 class TestBatchImportSupportAPI(APIBaseTest):
@@ -277,6 +298,8 @@ class TestBatchImportSupportAPI(APIBaseTest):
             lease_id="worker-lease",
             state={"parts": [{"key": secret_url, "current_offset": 0, "total_size": None}]},
             import_config={"source": {"type": "url_list", "urls_key": "urls"}},
+            status_message=f"Parsing data in file '{secret_url}' failed: invalid JSON",
+            display_status_message=f"Part {secret_url} begins with gzip-compressed data",
         )
 
         list_response = self.client.get("/api/managed_migrations_support/")

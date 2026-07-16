@@ -1,7 +1,12 @@
+import re
 from typing import Optional
 from urllib.parse import urlsplit, urlunsplit
 
 from posthog.models.user import User
+
+# Matches scheme://... up to whitespace or a quote - the delimiters the worker uses
+# when interpolating part keys/URLs into error messages.
+_URL_IN_TEXT_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s'\"]+")
 
 
 def redact_part_key(key: object) -> object:
@@ -28,6 +33,19 @@ def redact_part_key(key: object) -> object:
     except ValueError:
         # Unparseable URL-ish key (e.g. bad port/IPv6): fail closed rather than leak.
         return "[unparseable-url-redacted]"
+
+
+def redact_urls_in_text(text: Optional[str]) -> Optional[str]:
+    """Redact credential-bearing components of any URL embedded in free text.
+
+    The worker interpolates part keys into status/display messages ("Parsing data
+    in file '<key>' failed", size/validation errors), so for url_list sources those
+    messages can carry the same presigned tokens and basic-auth credentials as the
+    keys themselves. Applies `redact_part_key` to every URL-shaped substring.
+    """
+    if not text:
+        return text
+    return _URL_IN_TEXT_RE.sub(lambda m: str(redact_part_key(m.group(0))), text)
 
 
 def extract_batch_import_info(batch_import) -> tuple[str, str, Optional[str], Optional[str]]:
