@@ -1,4 +1,3 @@
-import re
 from datetime import date, datetime, timedelta
 from json import JSONDecodeError, loads
 from typing import Any, List, Literal, cast  # noqa: UP035
@@ -7,6 +6,7 @@ from django.core.exceptions import FieldError
 from django.db.models import Q
 from django.http import HttpResponse
 
+import re2
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
@@ -191,6 +191,18 @@ def anchor_url_pattern(value: str) -> str:
     return validated_value
 
 
+def resolve_url_filter(url_exact: str | None, url_pattern: str | None) -> tuple[str | None, str | None]:
+    """Resolve which of url_exact/url_pattern the query actually filters on when both are supplied,
+    so every caller (the request serializer and the permission check) authorizes and queries the
+    same value: equal values keep url_exact, differing values keep url_pattern (matching
+    HeatmapsRequestSerializer.validate())."""
+    if isinstance(url_exact, str) and isinstance(url_pattern, str):
+        if url_exact == url_pattern:
+            return url_exact, None
+        return None, url_pattern
+    return url_exact, url_pattern
+
+
 class HeatmapsRequestSerializer(serializers.Serializer):
     viewport_width_min = serializers.IntegerField(
         required=False,
@@ -320,11 +332,11 @@ class HeatmapsRequestSerializer(serializers.Serializer):
     def validate(self, values) -> dict:
         url_exact = values.get("url_exact", None)
         url_pattern = values.get("url_pattern", None)
-        if isinstance(url_exact, str) and isinstance(url_pattern, str):
-            if url_exact == url_pattern:
-                values.pop("url_pattern")
-            else:
-                values.pop("url_exact")
+        resolved_exact, resolved_pattern = resolve_url_filter(url_exact, url_pattern)
+        if resolved_exact is None and url_exact is not None:
+            values.pop("url_exact")
+        if resolved_pattern is None and url_pattern is not None:
+            values.pop("url_pattern")
 
         if values.get("filter_test_accounts") and not isinstance(values.get("filter_test_accounts"), bool):
             raise serializers.ValidationError("filter_test_accounts must be a boolean")
@@ -463,8 +475,12 @@ class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
         except (ValueError, KeyError):
             return True
 
-        url_exact = request.query_params.get("url_exact")
-        url_pattern = None if url_exact else request.query_params.get("url_pattern")
+        # Resolve the same way HeatmapsRequestSerializer.validate() does — otherwise a caller could
+        # get authorized against url_exact while the query that actually runs reads url_pattern (or
+        # vice versa), authorizing one URL and querying another.
+        url_exact, url_pattern = resolve_url_filter(
+            request.query_params.get("url_exact"), request.query_params.get("url_pattern")
+        )
         if not url_exact and not url_pattern:
             self.message = f"You do not have {required_level} access to this resource."
             return False
@@ -472,8 +488,10 @@ class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
         pattern_re = None
         if url_pattern:
             try:
-                pattern_re = re.compile(anchor_url_pattern(url_pattern))
-            except re.error:
+                # google-re2, not stdlib `re`: matches ClickHouse's linear-time regex semantics, so a
+                # user-controlled pattern can't trigger catastrophic backtracking on this authz check.
+                pattern_re = re2.compile(anchor_url_pattern(url_pattern))
+            except re2.error:
                 self.message = f"You do not have {required_level} access to this resource."
                 return False
 

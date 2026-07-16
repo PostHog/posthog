@@ -318,6 +318,17 @@ class TestHeatmapAggregateQueryAccessControl(ClickhouseTestMixin, APIBaseTest):
         response = self._query_aggregate(url_pattern=r"https://example\.com/secret-unrelated-page")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
 
+    def test_object_grant_cannot_smuggle_unauthorized_url_via_conflicting_pattern(self):
+        # Regression: when url_exact and url_pattern differ, HeatmapsRequestSerializer.validate()
+        # drops url_exact and the query runs against url_pattern. The permission check must resolve
+        # the same way it does, or an authorized url_exact could authorize a request that then
+        # queries an unrelated, unauthorized url_pattern.
+        response = self._query_aggregate(
+            url_exact="https://example.com/authorized",
+            url_pattern=r"https://example\.com/secret-unrelated-page",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+
     def test_events_drilldown_does_not_expose_other_urls(self):
         self.client.force_login(self.viewer_user)
         response = self.client.get(
