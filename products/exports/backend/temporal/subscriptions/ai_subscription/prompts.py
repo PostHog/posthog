@@ -141,6 +141,13 @@ are common LLM mistakes that HogQL rejects:
   null-safe join keys with "Cannot determine join keys", so a JOIN will fail at execution time.
   (Person, session, and group/account data IS still available without a JOIN — see "Joined data
   available" below.)
+- `properties` (and `person.properties`) is a JSON string column, NOT a Map. Map functions
+  (`mapKeys`, `mapValues`, `mapContains`) fail at execution. To enumerate an event's property KEYS
+  use `JSONExtractKeys(properties)` — see the property-keys audit pattern below.
+- Use `arrayFlatten(...)`; `flatten(...)` is not a HogQL function and fails validation.
+- Never nest aggregate functions (e.g. `max(count())`, `sum(uniq(…))`). Compute each aggregate once
+  and derive ratios from sibling aggregates in the same SELECT
+  (e.g. `countIf(cond) / count() AS share`).
 - Window filter: write the placeholder token `{{date_range}}` verbatim where the window predicate goes.
   Never write `timestamp >= toDateTime('…')`, `now()`, `now() - INTERVAL …`, or `today()` for the window.
 - Time bucketing (for sub-windows WITHIN the range): `toStartOfHour(timestamp)`,
@@ -240,6 +247,16 @@ Breakdown by a person property (USE the dotted path, NOT a JOIN):
   WHERE {{date_range}}
   GROUP BY plan
   ORDER BY event_count DESC
+  LIMIT 50
+
+Property-keys audit (which property KEYS an event actually sends, e.g. "are properties being sent
+that aren't in our spec?"). `properties` is a JSON string, so extract keys with
+`JSONExtractKeys(properties)` and expand with `arrayJoin` — never `mapKeys(properties)`:
+  SELECT arrayJoin(JSONExtractKeys(properties)) AS key, count() AS count
+  FROM events
+  WHERE event = '$pageview' AND {{date_range}}
+  GROUP BY key
+  ORDER BY count DESC
   LIMIT 50
 
 Count distinct groups/accounts (the account itself, via the raw `$`-prefixed key, never bare
@@ -347,6 +364,13 @@ rewrite MUST follow the same HogQL syntax constraints used by the planner:
   UNNEST, or ARRAY JOIN on subqueries.
 - No JOINs of any kind, including self-joins on `event`. Use conditional aggregation instead
   (ClickHouse rejects HogQL's null-safe join keys).
+- `properties` (and `person.properties`) is a JSON string column, NOT a Map, so Map functions
+  (`mapKeys`, `mapValues`, `mapContains`) fail at execution. To enumerate property keys, replace
+  `mapKeys(properties)` with `JSONExtractKeys(properties)` (expand rows with
+  `arrayJoin(JSONExtractKeys(properties))`).
+- `flatten(...)` is not a HogQL function; replace it with `arrayFlatten(...)`.
+- Never nest aggregate functions (e.g. `max(count())`, `sum(uniq(…))`). Compute each aggregate once
+  and derive ratios from sibling aggregates in the same SELECT.
 - Schema note for "Field not found: group_<index>": to count or aggregate a group/account, the raw
   group-key column is `$group_<index>` with a leading `$` (e.g. `uniq($group_2)`,
   `uniqIf($group_2, cond)`). A bare `group_<index>` is only valid as `group_<index>.properties.<name>`;
