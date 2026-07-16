@@ -1,5 +1,6 @@
 import uuid
 import datetime as dt
+import dataclasses
 
 import pytest
 from unittest.mock import patch
@@ -38,19 +39,19 @@ class _StubSource:
 
     def gather(self, team, config, lookback_days, user_access_control) -> list[SourceItem]:
         self.user = user_access_control.user
-        return [
-            SourceItem(
-                source="stub",
-                kind=SourceItemKind.MOVEMENT,
-                title="Pageviews dropped 30%",
-                description="d",
-                metrics={"pct_change": -30.0},
-                evidence=[
-                    EvidenceRef(type=EvidenceType.INSIGHT, ref="abc", label="Pageviews", url="/project/1/insights/abc")
-                ],
-                fingerprint_hint="abc:0",
-            )
-        ]
+        return [_source_item()]
+
+
+def _source_item() -> SourceItem:
+    return SourceItem(
+        source="stub",
+        kind=SourceItemKind.MOVEMENT,
+        title="Pageviews dropped 30%",
+        description="d",
+        metrics={"pct_change": -30.0},
+        evidence=[EvidenceRef(type=EvidenceType.INSIGHT, ref="abc", label="Pageviews", url="/project/1/insights/abc")],
+        fingerprint_hint="abc:0",
+    )
 
 
 @sync_to_async
@@ -131,7 +132,9 @@ async def test_synthesize_activity_marks_ready(team, user) -> None:
     with patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()):
         status = await env.run(
             synthesize_brief_activity,
-            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[]),
+            SynthesizeActivityInputs(
+                team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(_source_item())]
+            ),
         )
     assert status == ProductBrief.Status.READY
     reloaded = await _reload_brief(brief.id)
