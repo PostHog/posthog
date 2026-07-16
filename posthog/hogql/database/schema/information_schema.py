@@ -175,9 +175,7 @@ def _classify_table(name: str, table: Table, warehouse: set[str], views: set[str
 
 
 def _visible_table_names(database: "Database") -> list[str]:
-    # `posthog.*` is an internal namespace that mostly duplicates the top-level tables — skip it
-    # to keep the catalog clean. Everything else (built-in, system, warehouse, views) is included.
-    return [n for n in database.tables.resolve_visible_table_names() if not n.startswith("posthog.")]
+    return database.tables.resolve_visible_table_names()
 
 
 # Per-column statistics surfaced into information_schema.columns: (null_fraction, min_value, max_value).

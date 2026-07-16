@@ -200,6 +200,31 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         # information_schema is self-describing
         assert rows.get("system.information_schema.columns") == "information_schema"
 
+    def test_tables_list_posthog_namespaced_tables_alongside_same_named_warehouse_tables(self):
+        self._create_warehouse_table(name="trace_spans")
+        response = execute_hogql_query(
+            """
+            SELECT table_name, table_schema, table_type
+            FROM system.information_schema.tables
+            WHERE table_name IN (
+                'trace_spans',
+                'posthog.ai_events',
+                'posthog.trace_spans',
+                'posthog.metrics',
+                'posthog.events'
+            )
+            """,
+            team=self.team,
+        )
+        rows = {row[0]: (row[1], row[2]) for row in response.results or []}
+        assert rows == {
+            "trace_spans": ("warehouse", "data_warehouse"),
+            "posthog.ai_events": ("public", "posthog"),
+            "posthog.trace_spans": ("public", "posthog"),
+            "posthog.metrics": ("public", "posthog"),
+            "posthog.events": ("public", "posthog"),
+        }
+
     def test_access_scoped_system_tables_are_filtered(self):
         # Access-scoped system tables the caller can't reach must not leak into the catalog,
         # while unscoped ones remain visible — mirroring the SQL editor's access decision.
@@ -248,6 +273,20 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         # `event` is a non-nullable string column
         assert columns["event"][0] == "String"
 
+    def test_columns_list_posthog_namespaced_table_columns(self):
+        response = execute_hogql_query(
+            """
+            SELECT column_name, data_type
+            FROM system.information_schema.columns
+            WHERE table_name = 'posthog.trace_spans'
+            """,
+            team=self.team,
+        )
+        columns = {row[0]: row[1] for row in response.results or []}
+        assert columns["trace_id"] == "String"
+        assert columns["duration_nano"] == "Integer"
+        assert columns["timestamp"] == "DateTime"
+
     def test_columns_surface_seeded_descriptions(self):
         response = execute_hogql_query(
             """
@@ -274,6 +313,19 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         # events.pdi is a lazy join; events.person is a field traverser
         assert any(kind == "lazy_join" for _, kind in kinds)
         assert any(kind == "field_traverser" for _, kind in kinds)
+
+    def test_relationships_list_posthog_namespaced_table_relationships(self):
+        response = execute_hogql_query(
+            """
+            SELECT source_column, relationship_kind
+            FROM system.information_schema.relationships
+            WHERE source_table = 'posthog.ai_events'
+            """,
+            team=self.team,
+        )
+        relationships = {(row[0], row[1]) for row in response.results or []}
+        assert ("distinct_id", "lazy_join") in relationships
+        assert ("person", "field_traverser") in relationships
 
     def test_data_types_is_static_reference(self):
         response = execute_hogql_query("SELECT type_name FROM system.information_schema.data_types", team=self.team)

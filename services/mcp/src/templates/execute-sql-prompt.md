@@ -19,6 +19,7 @@ If a `query-*` tool fits, use it. Default to `query-*`; SQL is the escape hatch,
 ### Common pitfalls
 
 - **For `system.*` entities, filter `information_schema` by the fully-qualified `table_name`:** use `'system.insights'`, not `'insights'`; the bare name (or a `table_schema = 'system'` split) silently returns zero rows.
+- **Namespace-only `posthog.*` tables follow the same rule:** discover the built-in `posthog.ai_events`, `posthog.trace_spans`, and `posthog.metrics` tables with their full names. A bare name such as `'trace_spans'` may be absent or refer to an unrelated warehouse table or view.
 
 ### Format SQL for readability
 
@@ -66,7 +67,7 @@ The `query-llm-trace` / `query-llm-traces-list` tools read `posthog.ai_events` f
 
 ### Observability data-plane tables: `logs`, `posthog.trace_spans`, `posthog.metrics`
 
-PostHog ingests OpenTelemetry signals into three ClickHouse-backed tables that are queryable via HogQL. **Note the namespacing asymmetry** — `logs` is registered at the root, while `trace_spans` and `metrics` live under the `posthog.` namespace and must be referenced as such (e.g. `FROM posthog.trace_spans`):
+PostHog ingests OpenTelemetry signals into three ClickHouse-backed tables that are queryable via HogQL. **Note the namespacing asymmetry** — `logs` is registered at the root, while `trace_spans` and `metrics` live under the `posthog.` namespace and must be referenced as such (e.g. `FROM posthog.trace_spans`). These namespace-only tables are discoverable through `system.information_schema` by their fully-qualified names:
 
 - `logs` — log entries. Common fields: `body` (also exposed as `message`), `severity_text`, `severity_number`, `service_name`, `attributes`, `resource_attributes`, `trace_id`, `span_id`, `timestamp`. Prefer `posthog:query-logs` for filtered list queries; reach for SQL for aggregations across services or joins with `posthog.trace_spans` / `posthog.metrics` by `trace_id`.
 - `posthog.trace_spans` — OpenTelemetry spans. Common fields: `trace_id`, `span_id`, `parent_span_id`, `is_root_span`, `name`, `service_name`, `kind` (0-5), `status_code` (0 Unset, 1 OK, 2 Error), `duration_nano`, `timestamp`, `end_time`, `attributes`, `resource_attributes`. Prefer `posthog:query-apm-spans` / `posthog:apm-trace-get` for span listing and full-trace fetches; reach for SQL for joins with `logs` / `posthog.metrics` by `trace_id`, exemplar lookups, or aggregations the typed tools don't expose.
