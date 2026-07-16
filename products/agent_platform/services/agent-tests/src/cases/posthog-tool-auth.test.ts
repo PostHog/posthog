@@ -151,7 +151,7 @@ describe('PostHog tools: act as the calling user, not the agent team', () => {
                         url: 'http://localhost:8787/mcp',
                         auth: { provider: 'posthog' },
                         default_tool_approval: 'allow',
-                        tools: ['agent-applications-list'],
+                        tools: [{ name: 'agent-applications-list', level: 'allow' }],
                     },
                 ],
             },
