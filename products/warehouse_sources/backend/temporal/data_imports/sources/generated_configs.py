@@ -688,6 +688,11 @@ class CampaynSourceConfig(config.Config):
 
 
 @config.config
+class CampfireSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class CannySourceConfig(config.Config):
     api_key: str
 
@@ -1135,7 +1140,10 @@ class Db2SourceConfig(config.Config):
 
 @config.config
 class DbtSourceConfig(config.Config):
-    pass
+    account_id: str
+    api_token: str
+    region: Literal["us", "emea", "au"] = config.value(default="us")
+    custom_base_url: str | None = None
 
 
 @config.config
@@ -4867,6 +4875,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.CAMPAIGNMANAGER360: CampaignManager360SourceConfig,
         ExternalDataSourceType.CAMPAIGNMONITOR: CampaignMonitorSourceConfig,
         ExternalDataSourceType.CAMPAYN: CampaynSourceConfig,
+        ExternalDataSourceType.CAMPFIRE: CampfireSourceConfig,
         ExternalDataSourceType.CANNY: CannySourceConfig,
         ExternalDataSourceType.CAPSULECRM: CapsuleCRMSourceConfig,
         ExternalDataSourceType.CAPTAINDATA: CaptainDataSourceConfig,

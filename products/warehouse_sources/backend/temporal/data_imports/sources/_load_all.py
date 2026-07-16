@@ -114,6 +114,7 @@ from .callrail.source import CallRailSource
 from .campaign_manager_360.source import CampaignManager360Source
 from .campaign_monitor.source import CampaignMonitorSource
 from .campayn.source import CampaynSource
+from .campfire.source import CampfireSource
 from .canny.source import CannySource
 from .capsule_crm.source import CapsuleCRMSource
 from .captain_data.source import CaptainDataSource
