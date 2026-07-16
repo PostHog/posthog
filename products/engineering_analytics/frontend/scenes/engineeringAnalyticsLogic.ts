@@ -1626,7 +1626,10 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (s) => [s.githubSources, s.sourceId, s.scopeRepo],
                 (githubSources: GitHubSourceApi[], sourceId: string | null, scopeRepo): GitHubSourceApi | null => {
                     if (!sourceId) {
-                        return githubSources[0] ?? null
+                        // Unscoped: label the first *synced* repo, matching the repo the backend resolves
+                        // by default (it skips still-backfilling repos) — else the header names repo A
+                        // while the loaders read repo B.
+                        return githubSources.find((source) => source.synced) ?? githubSources[0] ?? null
                     }
                     const byRepo =
                         scopeRepo && githubSources.find((source) => source.id === sourceId && source.repo === scopeRepo)

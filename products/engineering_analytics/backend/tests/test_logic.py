@@ -814,6 +814,23 @@ class TestMultiRepoGitHubResolution(BaseTest):
         assert tables.repository == expected_repo
         assert tables.pull_requests == expected_pr
 
+    def test_picker_marks_repos_with_both_endpoints_synced(self) -> None:
+        # `synced` drives the default page's label: a repo is synced only with both pull_requests and
+        # workflow_runs, so a still-backfilling repo (only pull_requests) is flagged unsynced and the
+        # default selection skips it — matching what the resolver reads.
+        self._multi_repo_source(
+            prefix="mark",
+            legacy_repository="PostHog/posthog",
+            repos={
+                "PostHog/posthog": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+                "posthog/posthog.com": [(PULL_REQUESTS_SCHEMA, True)],
+            },
+        )
+        assert {source.repo: source.synced for source in list_github_sources(team=self.team)} == {
+            "PostHog/posthog": True,
+            "posthog/posthog.com": False,
+        }
+
     def test_default_repo_follows_configured_order_not_alphabetical(self) -> None:
         # A new source with no legacy repo: the default (unscoped) resolve must pick the first
         # *configured* repo, matching what the picker labels as githubSources[0] — an alphabetical

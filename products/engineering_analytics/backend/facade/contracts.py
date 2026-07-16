@@ -174,6 +174,10 @@ class GitHubSource:
     repo: str
     # User-chosen warehouse table-name prefix for this source, or '' when none was set.
     prefix: str
+    # True when this repo has both pull_requests and workflow_runs synced (what the resolver needs to
+    # read it). The default (unscoped) page should select the first synced entry, so its label matches
+    # the repo the backend actually resolves — a still-backfilling repo listed first must not mislabel it.
+    synced: bool = False
 
 
 @dataclass(frozen=True)

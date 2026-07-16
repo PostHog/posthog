@@ -176,13 +176,29 @@ def list_github_sources(*, team: Team, user_access_control: "UserAccessControl |
     surfaces the same connect prompt ``resolve_github_tables`` drives. A source with no configured
     repo still yields one blank-repo entry so it never vanishes. Sources the user can't access
     (``user_access_control``) are filtered out. Each entry's ``id`` + ``repo`` are what the caller
-    passes back as ``source_id`` + ``repo`` to read that specific repo.
+    passes back as ``source_id`` + ``repo`` to read that specific repo, and ``synced`` says whether that
+    repo has both endpoints the resolver needs — so the default (unscoped) page selects the first synced
+    entry and labels it with the repo the backend actually resolves, not a still-backfilling one listed
+    first.
     """
-    return [
-        GitHubSource(id=str(source.id), repo=repo, prefix=source.prefix or "")
-        for source in _github_sources(team, user_access_control)
-        for repo in (_configured_repositories(source) or [""])
-    ]
+    entries: list[GitHubSource] = []
+    for source in _github_sources(team, user_access_control):
+        by_repo = _synced_tables_by_repo(team=team, source=source)
+        synced_repos = {
+            repo
+            for repo, tables in by_repo.items()
+            if PULL_REQUESTS_SCHEMA in tables and WORKFLOW_RUNS_SCHEMA in tables
+        }
+        for repo in _configured_repositories(source) or [""]:
+            entries.append(
+                GitHubSource(
+                    id=str(source.id),
+                    repo=repo,
+                    prefix=source.prefix or "",
+                    synced=repo.casefold() in synced_repos,
+                )
+            )
+    return entries
 
 
 class _RepoCandidate(NamedTuple):

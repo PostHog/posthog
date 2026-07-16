@@ -226,8 +226,8 @@ function makeWorkflow(overrides: Partial<WorkflowHealthRow> = {}): WorkflowHealt
 }
 
 const SOURCES: GitHubSourceApi[] = [
-    { id: 'src-older', repo: 'posthog/posthog', prefix: 'older' },
-    { id: 'src-newer', repo: 'posthog/posthog.com', prefix: 'website' },
+    { id: 'src-older', repo: 'posthog/posthog', prefix: 'older', synced: true },
+    { id: 'src-newer', repo: 'posthog/posthog.com', prefix: 'website', synced: true },
 ]
 
 describe('engineeringAnalyticsLogic', () => {
@@ -441,8 +441,8 @@ describe('engineeringAnalyticsLogic', () => {
     it('lists one option per configured repo of a multi-repo source and scopes to the picked repo', async () => {
         // One source syncing two repos → two distinct picker entries; picking one scopes source_id + repo.
         mockSources.mockResolvedValue([
-            { id: 'src-multi', repo: 'posthog/posthog', prefix: 'multi' },
-            { id: 'src-multi', repo: 'posthog/posthog.com', prefix: 'multi' },
+            { id: 'src-multi', repo: 'posthog/posthog', prefix: 'multi', synced: true },
+            { id: 'src-multi', repo: 'posthog/posthog.com', prefix: 'multi', synced: true },
         ])
         logic = engineeringAnalyticsLogic()
         logic.mount()
