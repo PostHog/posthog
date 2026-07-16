@@ -19,6 +19,9 @@ concurrency:
 permissions:
     contents: read
 
+env:
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+
 jobs:
     # Job to decide if we should run storybook ci
     # See .github/actions/paths-filter/README.md for filter semantics
@@ -466,6 +469,7 @@ jobs:
             # Capture-only: VR is the gate for visual changes, jest just captures screenshots
             - name: Run @storybook/test-runner
               id: test-runner
+              continue-on-error: true
               shell: bash
               env:
                   HOME: /root
@@ -524,6 +528,27 @@ jobs:
                   path: common/storybook/junit.xml
                   if-no-files-found: ignore
                   retention-days: 1
+
+            # Best-effort Trunk upload. The explicit verdict below keeps uploader outages from
+            # failing passing tests while allowing Trunk to quarantine known flaky stories.
+            - name: Quarantine gate
+              id: quarantine_gate
+              continue-on-error: true
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: common/storybook/junit.xml
+                  org-slug: posthog-inc
+                  variant: ${{ matrix.browser }}
+                  cli-version: '0.13.7'
+                  quarantine: true
+                  previous-step-outcome: ${{ steps.test-runner.outcome }}
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
+            - name: Fail on Storybook test failure
+              if: ${{ !cancelled() && steps.test-runner.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
+              shell: bash
+              run: exit 1
 
     # Verify changed story files are stable by re-running them multiple times.
     # Catches flaky snapshots before they land on master.
