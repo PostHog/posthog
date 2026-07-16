@@ -757,9 +757,9 @@ snapshots:
     components-hogcharts-linechart--combined-overlays--light:
         hash: v1.k794b7964.14dfe01a2843fc6520c4a47cb75d360744d221db45aefb219d12b8c0a2e85091.jNXH_Smv6Cjeso_gAxYkVi0sJxku4ecUvCs3PLSKU7o
     components-hogcharts-linechart--confidence-band-below-zero--dark:
-        hash: v1.k794b7964.0c7aaceb394edfc991d2543566ac409107f32531d0e4d52456e53b5f69703d75.tTkxlTKSJ7po5VXuEM6fbyA8rZhfDmnatcxIvGdAMJg
+        hash: v1.k794b7964.75fb342836a0ce7ec1370dccebd600cf0f7da32dba451a5c684e2d38b62c3d4c.2an212AjIAEBdvH5VwyZwe1d39XoConRd2Py02pxQ48
     components-hogcharts-linechart--confidence-band-below-zero--light:
-        hash: v1.k794b7964.b2d5510efc17ecc1cd6f34b25adf964fed3c56f6752f3e95cf0b23b59813b2da.M4hPw2IWfpnb8qYRYlZ4PD-eLfoknPJK4BVH86n_dc4
+        hash: v1.k794b7964.1a07aa1663f9089547024e0101e6c03b6f5896e07ad20b989225af21c6f88fbd.sJDvTfHfxb7jB6P4KsdxTrd-5BKVseoJ5YSOhI89pEI
     components-hogcharts-linechart--dual-y-axis--dark:
         hash: v1.k794b7964.7d3a5acab999dfc4fc7d9eeb6601d2ed47637bf13975e46b1a72c025bb58cf12.MlvaVVa6kp_drn35wHCDDaKydGxJmaJaYPQ6lZPn0TQ
     components-hogcharts-linechart--dual-y-axis--light:
@@ -5431,9 +5431,9 @@ snapshots:
     scenes-app-customer-analytics-journeys-nodes-profileflownode--optional-not-completed--light:
         hash: v1.k794b7964.165b884e9e737c00707811f9efa7d348927a432402c544b41495eac9722a1fca.wqLWQTzb1O7RBTeeyTR5l_hUeX0IpJXkgexpAQbuNWs
     scenes-app-dashboards--access-control-dashboard--dark:
-        hash: v1.k794b7964.6bbc5cd2acac63e7f9fba6f2aa33d7e2d52a8352127fed8d428219540a49b890.omqO-GOryjeLGk99ofm9J4gqx_CQWdMPupmPU6WW278
+        hash: v1.k794b7964.11fd596aad9a5ed51c4486b64828e1416573b34c63a10b2ed37b08d25da48d91.jj69suHKiPBYs2VMR83Q_FMRnb4Pg7C4lU0Pra6VdYE
     scenes-app-dashboards--access-control-dashboard--light:
-        hash: v1.k794b7964.d101d57a6d623f754e7c62f7f79c78968822118050421f72c802718fa493a933.6pV1ojpc6ehy_SZd9xEHNQ0b8ZPGi1c-nuFHYebBLI8
+        hash: v1.k794b7964.a29a85daeff98faa6ea496a8485323ea965ee6fce98e2f1f67a032cd7bd38f31.VIhetTOlL6LTRVS-ALs4f7DOMCWcDomR7fgQAlRZUvo
     scenes-app-dashboards--edit--dark:
         hash: v1.k794b7964.b85e622d121e2edfb031fec73921ba7d775a50124f5d68c8c82ad28a51985434.eFMlXYTQdWLdvwn7YobjvgCNrFbx2IMXMt2Lzs0yyo4
     scenes-app-dashboards--edit--light:
@@ -5459,9 +5459,9 @@ snapshots:
     scenes-app-dashboards--not-found--light:
         hash: v1.k794b7964.ed4b8e9397bf960ff4b19b54e722c74962b25a2ec0270ecc090eda9b6d5d7f7b.XiealyyQzU_NqFX_PQmkZiIkJcX0h_joVE0Wbl-1twc
     scenes-app-dashboards--view-only-dashboard--dark:
-        hash: v1.k794b7964.1ee0dc03f9575313eba452798bd1a1ad195840099ab6c8beb535cdec8e2a62bf.X8vY6iak_BgscSHRrhbaAYQClcpTT5TcQerf5ZA1CME
+        hash: v1.k794b7964.a65acee97de57aeef30368365580e0e2c962193d6215acf55dac639823cb0ca8.zkO7nnEw6JoWOSq1KJ1DQrXzCI1FSmD0yzRsrMwcfA0
     scenes-app-dashboards--view-only-dashboard--light:
-        hash: v1.k794b7964.47528e5f78b66dbf0a83e44d5d106dbc868b39ee6e9e00e3b2ba72094803d5af.9qvvPG9BfTZFU1dJw7jR1QvEQz7atIMP_EppulGxk9w
+        hash: v1.k794b7964.7ebc4aa50c00cbfa580fd96d32ef6565a6bd399e1ae6289278d36309c89e87f1.9xwqldb2HI9IewJABGeU3kmuyGXS-hwbloJgjznVypQ
     scenes-app-dashboards-add-insight-to-dashboard-modal--default--dark:
         hash: v1.k794b7964.65a26ab25825086d5463677deec55324c7ada5ad92d46976038a9334748fdafd.-icTyqvvUjLQRZfthpF9m2gJ513_nxn6zhe-ChRyTrI
     scenes-app-dashboards-add-insight-to-dashboard-modal--default--light:
