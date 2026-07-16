@@ -242,7 +242,7 @@ export const OAuthAuthorize = (): JSX.Element => {
 
     return (
         <div className="min-h-full overflow-y-auto">
-            <div className="max-w-2xl mx-auto py-8 px-4 sm:py-12 sm:px-6">
+            <div className="max-w-2xl mx-auto px-4 pt-8 pb-[calc(2rem+max(env(safe-area-inset-bottom),80px))] sm:py-12 sm:px-6">
                 <div className="text-center mb-4 sm:mb-8">
                     {oauthApplication.logo_uri && (
                         <div className="w-16 h-16 mx-auto mb-3 rounded-full border border-border bg-bg-light p-3 flex items-center justify-center">
