@@ -933,6 +933,23 @@ class TestBuildImportedMcpServerConfigs(TestCase):
             McpServerConfig(type="http", name="docs", url="https://docs.example.com/mcp", headers=[]),
         ]
 
+    def test_collision_detection_is_case_insensitive(self):
+        # Matches the serializer's case-insensitive validation: a name differing only in
+        # case from an existing server (or an earlier imported entry) is dropped, and the
+        # surviving entry keeps its original casing.
+        configs = build_imported_mcp_server_configs(
+            [
+                {"type": "http", "name": "Grafana", "url": "https://a.example.com/mcp"},
+                # collides case-insensitively with an already-resolved server
+                {"type": "http", "name": "POSTHOG", "url": "https://b.example.com/mcp"},
+                # collides case-insensitively with the earlier imported "Grafana"
+                {"type": "http", "name": "grafana", "url": "https://c.example.com/mcp"},
+            ],
+            existing_names={"posthog"},
+        )
+
+        assert [c.name for c in configs] == ["Grafana"]
+
 
 class TestGetImportedMcpServerConfigs(TestCase):
     """The claude-only adapter gate — codex-acp hard-fails a session on any unreachable MCP server
@@ -995,3 +1012,19 @@ class TestGetRelayedMcpServerNames(TestCase):
 
         # Names taken by already-resolved MCP configs (PostHog MCP, MCP Store, imported) win.
         assert get_relayed_mcp_server_names(task_run, {"posthog", "grafana"}) == ["playwright"]
+
+    def test_collision_detection_is_case_insensitive(self):
+        # Matches the serializer's case-insensitive validation: names differing only in case
+        # from an existing server or an earlier relayed entry are dropped, original casing kept.
+        task_run = self._task_run(
+            [
+                {"name": "Playwright"},
+                # collides case-insensitively with an already-resolved server
+                {"name": "GRAFANA"},
+                {"name": "internal-cli"},
+                # collides case-insensitively with the earlier relayed "Playwright"
+                {"name": "playwright"},
+            ]
+        )
+
+        assert get_relayed_mcp_server_names(task_run, {"grafana"}) == ["Playwright", "internal-cli"]

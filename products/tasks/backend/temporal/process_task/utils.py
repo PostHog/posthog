@@ -469,7 +469,9 @@ def build_imported_mcp_server_configs(
     """
     if not isinstance(imported_servers, list):
         return []
-    taken = set(existing_names)
+    # Case-insensitive dedup to match the serializer's validation (reserved names
+    # and within-list duplicates are compared lowercased); existing servers win.
+    taken = {n.lower() for n in existing_names}
     configs: list[McpServerConfig] = []
     for server in imported_servers:
         if not isinstance(server, dict):
@@ -478,9 +480,10 @@ def build_imported_mcp_server_configs(
         url = server.get("url")
         if not isinstance(name, str) or not name or not isinstance(url, str) or not url:
             continue
-        if name in taken:
+        name_lower = name.lower()
+        if name_lower in taken:
             continue
-        taken.add(name)
+        taken.add(name_lower)
         server_type = server.get("type")
         headers = [
             {"name": header["name"], "value": header["value"]}
@@ -515,7 +518,9 @@ def get_relayed_mcp_server_names(task_run: TaskRun, existing_names: Iterable[str
     relayed_servers = task_run.relayed_mcp_servers
     if not isinstance(relayed_servers, list):
         return []
-    taken = set(existing_names)
+    # Case-insensitive dedup to match the serializer's validation (reserved names
+    # and within-list duplicates are compared lowercased); existing servers win.
+    taken = {n.lower() for n in existing_names}
     names: list[str] = []
     for server in relayed_servers:
         if not isinstance(server, dict):
@@ -523,9 +528,10 @@ def get_relayed_mcp_server_names(task_run: TaskRun, existing_names: Iterable[str
         name = server.get("name")
         if not isinstance(name, str) or not name:
             continue
-        if name in taken:
+        name_lower = name.lower()
+        if name_lower in taken:
             continue
-        taken.add(name)
+        taken.add(name_lower)
         names.append(name)
     return names
 
