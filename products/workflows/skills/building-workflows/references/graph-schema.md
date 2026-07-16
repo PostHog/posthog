@@ -151,7 +151,7 @@ Retrieve `template-native-push` with `cdp-function-templates-retrieve` for the f
 - **`channels`** is an `integration_multi` input: its `value` is an array of **integration id numbers** (e.g. `[6, 7]`), not objects. Find the FCM/APNs integration ids with `integrations-list` (look for `kind` `firebase` / `apns`); at least one is required or the send throws "No push channel configured".
 - **Templating differs per input.** `body` is **liquid** — interpolate with `{{ person.x }}` / `{{ event.x }}` (double braces) and set `"templating": "liquid"`. `title` and the other string inputs are **hog** — use `{event.x}` / `{person.x}` (single braces). The wrong brace style leaves the expression as a literal.
 - Required: `distinctId`, `channels`, `title`. Optional: `body`, `image`, `data`, `ttlSeconds`, `android_*`, `ios_*` (retrieve the `inputs_schema` for the full set).
-- The server compiles `bytecode` and assigns `order` on each input — never send those. Push has no delivered/opened/clicked signal (FCM/APNs respond synchronously), so a successful send means "accepted for delivery", nothing more.
+- Never hand-author `bytecode` — the server compiles it from `value`. `order` (a 0-based integer per input) is optional: it only sets the field order in the editor form, so omit it unless you want a specific ordering. Push has no delivered/opened/clicked signal (FCM/APNs respond synchronously), so a successful send means "accepted for delivery", nothing more.
 
 ## Duration strings (`delay_duration`, `max_wait_duration`)
 
