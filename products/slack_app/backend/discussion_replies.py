@@ -58,6 +58,12 @@ def try_ingest_discussion_reply(
     ).exists():
         return False
 
+    # ts is the ingestion idempotency key — without it, Slack's event redelivery would create
+    # duplicate comments. A real message always carries one; claim the event but don't ingest.
+    if not event.get("ts"):
+        logger.warning("slack_discussion_reply_missing_ts", comment_slack_thread_id=str(mirror.id))
+        return True
+
     ingest_slack_discussion_reply.delay(
         comment_slack_thread_id=str(mirror.id),
         slack_user_id=str(event.get("user") or ""),

@@ -172,23 +172,27 @@ def ingest_slack_discussion_reply(
     )
     if mirror is None:
         return
+    # message_ts is the idempotency key; without it a redelivered event would duplicate the
+    # comment (the enqueuing side already refuses these — this is the fail-closed backstop).
+    if not message_ts:
+        return
     team = mirror.integration.team
     if _sync_killed(team.id):
         return
 
-    if (
-        message_ts
-        and Comment.objects.filter(
-            team_id=team.id,
-            source_comment_id=mirror.source_comment_id,
-            item_context__slack_message_ts=message_ts,
-        ).exists()
-    ):
+    if Comment.objects.filter(
+        team_id=team.id,
+        source_comment_id=mirror.source_comment_id,
+        item_context__slack_message_ts=message_ts,
+    ).exists():
         return
 
     content, rich_content = slack_to_content_and_rich_content(text, blocks)
     if not content and not rich_content:
         return
+    # Slack text has no markdown image syntax, so neutralizing it is lossless — and keeps an
+    # external participant's reply from making the discussion UI load remote images.
+    content = content.replace("![", "!\\[")
 
     try:
         client = SlackIntegration(mirror.integration).client
