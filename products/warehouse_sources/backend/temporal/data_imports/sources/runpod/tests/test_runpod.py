@@ -165,6 +165,61 @@ class TestInventoryEndpoints:
         assert rows == []
 
 
+class TestSensitiveDataStripping:
+    @parameterized.expand(["pods", "endpoints", "templates"])
+    def test_env_secrets_are_stripped_from_inventory_rows(self, endpoint: str) -> None:
+        # A user-configured env map on a Pod/endpoint/template can hold cloud credentials; it must
+        # never reach the warehouse where any project member with warehouse access could read it.
+        responses = [
+            [
+                {"id": "r1", "name": "worker", "env": {"AWS_SECRET_ACCESS_KEY": "supersecret"}},
+                {"id": "r2", "name": "trainer", "env": {}},
+            ]
+        ]
+        rows, _ = _collect(_FakeResumableManager(), responses, endpoint)
+        assert [r["id"] for r in rows] == ["r1", "r2"]
+        assert all("env" not in r for r in rows)
+
+    def test_nested_env_is_stripped_recursively(self) -> None:
+        # An endpoint can embed its template, so the secret map can be nested rather than top-level.
+        responses = [[{"id": "e1", "template": {"id": "t1", "env": {"API_KEY": "secret"}}}]]
+        rows, _ = _collect(_FakeResumableManager(), responses, "endpoints")
+        assert rows[0]["template"] == {"id": "t1"}
+        assert "env" not in rows[0]["template"]
+
+
+@freeze_time("2022-05-15T12:00:00Z")
+class TestSampleCapture:
+    @parameterized.expand(
+        [
+            ("pods", False),
+            ("endpoints", False),
+            ("templates", False),
+            ("network_volumes", True),
+            ("billing_pods", True),
+        ]
+    )
+    def test_capture_disabled_only_where_responses_carry_env_secrets(
+        self, endpoint: str, expected_capture: bool
+    ) -> None:
+        # Endpoints whose responses carry user-configured env secrets are excluded from HTTP sample
+        # capture — the env values have arbitrary names the name-based scrubbers can't redact — while
+        # secret-free endpoints keep capture on for debugging fixtures.
+        with (
+            patch.object(runpod, "_fetch_list", return_value=[]),
+            patch.object(runpod, "make_tracked_session") as mock_session,
+        ):
+            list(
+                get_rows(
+                    api_key="rpa_test",
+                    endpoint=endpoint,
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+        assert mock_session.call_args.kwargs.get("capture") is expected_capture
+
+
 class TestFetchList:
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
     def test_retryable_statuses_exhaust_retry_budget(self, _name: str, status: int) -> None:

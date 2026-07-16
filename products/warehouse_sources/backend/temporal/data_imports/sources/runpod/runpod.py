@@ -210,6 +210,21 @@ def _iter_billing_rows(
         window_start = window_end
 
 
+def _strip_sensitive_keys(value: Any, keys: tuple[str, ...]) -> Any:
+    """Recursively drop keys holding user-configured secrets (e.g. `env` maps).
+
+    Removes the whole field wherever it appears in the object graph, so a secret map nested under an
+    embedded resource (an endpoint's template, say) is stripped too. The names inside an `env` map are
+    arbitrary and user-chosen, so a key-name denylist can't recognise them — removing the container is
+    the only reliable way to keep credentials out of the warehouse.
+    """
+    if isinstance(value, dict):
+        return {k: _strip_sensitive_keys(v, keys) for k, v in value.items() if k not in keys}
+    if isinstance(value, list):
+        return [_strip_sensitive_keys(item, keys) for item in value]
+    return value
+
+
 def _iter_inventory_rows(
     session: requests.Session,
     headers: dict[str, str],
@@ -218,6 +233,8 @@ def _iter_inventory_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     # Inventory endpoints are unpaginated — the whole account snapshot arrives in one response.
     items = _fetch_list(session, _build_url(config.path, {}), headers, logger)
+    if config.sensitive_keys:
+        items = [_strip_sensitive_keys(item, config.sensitive_keys) for item in items]
     if items:
         yield items
 
@@ -232,7 +249,10 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = RUNPOD_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    session = make_tracked_session()
+    # Endpoints carrying user-configured `env` secrets are excluded from HTTP sample capture so raw
+    # response bodies with those credentials never reach captured samples (the values have arbitrary
+    # names the name-based sample scrubbers can't recognise).
+    session = make_tracked_session(capture=not config.sensitive_keys)
 
     if config.is_billing:
         yield from _iter_billing_rows(

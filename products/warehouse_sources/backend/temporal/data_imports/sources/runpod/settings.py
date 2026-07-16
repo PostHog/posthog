@@ -43,6 +43,12 @@ class RunPodEndpointConfig:
     # Only True where the API exposes a genuine server-side time filter (the billing endpoints via
     # startTime). Inventory lists have no updated-since filter, so they are full-refresh only.
     supports_incremental: bool = False
+    # Response keys holding user-configured secrets — RunPod Pods, endpoints, and templates carry an
+    # `env` map that can contain cloud access keys and other credentials. These are stripped
+    # recursively before yielding, and HTTP sample capture is disabled for the endpoint (the values
+    # have arbitrary user-chosen names the sample scrubbers can't recognise) so raw bodies with the
+    # secrets never land in captured samples.
+    sensitive_keys: tuple[str, ...] = ()
     # Billing buckets get restated while open, so append would materialize duplicates; merge-only.
     supports_append: bool = False
     default_incremental_lookback_seconds: Optional[int] = None
@@ -54,16 +60,19 @@ RUNPOD_ENDPOINTS: dict[str, RunPodEndpointConfig] = {
         name="pods",
         path="/pods",
         primary_keys=["id"],
+        sensitive_keys=("env",),
     ),
     "endpoints": RunPodEndpointConfig(
         name="endpoints",
         path="/endpoints",
         primary_keys=["id"],
+        sensitive_keys=("env",),
     ),
     "templates": RunPodEndpointConfig(
         name="templates",
         path="/templates",
         primary_keys=["id"],
+        sensitive_keys=("env",),
     ),
     "network_volumes": RunPodEndpointConfig(
         name="network_volumes",
