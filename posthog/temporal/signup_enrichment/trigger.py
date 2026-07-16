@@ -50,7 +50,9 @@ def _domain_from_email(email: str) -> str | None:
     return domain or None
 
 
-def start_signup_enrichment_workflow(*, organization_id: str, distinct_id: str | None, email: str) -> None:
+def start_signup_enrichment_workflow(
+    *, organization_id: str, distinct_id: str | None, email: str, role_at_organization: str = ""
+) -> None:
     """Dispatch enrichment for a freshly signed-up org, once the request transaction commits."""
     # The flag alone gates dispatch. Deliberately no provider-key check here: the key lives
     # only on the workers, and a keyless worker fails loudly into the launch alert instead of
@@ -70,7 +72,12 @@ def start_signup_enrichment_workflow(*, organization_id: str, distinct_id: str |
     if not work_email or not distinct_id:
         return
 
-    inputs = SignupEnrichmentInputs(organization_id=str(organization_id), distinct_id=distinct_id, domain=domain)
+    inputs = SignupEnrichmentInputs(
+        organization_id=str(organization_id),
+        distinct_id=distinct_id,
+        domain=domain,
+        role_at_organization=role_at_organization or None,
+    )
     # on_commit so the worker never reads the org/enrichment rows before they are committed. The
     # callback fires inline on the signup request thread (it runs after that transaction commits),
     # so dispatch goes to the bounded pool: building the Temporal client must not add latency to

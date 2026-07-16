@@ -9,7 +9,7 @@ One writer per field: this owns the provider-derived registry keys. It never tou
 `company_type_deterministic`, which the signup classifier owns.
 """
 
-from typing import Any
+from typing import Any, Optional
 
 from django.db import transaction
 
@@ -18,6 +18,7 @@ from posthoganalytics.client import Client
 from posthog.exceptions_capture import capture_exception
 
 from products.growth.backend.enrichment.fields import EnrichmentFields
+from products.growth.backend.enrichment.score import SCORE_VERSION
 from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch
 
 ORGANIZATION_GROUP_TYPE = "organization"
@@ -41,6 +42,7 @@ def write_organization_enrichment(
     organization_id: str,
     fields: EnrichmentFields,
     pha_client: Client,
+    icp_score: Optional[int] = None,
 ) -> None:
     """Persist enrichment to Postgres and project it onto the organization group.
 
@@ -48,18 +50,29 @@ def write_organization_enrichment(
       any keys owned by other writers (e.g. company_type_deterministic).
     - ClickHouse: project `enrichment_*` group properties via group_identify.
 
+    The score rides along on both stores when the caller computed one, version-stamped so a
+    later formula revision is distinguishable. `icp_score` is the key Clay also writes: during
+    the overlap the two agree, and per-key merge makes last-write-wins safe either way.
+
     No-op when there are no set fields, so a Harmonic miss leaves both stores untouched.
     """
     values = fields.to_dict()
     if not values:
         return
 
+    if icp_score is not None:
+        values = {**values, "icp_score": icp_score, "icp_score_version": SCORE_VERSION}
+
     _merge_into_record(organization_id, values)
+
+    properties = fields.to_group_properties()
+    if icp_score is not None:
+        properties = {**properties, "icp_score": icp_score, "icp_score_version": SCORE_VERSION}
 
     pha_client.group_identify(
         ORGANIZATION_GROUP_TYPE,
         str(organization_id),
-        properties=fields.to_group_properties(),
+        properties=properties,
     )
 
 

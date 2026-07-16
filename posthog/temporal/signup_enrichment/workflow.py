@@ -50,6 +50,9 @@ class SignupEnrichmentInputs:
     organization_id: str
     distinct_id: str
     domain: str
+    # The signup's own role answer, passed at dispatch rather than re-read org-side. Defaulted so
+    # workflows already sleeping through the recheck delay at deploy still deserialize.
+    role_at_organization: typing.Optional[str] = None
 
 
 def _deterministic_company_type(organization_id: str) -> typing.Optional[str]:
@@ -97,6 +100,7 @@ async def enrich_signup_organization_activity(
             provider=HarmonicEnrichmentProvider(),
             pha_client=pha_client,
             is_recheck=is_recheck,
+            role_at_organization=inputs.role_at_organization,
         )
         filled = fields.to_dict() if fields else {}
         matched = fields is not None
