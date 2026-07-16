@@ -95,9 +95,10 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
                 // offer the jump when the moment falls inside the playable recording.
                 const canSeek =
                     evaluatedAtMs != null &&
-                    (recordingStartMs == null ||
-                        recordingEndMs == null ||
-                        (evaluatedAtMs >= recordingStartMs && evaluatedAtMs <= recordingEndMs))
+                    recordingStartMs != null &&
+                    recordingEndMs != null &&
+                    evaluatedAtMs >= recordingStartMs &&
+                    evaluatedAtMs <= recordingEndMs
                 return (
                     <div key={item.experiment_id} className="flex flex-row items-center gap-x-2 min-w-0">
                         {canSeek ? (
