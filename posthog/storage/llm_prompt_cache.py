@@ -123,6 +123,21 @@ llm_prompts_hypercache = HyperCache(
     cache_miss_ttl=settings.LLM_PROMPTS_CACHE_MISS_TTL,
 )
 
+# Label entries go through their own instance (same key space) with a short TTL. Latest
+# and version entries hold immutable content, but a label entry is a resolved pointer:
+# a cache fill racing an invalidation can store an already-stale resolution that the
+# generation marker cannot detect. The short TTL bounds that staleness to a minute;
+# signal invalidation still makes the common path near-instant. Label entries are also
+# kept out of S3 (redis-only writes) — an S3 copy has no TTL, so a stale fill there
+# would keep restoring itself past every redis expiry.
+llm_prompts_label_hypercache = HyperCache(
+    namespace="llm_prompts",
+    value="prompt.json",
+    load_fn=_load_prompt_cache,
+    cache_ttl=settings.LLM_PROMPTS_LABEL_CACHE_TTL,
+    cache_miss_ttl=settings.LLM_PROMPTS_LABEL_CACHE_TTL,
+)
+
 
 def get_prompt_by_name_from_cache(
     team: Team,
@@ -146,7 +161,7 @@ def get_prompt_by_name_from_cache(
 
     if label is not None:
         label_key = prompt_label_cache_key(team.id, prompt_name, label)
-        labeled_prompt = llm_prompts_hypercache.get_from_cache(label_key)
+        labeled_prompt = llm_prompts_label_hypercache.get_from_cache(label_key)
         if not isinstance(labeled_prompt, dict):
             return None
 
@@ -163,7 +178,7 @@ def get_prompt_by_name_from_cache(
                 return None
             labeled_prompt = _serialize_labeled_prompt(db_labeled, label)
             try:
-                llm_prompts_hypercache.set_cache_value(label_key, labeled_prompt)
+                llm_prompts_label_hypercache.set_cache_value_redis_only(label_key, labeled_prompt)
             except Exception as err:
                 capture_exception(err)
 
@@ -204,7 +219,7 @@ def invalidate_prompt_version_cache(team: Team | str | int, prompt_name: str, ve
 
 
 def invalidate_prompt_label_cache(team: Team | str | int, prompt_name: str, label_name: str) -> None:
-    llm_prompts_hypercache.clear_cache(prompt_label_cache_key(team, prompt_name, label_name))
+    llm_prompts_label_hypercache.clear_cache(prompt_label_cache_key(team, prompt_name, label_name))
 
 
 def invalidate_prompt_version_caches(team: Team | str | int, prompt_name: str, versions: Iterable[int]) -> None:
