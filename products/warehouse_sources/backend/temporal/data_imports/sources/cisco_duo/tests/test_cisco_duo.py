@@ -1,6 +1,6 @@
 import base64
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -13,7 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_duo.
     CiscoDuoResumeConfig,
     CiscoDuoRetryableError,
     _canonicalize_params,
-    _fetch_json,
+    _fetch_json_once,
     _normalize_next_offset,
     _to_epoch_ms,
     _to_epoch_seconds,
@@ -43,7 +43,7 @@ def _response(*, status_code: int = 200, json_data: Any = None, headers: Optiona
     response.json.return_value = json_data
     response.headers = headers or {}
     if status_code >= 400:
-        response.raise_for_status.side_effect = requests.HTTPError(f"{status_code} Client Error")
+        response.raise_for_status.side_effect = requests.HTTPError(f"{status_code} Client Error", response=response)
     return response
 
 
@@ -150,28 +150,28 @@ class TestSigning:
 
 
 class TestFetchJson:
+    def _fetch_once(self, response: mock.MagicMock) -> dict[str, Any]:
+        session = cast(requests.Session, _FakeSession([response]))
+        return _fetch_json_once(session, HOST, "/admin/v1/users", {}, IKEY, SKEY, mock.MagicMock())
+
     def test_429_raises_retryable_with_retry_after(self):
-        session = _FakeSession([_response(status_code=429, headers={"Retry-After": "7"})])
         with pytest.raises(CiscoDuoRetryableError) as exc:
-            _fetch_json.__wrapped__(session, HOST, "/admin/v1/users", {}, IKEY, SKEY, mock.MagicMock())
+            self._fetch_once(_response(status_code=429, headers={"Retry-After": "7"}))
         assert exc.value.retry_after == 7.0
 
     @pytest.mark.parametrize("status_code", [500, 502, 503])
     def test_5xx_raises_retryable(self, status_code):
-        session = _FakeSession([_response(status_code=status_code)])
         with pytest.raises(CiscoDuoRetryableError):
-            _fetch_json.__wrapped__(session, HOST, "/admin/v1/users", {}, IKEY, SKEY, mock.MagicMock())
+            self._fetch_once(_response(status_code=status_code))
 
     @pytest.mark.parametrize("status_code", [401, 403])
     def test_4xx_raises_http_error(self, status_code):
-        session = _FakeSession([_response(status_code=status_code)])
         with pytest.raises(requests.HTTPError):
-            _fetch_json.__wrapped__(session, HOST, "/admin/v1/users", {}, IKEY, SKEY, mock.MagicMock())
+            self._fetch_once(_response(status_code=status_code))
 
     def test_redirect_is_rejected_not_followed(self):
-        session = _FakeSession([_response(status_code=302)])
         with pytest.raises(CiscoDuoHostNotAllowedError):
-            _fetch_json.__wrapped__(session, HOST, "/admin/v1/users", {}, IKEY, SKEY, mock.MagicMock())
+            self._fetch_once(_response(status_code=302))
 
 
 class TestIncrementalValueConversion:

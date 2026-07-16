@@ -124,13 +124,7 @@ def _retry_wait(retry_state: RetryCallState) -> float:
     return wait_exponential_jitter(initial=1, max=30)(retry_state)
 
 
-@retry(
-    retry=retry_if_exception_type((CiscoDuoRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(MAX_RETRIES),
-    wait=_retry_wait,
-    reraise=True,
-)
-def _fetch_json(
+def _fetch_json_once(
     session: requests.Session,
     hostname: str,
     path: str,
@@ -164,6 +158,14 @@ def _fetch_json(
         response.raise_for_status()
 
     return response.json()
+
+
+_fetch_json = retry(
+    retry=retry_if_exception_type((CiscoDuoRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(MAX_RETRIES),
+    wait=_retry_wait,
+    reraise=True,
+)(_fetch_json_once)
 
 
 def _to_epoch_seconds(value: Any) -> int:
@@ -362,7 +364,7 @@ def _get_list_v1_rows(
             yield items
 
         raw_next_offset = metadata.get("next_offset")
-        if raw_next_offset in (None, "", []):
+        if raw_next_offset is None or raw_next_offset in ("", []):
             break
         offset = int(raw_next_offset)
         resumable_source_manager.save_state(CiscoDuoResumeConfig(offset=offset))
