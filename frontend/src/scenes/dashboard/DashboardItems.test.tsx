@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render } from '@testing-library/react'
+import { cleanup, render } from '@testing-library/react'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -144,6 +144,8 @@ const mockedUseActions = useActions as jest.Mock
 const mockedUseAsyncActions = useAsyncActions as jest.Mock
 
 describe('DashboardItems', () => {
+    afterEach(cleanup)
+
     beforeEach(() => {
         jest.clearAllMocks()
 
@@ -252,9 +254,12 @@ describe('DashboardItems', () => {
     ])('shows the streaming spinner only when $scenario', ({ tiles, spinnerVisible }) => {
         const defaultUseValues = mockedUseValues.getMockImplementation()!
         const dashboardValues = defaultUseValues(dashboardLogic)
-        mockedUseValues
-            .mockImplementationOnce(() => ({ ...dashboardValues, tiles, dashboardStreaming: true }))
-            .mockImplementationOnce(() => ({ layoutZoom: dashboardValues.layoutZoom }))
+        mockedUseValues.mockImplementation((logic) => {
+            if (logic === dashboardLogic) {
+                return { ...dashboardValues, tiles, dashboardStreaming: true }
+            }
+            return defaultUseValues(logic)
+        })
 
         const { queryByText } = render(<DashboardItems />)
 

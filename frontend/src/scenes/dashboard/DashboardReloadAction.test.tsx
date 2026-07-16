@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { useValues } from 'kea'
 
 import { DashboardLoadAction } from './dashboardLogic'
@@ -22,6 +22,8 @@ jest.mock('./dashboardLogic', () => ({
 const mockedUseValues = jest.mocked(useValues)
 
 describe('DashboardRefreshStatusText', () => {
+    afterEach(cleanup)
+
     it.each([
         {
             scenario: 'an initial dashboard request has no cached data',
