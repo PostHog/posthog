@@ -78,6 +78,7 @@ class TestQuotaLimitsAPI(APIBaseTest):
             "period": ["2026-07-01T00:00:00Z", "2026-08-01T00:00:00Z"],
             "posthog_code_credits": {"usage": 1500, "todays_usage": 200, "limit": 2000},
             "ai_credits": {"usage": 50, "todays_usage": 0},
+            "signals_credits": {"usage": None, "todays_usage": None, "limit": 5000},
         }
         self.organization.save()
 
@@ -88,6 +89,8 @@ class TestQuotaLimitsAPI(APIBaseTest):
         self.assertEqual(limited["posthog_code_credits"], {"limited": False, "usage": 1700, "limit": 2000})
         # Synced but unlimited: usage without a limit.
         self.assertEqual(limited["ai_credits"], {"limited": False, "usage": 50, "limit": None})
+        # Synced with a limit but null usage figures: unknown usage, not zero.
+        self.assertEqual(limited["signals_credits"], {"limited": False, "usage": None, "limit": 5000})
         # Never synced: unknown, not zero.
         self.assertEqual(limited["events"], {"limited": False, "usage": None, "limit": None})
 
