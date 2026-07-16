@@ -446,6 +446,7 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
         before = execute_hogql_query(query, team=self.team, context=self._context())
         assert (0.9, "Reviewed join") in before.results
 
+        assert proposal.created_join_id is not None
         DataWarehouseJoin.objects.filter(pk=proposal.created_join_id).update(**edit)
 
         after = execute_hogql_query(query, team=self.team, context=self._context())
