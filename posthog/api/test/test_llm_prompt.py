@@ -1116,15 +1116,19 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["version"] == 1
 
-    def test_fetch_rejects_label_and_version_together(self):
+    def test_fetch_rejects_invalid_label_params(self):
         self.create_prompt_version(version=1)
         self._set_label("my-prompt", "production", 1)
 
-        response = self.client.get(
+        both_params = self.client.get(
             f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/?label=production&version=1"
         )
+        # Invalid names must be rejected before any cache touch — an unvalidated fetch
+        # writes a miss sentinel under a caller-controlled key and silently 404s.
+        bad_name = self._fetch_by_label("my-prompt", "Production")
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert both_params.status_code == status.HTTP_400_BAD_REQUEST
+        assert bad_name.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_fetch_by_label_404s_after_label_delete_and_prompt_archive(self):
         self.create_prompt_version(version=1)
