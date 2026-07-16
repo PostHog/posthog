@@ -17,6 +17,29 @@ CREATE TABLE posthog.kafka_logs_avro (
   event_name String,
   attributes Map(LowCardinality(String), String)
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_logs', kafka_format = 'kafka_format = \'Avro\'', kafka_group_name = 'kafka_group_name = \'clickhouse-logs-avro-new\'', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'kafka_topic_list = \'clickhouse_logs\'';
+CREATE TABLE posthog.kafka_trace_spans_avro (
+  uuid String,
+  trace_id String,
+  span_id String,
+  parent_span_id String,
+  trace_state String,
+  name String,
+  kind Int32,
+  flags Int32,
+  timestamp DateTime64(6),
+  end_time DateTime64(6),
+  observed_timestamp DateTime64(6),
+  service_name String,
+  resource_attributes Map(LowCardinality(String), String),
+  instrumentation_scope String,
+  attributes Map(LowCardinality(String), String),
+  dropped_attributes_count Int32,
+  events Array(String),
+  dropped_events_count Int32,
+  links Array(String),
+  dropped_links_count Int32,
+  status_code Int32
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_traces', kafka_format = 'kafka_format = \'Avro\'', kafka_group_name = 'kafka_group_name = \'clickhouse-traces-avro\'', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'kafka_topic_list = \'clickhouse_traces\'';
 CREATE TABLE posthog.log_attributes (
   team_id Int32 CODEC(DoubleDelta, ZSTD(1)),
   time_bucket DateTime64(0) CODEC(DoubleDelta, ZSTD(1)),
@@ -369,6 +392,158 @@ CREATE TABLE posthog.query_log_archive (
   lc_dagster__owner String ALIAS CAST(log_comment.`dagster.tags.owner`, 'String'),
   lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
 ) ENGINE = Distributed('ops', 'posthog', 'sharded_query_log_archive');
+CREATE TABLE posthog.trace_attributes (
+  team_id Int32,
+  original_expiry_time_bucket DateTime64(0),
+  time_bucket DateTime64(0),
+  service_name LowCardinality(String),
+  resource_fingerprint UInt64 DEFAULT 0,
+  attribute_key LowCardinality(String),
+  attribute_value String,
+  attribute_type LowCardinality(String),
+  attribute_count SimpleAggregateFunction(sum, UInt64),
+  INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 4,
+  INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 4,
+  INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 4,
+  INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 4
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.trace_attributes', '{replica}-{shard}') ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_time_bucket SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.trace_attributes2 (
+  team_id Int32,
+  original_expiry_time_bucket DateTime64(0),
+  time_bucket DateTime64(0),
+  service_name LowCardinality(String),
+  resource_fingerprint UInt64 DEFAULT 0,
+  attribute_key LowCardinality(String),
+  attribute_value String,
+  attribute_type LowCardinality(String),
+  attribute_count SimpleAggregateFunction(sum, UInt64),
+  INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 4,
+  INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 4,
+  INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 4,
+  INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 4
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.trace_attributes2', '{replica}-{shard}') ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_time_bucket SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.trace_attributes_distributed (
+  team_id Int32,
+  original_expiry_time_bucket DateTime64(0),
+  time_bucket DateTime64(0),
+  service_name LowCardinality(String),
+  resource_fingerprint UInt64 DEFAULT 0,
+  attribute_key LowCardinality(String),
+  attribute_value String,
+  attribute_type LowCardinality(String),
+  attribute_count SimpleAggregateFunction(sum, UInt64)
+) ENGINE = Distributed('posthog_single_shard', 'posthog', 'trace_attributes');
+CREATE TABLE posthog.trace_spans (
+  time_bucket DateTime MATERIALIZED toStartOfInterval(timestamp, toIntervalHour(4)),
+  original_expiry_timestamp DateTime64(6),
+  uuid String,
+  team_id Int32,
+  trace_id String,
+  span_id String,
+  parent_span_id String,
+  is_root_span Bool MATERIALIZED replaceAll(trimRight(parent_span_id, '='), 'A', '') = '',
+  trace_state String,
+  name LowCardinality(String),
+  kind Int8,
+  flags UInt32,
+  timestamp DateTime64(6),
+  end_time DateTime64(6),
+  observed_timestamp DateTime64(6),
+  created_at DateTime64(6) MATERIALIZED now(),
+  duration_nano UInt64 MATERIALIZED toUInt64(dateDiff('microsecond', timestamp, end_time)) * 1000,
+  status_code Int16,
+  service_name LowCardinality(String),
+  resource_attributes Map(LowCardinality(String), String),
+  resource_fingerprint UInt64 MATERIALIZED cityHash64(resource_attributes),
+  instrumentation_scope String,
+  attributes_map_str Map(LowCardinality(String), String),
+  attributes Map(LowCardinality(String), String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str),
+  attributes_map_float Map(LowCardinality(String), Float64) MATERIALIZED mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__float'), toFloat64OrNull(v)), attributes_map_str)),
+  attributes_map_datetime Map(LowCardinality(String), DateTime64(6)) MATERIALIZED mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__datetime'), parseDateTimeBestEffortOrNull(v, 6)), attributes_map_str)),
+  dropped_attributes_count UInt32,
+  dropped_events_count UInt32,
+  dropped_links_count UInt32,
+  events Array(String),
+  links Array(String),
+  _partition UInt32,
+  _topic String,
+  _offset UInt64,
+  _bytes_uncompressed UInt64,
+  _bytes_compressed UInt64,
+  _record_count UInt64,
+  INDEX idx_name name TYPE ngrambf_v1(4, 5000, 2, 0) GRANULARITY 16,
+  INDEX idx_kind kind TYPE minmax GRANULARITY 4,
+  INDEX idx_duration duration_nano TYPE minmax GRANULARITY 1,
+  INDEX idx_status_code status_code TYPE minmax GRANULARITY 1,
+  INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
+  INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
+  INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 16,
+  INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 16,
+  INDEX idx_trace_bloom_part trace_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
+  INDEX idx_span_id_bloom_part span_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
+  PROJECTION projection_aggregate_counts (SELECT
+  team_id,
+  time_bucket,
+  toStartOfMinute(timestamp),
+  service_name,
+  resource_fingerprint,
+  is_root_span,
+  count() AS event_count
+GROUP BY
+  team_id, time_bucket, toStartOfMinute(timestamp), service_name, resource_fingerprint, is_root_span),
+  PROJECTION projection_index_span_id (SELECT _part_offset
+ORDER BY span_id),
+  PROJECTION projection_index_trace_id (SELECT _part_offset
+ORDER BY trace_id)
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.trace_spans', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, resource_fingerprint, status_code, name, timestamp) PARTITION BY toDate(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS allow_part_offset_column_in_projections = 1, index_granularity = 8192, index_granularity_bytes = 104857600, map_serialization_version = 'with_buckets', ttl_only_drop_parts = 1;
+CREATE TABLE posthog.trace_spans_distributed (
+  time_bucket DateTime MATERIALIZED toStartOfInterval(timestamp, toIntervalHour(4)),
+  original_expiry_timestamp DateTime64(6),
+  uuid String,
+  team_id Int32,
+  trace_id String,
+  span_id String,
+  parent_span_id String,
+  is_root_span Bool MATERIALIZED replaceAll(trimRight(parent_span_id, '='), 'A', '') = '',
+  trace_state String,
+  name LowCardinality(String),
+  kind Int8,
+  flags UInt32,
+  timestamp DateTime64(6),
+  end_time DateTime64(6),
+  observed_timestamp DateTime64(6),
+  created_at DateTime64(6) MATERIALIZED now(),
+  duration_nano UInt64 MATERIALIZED toUInt64(dateDiff('microsecond', timestamp, end_time)) * 1000,
+  status_code Int16,
+  service_name LowCardinality(String),
+  resource_attributes Map(LowCardinality(String), String),
+  resource_fingerprint UInt64 MATERIALIZED cityHash64(resource_attributes),
+  instrumentation_scope String,
+  attributes_map_str Map(LowCardinality(String), String),
+  attributes Map(LowCardinality(String), String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str),
+  attributes_map_float Map(LowCardinality(String), Float64) MATERIALIZED mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__float'), toFloat64OrNull(v)), attributes_map_str)),
+  attributes_map_datetime Map(LowCardinality(String), DateTime64(6)) MATERIALIZED mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__datetime'), parseDateTimeBestEffortOrNull(v, 6)), attributes_map_str)),
+  dropped_attributes_count UInt32,
+  dropped_events_count UInt32,
+  dropped_links_count UInt32,
+  events Array(String),
+  links Array(String),
+  _partition UInt32,
+  _topic String,
+  _offset UInt64,
+  _bytes_uncompressed UInt64,
+  _bytes_compressed UInt64,
+  _record_count UInt64
+) ENGINE = Distributed('posthog_single_shard', 'posthog', 'trace_spans');
+CREATE TABLE posthog.trace_spans_kafka_metrics (
+  _partition UInt32,
+  _topic String,
+  max_offset SimpleAggregateFunction(max, UInt64),
+  max_observed_timestamp SimpleAggregateFunction(max, DateTime64(9)),
+  max_timestamp SimpleAggregateFunction(max, DateTime64(9)),
+  max_created_at SimpleAggregateFunction(max, DateTime64(9)),
+  max_lag SimpleAggregateFunction(max, UInt64)
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.trace_spans_kafka_metrics', '{replica}-{shard}') ORDER BY (_topic, _partition) SETTINGS index_granularity = 8192;
 CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.logs34 (uuid String, trace_id String, span_id String, trace_flags Int32, timestamp DateTime64(6), observed_timestamp DateTime64(6), body String, severity_text String, severity_number Int32, service_name String, instrumentation_scope String, event_name String, attributes_map_str Map(String, String), resource_attributes Map(String, String), team_id Int32, original_expiry_timestamp DateTime64(6), _partition UInt64, _topic LowCardinality(String), _offset UInt64, _record_count Int64, _bytes_uncompressed Nullable(Int64), _bytes_compressed Nullable(Int64)) AS SELECT
   kafka_logs_avro.* EXCEPT(created_at, attribute_values, attribute_keys, attributes, attributes_map_str, attributes_map_float, attributes_map_datetime, resource_attributes, bytes_uncompressed),
   mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
@@ -415,6 +590,28 @@ CREATE MATERIALIZED VIEW posthog.kafka_logs_avro_kafka_metrics_mv TO posthog.log
 FROM posthog.logs34
 GROUP BY
   _partition, _topic;
+CREATE MATERIALIZED VIEW posthog.kafka_trace_spans_avro_mv TO posthog.trace_spans (uuid String, trace_id String, span_id String, parent_span_id String, trace_state String, name String, kind Int8, flags UInt32, timestamp DateTime64(6), end_time DateTime64(6), observed_timestamp DateTime64(6), service_name String, resource_attributes Map(LowCardinality(String), String), instrumentation_scope String, attributes_map_str Map(LowCardinality(String), String), dropped_attributes_count UInt32, events Array(String), dropped_events_count UInt32, links Array(String), dropped_links_count UInt32, status_code Int16, team_id Int32, original_expiry_timestamp DateTime64(6)) AS SELECT
+  * EXCEPT(attributes, resource_attributes, kind, flags, dropped_attributes_count, dropped_events_count, dropped_links_count, status_code),
+  toInt8(kind) AS kind,
+  toUInt32(flags) AS flags,
+  toUInt32(dropped_attributes_count) AS dropped_attributes_count,
+  toUInt32(dropped_events_count) AS dropped_events_count,
+  toUInt32(dropped_links_count) AS dropped_links_count,
+  toInt16(status_code) AS status_code,
+  mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
+  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
+  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
+  observed_timestamp
+  + toIntervalDay(
+    toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
+  ) AS original_expiry_timestamp,
+  _partition,
+  _topic,
+  _offset,
+  toInt64OrDefault(_headers.value[indexOf(_headers.name, 'record_count')], toInt64(1)) AS _record_count,
+  toInt64OrDefault(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')], toInt64(0)) AS _bytes_uncompressed,
+  toInt64OrDefault(_headers.value[indexOf(_headers.name, 'bytes_compressed')], toInt64(0)) AS _bytes_compressed
+FROM posthog.kafka_trace_spans_avro;
 CREATE MATERIALIZED VIEW posthog.logs32_to_log_attributes TO posthog.log_attributes (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,
@@ -584,6 +781,171 @@ FROM
     GROUP BY
       team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, severity_text, resource_attributes
   );
+CREATE MATERIALIZED VIEW posthog.trace_span_to_attributes TO posthog.trace_attributes (team_id Int32, original_expiry_time_bucket DateTime64(0), time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+  team_id,
+  original_expiry_time_bucket,
+  time_bucket,
+  service_name,
+  resource_fingerprint,
+  attribute_key,
+  attribute_value,
+  'span_attribute' AS attribute_type,
+  attribute_count
+FROM
+  (
+    SELECT
+      team_id AS team_id,
+      toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
+      toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
+      service_name AS service_name,
+      resource_fingerprint,
+      arrayJoin(mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes)) AS attribute,
+      attribute.1 AS attribute_key,
+      attribute.2 AS attribute_value,
+      sumSimpleState(1) AS attribute_count
+    FROM posthog.trace_spans
+    GROUP BY
+      team_id, original_expiry_time_bucket, time_bucket, service_name, resource_fingerprint, attribute
+  );
+CREATE MATERIALIZED VIEW posthog.trace_span_to_attributes2 TO posthog.trace_attributes2 (team_id Int32, original_expiry_time_bucket DateTime64(0), time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+  team_id,
+  original_expiry_time_bucket,
+  time_bucket,
+  service_name,
+  resource_fingerprint,
+  attribute_key,
+  attribute_value,
+  'span_attribute' AS attribute_type,
+  attribute_count
+FROM
+  (
+    SELECT
+      team_id AS team_id,
+      toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
+      toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
+      service_name AS service_name,
+      resource_fingerprint,
+      arrayJoin(mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes)) AS attribute,
+      attribute.1 AS attribute_key,
+      attribute.2 AS attribute_value,
+      sumSimpleState(1) AS attribute_count
+    FROM posthog.trace_spans
+    GROUP BY
+      team_id, original_expiry_time_bucket, time_bucket, service_name, resource_fingerprint, attribute
+  );
+CREATE MATERIALIZED VIEW posthog.trace_span_to_resource_attributes TO posthog.trace_attributes (team_id Int32, original_expiry_time_bucket DateTime64(0), time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+  team_id,
+  original_expiry_time_bucket,
+  time_bucket,
+  service_name,
+  resource_fingerprint,
+  attribute_key,
+  attribute_value,
+  'span_resource_attribute' AS attribute_type,
+  attribute_count
+FROM
+  (
+    SELECT
+      team_id AS team_id,
+      toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
+      toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
+      service_name AS service_name,
+      resource_fingerprint,
+      arrayJoin(resource_attributes) AS attribute,
+      attribute.1 AS attribute_key,
+      attribute.2 AS attribute_value,
+      sumSimpleState(1) AS attribute_count
+    FROM posthog.trace_spans
+    GROUP BY
+      team_id, original_expiry_time_bucket, time_bucket, service_name, resource_fingerprint, attribute
+  );
+CREATE MATERIALIZED VIEW posthog.trace_span_to_resource_attributes2 TO posthog.trace_attributes2 (team_id Int32, original_expiry_time_bucket DateTime64(0), time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+  team_id,
+  original_expiry_time_bucket,
+  time_bucket,
+  service_name,
+  resource_fingerprint,
+  attribute_key,
+  attribute_value,
+  'span_resource_attribute' AS attribute_type,
+  attribute_count
+FROM
+  (
+    SELECT
+      team_id AS team_id,
+      toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
+      toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
+      service_name AS service_name,
+      resource_fingerprint,
+      arrayJoin(resource_attributes) AS attribute,
+      attribute.1 AS attribute_key,
+      attribute.2 AS attribute_value,
+      sumSimpleState(1) AS attribute_count
+    FROM posthog.trace_spans
+    GROUP BY
+      team_id, original_expiry_time_bucket, time_bucket, service_name, resource_fingerprint, attribute
+  );
+CREATE MATERIALIZED VIEW posthog.trace_span_to_span_attributes TO posthog.trace_attributes (team_id Int32, original_expiry_time_bucket DateTime64(0), time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+  team_id,
+  original_expiry_time_bucket,
+  time_bucket,
+  service_name,
+  resource_fingerprint,
+  attribute_key,
+  attribute_value,
+  'span' AS attribute_type,
+  attribute_count
+FROM
+  (
+    SELECT
+      team_id AS team_id,
+      toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
+      toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
+      service_name AS service_name,
+      resource_fingerprint,
+      'name' AS attribute_key,
+      name AS attribute_value,
+      sumSimpleState(1) AS attribute_count
+    FROM posthog.trace_spans
+    GROUP BY
+      team_id, original_expiry_time_bucket, time_bucket, service_name, resource_fingerprint, name
+  );
+CREATE MATERIALIZED VIEW posthog.trace_span_to_span_attributes2 TO posthog.trace_attributes2 (team_id Int32, original_expiry_time_bucket DateTime64(0), time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+  team_id,
+  original_expiry_time_bucket,
+  time_bucket,
+  service_name,
+  resource_fingerprint,
+  attribute_key,
+  attribute_value,
+  'span' AS attribute_type,
+  attribute_count
+FROM
+  (
+    SELECT
+      team_id AS team_id,
+      toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
+      toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
+      service_name AS service_name,
+      resource_fingerprint,
+      'name' AS attribute_key,
+      name AS attribute_value,
+      sumSimpleState(1) AS attribute_count
+    FROM posthog.trace_spans
+    GROUP BY
+      team_id, original_expiry_time_bucket, time_bucket, service_name, resource_fingerprint, name
+  );
+CREATE MATERIALIZED VIEW posthog.trace_spans_to_kafka_metrics_mv TO posthog.trace_spans_kafka_metrics (_partition UInt64, _topic LowCardinality(String), max_offset SimpleAggregateFunction(max, UInt64), max_observed_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_created_at SimpleAggregateFunction(max, DateTime), max_lag SimpleAggregateFunction(max, Decimal(18, 6))) AS SELECT
+  _partition,
+  _topic,
+  maxSimpleState(_offset) AS max_offset,
+  maxSimpleState(observed_timestamp) AS max_observed_timestamp,
+  maxSimpleState(timestamp) AS max_timestamp,
+  maxSimpleState(now()) AS max_created_at,
+  maxSimpleState(now() - observed_timestamp) AS max_lag
+FROM posthog.trace_spans
+GROUP BY
+  _partition, _topic;
 CREATE TABLE posthog.logs (
   time_bucket DateTime MATERIALIZED toStartOfDay(timestamp) CODEC(DoubleDelta, ZSTD(1)),
   original_expiry_timestamp DateTime64(6) CODEC(DoubleDelta, ZSTD(1)),
