@@ -13,7 +13,7 @@ All parameters must be nested inside a `query` object. You must provide **exactl
 ## Pick the right tool
 
 - Counts for an arbitrary **attribute** value (any log or resource attribute key) → use `logs-attribute-values-list`. It returns `{value, count}` for any key and is the general-purpose choice for attributes.
-- Per-service log/error counts and error rates with a sparkline → use `logs-services-create`.
+- Per-service log/error counts and error rates with a sparkline → use `logs-services-list`.
 - Use **this** tool for `severity_text` / `service_name` distribution cross-filtered by the full query (severity + body `searchTerm` + `filterGroup`) — the one thing the tools above can't do.
 
 # Parameters

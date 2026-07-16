@@ -235,8 +235,8 @@ describe('Logs', { concurrent: false }, () => {
         })
     })
 
-    describe('logs-facet-values-create tool', () => {
-        const facetTool = GENERATED_TOOLS['logs-facet-values-create']!()
+    describe('logs-facet-values tool', () => {
+        const facetTool = GENERATED_TOOLS['logs-facet-values']!()
 
         it.each([
             { name: 'column facet', query: { facetField: 'service_name' as const } },

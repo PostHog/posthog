@@ -41,6 +41,6 @@ The reasoning:
 
 ## Simulate is essential here
 
-Floor alerts are easy to misconfigure into "fires every night." Always run `posthog:logs-alerts-simulate-create` over `-7d`
+Floor alerts are easy to misconfigure into "fires every night." Always run `posthog:logs-alerts-simulate` over `-7d`
 before shipping. If `fire_count > 0` and the user has not had outages in the last 7 days, the threshold is
 too aggressive.

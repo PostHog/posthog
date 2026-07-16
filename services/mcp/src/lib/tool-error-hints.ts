@@ -24,7 +24,7 @@ const LOGS_QUERY_RECOVERY_HINT = [
     '',
     'Narrow the query and retry:',
     '1. Shorten `dateRange` (e.g. `-1h` instead of `-1d`).',
-    '2. Add `serviceNames` — discover them with `logs-attribute-values-list { key: "service.name", attribute_type: "resource" }` (or `logs-services`) — or add a `log_resource_attribute` filter to `filterGroup`.',
+    '2. Add `serviceNames` — discover them with `logs-attribute-values-list { key: "service.name", attribute_type: "resource" }` (or `logs-services-list`) — or add a `log_resource_attribute` filter to `filterGroup`.',
     '3. Size the volume first with `logs-count`, then locate the busy window with `logs-count-ranges` (each returned bucket carries a `date_from`/`date_to` you can feed back as the next `dateRange`), and only then call `query-logs`.',
     '',
     'Many cheap count calls beat one broad `query-logs`.',
