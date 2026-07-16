@@ -601,8 +601,8 @@ function TriggerReviewSection(): JSX.Element | null {
     return (
         <section className="flex flex-col gap-4">
             <SectionHeader icon={<IconGithub />} title="Review a pull request">
-                Start a review of any pull request the GitHub App can access. The review is posted back to the
-                pull request, runs with your perspectives, and shows up under your recent reviews.
+                Start a review of any pull request the GitHub App can access. The review is posted back to the pull
+                request, runs with your perspectives, and shows up under your recent reviews.
             </SectionHeader>
             <form
                 className="ml-9 flex flex-wrap items-center gap-2"

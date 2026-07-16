@@ -1,7 +1,7 @@
 import uuid
 import logging
 from datetime import timedelta
-from typing import Any, get_args
+from typing import Any, cast, get_args
 
 from django.conf import settings
 from django.db.models import Max, QuerySet
@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.integration import GitHubIntegration
 from posthog.models.scoping.manager import resolve_effective_team_id
+from posthog.models.user import User
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
@@ -605,15 +606,18 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             )
         # Rebuilt canonical URL: the parser accepts trailing paths (e.g. …/pull/123/files).
         pr_url = f"https://github.com/{pr_info['owner']}/{pr_info['repo']}/pull/{pr_info['pr_number']}"
+        # The requester is both the run user (sandbox identity) and the acting user (whose
+        # perspectives/validator/threshold apply). The route is authenticated, so never anonymous.
+        requester_id = cast(User, request.user).id
         workflow_id = start_review_pr_workflow(
             pr_url=pr_url,
             team_id=team_id,
-            user_id=request.user.id,
+            user_id=requester_id,
             publish=True,
-            acting_user_id=request.user.id,
+            acting_user_id=requester_id,
             trigger_source=TRIGGER_UI,
         )
-        logger.info(f"ReviewHog UI trigger started workflow {workflow_id} for {pr_url} by user {request.user.id}")
+        logger.info(f"ReviewHog UI trigger started workflow {workflow_id} for {pr_url} by user {requester_id}")
         return Response(
             ReviewTriggerResponseSerializer({"workflow_id": workflow_id, "status": "started"}).data,
             status=status.HTTP_202_ACCEPTED,
