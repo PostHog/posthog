@@ -98,8 +98,8 @@ fn lib_rules() -> &'static [LibRule] {
                 canonical_since: match lib {
                     // posthog-rs ships the flip in 0.19.0 (PostHog/posthog-rs#176).
                     "posthog-rs" => Some(Version::new(0, 19, 0)),
-                    // posthog-php ships the flip in 4.10.0 (PostHog/posthog-php#200).
-                    "posthog-php" => Some(Version::new(4, 10, 0)),
+                    // posthog-php ships the flip in 4.11.0 (PostHog/posthog-php#200).
+                    "posthog-php" => Some(Version::new(4, 11, 0)),
                     _ => None,
                 },
             })
@@ -319,9 +319,9 @@ mod test {
 
     #[test]
     fn php_cutoff_gates_normalization_by_version() {
-        // Below the 4.10.0 cutoff (and unparseable versions): crash-first on
+        // Below the 4.11.0 cutoff (and unparseable versions): crash-first on
         // the wire, frames reverse, legacy snapshot returned.
-        for version in [Some("4.9.0"), Some("3.0.0"), Some("dev-main"), None] {
+        for version in [Some("4.10.0"), Some("4.9.0"), Some("dev-main"), None] {
             let mut list: ExceptionList =
                 vec![exception_with_frames("Boom", &["main", "boom"])].into();
             let legacy = normalize_wire_order(&mut list, Some("posthog-php"), version);
@@ -330,7 +330,7 @@ mod test {
         }
 
         // At/above the cutoff: canonical on the wire, untouched.
-        for version in ["4.10.0", "4.10.1", "4.11.0", "5.0.0"] {
+        for version in ["4.11.0", "4.11.1", "4.12.0", "5.0.0"] {
             let mut list: ExceptionList =
                 vec![exception_with_frames("Boom", &["main", "boom"])].into();
             let legacy = normalize_wire_order(&mut list, Some("posthog-php"), Some(version));
