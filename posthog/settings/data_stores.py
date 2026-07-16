@@ -577,13 +577,6 @@ FLAGS_CACHE_MISS_TTL = int(os.getenv("FLAGS_CACHE_MISS_TTL", str(60 * 60 * 24)))
 LLM_PROMPTS_CACHE_TTL = int(os.getenv("LLM_PROMPTS_CACHE_TTL", str(60 * 60 * 24)))  # 1 day
 LLM_PROMPTS_CACHE_MISS_TTL = int(os.getenv("LLM_PROMPTS_CACHE_MISS_TTL", str(60 * 5)))  # 5 minutes
 
-# Rollout gate for the split query-cache format (header + raw results segments). Every deploy
-# can READ both formats, but old readers treat split entries as cache misses and recompute —
-# so writes stay in the legacy format until all readers understand the split one. Flip this on
-# only once the split-capable reader is fully deployed; safe to flip back off (readers keep
-# understanding both formats).
-QUERY_CACHE_SPLIT_FORMAT_WRITES: bool = get_from_env("QUERY_CACHE_SPLIT_FORMAT_WRITES", False, type_cast=str_to_bool)
-
 CACHES = {
     "default": {
         # IMPORTANT: If any of these settings change, make sure the

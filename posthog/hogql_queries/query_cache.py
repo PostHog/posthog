@@ -181,11 +181,11 @@ class DjangoCacheQueryCacheManager(QueryCacheManagerBase):
     def set_cache_data(self, *, response: dict, target_age: Optional[datetime]) -> None:
         from posthog.caching.fetch_from_cache import encode_split_cached_response
 
-        if settings.QUERY_CACHE_SPLIT_FORMAT_WRITES and isinstance(response.get("results"), list):
+        if isinstance(response.get("results"), list):
             # Split format keeps `results` as its own JSON segment so cache hits can skip
-            # parsing it — see fetch_from_cache.SplitCachedResponse. Write-gated so a deploy
-            # ships split-capable readers everywhere before any pod writes the new format
-            # (old readers treat split entries as misses and recompute).
+            # parsing it — see fetch_from_cache.SplitCachedResponse. Pods that predate this
+            # format treat split entries as cache misses and recompute, so entries written
+            # during a rolling deploy may be recomputed once — accepted, deploys are quick.
             fresh_response_serialized = encode_split_cached_response(response)
         else:
             fresh_response_serialized = OrjsonJsonSerializer({}).dumps(response)
