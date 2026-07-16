@@ -5,7 +5,6 @@ import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/data
 import { ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema/schema-general'
 
 import type {
-    AnyResponseType,
     DataNode,
     DateRange,
     ErrorTrackingIssueAssignee,
@@ -178,7 +177,23 @@ export interface issuesDataNodeLogicActions {
             | undefined
     } // nodeLogic
     setResponse: (
-        response: Exclude<AnyResponseType, undefined>
+        response:
+            | ErrorTrackingQueryResponse
+            | EventsQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogsQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
+            | Record<string, any>
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
     ) =>
         | ErrorTrackingQueryResponse
         | EventsQueryResponse
