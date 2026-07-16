@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { IconExternal } from '@posthog/icons'
 
@@ -96,9 +96,7 @@ export function LogsWidgetTileFilters({
     )
     const savedViewLabel = savedViewId ? (savedViewLabelById[savedViewId] ?? savedViewId) : savedViewId
 
-    const configRef = useRef(config)
-    configRef.current = config
-    const { persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig)
+    const { getLatestConfig, persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig, config)
 
     // Severity and service pickers can't render a disabled state, so when editing is unavailable
     // (view-only dashboard, or no edit permission) show the read-only summary instead of dead controls.
@@ -110,8 +108,7 @@ export function LogsWidgetTileFilters({
         orderBy?: LogsOrderByValue
         savedViewId?: string | null
     }): Promise<void> => {
-        const nextConfig = patchLogsWidgetFilterFields(configRef.current, patch)
-        configRef.current = nextConfig
+        const nextConfig = patchLogsWidgetFilterFields(getLatestConfig(), patch)
         await persistConfigNow(nextConfig)
     }
 

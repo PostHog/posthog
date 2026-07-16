@@ -49,7 +49,6 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { ok } from '~/ingestion/framework/results'
-import { SessionBatchManager } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-manager'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
@@ -144,17 +143,11 @@ class FakePipeline {
     }
 }
 
-function createMockSessionBatchManager(): jest.Mocked<SessionBatchManager> {
-    const mockBatchRecorder = {
+function createMockBatchRecorder(): jest.Mocked<SessionBatchRecorder> {
+    return {
         record: jest.fn().mockResolvedValue(undefined),
         getRetention: jest.fn().mockReturnValue(undefined),
     } as unknown as jest.Mocked<SessionBatchRecorder>
-    return {
-        getCurrentBatch: jest.fn().mockReturnValue(mockBatchRecorder),
-        shouldFlush: jest.fn().mockReturnValue(false),
-        flush: jest.fn().mockResolvedValue(undefined),
-        discardPartitions: jest.fn(),
-    } as unknown as jest.Mocked<SessionBatchManager>
 }
 
 const mockCreateParseHeadersStep = createParseHeadersStep as jest.Mock
@@ -177,7 +170,7 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
     let sessionTracker: SessionTracker
     let sessionFilter: SessionFilter
     let keyStore: jest.Mocked<KeyStore>
-    let sessionBatchManager: jest.Mocked<SessionBatchManager>
+    let mockBatchRecorder: jest.Mocked<SessionBatchRecorder>
     let outputs: jest.Mocked<
         IngestionOutputs<typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT>
     >
@@ -233,7 +226,6 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
             keyStore,
             sessionKeyResolutionMaxConcurrency: 20,
             topHog: createMockTopHog(),
-            sessionBatchManager,
             isDebugLoggingEnabled: () => false,
         })
     }
@@ -265,7 +257,12 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
     }
 
     async function runBatch(sessionId: string, offset: number): Promise<void> {
-        await runSessionReplayPipeline(buildPipeline(), [createMessage(sessionId, offset)], new PromiseScheduler())
+        await runSessionReplayPipeline(
+            buildPipeline(),
+            [createMessage(sessionId, offset)],
+            mockBatchRecorder,
+            new PromiseScheduler()
+        )
     }
 
     // Assert a one-shot fault armed with failNext() actually fired — guards against a silently-inert fault
@@ -316,7 +313,7 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
             deleteKey: jest.fn(),
             stop: jest.fn(),
         } as unknown as jest.Mocked<KeyStore>
-        sessionBatchManager = createMockSessionBatchManager()
+        mockBatchRecorder = createMockBatchRecorder()
         outputs = createMockIngestionOutputs()
 
         countedSessions = []

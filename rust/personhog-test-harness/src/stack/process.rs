@@ -31,7 +31,10 @@ impl ServiceSpec {
             // PATH and HOME survive so the binaries can resolve tools and
             // dotfiles (librdkafka, DNS, etc.) the way they do in dev.
             .envs(env::vars().filter(|(k, _)| k == "PATH" || k == "HOME"))
-            .env("RUST_BACKTRACE", "1")
+            // No RUST_BACKTRACE and no colors: a service panic's message is
+            // the signal, and fifty frames of runtime internals push it out
+            // of the log tail that failure reports embed.
+            .env("NO_COLOR", "1")
             .env("RUST_LOG", "info")
             .stdout(Stdio::from(log_file))
             .stderr(Stdio::from(stderr_file))
@@ -174,6 +177,44 @@ impl ServiceProcess {
         };
         let all: Vec<&str> = content.lines().collect();
         let start = all.len().saturating_sub(lines);
-        all[start..].join("\n")
+        strip_ansi(&all[start..].join("\n"))
+    }
+}
+
+/// Strip ANSI escape sequences. Failure reports embed log tails inside the
+/// harness's own log output, where raw escapes render as `\x1b[2m` soup;
+/// spawned services get NO_COLOR but this guards logs written by anything
+/// that ignores it.
+fn strip_ansi(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\x1b' {
+            out.push(c);
+            continue;
+        }
+        // CSI sequences (ESC '[' ... final byte in @..~) are all tracing
+        // emits; a bare ESC before anything else just gets dropped.
+        if chars.peek() == Some(&'[') {
+            chars.next();
+            for c in chars.by_ref() {
+                if ('\x40'..='\x7e').contains(&c) {
+                    break;
+                }
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_ansi;
+
+    #[test]
+    fn strip_ansi_removes_csi_sequences_and_keeps_text() {
+        let colored = "\x1b[2m2026-07-15\x1b[0m \x1b[32m INFO\x1b[0m plain \x1b[3mkey\x1b[0m\x1b[2m=\x1b[0mvalue";
+        assert_eq!(strip_ansi(colored), "2026-07-15  INFO plain key=value");
+        assert_eq!(strip_ansi("no escapes"), "no escapes");
     }
 }
