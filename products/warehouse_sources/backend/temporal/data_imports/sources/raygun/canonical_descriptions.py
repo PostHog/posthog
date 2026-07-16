@@ -11,7 +11,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "identifier": "Unique identifier for the application.",
             "planIdentifier": "Identifier of the Raygun plan the application belongs to.",
             "name": "Display name of the application.",
-            "apiKey": "API key used to send data to this application.",
             "hasSentCrashData": "Whether the application has received crash reporting data.",
             "hasSentApmData": "Whether the application has received APM data.",
             "hasSentRumData": "Whether the application has received real user monitoring data.",

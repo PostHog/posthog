@@ -109,6 +109,20 @@ class TestTopLevelPagination:
 
     @patch(f"{MODULE}.PAGE_SIZE", 2)
     @patch(f"{MODULE}.make_tracked_session")
+    def test_application_api_key_is_stripped(self, mock_session: MagicMock) -> None:
+        # `apiKey` is an ingestion credential and must never reach the warehouse table.
+        session = _FakeSession(lambda url: _response([{"identifier": "app-1", "name": "App", "apiKey": "secret"}]))
+        mock_session.return_value = session
+
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        rows = [row for page in get_rows("tok", "applications", MagicMock(), manager) for row in page]
+
+        assert rows == [{"identifier": "app-1", "name": "App"}]
+
+    @patch(f"{MODULE}.PAGE_SIZE", 2)
+    @patch(f"{MODULE}.make_tracked_session")
     def test_resume_starts_from_saved_offset(self, mock_session: MagicMock) -> None:
         session = _FakeSession(lambda url: _response([{"identifier": "app-9"}]))
         mock_session.return_value = session

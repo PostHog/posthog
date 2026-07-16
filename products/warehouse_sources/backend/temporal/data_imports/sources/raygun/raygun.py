@@ -19,6 +19,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.set
 # stay small; a generous ceiling covers a slow response without wedging the worker.
 REQUEST_TIMEOUT = 60
 
+# Fields dropped from ingested rows before they reach the warehouse table, keyed by endpoint path.
+# The `applications` response carries `apiKey` — the ingestion key for that application — which
+# anyone with warehouse viewer access could otherwise read and use to submit forged crash/APM/RUM
+# data. It is never needed downstream, so strip it at the source; disabling HTTP sample capture
+# does not protect the imported table.
+_SENSITIVE_FIELDS: dict[str, frozenset[str]] = {
+    RAYGUN_ENDPOINTS["applications"].path: frozenset({"apiKey"}),
+}
+
+
+def _scrub(path: str, data: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sensitive = _SENSITIVE_FIELDS.get(path)
+    if not sensitive:
+        return data
+    return [{key: value for key, value in row.items() if key not in sensitive} for row in data]
+
 
 @dataclasses.dataclass
 class RaygunResumeConfig:
@@ -74,7 +90,7 @@ def _fetch_page(
     data = response.json()
     if not isinstance(data, list):
         return []
-    return data
+    return _scrub(path, data)
 
 
 def _iter_application_identifiers(session: Any, headers: dict[str, str], logger: FilteringBoundLogger) -> list[str]:
