@@ -90,6 +90,7 @@ export function QueryWindow({
         activeQueryOffset,
         selectedConnectionId,
         sendRawQueryEnabled,
+        selectedConnectionSupportsHogQL,
     } = useValues(logic)
 
     const {
@@ -109,7 +110,8 @@ export function QueryWindow({
     const { editorVimModeEnabled } = useValues(userPreferencesLogic)
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
-    const canSendRawQuery = !!selectedConnectionId
+    // Raw-only connections are forced to raw SQL mode — no toggle to show.
+    const canSendRawQuery = !!selectedConnectionId && selectedConnectionSupportsHogQL
     const debouncedMaxToolQueryInput = useDebouncedValue(queryInput, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const debouncedMaxToolSourceQuery = useDebouncedValue(sourceQuery, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const executeSqlToolStateRef = useRef({ queryInput, sourceQuery })

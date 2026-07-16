@@ -1778,6 +1778,10 @@ export type FeatureFlagsListParams = {
      */
     created_by_id?: string
     /**
+     * When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.
+     */
+    eligible_for_experiment?: FeatureFlagsListEligibleForExperiment
+    /**
      * Filter feature flags by their evaluation runtime.
      */
     evaluation_runtime?: FeatureFlagsListEvaluationRuntime
@@ -1824,6 +1828,13 @@ export type FeatureFlagsListArchived = (typeof FeatureFlagsListArchived)[keyof t
 
 export const FeatureFlagsListArchived = {
     False: 'false',
+    True: 'true',
+} as const
+
+export type FeatureFlagsListEligibleForExperiment =
+    (typeof FeatureFlagsListEligibleForExperiment)[keyof typeof FeatureFlagsListEligibleForExperiment]
+
+export const FeatureFlagsListEligibleForExperiment = {
     True: 'true',
 } as const
 
@@ -1885,6 +1896,10 @@ export type FeatureFlagsEvaluationReasonsRetrieveParams = {
      * @minLength 1
      */
     distinct_id: string
+    /**
+     * Optional list of flag keys to scope the response to. When omitted, evaluation reasons are returned for every flag in the project, which can be a very large payload on projects with many flags. Pass the specific flag(s) you are debugging to keep the response small. Accepts either repeated query params (flag_keys=a&flag_keys=b) or a JSON array string (flag_keys=["a","b"]).
+     */
+    flag_keys?: string[]
     /**
      * Groups for feature flag evaluation (JSON object string)
      */

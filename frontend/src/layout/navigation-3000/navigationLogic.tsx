@@ -1,5 +1,5 @@
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 import React from 'react'
@@ -542,7 +542,9 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                                                       savedFilter.name ||
                                                                       savedFilter.derived_name ||
                                                                       'Unnamed',
-                                                                  to: urls.replayPlaylist(savedFilter.short_id),
+                                                                  to: combineUrl(urls.replay(ReplayTabs.Home), {
+                                                                      savedFilterId: savedFilter.short_id,
+                                                                  }).url,
                                                               })),
                                                               footer: savedFiltersLoading && (
                                                                   <div className="px-2 py-1 text-tertiary">
