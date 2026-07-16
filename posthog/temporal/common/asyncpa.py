@@ -20,6 +20,16 @@ class AsyncMessageReader:
     def __init__(self, bytes_iter: collections.abc.AsyncIterator[bytes]):
         self._bytes = bytes_iter
         self._buffer = bytearray()
+        self._bytes_consumed = 0
+
+    @property
+    def bytes_consumed(self) -> int:
+        """Total bytes of fully parsed IPC messages consumed from the stream.
+
+        Buffered but not yet parsed bytes are not counted, so this is always an
+        offset at an IPC message boundary.
+        """
+        return self._bytes_consumed
 
     def __aiter__(self) -> "AsyncMessageReader":
         return self
@@ -63,6 +73,7 @@ class AsyncMessageReader:
             msg = await loop.run_in_executor(None, pa.ipc.read_message, buffer_view[:total_message_size])
 
         self._buffer = self._buffer[total_message_size:]
+        self._bytes_consumed += total_message_size
 
         return msg
 
@@ -110,9 +121,25 @@ class AsyncMessageReader:
 class AsyncRecordBatchReader:
     """Asynchronously read PyArrow RecordBatches from an iterator of bytes."""
 
-    def __init__(self, bytes_iter: collections.abc.AsyncIterator[bytes]) -> None:
+    def __init__(self, bytes_iter: collections.abc.AsyncIterator[bytes], schema: pa.Schema | None = None) -> None:
+        """Initialize the reader.
+
+        Arguments:
+            bytes_iter: The stream of bytes to read record batches from.
+            schema: Pass a schema parsed from a previous read to resume a stream
+                mid-way: the stream is then expected to start at a record batch
+                message boundary, with no schema message.
+        """
         self._reader = AsyncMessageReader(bytes_iter)
-        self._schema: None | pa.Schema = None
+        self._schema: None | pa.Schema = schema
+
+    @property
+    def bytes_consumed(self) -> int:
+        return self._reader.bytes_consumed
+
+    @property
+    def schema(self) -> pa.Schema | None:
+        return self._schema
 
     def __aiter__(self) -> "AsyncRecordBatchReader":
         return self

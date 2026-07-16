@@ -12,6 +12,23 @@ from posthog.temporal.common import asyncpa
 pytestmark = [pytest.mark.asyncio]
 
 
+class AsyncWrapper:
+    def __init__(self, buffer: io.BytesIO, chunk_size: int = 1024) -> None:
+        self.buffer = buffer
+        self.chunk_size = chunk_size
+
+    def __aiter__(self) -> "AsyncWrapper":
+        return self
+
+    async def __anext__(self) -> bytes:
+        b = self.buffer.read(self.chunk_size)
+
+        if b == b"":
+            raise StopAsyncIteration
+        else:
+            return b
+
+
 def generate_record_batches(total_records: int = 1_000, total_batches: int = 10, target_size_bytes: int = 10 * 1024):
     """Generate record batches for testing.
 
@@ -60,22 +77,6 @@ async def test_record_batch_reader_reads_record_batches(record_batches: collecti
     buffer = io.BytesIO()
     first_batch = next(record_batches)
 
-    class AsyncWrapper:
-        def __init__(self, buffer: io.BytesIO, chunk_size: int = 1024) -> None:
-            self.buffer = buffer
-            self.chunk_size = chunk_size
-
-        def __aiter__(self) -> "AsyncWrapper":
-            return self
-
-        async def __anext__(self) -> bytes:
-            b = self.buffer.read(self.chunk_size)
-
-            if b == b"":
-                raise StopAsyncIteration
-            else:
-                return b
-
     reader = asyncpa.AsyncRecordBatchReader(AsyncWrapper(buffer))
 
     # We write a record batch into a buffer, immediately read it, and compare
@@ -106,3 +107,28 @@ async def test_record_batch_reader_reads_record_batches(record_batches: collecti
 
             _ = buffer.seek(0)
             _ = buffer.truncate()
+
+
+@pytest.mark.parametrize("batches_before_resume", [1, 5, 10])
+async def test_record_batch_reader_resumes_from_byte_offset(batches_before_resume: int):
+    total_batches = 10
+    batches = list(generate_record_batches(total_records=100, total_batches=total_batches, target_size_bytes=1024))
+
+    buffer = io.BytesIO()
+    with pa.ipc.new_stream(buffer, schema=batches[0].schema) as writer:
+        for batch in batches:
+            writer.write_batch(batch)
+    data = buffer.getvalue()
+
+    reader = asyncpa.AsyncRecordBatchReader(AsyncWrapper(io.BytesIO(data)))
+    batches_read = [await anext(reader) for _ in range(batches_before_resume)]
+    offset = reader.bytes_consumed
+
+    assert batches_read == batches[:batches_before_resume]
+    # The offset must land on an IPC message boundary (either the next record batch or the EOS marker).
+    assert data[offset : offset + 4] == asyncpa.CONTINUATION_BYTES
+
+    resumed_reader = asyncpa.AsyncRecordBatchReader(AsyncWrapper(io.BytesIO(data[offset:])), schema=reader.schema)
+    batches_resumed = [batch async for batch in resumed_reader]
+
+    assert batches_resumed == batches[batches_before_resume:]
