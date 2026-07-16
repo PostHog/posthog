@@ -24,6 +24,7 @@ from posthog.temporal.ai_observability.sentiment.constants import (
     ONNX_INTRA_OP_NUM_THREADS,
 )
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
+from posthog.temporal.ai_observability.sentiment.utils import select_sentiment_label
 
 logger = structlog.get_logger(__name__)
 
@@ -99,8 +100,8 @@ def _parse_single_result(scores_list: list[dict[str, Any]]) -> SentimentResult:
         if label not in scores:
             scores[label] = 0.0
 
-    top_label = max(scores, key=scores.get)  # type: ignore
-    return SentimentResult(label=top_label, score=scores[top_label], scores=scores)
+    label = select_sentiment_label(scores)
+    return SentimentResult(label=label, score=scores[label], scores=scores)
 
 
 def classify(texts: list[str]) -> list[SentimentResult]:

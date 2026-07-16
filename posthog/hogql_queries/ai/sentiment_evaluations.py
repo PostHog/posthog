@@ -77,6 +77,7 @@ WHERE event = '$ai_evaluation'
   AND properties.$ai_evaluation_runtime = 'sentiment'
   AND trace_id IN {trace_ids}
   AND length(toString(properties.$ai_target_event_id)) > 0
+  AND toString(properties.$ai_sentiment_message_count) != '0'
   AND {generation_filter}
 GROUP BY trace_id, toString(properties.$ai_target_event_id)
 LIMIT {limit}
@@ -100,6 +101,7 @@ FROM (
       AND properties.$ai_evaluation_runtime = 'sentiment'
       AND trace_id IN {trace_ids}
       AND length(toString(properties.$ai_target_event_id)) > 0
+      AND toString(properties.$ai_sentiment_message_count) != '0'
     GROUP BY trace_id, toString(properties.$ai_target_event_id)
 )
 GROUP BY trace_id
