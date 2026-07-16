@@ -499,7 +499,10 @@ export const getConversationsTicketsBulkUpdateStatusCreateUrl = (projectId: stri
  * Update the status of multiple tickets in a single request.
  *
  * Only tickets belonging to the current team are affected; other-team UUIDs
- * are silently ignored.  Tickets already in the requested status are skipped.
+ * are silently ignored. Tickets the caller lacks editor-level access to (denied
+ * or view-only via object-level access control) are silently skipped too, the
+ * same way single-ticket updates enforce object-level access via get_object().
+ * Tickets already in the requested status are skipped.
  */
 export const conversationsTicketsBulkUpdateStatusCreate = async (
     projectId: string,
