@@ -20,8 +20,7 @@ def auth_non_retryable_errors(host: str | None = None, *, service: str | None = 
     svc = f"{service} " if service else ""
     unauthorized = f"Your {svc}API key or token is invalid or expired. Please reconnect with valid credentials."
     forbidden = (
-        f"Your {svc}credentials don't have permission to access this resource. "
-        "Check the key's scopes and reconnect."
+        f"Your {svc}credentials don't have permission to access this resource. Check the key's scopes and reconnect."
     )
     if host:
         return {

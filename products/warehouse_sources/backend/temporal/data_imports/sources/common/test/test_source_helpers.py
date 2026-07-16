@@ -3,18 +3,14 @@ from unittest.mock import Mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.types import IncrementalFieldType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
-    auth_non_retryable_errors,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import auth_non_retryable_errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
     build_endpoint_schemas,
     incremental_field,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import (
-    validate_via_probe,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 ENDPOINTS = ("charges", "invoices", "events")
 INCREMENTAL_FIELDS = {
