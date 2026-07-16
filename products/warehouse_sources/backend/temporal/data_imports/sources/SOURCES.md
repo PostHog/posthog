@@ -433,6 +433,7 @@ the row lists both.
 | statuspage                | HTTP                        | requests                                                        | ✅                          |
 | stigg                     | HTTP                        | requests                                                        | ✅                          |
 | stripe                    | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
+| sumo_logic                | HTTP                        | requests                                                        | ✅                          |
 | supabase                  | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | surveymonkey              | HTTP                        | requests                                                        | ✅                          |
 | surveysparrow             | HTTP                        | requests                                                        | ✅                          |
@@ -910,7 +911,6 @@ doesn't conflict with concurrent PRs.
 - streamelements
 - streamlabs
 - stytch
-- sumo_logic
 - sumsub
 - superwall
 - surveymonkey
