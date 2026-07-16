@@ -2138,7 +2138,7 @@ class JamfProSourceConfig(config.Config):
 
 @config.config
 class JellyfishSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
