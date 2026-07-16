@@ -94,6 +94,23 @@ def evaluate_alert_check(
     (CloudWatch-style) for firing, immediate resolution on the first OK
     check, and cooldown suppression.
     """
+    # Honor an active snooze regardless of persisted state (except BROKEN, which
+    # is terminal). The worker loads alerts at batch start and bulk-saves minutes
+    # later, so its stale non-SNOOZED state can clobber a concurrent user snooze;
+    # snooze_until survives (it's not in the worker's field list) and unsnooze
+    # nulls it, so a future value always means "user snoozed". Returning SNOOZED
+    # silences the alert and repairs the clobbered row next cycle. The shared
+    # machine deliberately ignores a stray snooze_until on a non-SNOOZED alert, so
+    # this repair lives here — alongside the logs worker that causes the clobber.
+    if snapshot.state != AlertState.BROKEN and snapshot.snooze_until is not None and snapshot.snooze_until > now:
+        return AlertCheckOutcome(
+            new_state=AlertState.SNOOZED,
+            notification=NotificationAction.NONE,
+            consecutive_failures=snapshot.consecutive_failures,
+            update_last_notified_at=False,
+            error_message=None,
+        )
+
     return shared_evaluate_alert_check(
         SharedAlertSnapshot(
             state=snapshot.state,

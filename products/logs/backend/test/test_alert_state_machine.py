@@ -410,6 +410,29 @@ class TestSnooze(TestCase):
         outcome = evaluate_alert_check(snapshot, _check(breached=False), NOW)
         assert outcome.new_state == NOT_FIRING
 
+    # The worker's bulk save can overwrite a concurrent user snooze with a stale
+    # non-SNOOZED state (snooze_until survives — it's not in the worker's field
+    # list). An active snooze_until must silence the alert regardless of state,
+    # and the outcome restores SNOOZED so the row self-repairs.
+    @parameterized.expand(
+        [
+            ("clobbered_firing_breaching", FIRING, _check(breached=True)),
+            ("clobbered_not_firing_breaching", NOT_FIRING, _check(breached=True)),
+            ("clobbered_firing_resolving", FIRING, _check(breached=False)),
+            ("clobbered_firing_error", FIRING, _check(error="timeout")),
+        ]
+    )
+    def test_active_snooze_honored_regardless_of_state(self, _name: str, state: AlertState, check: CheckResult) -> None:
+        snapshot = _snapshot(state=state, snooze_until=NOW + timedelta(hours=1))
+        outcome = evaluate_alert_check(snapshot, check, NOW)
+        assert outcome.new_state == SNOOZED
+        assert outcome.notification == NotificationAction.NONE
+
+    def test_broken_wins_over_active_snooze(self) -> None:
+        snapshot = _snapshot(state=BROKEN, snooze_until=NOW + timedelta(hours=1), consecutive_failures=5)
+        outcome = evaluate_alert_check(snapshot, _check(breached=True), NOW)
+        assert outcome.new_state == BROKEN
+
 
 class TestEdgeCases(TestCase):
     def test_non_breaching_check_resolves_immediately(self) -> None:
