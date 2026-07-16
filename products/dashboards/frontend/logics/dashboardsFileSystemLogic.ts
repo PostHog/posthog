@@ -13,8 +13,6 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { DashboardBasicType } from '~/types'
 
-import type { Node } from '../../../../frontend/src/queries/schema/schema-general'
-import type { DashboardType, QueryBasedInsightModel } from '../../../../frontend/src/types'
 import {
     buildEntryByRef,
     buildFolderDashboardCounts,

@@ -3,7 +3,6 @@ import { MakeLogicType, connect, kea, key, listeners, path, props } from 'kea'
 import { issueActionsLogic } from 'products/error_tracking/frontend/components/IssueActions/issueActionsLogic'
 
 import type {
-    ErrorTrackingIssue,
     ErrorTrackingIssueAssignee,
     ErrorTrackingIssueStatus,
 } from '../../../../../frontend/src/queries/schema/schema-general'

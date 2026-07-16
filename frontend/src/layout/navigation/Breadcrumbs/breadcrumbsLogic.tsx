@@ -13,7 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
-import type { SceneConfig, SceneParams } from '../../../scenes/sceneTypes'
+import type { SceneConfig } from '../../../scenes/sceneTypes'
 import type { OrganizationBasicType, OrganizationType, PreflightStatus, ProjectType, UserType } from '../../../types'
 import type { TeamPublicType, TeamType } from '../../../types'
 

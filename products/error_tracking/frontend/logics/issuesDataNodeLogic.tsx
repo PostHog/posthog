@@ -5,7 +5,6 @@ import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/data
 import { ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema/schema-general'
 
 import type {
-    AnyResponseType,
     DataNode,
     DateRange,
     ErrorTrackingIssueAssignee,
