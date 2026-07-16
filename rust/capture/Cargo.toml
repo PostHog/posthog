@@ -28,6 +28,8 @@ hyper-util = { workspace = true }
 common-alloc = { path = "../common/alloc" }
 common-compression = { path = "../common/compression" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
+common-event-restrictions = { path = "../common/event-restrictions" }
+common-pipelines = { path = "../common/pipelines" }
 common-redis = { path = "../common/redis" }
 common-types = { path = "../common/types" }
 limiters = { path = "../common/limiters" }

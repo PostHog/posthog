@@ -1801,6 +1801,8 @@ dependencies = [
  "common-alloc",
  "common-compression",
  "common-continuous-profiling",
+ "common-event-restrictions",
+ "common-pipelines",
  "common-redis",
  "common-types",
  "envconfig",
@@ -2371,6 +2373,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-event-restrictions"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "common-redis",
+ "futures",
+ "lifecycle",
+ "metrics",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "common-geoip"
 version = "0.1.0"
 dependencies = [
@@ -2434,6 +2454,22 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "tokio",
+]
+
+[[package]]
+name = "common-pipelines"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "metrics",
+ "metrics-util",
+ "rdkafka",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -5229,8 +5265,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum 0.7.9",
+ "bytes",
  "chrono",
  "common-alloc",
+ "common-event-restrictions",
+ "common-kafka",
+ "common-pipelines",
  "dashmap 6.1.0",
  "envconfig",
  "futures",

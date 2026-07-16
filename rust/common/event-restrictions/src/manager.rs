@@ -386,9 +386,9 @@ impl EventRestrictionService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event_restrictions::repository::testing::MockRestrictionsRepository;
-    use crate::event_restrictions::repository::RestrictionEntry;
-    use crate::event_restrictions::types::RestrictionScope;
+    use crate::repository::testing::MockRestrictionsRepository;
+    use crate::repository::RestrictionEntry;
+    use crate::types::RestrictionScope;
     use common_redis::CustomRedisError;
     use tokio_util::sync::CancellationToken;
 

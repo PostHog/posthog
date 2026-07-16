@@ -4,6 +4,7 @@ use tracing::info;
 
 use crate::discovery::DiscoveryMode;
 use crate::kafka_config::ConsumerConfigBuilder;
+use crate::preprocess::PreprocessMode;
 use crate::routing::RoutingStrategy;
 
 /// Configuration for the ingestion consumer.
@@ -286,6 +287,47 @@ pub struct Config {
     /// default labels. The lag-based KEDA autoscaler selects on this label.
     #[envconfig(from = "INGESTION_LANE")]
     pub ingestion_lane: Option<String>,
+
+    // ---- Preprocess pipeline (header-only triage before dispatch) ----
+    /// How the preprocess pipeline runs: `off` (default — pipeline not
+    /// constructed, zero behavior change), `dry_run` (compute verdicts, emit
+    /// metrics, pass everything through), or `enforce` (act on verdicts).
+    #[envconfig(from = "PREPROCESS_MODE", default = "off")]
+    pub preprocess_mode: PreprocessMode,
+
+    /// Static drop list: comma-separated `token[:distinct_id]` entries dropped
+    /// from ingestion. Matches the Node.js env name.
+    #[envconfig(from = "DROP_EVENTS_BY_TOKEN_DISTINCT_ID", default = "")]
+    pub drop_events_by_token_distinct_id: String,
+
+    /// Static skip-person-processing list (affects overflow `preserve_key`
+    /// selection). Matches the Node.js env name.
+    #[envconfig(from = "SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID", default = "")]
+    pub skip_persons_processing_by_token_distinct_id: String,
+
+    /// Static force-overflow list: comma-separated `token[:distinct_id]` entries
+    /// rerouted to the overflow topic. Matches the Node.js env name.
+    #[envconfig(from = "INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID", default = "")]
+    pub ingestion_force_overflow_by_token_distinct_id: String,
+
+    /// When force-overflow skips person processing, whether the original Kafka
+    /// key (partition locality) is preserved on the overflow produce. Matches the
+    /// Node.js env name.
+    #[envconfig(
+        from = "INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY",
+        default = "false"
+    )]
+    pub overflow_preserve_partition_locality: bool,
+
+    /// DLQ topic for preprocess DLQ verdicts (enforce mode, B2.4). Empty leaves
+    /// the DLQ output unregistered (verdicts fail open to dispatch).
+    #[envconfig(from = "INGESTION_OUTPUT_DLQ_TOPIC", default = "")]
+    pub ingestion_output_dlq_topic: String,
+
+    /// Overflow topic for preprocess redirect verdicts (enforce mode, B2.4).
+    /// Empty leaves the overflow output unregistered (verdicts fail open).
+    #[envconfig(from = "INGESTION_OUTPUT_OVERFLOW_TOPIC", default = "")]
+    pub ingestion_output_overflow_topic: String,
 }
 
 /// Parse `KAFKA_CONSUMER_*` env vars into rdkafka config key-value pairs.

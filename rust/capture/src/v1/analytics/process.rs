@@ -1,7 +1,10 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Instant;
 
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use common_pipelines::{ChunkStep, Step, StepError, StepResult};
 use metrics::histogram;
 use uuid::Uuid;
 
@@ -22,6 +25,7 @@ use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
 use super::context::Context;
+use super::pipeline::{CaptureFx, CaptureOutputs, CapturePipeline};
 use crate::router;
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
@@ -53,48 +57,86 @@ pub async fn process_batch(
     let processing_start = Instant::now();
     crate::ctx_log!(Level::INFO, context, "process_batch called");
 
-    validate_batch(&batch)?;
+    // Stamp batch metadata onto the context before the request pipeline
+    // consumes the batch. Moved ahead of validation: it only records context
+    // fields (created_at, capture_internal, historical_migration) read by
+    // later steps and logging, and a rejected request never reads them.
     context.set_batch_metadata(&batch);
 
-    let mut events = validate_events(context, batch)?;
+    // Request-scoped context snapshot shared by the pipeline steps (the
+    // framework's `'static` step bound forbids borrowing request-scoped data).
+    // Taken after set_batch_metadata so historical_migration et al. are stamped.
+    let ctx_snapshot = Arc::new(RequestContext::clone(context));
 
-    // Nothing left to process — return 200 with per-event drops.
+    // The request phase as a pipeline: the decoded request goes in, per-event
+    // state comes out. Structural failures reject the whole request.
+    let request_pipeline = super::pipeline::CaptureRequestPipeline::<Vec<WrappedEvent>>::builder()
+        .step(ValidateBatch)
+        .step(ValidateEvents::new(ctx_snapshot.clone()))
+        .build();
+    let mut events = super::pipeline::run_request(&request_pipeline, batch).await?;
+
+    // Nothing left to process — return 200 with per-event drops. This guard
+    // sits between the request and event pipelines deliberately: an all-invalid
+    // batch must answer 200 (per-event drops), never reach the quota step
+    // (which would answer 402 for an over-quota token), and never touch the
+    // sink (which may be unconfigured).
     if events.iter().all(|ev| ev.result != EventResult::Ok) {
         return Ok(BatchResponse::build(context, &events));
     }
 
-    // Verify gateway provenance before the quota limiter so verified events can
-    // be exempted from the llm_events meter (they're wallet-billed, not AIO).
-    apply_gateway_provenance(state, context, &mut events);
-
-    crate::v1::quota_limiter_shim::apply_quota_limits(
-        &state.quota_limiter,
-        &context.api_token,
-        &mut events,
-    )
-    .await?;
-
-    if let Some(ref service) = state.event_restriction_service {
-        apply_restrictions(
-            service,
-            &context.api_token,
-            context.server_received_at.timestamp(),
-            &mut events,
-        )
-        .await;
-    }
-
-    apply_historical_rerouting(&state.historical_cfg, context, &mut events);
-
+    // The whole event phase as ONE pipeline, in the original v1 order:
+    // gateway provenance → quota → restrictions → historical rerouting →
+    // overflow stamping → token:distinct_id limits. Single responsibility per
+    // step; each stamps per-event state and always continues (capture never
+    // removes an event; drops/redirects are Destination/EventResult stamping —
+    // see `super::pipeline`), except quota, which may reject the whole request
+    // (billing 402) via the framework's `StepError::Reject` gate outcome.
+    // Optional steps are present only when their dep is configured, exactly
+    // matching the previous per-check gating. Provenance runs before quota so
+    // gateway-verified events are exempt from the llm_events meter (they're
+    // wallet-billed, not AIO).
+    //
+    // Built per batch: the steps close over per-request context (token, server
+    // time) and request-scoped deps, which the framework's `'static` step bound
+    // forbids borrowing. The shared `Arc<RequestContext>` snapshot from above
+    // avoids cloning the context per step (see POC_NOTES §capture).
+    //
     // Overflow and global rate limit are independent checks on different axes:
     // overflow reroutes bursting keys; global rate limit disables person processing.
+    let mut event_pipeline = CapturePipeline::builder()
+        .step(ApplyGatewayProvenance::new(
+            state.ai_gateway_signing_secret.clone(),
+            ctx_snapshot.clone(),
+        ))
+        .chunk_step(ApplyQuotaLimits::new(
+            state.quota_limiter.clone(),
+            context.api_token.clone(),
+        ));
+    if let Some(ref service) = state.event_restriction_service {
+        event_pipeline = event_pipeline.chunk_step(ApplyRestrictions::new(
+            service.clone(),
+            context.api_token.clone(),
+            context.server_received_at.timestamp(),
+        ));
+    }
+    event_pipeline = event_pipeline.step(ApplyHistoricalRerouting::new(
+        state.historical_cfg,
+        ctx_snapshot.clone(),
+    ));
     if let Some(ref limiter) = state.overflow_limiter {
-        apply_overflow_stamping(limiter, context, &mut events);
+        event_pipeline = event_pipeline.step(ApplyOverflowStamping::new(
+            limiter.clone(),
+            ctx_snapshot.clone(),
+        ));
     }
-
     if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
-        apply_token_distinct_id_limits(limiter, context, &mut events).await;
+        event_pipeline = event_pipeline.chunk_step(ApplyTokenDistinctIdLimits::new(
+            limiter.clone(),
+            ctx_snapshot.clone(),
+        ));
     }
+    super::pipeline::run_in_place(&event_pipeline.build(), &mut events).await?;
 
     histogram!(
         CAPTURE_V1_PROCESSING_DURATION_SECONDS,
@@ -132,13 +174,63 @@ pub async fn process_batch(
 // the trusted marker and exempts it from the llm_events meter; anything else has its
 // `$ai_gateway*` props stripped. The strip path skips the parse unless the raw bytes
 // plausibly carry a gateway key, so ordinary traffic stays off the hot path.
+//
+// Production goes through the `ApplyGatewayProvenance` step; this state-taking
+// wrapper remains for the existing test suite.
+#[cfg(test)]
 fn apply_gateway_provenance(state: &router::State, context: &Context, events: &mut [WrappedEvent]) {
+    apply_gateway_provenance_with_secret(
+        state.ai_gateway_signing_secret.as_deref(),
+        context,
+        events,
+    )
+}
+
+/// Framework step wrapping [`apply_gateway_provenance`]. Sync and per-event.
+/// Fail-closed by design: an `$ai_*` event whose gateway props can't be parsed
+/// is dropped rather than passed through — a billing exemption must never
+/// survive unverified (this is why it is NOT `fail_open()`-wrapped).
+pub struct ApplyGatewayProvenance {
+    secret: Option<String>,
+    ctx: Arc<RequestContext>,
+}
+
+impl ApplyGatewayProvenance {
+    pub fn new(secret: Option<String>, ctx: Arc<RequestContext>) -> Self {
+        Self { secret, ctx }
+    }
+}
+
+impl Step<WrappedEvent, CaptureFx> for ApplyGatewayProvenance {
+    type Out = WrappedEvent;
+    type Outputs = CaptureOutputs;
+
+    fn apply(
+        &self,
+        mut event: WrappedEvent,
+        _fx: &mut CaptureFx,
+    ) -> Result<StepResult<WrappedEvent, CaptureOutputs>, StepError> {
+        apply_gateway_provenance_with_secret(
+            self.secret.as_deref(),
+            &self.ctx,
+            std::slice::from_mut(&mut event),
+        );
+        Ok(StepResult::Continue(event))
+    }
+
+    fn name(&self) -> &'static str {
+        "apply_gateway_provenance"
+    }
+}
+
+fn apply_gateway_provenance_with_secret(
+    secret: Option<&str>,
+    context: &RequestContext,
+    events: &mut [WrappedEvent],
+) {
     use crate::v1::gateway_provenance as gp;
 
-    let secret = state
-        .ai_gateway_signing_secret
-        .as_deref()
-        .filter(|s| !s.is_empty());
+    let secret = secret.filter(|s| !s.is_empty());
     let now = context.server_received_at;
 
     for ev in events.iter_mut() {
@@ -268,6 +360,31 @@ fn count_validation_abort(err: Error, batch_len: usize) -> Error {
     err
 }
 
+/// Framework step wrapping [`validate_batch`]: request-level structural checks
+/// (empty batch, invalid `created_at`). Failure rejects the whole request —
+/// the gate outcome — surfacing the typed [`Error`] via `run_request`.
+pub struct ValidateBatch;
+
+impl Step<Batch, CaptureFx> for ValidateBatch {
+    type Out = Batch;
+    type Outputs = CaptureOutputs;
+
+    fn apply(
+        &self,
+        batch: Batch,
+        _fx: &mut CaptureFx,
+    ) -> Result<StepResult<Batch, CaptureOutputs>, StepError> {
+        match validate_batch(&batch) {
+            Ok(()) => Ok(StepResult::Continue(batch)),
+            Err(err) => Err(StepError::reject(err)),
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "validate_batch"
+    }
+}
+
 fn validate_batch(batch: &Batch) -> Result<(), Error> {
     let batch_len = batch.batch.len();
     if batch.batch.is_empty() {
@@ -285,6 +402,42 @@ fn validate_batch(batch: &Batch) -> Result<(), Error> {
     })?;
 
     Ok(())
+}
+
+/// Framework step wrapping [`validate_events`]: expands the request [`Batch`]
+/// into per-event [`WrappedEvent`] state — per-event field validation, options
+/// coercion, timestamp normalization, and illegal-distinct-id flagging.
+/// Malformed events are stamped `EventResult::Drop` and stay in the batch;
+/// uuid integrity failures (missing/invalid/duplicate) reject the whole
+/// request, matching the previous `?` behavior.
+pub struct ValidateEvents {
+    ctx: Arc<RequestContext>,
+}
+
+impl ValidateEvents {
+    pub fn new(ctx: Arc<RequestContext>) -> Self {
+        Self { ctx }
+    }
+}
+
+impl Step<Batch, CaptureFx> for ValidateEvents {
+    type Out = Vec<WrappedEvent>;
+    type Outputs = CaptureOutputs;
+
+    fn apply(
+        &self,
+        batch: Batch,
+        _fx: &mut CaptureFx,
+    ) -> Result<StepResult<Vec<WrappedEvent>, CaptureOutputs>, StepError> {
+        match validate_events(&self.ctx, batch) {
+            Ok(events) => Ok(StepResult::Continue(events)),
+            Err(err) => Err(StepError::reject(err)),
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "validate_events"
+    }
 }
 
 fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<WrappedEvent>, Error> {
@@ -474,6 +627,38 @@ fn normalize_timestamp(
     adjusted
 }
 
+/// Framework step wrapping [`apply_historical_rerouting`]. Sync and per-event.
+/// Holds an `Arc<RequestContext>` snapshot so the unchanged slice-based function
+/// can be applied to one event via [`std::slice::from_mut`].
+pub struct ApplyHistoricalRerouting {
+    cfg: router::HistoricalConfig,
+    ctx: Arc<RequestContext>,
+}
+
+impl ApplyHistoricalRerouting {
+    pub fn new(cfg: router::HistoricalConfig, ctx: Arc<RequestContext>) -> Self {
+        Self { cfg, ctx }
+    }
+}
+
+impl Step<WrappedEvent, CaptureFx> for ApplyHistoricalRerouting {
+    type Out = WrappedEvent;
+    type Outputs = CaptureOutputs;
+
+    fn apply(
+        &self,
+        mut event: WrappedEvent,
+        _fx: &mut CaptureFx,
+    ) -> Result<StepResult<WrappedEvent, CaptureOutputs>, StepError> {
+        apply_historical_rerouting(&self.cfg, &self.ctx, std::slice::from_mut(&mut event));
+        Ok(StepResult::Continue(event))
+    }
+
+    fn name(&self) -> &'static str {
+        "apply_historical_rerouting"
+    }
+}
+
 fn apply_historical_rerouting(
     cfg: &router::HistoricalConfig,
     context: &RequestContext,
@@ -503,6 +688,39 @@ fn apply_historical_rerouting(
                 .increment(1);
             }
         }
+    }
+}
+
+/// Framework step wrapping [`apply_overflow_stamping`]. Sync and per-event.
+/// Holds `Arc<OverflowLimiter>` and an `Arc<RequestContext>` snapshot (needed
+/// for `partition_key`), applying the unchanged slice-based function to one
+/// event via [`std::slice::from_mut`].
+pub struct ApplyOverflowStamping {
+    limiter: Arc<OverflowLimiter>,
+    ctx: Arc<RequestContext>,
+}
+
+impl ApplyOverflowStamping {
+    pub fn new(limiter: Arc<OverflowLimiter>, ctx: Arc<RequestContext>) -> Self {
+        Self { limiter, ctx }
+    }
+}
+
+impl Step<WrappedEvent, CaptureFx> for ApplyOverflowStamping {
+    type Out = WrappedEvent;
+    type Outputs = CaptureOutputs;
+
+    fn apply(
+        &self,
+        mut event: WrappedEvent,
+        _fx: &mut CaptureFx,
+    ) -> Result<StepResult<WrappedEvent, CaptureOutputs>, StepError> {
+        apply_overflow_stamping(&self.limiter, &self.ctx, std::slice::from_mut(&mut event));
+        Ok(StepResult::Continue(event))
+    }
+
+    fn name(&self) -> &'static str {
+        "apply_overflow_stamping"
     }
 }
 
@@ -540,6 +758,87 @@ fn apply_overflow_stamping(
             }
             OverflowLimiterResult::NotLimited => {}
         }
+    }
+}
+
+/// Framework step wrapping [`crate::v1::quota_limiter_shim::apply_quota_limits`].
+/// Async whole-chunk step: billing quota is a per-request decision. The global
+/// limit (and the all-events-limited case) rejects the entire request with
+/// [`Error::BillingLimitExceeded`] via [`StepError::reject`] (HTTP 402); scoped
+/// limits stamp per-event drops. Fail-open lives inside the limiter (cached
+/// Redis with background refresh) — this step is fail-closed only in the sense
+/// that an over-quota request is deliberately rejected.
+pub struct ApplyQuotaLimits {
+    limiter: Arc<crate::quota_limiters::CaptureQuotaLimiter>,
+    token: String,
+}
+
+impl ApplyQuotaLimits {
+    pub fn new(limiter: Arc<crate::quota_limiters::CaptureQuotaLimiter>, token: String) -> Self {
+        Self { limiter, token }
+    }
+}
+
+#[async_trait]
+impl ChunkStep<WrappedEvent, CaptureFx> for ApplyQuotaLimits {
+    type Out = WrappedEvent;
+    type Outputs = CaptureOutputs;
+
+    async fn apply_chunk(
+        &self,
+        mut events: Vec<WrappedEvent>,
+        _fx: &mut CaptureFx,
+    ) -> Result<Vec<StepResult<WrappedEvent, CaptureOutputs>>, StepError> {
+        crate::v1::quota_limiter_shim::apply_quota_limits(&self.limiter, &self.token, &mut events)
+            .await
+            .map_err(StepError::reject)?;
+        Ok(events.into_iter().map(StepResult::Continue).collect())
+    }
+
+    fn name(&self) -> &'static str {
+        "apply_quota_limits"
+    }
+}
+
+/// Framework step wrapping [`apply_restrictions`]. Async (the restriction
+/// service is awaited per event), so it is a whole-chunk [`ChunkStep`]. The step
+/// is intrinsically infallible — it never returns `Err` and never removes an
+/// event; drops/redirects are stamped as per-event state (see
+/// [`super::pipeline`]). Fail-open lives inside `EventRestrictionService` (it
+/// returns an empty restriction set when its config is stale), so no
+/// `fail_open()` wrapper is needed or possible (`WrappedEvent` is not `Clone`).
+pub struct ApplyRestrictions {
+    service: EventRestrictionService,
+    token: String,
+    now_ts: i64,
+}
+
+impl ApplyRestrictions {
+    pub fn new(service: EventRestrictionService, token: String, now_ts: i64) -> Self {
+        Self {
+            service,
+            token,
+            now_ts,
+        }
+    }
+}
+
+#[async_trait]
+impl ChunkStep<WrappedEvent, CaptureFx> for ApplyRestrictions {
+    type Out = WrappedEvent;
+    type Outputs = CaptureOutputs;
+
+    async fn apply_chunk(
+        &self,
+        mut events: Vec<WrappedEvent>,
+        _fx: &mut CaptureFx,
+    ) -> Result<Vec<StepResult<WrappedEvent, CaptureOutputs>>, StepError> {
+        apply_restrictions(&self.service, &self.token, self.now_ts, &mut events).await;
+        Ok(events.into_iter().map(StepResult::Continue).collect())
+    }
+
+    fn name(&self) -> &'static str {
+        "apply_restrictions"
     }
 }
 
@@ -607,6 +906,39 @@ async fn apply_restrictions(
             metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "skip_person_processing")
                 .increment(1);
         }
+    }
+}
+
+/// Framework step wrapping [`apply_token_distinct_id_limits`]. Async (the global
+/// rate limiter is awaited) and carries cross-event aggregate logging, so it is
+/// a whole-chunk [`ChunkStep`].
+pub struct ApplyTokenDistinctIdLimits {
+    limiter: Arc<GlobalRateLimiter>,
+    ctx: Arc<RequestContext>,
+}
+
+impl ApplyTokenDistinctIdLimits {
+    pub fn new(limiter: Arc<GlobalRateLimiter>, ctx: Arc<RequestContext>) -> Self {
+        Self { limiter, ctx }
+    }
+}
+
+#[async_trait]
+impl ChunkStep<WrappedEvent, CaptureFx> for ApplyTokenDistinctIdLimits {
+    type Out = WrappedEvent;
+    type Outputs = CaptureOutputs;
+
+    async fn apply_chunk(
+        &self,
+        mut events: Vec<WrappedEvent>,
+        _fx: &mut CaptureFx,
+    ) -> Result<Vec<StepResult<WrappedEvent, CaptureOutputs>>, StepError> {
+        apply_token_distinct_id_limits(&self.limiter, &self.ctx, &mut events).await;
+        Ok(events.into_iter().map(StepResult::Continue).collect())
+    }
+
+    fn name(&self) -> &'static str {
+        "apply_token_distinct_id_limits"
     }
 }
 
@@ -1471,7 +1803,9 @@ mod tests {
         token: &str,
         restrictions: Vec<Restriction>,
     ) -> EventRestrictionService {
-        let pipelines = Pipeline::for_capture_mode(crate::config::CaptureMode::Events);
+        let pipelines = crate::event_restrictions::pipelines_for_capture_mode(
+            crate::config::CaptureMode::Events,
+        );
         let service = EventRestrictionService::new(pipelines, StdDuration::from_secs(300));
         let mut manager = RestrictionManager::new();
         manager.insert_restrictions(pipeline, token, restrictions);

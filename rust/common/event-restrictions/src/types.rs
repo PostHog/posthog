@@ -2,13 +2,11 @@ use std::collections::HashSet;
 
 use metrics::counter;
 
-use crate::config::CaptureMode;
-
-/// Logical ingestion pipeline a restriction is scoped to. Distinct from
-/// [`CaptureMode`] — a single capture deployment (e.g. `CaptureMode::Events`)
-/// produces events to multiple pipelines (`Analytics` for normal events,
-/// `ErrorTracking` for `$exception` events). Each pipeline owns its own
-/// restriction config in Redis and its own [`EventRestrictionService`].
+/// Logical ingestion pipeline a restriction is scoped to. A single capture
+/// deployment (e.g. the events deployment) produces events to multiple pipelines
+/// (`Analytics` for normal events, `ErrorTracking` for `$exception` events).
+/// Each pipeline owns its own restriction config in Redis and its own
+/// [`EventRestrictionService`].
 ///
 /// String values must match Django's `EventIngestionRestrictionConfig.pipelines`
 /// — the Redis JSON entries are filtered against [`Pipeline::as_str`].
@@ -37,21 +35,6 @@ impl Pipeline {
             "ai" => Some(Self::Ai),
             "errortracking" => Some(Self::ErrorTracking),
             _ => None,
-        }
-    }
-}
-
-impl Pipeline {
-    /// Pipelines a given capture deployment produces events to. The events
-    /// deployment writes to both `analytics` (normal events) and
-    /// `errortracking` (`$exception` events split off in `process_single_event`),
-    /// so its restriction service must serve restrictions for both pipelines.
-    /// Other deployments serve their single pipeline.
-    pub fn for_capture_mode(mode: CaptureMode) -> Vec<Pipeline> {
-        match mode {
-            CaptureMode::Events => vec![Self::Analytics, Self::ErrorTracking],
-            CaptureMode::Recordings => vec![Self::SessionRecordings],
-            CaptureMode::Ai => vec![Self::Ai],
         }
     }
 }
@@ -375,22 +358,6 @@ mod tests {
         ] {
             assert_eq!(Pipeline::parse(pipeline.as_str()), Some(pipeline));
         }
-    }
-
-    #[test]
-    fn test_pipeline_for_capture_mode() {
-        assert_eq!(
-            Pipeline::for_capture_mode(CaptureMode::Events),
-            vec![Pipeline::Analytics, Pipeline::ErrorTracking]
-        );
-        assert_eq!(
-            Pipeline::for_capture_mode(CaptureMode::Recordings),
-            vec![Pipeline::SessionRecordings]
-        );
-        assert_eq!(
-            Pipeline::for_capture_mode(CaptureMode::Ai),
-            vec![Pipeline::Ai]
-        );
     }
 
     #[test]
