@@ -25,6 +25,16 @@ export type QuickstartToolLevel = 'needs_setup' | 'ready' | 'live'
 /** Which primary action the card should offer */
 export type QuickstartToolCta = 'install' | 'enable' | 'setup' | 'open'
 
+export type QuickstartTaskAction = 'setup' | 'enable' | 'open_product' | 'docs'
+
+export interface QuickstartTaskGuide {
+    description: string
+    instructions: string[]
+    action: QuickstartTaskAction
+    actionLabel: string
+    url?: string
+}
+
 /** Event-derived counters for the last 30 days */
 export interface QuickstartToolSignals {
     totalEvents: number
@@ -114,6 +124,7 @@ interface ToolMilestone {
     key: string
     label: string
     achieved: (ctx: StatusContext) => boolean
+    guide: QuickstartTaskGuide
 }
 
 export interface QuickstartJourneyStep {
@@ -121,16 +132,15 @@ export interface QuickstartJourneyStep {
     label: string
     kind: 'activation' | 'quality'
     achieved: boolean
+    guide: QuickstartTaskGuide
 }
 
 export interface QuickstartToolStatus {
     level: QuickstartToolLevel
-    /** The full ladder, activation rungs first — every card shows the same shape of progress */
+    /** The full ladder, activation rungs first, shown as setup details rather than completion progress */
     journey: QuickstartJourneyStep[]
-    stepsAchieved: number
-    stepsTotal: number
-    /** The next rung worth climbing, activation first, then quality. Null when topped out. */
-    nextStep: string | null
+    /** The best current improvement, activation first, then quality. Null when none is suggested. */
+    nextStep: QuickstartJourneyStep | null
     /** The tool's headline number, e.g. sources connected or custom events captured */
     stat: { value: number; label: string } | null
     cta: QuickstartToolCta
@@ -154,6 +164,16 @@ export interface QuickstartProduct {
     docsUrl?: string
 }
 
+export interface QuickstartTaskGuidanceSelection {
+    productKey: ProductKey
+    stepKey: string
+}
+
+export interface QuickstartSelectedTask {
+    product: QuickstartProduct
+    step: QuickstartJourneyStep
+}
+
 interface QuickstartProductDefinition {
     bestFor: string
     docsUrl?: string
@@ -173,6 +193,23 @@ interface QuickstartProductDefinition {
     stat?: (ctx: StatusContext) => { value: number; label: string } | null
 }
 
+export function orderJourneyAchievements(journey: QuickstartJourneyStep[], live: boolean): QuickstartJourneyStep[] {
+    let activationBlocked = false
+    let qualityBlocked = !live
+
+    return journey.map((step) => {
+        if (step.kind === 'activation') {
+            const achieved = live || (!activationBlocked && step.achieved)
+            activationBlocked ||= !step.achieved
+            return { ...step, achieved }
+        }
+
+        const achieved = !qualityBlocked && step.achieved
+        qualityBlocked ||= !step.achieved
+        return { ...step, achieved }
+    })
+}
+
 function deriveToolStatus(definition: QuickstartProductDefinition, ctx: StatusContext): QuickstartToolStatus {
     const signalRung = definition.activation[definition.activation.length - 1]
     const earlierRungs = definition.activation.slice(0, -1)
@@ -189,23 +226,26 @@ function deriveToolStatus(definition: QuickstartProductDefinition, ctx: StatusCo
         level = definition.usableByDefault ? 'ready' : 'needs_setup'
     }
 
-    const journey: QuickstartJourneyStep[] = [
+    const rawJourney: QuickstartJourneyStep[] = [
         ...definition.activation.map((rung) => ({
             key: rung.key,
             label: rung.label,
             kind: 'activation' as const,
             achieved: rung.achieved(ctx),
+            guide: rung.guide,
         })),
         ...definition.quality.map((rung) => ({
             key: rung.key,
             label: rung.label,
             kind: 'quality' as const,
             achieved: rung.achieved(ctx),
+            guide: rung.guide,
         })),
     ]
+    const journey = orderJourneyAchievements(rawJourney, live)
     const nextStep = live
-        ? (definition.quality.find((rung) => !rung.achieved(ctx))?.label ?? null)
-        : (definition.activation.find((rung) => !rung.achieved(ctx))?.label ?? null)
+        ? (journey.find((step) => step.kind === 'quality' && !step.achieved) ?? null)
+        : (journey.find((step) => step.kind === 'activation' && !step.achieved) ?? null)
 
     let cta: QuickstartToolCta
     if (definition.requiresEvents && !ctx.team.ingested_event) {
@@ -222,8 +262,6 @@ function deriveToolStatus(definition: QuickstartProductDefinition, ctx: StatusCo
     return {
         level,
         journey,
-        stepsAchieved: journey.filter((step) => step.achieved).length,
-        stepsTotal: journey.length,
         nextStep,
         stat: stat && stat.value > 0 ? stat : null,
         cta,
@@ -252,21 +290,62 @@ const installAnySdk: ToolMilestone = {
     key: 'install_sdk',
     label: 'Install a PostHog SDK',
     achieved: ({ team }) => !!team.ingested_event,
+    guide: {
+        description: 'Connect your app to PostHog so it can start sending data.',
+        instructions: [
+            'Choose the SDK for your framework or language.',
+            'Add your project token and initialize PostHog.',
+            'Run your app and send a test event.',
+        ],
+        action: 'setup',
+        actionLabel: 'Choose an SDK',
+    },
 }
 const installWebSdk: ToolMilestone = {
     key: 'install_web_sdk',
     label: 'Install posthog-js on your site',
     achieved: ({ team }) => !!team.ingested_event,
+    guide: {
+        description: 'Add the PostHog web SDK to start capturing activity from your site.',
+        instructions: [
+            'Choose your web framework.',
+            'Add the generated install snippet to your app.',
+            'Load your site and confirm an event arrives.',
+        ],
+        action: 'setup',
+        actionLabel: 'Open web setup',
+    },
 }
 const productionTraffic: ToolMilestone = {
     key: 'production_traffic',
     label: 'Deploy your instrumentation to production',
     achieved: ({ signals }) => signals.prodEvents > 0,
+    guide: {
+        description: 'Move the same PostHog setup you tested locally into your production deployment.',
+        instructions: [
+            'Make your PostHog configuration available in production.',
+            'Deploy the instrumented version of your app.',
+            'Use the production app once, then return here after data arrives.',
+        ],
+        action: 'setup',
+        actionLabel: 'Review setup',
+    },
 }
 const firstCustomEvent: ToolMilestone = {
     key: 'first_custom_event',
     label: 'Capture your first custom event',
     achieved: ({ signals }) => signals.customEvents > 0,
+    guide: {
+        description: 'Track a meaningful action that is specific to your product.',
+        instructions: [
+            'Pick one user action you want to measure.',
+            'Call posthog.capture with a clear event name when it happens.',
+            'Trigger the action once and confirm the event appears in PostHog.',
+        ],
+        action: 'docs',
+        actionLabel: 'View capture guide',
+        url: 'https://posthog.com/docs/product-analytics/capture-events',
+    },
 }
 
 const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProductDefinition>> = {
@@ -276,7 +355,21 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
         requiresEvents: true,
         activation: [
             installAnySdk,
-            { key: 'events', label: 'Capture your first event', achieved: ({ signals }) => signals.totalEvents > 0 },
+            {
+                key: 'events',
+                label: 'Capture your first event',
+                achieved: ({ signals }) => signals.totalEvents > 0,
+                guide: {
+                    description: 'Send one event from your app to confirm the SDK is connected.',
+                    instructions: [
+                        'Open the SDK setup for your framework.',
+                        'Run your app with PostHog initialized.',
+                        'Interact with the app or capture a test event.',
+                    ],
+                    action: 'setup',
+                    actionLabel: 'Open SDK setup',
+                },
+            },
         ],
         quality: [
             productionTraffic,
@@ -285,11 +378,33 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 key: 'custom_breadth',
                 label: 'Track 5+ distinct custom events',
                 achieved: ({ signals }) => signals.distinctCustomEvents >= 5,
+                guide: {
+                    description: 'Build a useful event vocabulary around the main actions in your product.',
+                    instructions: [
+                        'List the key actions in your activation and retention paths.',
+                        'Capture each action with a stable, descriptive event name.',
+                        'Add properties that explain the context of each action.',
+                    ],
+                    action: 'docs',
+                    actionLabel: 'Plan your events',
+                    url: 'https://posthog.com/docs/product-analytics/capture-events',
+                },
             },
             {
                 key: 'identify',
                 label: 'Identify your users to unlock person-level analysis',
                 achieved: ({ signals }) => signals.identifyCalls > 0,
+                guide: {
+                    description: 'Associate anonymous activity with the people using your product.',
+                    instructions: [
+                        'Choose a stable unique ID from your own user database.',
+                        'Call posthog.identify after the user signs in.',
+                        'Include useful person properties such as plan or company.',
+                    ],
+                    action: 'docs',
+                    actionLabel: 'View identify guide',
+                    url: 'https://posthog.com/docs/product-analytics/identify',
+                },
             },
         ],
         stat: ({ signals }) => ({ value: signals.distinctCustomEvents, label: 'custom events' }),
@@ -300,13 +415,28 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
         requiresEvents: true,
         activation: [
             installWebSdk,
-            { key: 'pageviews', label: 'Get pageviews flowing', achieved: ({ signals }) => signals.pageviews > 0 },
+            {
+                key: 'pageviews',
+                label: 'Get pageviews flowing',
+                achieved: ({ signals }) => signals.pageviews > 0,
+                guide: {
+                    description: 'Confirm the web SDK is capturing visits to your site.',
+                    instructions: [
+                        'Install posthog-js with pageview capture enabled.',
+                        'Open a page in your instrumented site.',
+                        'Check web analytics after the pageview arrives.',
+                    ],
+                    action: 'setup',
+                    actionLabel: 'Open web setup',
+                },
+            },
         ],
         quality: [
             {
                 key: 'prod_pageviews',
                 label: 'Deploy to production to see real visitors',
                 achieved: ({ signals }) => signals.prodPageviews > 0,
+                guide: productionTraffic.guide,
             },
             { ...firstCustomEvent, label: 'Capture custom events to measure conversions' },
         ],
@@ -329,11 +459,31 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 key: 'opt_in',
                 label: 'Turn on session recordings',
                 achieved: ({ team }) => !!team.session_recording_opt_in,
+                guide: {
+                    description: 'Enable recording, console logs, and performance capture for this project.',
+                    instructions: [
+                        'Turn on session replay for the project.',
+                        'Open your instrumented app in a new session.',
+                        'Use the app for a minute so PostHog can create a recording.',
+                    ],
+                    action: 'enable',
+                    actionLabel: 'Enable session replay',
+                },
             },
             {
                 key: 'recordings',
                 label: 'Record your first session',
                 achieved: ({ resources }) => (resources.replayRecordings ?? 0) > 0,
+                guide: {
+                    description: 'Generate a real session so you can verify replay quality.',
+                    instructions: [
+                        'Open your instrumented app in a fresh browser session.',
+                        'Navigate through a few screens and interact with the UI.',
+                        'Wait for the session to end, then open session replay.',
+                    ],
+                    action: 'open_product',
+                    actionLabel: 'Open session replay',
+                },
             },
         ],
         quality: [
@@ -341,11 +491,31 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 key: 'console_logs',
                 label: 'Capture console logs with recordings',
                 achieved: ({ team }) => !!team.capture_console_log_opt_in,
+                guide: {
+                    description: 'Include browser console output to add debugging context to replays.',
+                    instructions: [
+                        'Enable console log capture for session replay.',
+                        'Start a new recorded session.',
+                        'Open the replay and inspect the console panel.',
+                    ],
+                    action: 'enable',
+                    actionLabel: 'Enable console logs',
+                },
             },
             {
                 key: 'performance',
                 label: 'Capture network performance with recordings',
                 achieved: ({ team }) => !!team.capture_performance_opt_in,
+                guide: {
+                    description: 'Include network timing so slow requests are visible beside the replay.',
+                    instructions: [
+                        'Enable performance capture for session replay.',
+                        'Start a new recorded session.',
+                        'Open the replay and inspect network activity.',
+                    ],
+                    action: 'enable',
+                    actionLabel: 'Enable performance capture',
+                },
             },
             productionTraffic,
         ],
@@ -364,6 +534,16 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 key: 'exceptions',
                 label: 'Capture your first exception',
                 achieved: ({ signals }) => signals.exceptions > 0,
+                guide: {
+                    description: 'Send one handled or unhandled exception to verify error tracking.',
+                    instructions: [
+                        'Open the setup instructions for your SDK.',
+                        'Enable exception capture or send a test exception.',
+                        'Open error tracking after the exception arrives.',
+                    ],
+                    action: 'setup',
+                    actionLabel: 'Open error setup',
+                },
             },
         ],
         quality: [
@@ -371,21 +551,63 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 key: 'web_autocapture',
                 label: 'Turn on exception autocapture for the web',
                 achieved: ({ team }) => !!team.autocapture_exceptions_opt_in,
+                guide: {
+                    description: 'Automatically capture unhandled browser errors and promise rejections.',
+                    instructions: [
+                        'Enable exception autocapture for the project.',
+                        'Deploy the setting with your web SDK.',
+                        'Trigger a safe test error and verify it appears.',
+                    ],
+                    action: 'enable',
+                    actionLabel: 'Enable autocapture',
+                },
             },
             {
                 key: 'server_exceptions',
                 label: 'Capture exceptions from a server SDK too',
                 achieved: ({ signals }) => signals.serverExceptions > 0,
+                guide: {
+                    description: 'Add backend exceptions so errors can be traced across your stack.',
+                    instructions: [
+                        'Choose the SDK for your backend language.',
+                        'Configure exception capture in the server process.',
+                        'Send a safe test exception from a non-production request.',
+                    ],
+                    action: 'setup',
+                    actionLabel: 'Choose a server SDK',
+                },
             },
             {
                 key: 'source_maps',
                 label: 'Upload source maps for readable stack traces',
                 achieved: ({ resources }) => (resources.symbolSetsCount ?? 0) > 0,
+                guide: {
+                    description:
+                        'Upload source maps during deployment so minified browser stacks resolve to your source code.',
+                    instructions: [
+                        'Generate source maps in your production build.',
+                        'Upload them with the PostHog CLI during deployment.',
+                        'Verify a new exception shows readable file names and lines.',
+                    ],
+                    action: 'docs',
+                    actionLabel: 'View source map guide',
+                    url: 'https://posthog.com/docs/error-tracking/upload-source-maps',
+                },
             },
             {
                 key: 'alert',
                 label: 'Set up an alert for new exceptions',
                 achieved: ({ resources }) => (resources.errorAlertsCount ?? 0) > 0,
+                guide: {
+                    description: 'Notify your team when an important new exception appears.',
+                    instructions: [
+                        'Open error tracking and choose an alert destination.',
+                        'Select which new or recurring exceptions should notify you.',
+                        'Send a test notification before saving the alert.',
+                    ],
+                    action: 'open_product',
+                    actionLabel: 'Open error tracking',
+                },
             },
             productionTraffic,
         ],
@@ -401,6 +623,16 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 key: 'flag_called',
                 label: 'Create a flag and call it from your code',
                 achieved: ({ signals }) => signals.flagCalls > 0,
+                guide: {
+                    description: 'Create a feature flag, add its key to your app, and evaluate it once.',
+                    instructions: [
+                        'Create a flag and choose its initial rollout conditions.',
+                        'Copy the generated code for your SDK.',
+                        'Run the code once and confirm the evaluation appears.',
+                    ],
+                    action: 'open_product',
+                    actionLabel: 'Create a feature flag',
+                },
             },
         ],
         quality: [
@@ -408,6 +640,17 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 key: 'prod_flag_calls',
                 label: 'Evaluate flags in production',
                 achieved: ({ signals }) => signals.prodFlagCalls > 0,
+                guide: {
+                    description: 'Deploy your flag evaluation so real users can enter the rollout.',
+                    instructions: [
+                        'Add the flag check to the production code path.',
+                        'Deploy the change with the same project configuration.',
+                        'Confirm production evaluations appear in PostHog.',
+                    ],
+                    action: 'docs',
+                    actionLabel: 'View implementation guide',
+                    url: 'https://posthog.com/docs/feature-flags/installation',
+                },
             },
         ],
         stat: ({ signals }) => ({ value: signals.flagCalls, label: 'flag calls · 30d' }),
@@ -420,11 +663,35 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
         enabled: (team) => !!team.surveys_opt_in,
         activation: [
             installWebSdk,
-            { key: 'opt_in', label: 'Turn on surveys', achieved: ({ team }) => !!team.surveys_opt_in },
+            {
+                key: 'opt_in',
+                label: 'Turn on surveys',
+                achieved: ({ team }) => !!team.surveys_opt_in,
+                guide: {
+                    description: 'Enable surveys for the project so they can be shown in your app.',
+                    instructions: [
+                        'Turn on surveys for this project.',
+                        'Confirm the web SDK is installed.',
+                        'Create a survey and preview it before launch.',
+                    ],
+                    action: 'enable',
+                    actionLabel: 'Enable surveys',
+                },
+            },
             {
                 key: 'responses',
                 label: 'Launch a survey and collect your first response',
                 achieved: ({ signals }) => signals.surveyResponses > 0,
+                guide: {
+                    description: 'Publish a focused survey and collect one real response.',
+                    instructions: [
+                        'Create a survey with one clear question.',
+                        'Choose who should see it and publish it.',
+                        'Answer it once in your instrumented app to verify the flow.',
+                    ],
+                    action: 'open_product',
+                    actionLabel: 'Create a survey',
+                },
             },
         ],
         quality: [{ ...productionTraffic, label: 'Collect responses from production traffic' }],
@@ -441,6 +708,16 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 key: 'flag_called',
                 label: 'Call a feature flag from your code',
                 achieved: ({ signals }) => signals.flagCalls > 0,
+                guide: {
+                    description: 'Use the experiment flag in your app so PostHog can assign variants.',
+                    instructions: [
+                        'Create or open an experiment and copy its feature flag key.',
+                        'Evaluate the flag where the tested experience is rendered.',
+                        'Run the code once and verify an exposure is captured.',
+                    ],
+                    action: 'open_product',
+                    actionLabel: 'Open experiments',
+                },
             },
         ],
         quality: [
@@ -449,6 +726,16 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 key: 'prod_flag_calls',
                 label: 'Run experiments on production traffic',
                 achieved: ({ signals }) => signals.prodFlagCalls > 0,
+                guide: {
+                    description: 'Ship the experiment code path so real users can be assigned to variants.',
+                    instructions: [
+                        'Confirm the experiment flag controls the intended experience.',
+                        'Deploy the change to production.',
+                        'Check that exposures and goal events arrive before interpreting results.',
+                    ],
+                    action: 'open_product',
+                    actionLabel: 'Open experiments',
+                },
             },
         ],
     },
@@ -460,11 +747,32 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 key: 'server_sdk',
                 label: 'Install a server SDK',
                 achieved: ({ signals }) => signals.backendEvents > 0,
+                guide: {
+                    description: 'Install PostHog in the service that makes your LLM calls.',
+                    instructions: [
+                        'Choose the SDK for your backend language.',
+                        'Initialize it with your project token.',
+                        'Run the service and confirm it can send an event.',
+                    ],
+                    action: 'setup',
+                    actionLabel: 'Choose a server SDK',
+                },
             },
             {
                 key: 'ai_events',
                 label: 'Wrap your LLM calls to capture generations',
                 achieved: ({ signals }) => signals.aiGenerations + signals.aiTraceEvents > 0,
+                guide: {
+                    description:
+                        'Instrument the LLM call so prompts, responses, latency, and cost are captured together.',
+                    instructions: [
+                        'Open the setup for your model provider and SDK.',
+                        'Wrap the LLM client or capture a generation explicitly.',
+                        'Make one test request and inspect the generation in PostHog.',
+                    ],
+                    action: 'setup',
+                    actionLabel: 'Open LLM setup',
+                },
             },
         ],
         quality: [
@@ -472,6 +780,18 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 key: 'traces',
                 label: 'Capture full traces, not just generations',
                 achieved: ({ signals }) => signals.aiTraceEvents > 0,
+                guide: {
+                    description:
+                        'Group generations and application work into traces so the full request can be debugged.',
+                    instructions: [
+                        'Start a trace when the AI request enters your app.',
+                        'Attach generations and spans to the same trace ID.',
+                        'End the trace after the user-visible response is ready.',
+                    ],
+                    action: 'docs',
+                    actionLabel: 'View tracing guide',
+                    url: 'https://posthog.com/docs/llm-analytics',
+                },
             },
         ],
         stat: ({ signals }) => ({
@@ -488,6 +808,16 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 key: 'first_source',
                 label: 'Connect your first source',
                 achieved: ({ resources }) => (resources.sourcesCount ?? 0) > 0,
+                guide: {
+                    description: 'Connect a database or SaaS source so its data is available in PostHog.',
+                    instructions: [
+                        'Choose the source you want to connect.',
+                        'Enter credentials with the narrowest required permissions.',
+                        'Select the tables and start the first sync.',
+                    ],
+                    action: 'open_product',
+                    actionLabel: 'Connect a source',
+                },
             },
         ],
         quality: [
@@ -495,6 +825,16 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 key: 'second_source',
                 label: 'Connect a second source to join across systems',
                 achieved: ({ resources }) => (resources.sourcesCount ?? 0) >= 2,
+                guide: {
+                    description: 'Add another source so product activity can be joined with business data.',
+                    instructions: [
+                        'Choose a source that adds useful context to your product data.',
+                        'Connect it with read-only credentials where possible.',
+                        'Create a model or query that joins the two systems.',
+                    ],
+                    action: 'open_product',
+                    actionLabel: 'Connect another source',
+                },
             },
         ],
         stat: ({ resources }) => ({ value: resources.sourcesCount ?? 0, label: 'sources connected' }),
@@ -508,6 +848,16 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 key: 'first_workflow',
                 label: 'Create your first workflow',
                 achieved: ({ resources }) => (resources.workflowsCount ?? 0) > 0,
+                guide: {
+                    description: 'Automate one useful message or action from a product signal.',
+                    instructions: [
+                        'Choose a workflow template or start from scratch.',
+                        'Add a trigger and the action it should run.',
+                        'Test the workflow before turning it on.',
+                    ],
+                    action: 'open_product',
+                    actionLabel: 'Create a workflow',
+                },
             },
         ],
         quality: [
@@ -515,6 +865,16 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 key: 'event_trigger',
                 label: 'Trigger a workflow from an event',
                 achieved: ({ resources }) => (resources.eventTriggeredWorkflows ?? 0) > 0,
+                guide: {
+                    description: 'Start a workflow when a meaningful event happens in your product.',
+                    instructions: [
+                        'Open a workflow and add an event trigger.',
+                        'Choose the event and any property filters.',
+                        'Trigger the event once and inspect the test run.',
+                    ],
+                    action: 'open_product',
+                    actionLabel: 'Open workflows',
+                },
             },
             { ...firstCustomEvent, label: 'Capture custom events for smarter triggers' },
         ],
@@ -528,6 +888,16 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 key: 'logs_flowing',
                 label: 'Point your OpenTelemetry logs at PostHog',
                 achieved: ({ resources }) => resources.hasLogs === true,
+                guide: {
+                    description: 'Send OpenTelemetry logs from your service to the PostHog ingestion endpoint.',
+                    instructions: [
+                        'Choose your OpenTelemetry collector or SDK.',
+                        'Configure the PostHog logs endpoint and authentication.',
+                        'Emit a test log and confirm it appears in the logs explorer.',
+                    ],
+                    action: 'setup',
+                    actionLabel: 'Open logs setup',
+                },
             },
         ],
         quality: [],
@@ -539,11 +909,32 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 key: 'instrumented',
                 label: 'Instrument your MCP server',
                 achieved: ({ signals }) => signals.mcpInitialize > 0 || signals.mcpToolCalls > 0,
+                guide: {
+                    description:
+                        'Add PostHog instrumentation to your MCP server so sessions and tool calls can be analyzed.',
+                    instructions: [
+                        'Open the MCP analytics setup guide.',
+                        'Add instrumentation around server initialization and tool execution.',
+                        'Connect a client once and confirm the session appears.',
+                    ],
+                    action: 'setup',
+                    actionLabel: 'Open MCP setup',
+                },
             },
             {
                 key: 'tool_calls',
                 label: 'See real tool calls come in',
                 achieved: ({ signals }) => signals.mcpToolCalls > 0,
+                guide: {
+                    description: 'Run a real MCP tool through an instrumented client connection.',
+                    instructions: [
+                        'Connect your MCP server to a client.',
+                        'Ask the client to invoke one of your tools.',
+                        'Open MCP analytics and inspect the captured call.',
+                    ],
+                    action: 'open_product',
+                    actionLabel: 'Open MCP analytics',
+                },
             },
         ],
         quality: [
@@ -552,6 +943,17 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 key: 'volume',
                 label: 'Reach 300 tool calls to unlock usage metrics',
                 achieved: ({ signals }) => signals.mcpToolCalls >= 300,
+                guide: {
+                    description:
+                        'Keep real traffic instrumented until there is enough usage to show stable tool-level patterns.',
+                    instructions: [
+                        'Verify all production tool calls use the instrumented path.',
+                        'Use MCP analytics to watch call volume grow.',
+                        'Review usage metrics after enough real calls have arrived.',
+                    ],
+                    action: 'open_product',
+                    actionLabel: 'View tool calls',
+                },
             },
         ],
         stat: ({ signals }) => ({ value: signals.mcpToolCalls, label: 'tool calls · 30d' }),
@@ -566,11 +968,31 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 key: 'enabled',
                 label: 'Turn on Support',
                 achieved: ({ team }) => !!team.conversations_enabled,
+                guide: {
+                    description: 'Enable Support for this project so your team can receive and manage tickets.',
+                    instructions: [
+                        'Turn on Support for the project.',
+                        'Open the inbox and choose a channel to connect.',
+                        'Send a test message through the connected channel.',
+                    ],
+                    action: 'enable',
+                    actionLabel: 'Enable Support',
+                },
             },
             {
                 key: 'first_ticket',
                 label: 'Connect a channel and receive your first ticket',
                 achieved: ({ resources }) => (resources.ticketsCount ?? 0) > 0,
+                guide: {
+                    description: 'Connect a customer channel and verify the first conversation reaches your inbox.',
+                    instructions: [
+                        'Open Support and connect a channel.',
+                        'Complete the channel-specific installation.',
+                        'Send a test message and confirm a ticket is created.',
+                    ],
+                    action: 'open_product',
+                    actionLabel: 'Open Support',
+                },
             },
         ],
         quality: [],
@@ -623,6 +1045,8 @@ export const quickstartLogic = kea<quickstartLogicType>([
         productEnableFinished: (productKey: ProductKey) => ({ productKey }),
         openToolSetupModal: (productKey: ProductKey) => ({ productKey }),
         closeToolSetupModal: true,
+        openTaskGuidance: (productKey: ProductKey, stepKey: string) => ({ productKey, stepKey }),
+        closeTaskGuidance: true,
         setPublicationsHasMore: (feed: PublicationFeedKey, hasMore: boolean) => ({ feed, hasMore }),
     }),
     loaders(({ actions, values }) => {
@@ -860,6 +1284,13 @@ export const quickstartLogic = kea<quickstartLogicType>([
                 closeToolSetupModal: () => null,
             },
         ],
+        taskGuidanceSelection: [
+            null as QuickstartTaskGuidanceSelection | null,
+            {
+                openTaskGuidance: (_, { productKey, stepKey }) => ({ productKey, stepKey }),
+                closeTaskGuidance: () => null,
+            },
+        ],
     }),
     selectors({
         hasIngestedEvent: [(s) => [s.currentTeam], (currentTeam): boolean => !!currentTeam?.ingested_event],
@@ -881,13 +1312,28 @@ export const quickstartLogic = kea<quickstartLogicType>([
         ],
         activeProductCount: [
             (s) => [s.products],
-            (products): number => products.filter((product) => product.status.level === 'live').length,
+            (products: QuickstartProduct[]): number =>
+                products.filter((product) => product.status.level === 'live').length,
         ],
-        totalProductCount: [(s) => [s.products], (products): number => products.length],
+        totalProductCount: [(s) => [s.products], (products: QuickstartProduct[]): number => products.length],
         setupModalProduct: [
             (s) => [s.setupModalProductKey, s.products],
-            (setupModalProductKey, products): QuickstartProduct | null =>
+            (setupModalProductKey: ProductKey | null, products: QuickstartProduct[]): QuickstartProduct | null =>
                 (setupModalProductKey && products.find((product) => product.key === setupModalProductKey)) || null,
+        ],
+        selectedTask: [
+            (s) => [s.taskGuidanceSelection, s.products],
+            (
+                selection: QuickstartTaskGuidanceSelection | null,
+                products: QuickstartProduct[]
+            ): QuickstartSelectedTask | null => {
+                if (!selection) {
+                    return null
+                }
+                const product = products.find(({ key }) => key === selection.productKey)
+                const step = product?.status.journey.find(({ key }) => key === selection.stepKey)
+                return product && step ? { product, step } : null
+            },
         ],
     }),
     listeners(({ actions, values }) => ({

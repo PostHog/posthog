@@ -33,7 +33,6 @@ import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyCurrency, humanFriendlyLargeNumber } from 'lib/utils/numbers'
@@ -370,10 +369,17 @@ function ProductStatusTag({ level }: { level: QuickstartToolStatus['level'] }): 
     )
 }
 
-function JourneyOverlay({ journey }: { journey: QuickstartJourneyStep[] }): JSX.Element {
+function JourneyOverlay({
+    journey,
+    productKey,
+}: {
+    journey: QuickstartJourneyStep[]
+    productKey: ProductKey
+}): JSX.Element {
+    const { openTaskGuidance } = useActions(quickstartLogic)
     const sections = [
         { title: 'Get it live', steps: journey.filter((step) => step.kind === 'activation') },
-        { title: 'Level it up', steps: journey.filter((step) => step.kind === 'quality') },
+        { title: 'Improve quality', steps: journey.filter((step) => step.kind === 'quality') },
     ].filter((section) => section.steps.length > 0)
 
     return (
@@ -383,13 +389,32 @@ function JourneyOverlay({ journey }: { journey: QuickstartJourneyStep[] }): JSX.
                     <div className="text-xs font-semibold text-secondary mb-1">{section.title}</div>
                     <ul className="flex flex-col gap-1 mb-0">
                         {section.steps.map((step) => (
-                            <li key={step.key} className="flex items-start gap-2 text-sm">
-                                {step.achieved ? (
-                                    <IconCheckCircle className="text-success mt-0.5 shrink-0" />
-                                ) : (
-                                    <span className="w-3 h-3 mt-1 rounded-full border-2 border-current text-muted-alt shrink-0" />
-                                )}
-                                <span className={step.achieved ? 'text-tertiary' : ''}>{step.label}</span>
+                            <li key={step.key}>
+                                <LemonButton
+                                    type="tertiary"
+                                    size="small"
+                                    fullWidth
+                                    center={false}
+                                    icon={
+                                        step.achieved ? (
+                                            <IconCheckCircle className="text-success" />
+                                        ) : (
+                                            <span className="w-3 h-3 rounded-full border-2 border-current text-muted-alt" />
+                                        )
+                                    }
+                                    sideIcon={<IconArrowRight />}
+                                    onClick={() => {
+                                        captureQuickstartAction('open_tool_task', productKey, { step_key: step.key })
+                                        openTaskGuidance(productKey, step.key)
+                                    }}
+                                    data-attr={`quickstart-task-${productKey}-${step.key}`}
+                                >
+                                    <span
+                                        className={`whitespace-normal text-left ${step.achieved ? 'text-tertiary' : ''}`}
+                                    >
+                                        {step.label}
+                                    </span>
+                                </LemonButton>
                             </li>
                         ))}
                     </ul>
@@ -399,53 +424,104 @@ function JourneyOverlay({ journey }: { journey: QuickstartJourneyStep[] }): JSX.
     )
 }
 
-/** The card's telemetry panel: headline stat, journey progress, and the recommended action, one shape for every tool */
-function ToolStatusPanel({ status }: { status: QuickstartToolStatus }): JSX.Element {
+function JourneyMeter({ status, productKey }: { status: QuickstartToolStatus; productKey: ProductKey }): JSX.Element {
     return (
-        <div className="flex flex-col gap-1.5 border-t pt-3">
-            {status.stat && (
-                <div className="text-sm font-semibold min-w-0 truncate">
-                    {humanFriendlyLargeNumber(status.stat.value)}{' '}
-                    <span className="font-normal text-secondary">{status.stat.label}</span>
-                </div>
-            )}
-            <LemonProgress
-                percent={(status.stepsAchieved / Math.max(status.stepsTotal, 1)) * 100}
-                strokeColor="var(--success)"
-            />
-            {status.nextStep && (
-                <p className="text-xs mb-0">
-                    <span className="font-medium text-secondary">Recommended action: </span>
-                    <span className="font-medium text-accent">{status.nextStep}</span>
-                </p>
-            )}
-        </div>
+        <LemonDropdown
+            overlay={<JourneyOverlay journey={status.journey} productKey={productKey} />}
+            placement="bottom-end"
+            onVisibilityChange={(visible) => visible && captureQuickstartAction('view_tool_journey', productKey)}
+        >
+            <button
+                type="button"
+                className="flex items-center gap-2 w-full p-0 border-0 bg-transparent cursor-pointer group"
+                aria-label="Show setup details"
+                data-attr={`quickstart-journey-${productKey}`}
+            >
+                <span className="flex items-center gap-1 flex-1">
+                    {status.journey.map((step) => (
+                        <span
+                            key={step.key}
+                            className={`h-1 flex-1 rounded-full transition-colors ${
+                                step.achieved
+                                    ? 'bg-success'
+                                    : step.key === status.nextStep?.key
+                                      ? 'bg-accent'
+                                      : 'bg-fill-tertiary'
+                            }`}
+                        />
+                    ))}
+                </span>
+                <span className="text-xs text-tertiary group-hover:text-primary">Setup details</span>
+                <IconChevronDown className="text-tertiary group-hover:text-primary" />
+            </button>
+        </LemonDropdown>
     )
 }
 
-function JourneyStepsButton({
+function getToolActivitySummary(status: QuickstartToolStatus): JSX.Element {
+    if (status.stat) {
+        return (
+            <>
+                <span className="font-semibold">{humanFriendlyLargeNumber(status.stat.value)}</span>{' '}
+                <span className="text-secondary">{status.stat.label}</span>
+            </>
+        )
+    }
+    if (status.level === 'live') {
+        return <span className="text-secondary">Active in the last 30 days</span>
+    }
+    if (status.level === 'ready') {
+        return <span className="text-secondary">Waiting for its first signal</span>
+    }
+    return <span className="text-secondary">Not collecting data yet</span>
+}
+
+/** Activity evidence and the best available improvement, without implying a finite completion goal. */
+function ToolStatusPanel({
     status,
     productKey,
 }: {
     status: QuickstartToolStatus
     productKey: ProductKey
 }): JSX.Element {
+    const { openTaskGuidance } = useActions(quickstartLogic)
+    const nextStep = status.nextStep
+
     return (
-        <LemonDropdown
-            overlay={<JourneyOverlay journey={status.journey} />}
-            placement="bottom-end"
-            closeOnClickInside={false}
-            onVisibilityChange={(visible) => visible && captureQuickstartAction('view_tool_journey', productKey)}
-        >
-            <LemonButton
-                size="small"
-                type="secondary"
-                sideIcon={<IconChevronDown />}
-                data-attr={`quickstart-journey-${productKey}`}
-            >
-                {status.stepsAchieved}/{status.stepsTotal} steps
-            </LemonButton>
-        </LemonDropdown>
+        <div className="flex flex-col gap-2 border-t pt-3">
+            <div className="text-sm min-w-0 truncate min-h-5">{getToolActivitySummary(status)}</div>
+            <JourneyMeter status={status} productKey={productKey} />
+            <div className="min-h-16 text-xs">
+                {nextStep ? (
+                    <>
+                        <div className="font-medium text-secondary mb-0.5">Next improvement</div>
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            fullWidth
+                            center={false}
+                            sideIcon={<IconArrowRight />}
+                            onClick={() => {
+                                captureQuickstartAction('open_recommended_task', productKey, {
+                                    step_key: nextStep.key,
+                                })
+                                openTaskGuidance(productKey, nextStep.key)
+                            }}
+                            data-attr={`quickstart-recommended-task-${productKey}`}
+                        >
+                            <span className="whitespace-normal text-left font-medium text-accent line-clamp-2">
+                                {nextStep.label}
+                            </span>
+                        </LemonButton>
+                    </>
+                ) : (
+                    <>
+                        <div className="font-medium text-secondary">Setup quality</div>
+                        <div className="font-medium">No suggested changes right now</div>
+                    </>
+                )}
+            </div>
+        </div>
     )
 }
 
@@ -506,7 +582,7 @@ export function ProductCard({ product }: { product: QuickstartProduct }): JSX.El
                 <div className="text-xs text-tertiary">Best for {product.bestFor}</div>
             </div>
             <p className="text-secondary text-sm mb-0 flex-1">{product.description}</p>
-            <ToolStatusPanel status={status} />
+            <ToolStatusPanel status={status} productKey={product.key} />
             <div className="flex items-center gap-2 mt-1">
                 {status.level === 'live' ? (
                     <>
@@ -547,9 +623,6 @@ export function ProductCard({ product }: { product: QuickstartProduct }): JSX.El
                         Docs
                     </LemonButton>
                 )}
-                <div className="ml-auto">
-                    <JourneyStepsButton status={status} productKey={product.key} />
-                </div>
             </div>
         </LemonCard>
     )
@@ -685,6 +758,120 @@ function ToolSetupModal({ installationComplete }: { installationComplete: boolea
         >
             {setupModalProduct && (
                 <ToolSetupModalContent product={setupModalProduct} installationComplete={installationComplete} />
+            )}
+        </LemonModal>
+    )
+}
+
+function TaskGuidanceModal(): JSX.Element {
+    const { selectedTask, enablingProducts } = useValues(quickstartLogic)
+    const { closeTaskGuidance, enableProduct, openToolSetupModal } = useActions(quickstartLogic)
+
+    const primaryAction = (): JSX.Element | null => {
+        if (!selectedTask) {
+            return null
+        }
+
+        const { product, step } = selectedTask
+        const captureAction = (): void => {
+            captureQuickstartAction('start_tool_task', product.key, {
+                step_key: step.key,
+                task_action: step.guide.action,
+            })
+        }
+
+        if (step.guide.action === 'enable') {
+            return (
+                <LemonButton
+                    type="primary"
+                    loading={!!enablingProducts[product.key]}
+                    disabledReason={step.achieved ? 'This is already enabled' : undefined}
+                    onClick={() => {
+                        captureAction()
+                        enableProduct(product.key)
+                    }}
+                    data-attr="quickstart-task-enable"
+                >
+                    {step.achieved ? 'Enabled' : step.guide.actionLabel}
+                </LemonButton>
+            )
+        }
+
+        if (step.guide.action === 'setup' && PRODUCT_SDK_SETUP[product.key]) {
+            return (
+                <LemonButton
+                    type="primary"
+                    onClick={() => {
+                        captureAction()
+                        closeTaskGuidance()
+                        openToolSetupModal(product.key)
+                    }}
+                    data-attr="quickstart-task-setup"
+                >
+                    {step.guide.actionLabel}
+                </LemonButton>
+            )
+        }
+
+        const destination =
+            step.guide.action === 'docs'
+                ? (step.guide.url ?? product.docsUrl ?? product.setupUrl)
+                : step.guide.action === 'open_product'
+                  ? product.url
+                  : product.setupUrl
+
+        return (
+            <LemonButton
+                type="primary"
+                to={destination}
+                targetBlank={step.guide.action === 'docs'}
+                onClick={() => {
+                    captureAction()
+                    closeTaskGuidance()
+                }}
+                data-attr="quickstart-task-open"
+            >
+                {step.guide.actionLabel}
+            </LemonButton>
+        )
+    }
+
+    return (
+        <LemonModal
+            isOpen={!!selectedTask}
+            onClose={closeTaskGuidance}
+            title={selectedTask?.step.label ?? ''}
+            width="32rem"
+            footer={
+                selectedTask && (
+                    <div className="flex items-center justify-end gap-2">
+                        <LemonButton onClick={closeTaskGuidance}>Close</LemonButton>
+                        {primaryAction()}
+                    </div>
+                )
+            }
+        >
+            {selectedTask && (
+                <div className="flex flex-col gap-4">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xl leading-none">
+                            {getProductIcon(selectedTask.product.icon, { iconColor: selectedTask.product.iconColor })}
+                        </span>
+                        <span className="font-medium">{selectedTask.product.name}</span>
+                        {selectedTask.step.achieved && <LemonTag type="success">Done</LemonTag>}
+                    </div>
+                    <p className="text-secondary mb-0">{selectedTask.step.guide.description}</p>
+                    <div>
+                        <div className="font-semibold mb-2">How to do it</div>
+                        <ol className="flex flex-col gap-2 list-decimal pl-5 mb-0">
+                            {selectedTask.step.guide.instructions.map((instruction) => (
+                                <li key={instruction} className="pl-1">
+                                    {instruction}
+                                </li>
+                            ))}
+                        </ol>
+                    </div>
+                </div>
             )}
         </LemonModal>
     )
@@ -1222,6 +1409,7 @@ export function Quickstart(): JSX.Element {
                 </div>
             </section>
 
+            <TaskGuidanceModal />
             <ToolSetupModal installationComplete={installationComplete} />
         </SceneContent>
     )

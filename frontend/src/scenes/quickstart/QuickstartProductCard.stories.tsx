@@ -4,7 +4,13 @@ import { mswDecorator } from '~/mocks/browser'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductCard } from './Quickstart'
-import { QuickstartJourneyStep, QuickstartProduct, QuickstartToolCta, QuickstartToolLevel } from './quickstartLogic'
+import {
+    QuickstartJourneyStep,
+    QuickstartProduct,
+    QuickstartTaskGuide,
+    QuickstartToolCta,
+    QuickstartToolLevel,
+} from './quickstartLogic'
 
 interface CardArgs {
     name: string
@@ -30,16 +36,29 @@ const JOURNEY_LABELS = [
     'Set up an alert',
 ]
 
+const STORY_GUIDE: QuickstartTaskGuide = {
+    description: 'Complete this task to improve the tool setup.',
+    instructions: ['Open the relevant setup.', 'Follow the instructions.', 'Return after data arrives.'],
+    action: 'setup',
+    actionLabel: 'Open setup',
+}
+
 function buildJourney(achieved: number, total: number): QuickstartJourneyStep[] {
     return Array.from({ length: total }, (_, index) => ({
         key: `step-${index}`,
         label: JOURNEY_LABELS[index] ?? `Example step ${index + 1}`,
         kind: index < 2 ? ('activation' as const) : ('quality' as const),
         achieved: index < achieved,
+        guide: STORY_GUIDE,
     }))
 }
 
 function buildProduct(args: CardArgs): QuickstartProduct {
+    const journey = buildJourney(args.stepsAchieved, args.stepsTotal)
+    const nextStep = args.nextStep
+        ? { ...(journey.find((step) => !step.achieved) ?? journey[0]), label: args.nextStep }
+        : null
+
     return {
         key: ProductKey.PRODUCT_ANALYTICS,
         name: args.name,
@@ -53,10 +72,8 @@ function buildProduct(args: CardArgs): QuickstartProduct {
         docsUrl: args.showDocs ? 'https://posthog.com/docs' : undefined,
         status: {
             level: args.level,
-            journey: buildJourney(args.stepsAchieved, args.stepsTotal),
-            stepsAchieved: Math.min(args.stepsAchieved, args.stepsTotal),
-            stepsTotal: args.stepsTotal,
-            nextStep: args.nextStep || null,
+            journey,
+            nextStep,
             stat: args.statValue > 0 ? { value: args.statValue, label: args.statLabel } : null,
             cta: args.cta,
         },
@@ -171,7 +188,7 @@ export const AllStates: StoryObj = {
                 nextStep: 'Turn on exception autocapture for the web',
             },
             {
-                title: 'Live, topped out',
+                title: 'Live, no current suggestion',
                 level: 'live',
                 cta: 'open',
                 statValue: 4200,
