@@ -26,6 +26,30 @@ singlequote_escape_chars_map = {**escape_chars_map, "'": "\\'"}
 backquote_escape_chars_map = {**escape_chars_map, "`": "``"}
 
 
+# ClickHouse keywords that must be backtick-quoted when used as an identifier (table/CTE alias,
+# column reference). Emitted bare, ClickHouse's parser reads e.g. `rollup.day` as the ROLLUP
+# keyword and fails on the following dot (`Syntax error ... (.)` — the reported symptom). Quoting
+# is always safe in ClickHouse, mirroring what the Postgres escaper already does.
+#
+# Deliberately narrow: only the keywords ClickHouse consumes *before it will accept an identifier*
+# — SELECT prefixes (ALL, DISTINCT, TOP), the unary operator NOT, and the GROUP BY result-set
+# modifiers (ROLLUP, CUBE, TOTALS). These break in the SELECT / GROUP BY / ORDER BY positions a
+# HogQL alias lands in. Most other keywords (ANY, SAMPLE, FINAL, UNION, INNER, OVER, AND, IS,
+# BETWEEN, interval units, TIMESTAMP, DATE, …) parse fine as bare identifiers — ClickHouse
+# backtracks to treating them as names — and several are real column names or query-builder
+# aliases, so quoting them would only churn generated SQL. Extend this set only for a keyword
+# actually shown to break bare.
+CLICKHOUSE_RESERVED_KEYWORDS = {
+    "ALL",
+    "CUBE",
+    "DISTINCT",
+    "NOT",
+    "ROLLUP",
+    "TOP",
+    "TOTALS",
+}
+
+
 def safe_identifier(identifier: str) -> str:
     if "%" in identifier:
         identifier = identifier.replace("%", "")
@@ -45,9 +69,12 @@ def escape_hogql_identifier(identifier: str | int) -> str:
     if "%" in identifier:
         raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
     # HogQL allows dollars in the identifier.
-    if re.match(
-        r"^[A-Za-z_$][A-Za-z0-9_$]*$", identifier
-    ):  # Same regex as the frontend escapePropertyAsHogQlIdentifier
+    if (
+        re.match(
+            r"^[A-Za-z_$][A-Za-z0-9_$]*$", identifier
+        )  # Same regex as the frontend escapePropertyAsHogQlIdentifier
+        and identifier.upper() not in CLICKHOUSE_RESERVED_KEYWORDS
+    ):
         return identifier
     return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))
 
@@ -299,7 +326,7 @@ def _quote_postgres_wire_identifier(v: str, extra_reserved_keywords: set[str] | 
 def escape_clickhouse_identifier(identifier: str) -> str:
     if "%" in identifier:
         raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
-    if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
+    if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier) and identifier.upper() not in CLICKHOUSE_RESERVED_KEYWORDS:
         return identifier
     return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))
 

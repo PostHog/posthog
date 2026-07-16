@@ -209,6 +209,17 @@ class TestPrinter(BaseTest):
             repsponse, f"SELECT\n    plus(1, 2),\n    3\nFROM\n    events\nLIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
+    def test_reserved_keyword_subquery_alias_is_quoted(self):
+        # Regression: a subquery aliased after a ClickHouse reserved word (`rollup`) printed bare, so
+        # `ORDER BY rollup.day` blew up ClickHouse's parser at the dot. The alias and every reference
+        # to it must be backtick-quoted.
+        printed = self._select(
+            "SELECT rollup.day FROM (SELECT 1 AS day) AS rollup GROUP BY rollup.day ORDER BY rollup.day ASC"
+        )
+        self.assertIn("`rollup`", printed)
+        # No bare occurrence survives: every `rollup` in the output is wrapped in backticks.
+        self.assertEqual(printed.count("rollup"), printed.count("`rollup`"))
+
     def test_column_aliases_select_star_subquery_uses_real_column_names(self):
         printed = self._select("select s.* from (select 1 as x, 2 as y, 3 as z) as s (a, b, c)")
         # ClickHouse doesn't support (a, b, c) syntax, so the printer should
