@@ -72840,6 +72840,10 @@ export namespace Schemas {
      */
     created_by_id?: string;
     /**
+     * When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.
+     */
+    eligible_for_experiment?: FeatureFlagsListEligibleForExperiment;
+    /**
      * Filter feature flags by their evaluation runtime.
      */
     evaluation_runtime?: FeatureFlagsListEvaluationRuntime;
@@ -72888,6 +72892,13 @@ export namespace Schemas {
 
     export const FeatureFlagsListArchived = {
       False: 'false',
+      True: 'true',
+    } as const;
+
+    export type FeatureFlagsListEligibleForExperiment = typeof FeatureFlagsListEligibleForExperiment[keyof typeof FeatureFlagsListEligibleForExperiment];
+
+
+    export const FeatureFlagsListEligibleForExperiment = {
       True: 'true',
     } as const;
 
