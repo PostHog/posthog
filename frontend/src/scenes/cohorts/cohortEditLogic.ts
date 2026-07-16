@@ -1043,6 +1043,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     // Refresh cohort data + count
                     actions.refreshPersonsData()
                     actions.updateCohortCount()
+                    // kea-loaders assigns the return value to the reducer state, so return
+                    // the null default rather than falling off the end (undefined throws).
+                    return null
                 },
             },
         ],
