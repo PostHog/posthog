@@ -3,6 +3,7 @@ import React, { useCallback, useMemo } from 'react'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import type {
+    AreaSelectData,
     ChartConfig,
     ChartDimensions,
     ChartDrawArgs,
@@ -22,6 +23,7 @@ import {
     maxCellValue,
     normalizeCount,
     rowAtY,
+    rowAtYClamped,
     type HeatmapColorScale,
     type HeatmapLayout,
 } from './heatmap-layout'
@@ -63,6 +65,18 @@ export interface HeatmapConfig {
     }
 }
 
+/** Inclusive index ranges of a completed 2D brush, in grid coordinates. */
+export interface HeatmapBrushData {
+    /** Column range into `xLabels`. */
+    x: { startIndex: number; endIndex: number }
+    /** Row range into `yLabels` (0 = bottom row). */
+    y: { startIndex: number; endIndex: number }
+}
+
+// A drag flatter than this reads as a time-range selection, so it spans every row instead of
+// pinning the brush to one sliver of a bucket.
+const FULL_HEIGHT_MIN_Y_DRAG_PX = 8
+
 export interface HeatmapCellDatum {
     /** Column index into `xLabels`. */
     xIndex: number
@@ -89,6 +103,10 @@ export interface HeatmapProps {
     tooltip?: (ctx: HeatmapTooltipContext) => React.ReactNode
     /** Fired when the user clicks a cell. */
     onCellClick?: (cell: HeatmapCellDatum) => void
+    /** Enables the 2D brush: drag a rectangle to select a column range and a row range at once.
+     *  A near-horizontal drag (under ~8px of vertical travel) selects every row, so a sloppy
+     *  time-range drag doesn't pin the selection to one bucket sliver. */
+    onBrush?: (selection: HeatmapBrushData) => void
     className?: string
     dataAttr?: string
     children?: React.ReactNode
@@ -111,6 +129,7 @@ function HeatmapInner({
     config,
     tooltip,
     onCellClick,
+    onBrush,
     className,
     dataAttr,
     children,
@@ -255,6 +274,34 @@ function HeatmapInner({
         []
     )
 
+    // Map the core's label-range + y-pixel-span brush payload onto grid indices.
+    const handleAreaSelect = useCallback(
+        (data: AreaSelectData, scales: ChartScales): void => {
+            const priv = (scales._private as HeatmapPrivate | undefined)?.__heatmap
+            if (!priv || !onBrush) {
+                return
+            }
+            const { layout } = priv
+            if (layout.rows === 0) {
+                return
+            }
+            let startRow = 0
+            let endRow = layout.rows - 1
+            if (Math.abs(data.yPixel1 - data.yPixel0) >= FULL_HEIGHT_MIN_Y_DRAG_PX) {
+                // yPixel0 is the top of the drag → the higher row index (rows count bottom-up).
+                const top = rowAtYClamped(layout, data.yPixel0)
+                const bottom = rowAtYClamped(layout, data.yPixel1)
+                startRow = Math.min(top, bottom)
+                endRow = Math.max(top, bottom)
+            }
+            onBrush({
+                x: { startIndex: data.startIndex, endIndex: data.endIndex },
+                y: { startIndex: startRow, endIndex: endRow },
+            })
+        },
+        [onBrush]
+    )
+
     const handlePointClick = useCallback(
         (data: PointClickData<HeatmapRowMeta>): void => {
             const rowIndex = data.series.meta?.rowIndex
@@ -319,6 +366,7 @@ function HeatmapInner({
             drawHover={drawHover}
             tooltip={renderTooltip}
             onPointClick={onCellClick ? handlePointClick : undefined}
+            onAreaSelect={onBrush ? handleAreaSelect : undefined}
             wrapClickData={wrapClickData}
             resolvePositionValue={resolvePositionValue}
             resolveBottomValue={resolveBottomValue}
