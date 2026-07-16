@@ -110,8 +110,8 @@ You can generate a personal access token in your [Typeform account settings](htt
                         caption=(
                             "Completed responses sync incrementally. Including partial & started responses "
                             "syncs the whole responses table as a full refresh on every run, since Typeform "
-                            "has no cursor that covers partial responses. **Changing this triggers a full "
-                            "refresh of the responses table.**"
+                            "has no cursor that covers partial responses. **After changing this, resync the "
+                            "responses table for the new setting to take effect.**"
                         ),
                     ),
                 ],
