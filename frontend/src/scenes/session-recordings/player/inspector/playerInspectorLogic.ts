@@ -980,7 +980,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     items.push(item)
                 }
 
-                // Add experiment variant-assignment markers (flag-evaluation moments)
+                // Add experiment first-exposure markers
                 for (const item of experimentVariantItems) {
                     items.push(item)
                 }

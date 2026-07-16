@@ -249,7 +249,7 @@ describe('playerInspectorLogic', () => {
             logic.mount()
         }
 
-        it('synthesizes one marker per context item with a flag-evaluation timestamp', async () => {
+        it('synthesizes one marker per context item with a first-exposure timestamp', async () => {
             remountWithFlagState(true)
 
             const contextLogic = sessionRecordingExperimentContextLogic({ sessionRecordingId: '1' })
