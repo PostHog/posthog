@@ -1669,12 +1669,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     // We're already on the notebook page, refresh it
                     let logic = notebookLogic.findMounted({ shortId: notebookId })
                     if (logic) {
-                        logic.actions.setLocalContent(notebookContent, true, true)
+                        logic.actions.setLocalContent(notebookContent, true)
                     }
                 } else {
                     // Navigate to the notebook
-                    await openNotebook(notebookId, NotebookTarget.Scene, undefined, (logic) => {
-                        logic.actions.setLocalContent(notebookContent, true, true)
+                    await openNotebook(notebookId, NotebookTarget.Scene, (logic) => {
+                        logic.actions.setLocalContent(notebookContent, true)
                     })
                 }
             } catch (error) {

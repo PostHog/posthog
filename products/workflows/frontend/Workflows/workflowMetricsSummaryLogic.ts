@@ -17,7 +17,7 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { ActivityTab, LogEntryLevel, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { isEmailAction } from './hogflows/steps/types'
+import { isEmailAction, isPushAction } from './hogflows/steps/types'
 import { workflowLogic } from './workflowLogic'
 import type { workflowMetricsSummaryLogicType } from './workflowMetricsSummaryLogicType'
 
@@ -42,6 +42,16 @@ export type EmailMetric =
     | 'email_bounce_prevented'
     | 'email_blocked'
     | 'email_spam'
+
+export type PushMetric = 'push_sent' | 'push_skipped' | 'push_failed'
+
+export type PushMetricRow = {
+    id: string
+    push: string
+    sent: number
+    skipped: number
+    failed: number
+}
 
 export type EmailMetricRow = {
     id: string
@@ -161,6 +171,36 @@ export const WORKFLOW_EMAIL_METRICS: Record<
     },
 }
 
+// Push has no delivery-receipt channel like email's SES webhook (FCM/APNs respond synchronously), so
+// these three send-time outcomes are all we can observe. "Sent" means the provider accepted the
+// notification for delivery, not that the device displayed it.
+export const WORKFLOW_PUSH_METRICS: Record<
+    PushMetric,
+    { name: string; description: string; color: string; metricNames: string[] }
+> = {
+    push_sent: {
+        name: 'Sent',
+        description:
+            'Total number of push notifications accepted by the provider (FCM or APNs) for delivery. The provider accepting a notification does not guarantee the device displayed it.',
+        color: getColorVar('primary'),
+        metricNames: ['push_sent'],
+    },
+    push_skipped: {
+        name: 'Skipped',
+        description:
+            'Total number of recipients skipped because they had no registered device token, or their token was reported dead by the provider (for example, the app was uninstalled) and removed.',
+        color: getColorVar('warning'),
+        metricNames: ['push_skipped'],
+    },
+    push_failed: {
+        name: 'Failed',
+        description:
+            'Total number of push notifications that could not be sent — for example invalid credentials, a rejected payload, or a provider outage after retries.',
+        color: getColorVar('danger'),
+        metricNames: ['push_failed'],
+    },
+}
+
 // Email metrics whose SES events also write per-invocation log entries (see the SES webhook
 // handler). Clicking the tile drills into the Invocations tab filtered to those log entries.
 // The `search` term matches the start of the log message the handler emits (e.g. "Permanent
@@ -210,6 +250,8 @@ const EMAIL_METRICS: EmailMetric[] = [
     'email_blocked',
     'email_spam',
 ]
+
+const PUSH_METRICS: PushMetric[] = ['push_sent', 'push_skipped', 'push_failed']
 
 export interface WorkflowMetricsSummaryLogicProps {
     logicKey: string
@@ -274,6 +316,28 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                     await breakpoint(10)
 
                     return mapEmailMetricsToActions(totalsResponse)
+                },
+            },
+        ],
+        pushTotalsByActionId: [
+            {} as Record<string, Partial<Record<PushMetric, number>>>,
+            {
+                loadPushTotals: async (_, breakpoint) => {
+                    await breakpoint(10)
+                    const dateRange = values.getDateRangeAbsolute()
+                    const request: AppMetricsTotalsRequest = {
+                        appSource: values.params.appSource,
+                        appSourceId: values.params.appSourceId,
+                        breakdownBy: ['instance_id', 'metric_name'],
+                        metricName: [...PUSH_METRICS],
+                        dateFrom: dateRange.dateFrom.toISOString(),
+                        dateTo: dateRange.dateTo.toISOString(),
+                    }
+
+                    const totalsResponse = await loadAppMetricsTotals(request, values.currentTeam?.timezone ?? 'UTC')
+                    await breakpoint(10)
+
+                    return mapPushMetricsToActions(totalsResponse)
                 },
             },
         ],
@@ -349,6 +413,8 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
         ],
 
         emailActions: [(s) => [s.workflow], (workflow) => workflow.actions.filter(isEmailAction)],
+
+        pushActions: [(s) => [s.workflow], (workflow) => workflow.actions.filter(isPushAction)],
 
         metricNameBySummaryMetric: [
             (s) => [s.appMetricsTrends],
@@ -488,10 +554,26 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                     }
                 }),
         ],
+
+        pushMetricsRows: [
+            (s) => [s.pushActions, s.pushTotalsByActionId],
+            (pushActions, pushTotalsByActionId): PushMetricRow[] =>
+                pushActions.map((action: { id: string; name: string }) => {
+                    const totals = pushTotalsByActionId[action.id] || {}
+                    return {
+                        id: action.id,
+                        push: action.name,
+                        sent: totals.push_sent ?? 0,
+                        skipped: totals.push_skipped ?? 0,
+                        failed: totals.push_failed ?? 0,
+                    }
+                }),
+        ],
     }),
 
     afterMount(({ actions }) => {
         actions.loadEmailTotals({})
+        actions.loadPushTotals({})
         actions.loadInProgressTotal({})
         actions.loadConversionStats({})
     }),
@@ -508,6 +590,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 dateTo: values.params.dateTo,
             })
             actions.loadEmailTotals({})
+            actions.loadPushTotals({})
             actions.loadConversionStats({})
         },
     })),
@@ -580,4 +663,26 @@ function mapEmailMetricsToActions(
 
 function isEmailMetric(metricName: string): metricName is EmailMetric {
     return EMAIL_METRICS.includes(metricName as EmailMetric)
+}
+
+function mapPushMetricsToActions(
+    totalsResponse: AppMetricsTotalsResponse
+): Record<string, Partial<Record<PushMetric, number>>> {
+    const result: Record<string, Partial<Record<PushMetric, number>>> = {}
+
+    Object.values(totalsResponse).forEach(({ total, breakdowns }) => {
+        const [instanceId, metricName] = breakdowns
+        if (!instanceId || !isPushMetric(metricName)) {
+            return
+        }
+
+        result[instanceId] = result[instanceId] || {}
+        result[instanceId][metricName] = total
+    })
+
+    return result
+}
+
+function isPushMetric(metricName: string): metricName is PushMetric {
+    return PUSH_METRICS.includes(metricName as PushMetric)
 }
