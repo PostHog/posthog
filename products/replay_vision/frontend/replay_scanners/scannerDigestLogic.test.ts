@@ -78,7 +78,7 @@ describe('scannerDigestLogic', () => {
         expect(logic.values.latestRunLoading).toEqual(false)
     })
 
-    it('one-click create sends the digest marker and defaults, then reloads the list', async () => {
+    it('one-click create sends the digest marker and defaults, then settles without a card flash', async () => {
         useMocks(mocksFor([]))
         mountLogic()
         await expectLogic(logic).toFinishAllListeners()
@@ -91,10 +91,12 @@ describe('scannerDigestLogic', () => {
                 },
             },
         })
+        // Optimistic insert + local run resolution instead of a refetch: refetching would blank the
+        // card (digest absent while the list reloads, then latestRunLoading true) and flash it.
         await expectLogic(logic, () => {
             logic.actions.createDigest()
         })
-            .toDispatchActions(['createDigestSuccess', 'loadActions'])
+            .toDispatchActions(['createDigestSuccess', 'addAction', 'loadLatestRunSuccess'])
             .toFinishAllListeners()
         expect(body).toMatchObject({
             name: 'Daily digest: my-scanner',
@@ -103,5 +105,8 @@ describe('scannerDigestLogic', () => {
             trigger_config: { rrule: 'FREQ=DAILY;BYHOUR=8;BYMINUTE=0' },
             delivery_config: [],
         })
+        // The card renders the created digest immediately (no null-rendering gap).
+        expect(logic.values.digest?.id).toEqual('d-new')
+        expect(logic.values.latestRunLoading).toEqual(false)
     })
 })
