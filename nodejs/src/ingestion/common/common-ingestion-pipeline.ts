@@ -113,88 +113,75 @@ export type AfterBatchCallback<TOutput, TContext, CBatch, ROut extends string> =
 >
 
 /**
- * The accumulated content of the messageAware block before `.resolveTeam()`:
- * a transform over the batch sub-pipeline builder. Each call extends the
- * previous transform, so the skeleton is composed exactly once, at `.build()`.
+ * A phase's accumulated content: a transform over the phase's chunk builder,
+ * from the phase's start element type `TStart` to the current element type,
+ * under the element context `C`. Each call extends the previous transform,
+ * so the skeleton is composed exactly once, at `.build()`.
  */
-type SubpipelineTransform<TInput, TContext, CBatch, TOut, ROut extends string> = (
-    builder: ChunkPipelineBuilder<
-        BatchElement<TInput, CBatch>,
-        BatchElement<TInput, CBatch>,
-        BatchContext<TContext>,
-        BatchContext<TContext>
-    >
-) => ChunkPipelineBuilder<BatchElement<TInput, CBatch>, TOut, BatchContext<TContext>, BatchContext<TContext>, ROut>
+type ChainTransform<TStart, TCurrent, C, ROut extends string> = (
+    builder: ChunkPipelineBuilder<TStart, TStart, C, C>
+) => ChunkPipelineBuilder<TStart, TCurrent, C, C, ROut>
 
-/** The accumulated team-aware content after `.resolveTeam()`, nested inside the team lift at `.build()`. */
-type TeamSubpipelineTransform<TPost, TContext, TCurrent, ROut extends string> = (
-    builder: ChunkPipelineBuilder<TPost, TPost, TeamAwareContext<TContext>, TeamAwareContext<TContext>>
-) => ChunkPipelineBuilder<TPost, TCurrent, TeamAwareContext<TContext>, TeamAwareContext<TContext>, ROut>
+/** The messageAware block before `.resolveTeam()`: runs under the batch context. */
+type SubpipelineTransform<TInput, TContext, CBatch, TOut, ROut extends string> = ChainTransform<
+    BatchElement<TInput, CBatch>,
+    TOut,
+    BatchContext<TContext>,
+    ROut
+>
 
 /**
  * Coalesces consecutive per-element steps into one sequential block. `extend`
  * appends a step to the open block (or opens one); `build` closes it into the
  * committed chunk-level transform. The block's start type stays existential —
  * it lives only in the closures — so stages don't carry it as a type parameter.
+ *
+ * Both builder phases share this mechanism and differ only in instantiation:
+ * the pre-team phase runs under the batch context, the team-aware phase under
+ * the team-lifted context (see the aliases below).
  */
-interface PreTeamChain<TInput, TContext, ROut extends string, CBatch, TCurrent> {
-    build(): SubpipelineTransform<TInput, TContext, CBatch, TCurrent, ROut>
+interface Chain<TStart, C, ROut extends string, TCurrent> {
+    build(): ChainTransform<TStart, TCurrent, C, ROut>
     extend<U, R2 extends ROut>(
         step: ProcessingStep<TCurrent, U, R2>,
         options?: { retry?: RetryOptions }
-    ): PreTeamChain<TInput, TContext, ROut, CBatch, U>
+    ): Chain<TStart, C, ROut, U>
 }
 
-function pendingPreTeamChain<TInput, TContext, ROut extends string, CBatch, TBlock, TCurrent>(
-    committed: SubpipelineTransform<TInput, TContext, CBatch, TBlock, ROut>,
-    pending: (
-        start: StartPipelineBuilder<TBlock, BatchContext<TContext>>
-    ) => PipelineBuilder<TBlock, TCurrent, BatchContext<TContext>, ROut>
-): PreTeamChain<TInput, TContext, ROut, CBatch, TCurrent> {
+function pendingChain<TStart, C, ROut extends string, TBlock, TCurrent>(
+    committed: ChainTransform<TStart, TBlock, C, ROut>,
+    pending: (start: StartPipelineBuilder<TBlock, C>) => PipelineBuilder<TBlock, TCurrent, C, ROut>
+): Chain<TStart, C, ROut, TCurrent> {
     return {
         build: () => (builder) => committed(builder).sequentially(pending),
-        extend: (step, options) => pendingPreTeamChain(committed, (start) => pending(start).pipe(step, options)),
+        extend: (step, options) => pendingChain(committed, (start) => pending(start).pipe(step, options)),
     }
 }
 
-function committedPreTeamChain<TInput, TContext, ROut extends string, CBatch, TCurrent>(
-    committed: SubpipelineTransform<TInput, TContext, CBatch, TCurrent, ROut>
-): PreTeamChain<TInput, TContext, ROut, CBatch, TCurrent> {
+function committedChain<TStart, C, ROut extends string, TCurrent>(
+    committed: ChainTransform<TStart, TCurrent, C, ROut>
+): Chain<TStart, C, ROut, TCurrent> {
     return {
         build: () => committed,
-        extend: (step, options) => pendingPreTeamChain(committed, (start) => start.pipe(step, options)),
+        extend: (step, options) => pendingChain(committed, (start) => start.pipe(step, options)),
     }
 }
 
-/** Same coalescing for the team-aware phase, over the inner (post-lift) builder. */
-interface TeamChain<TPost, TContext, ROut extends string, TCurrent> {
-    build(): TeamSubpipelineTransform<TPost, TContext, TCurrent, ROut>
-    extend<U, R2 extends ROut>(
-        step: ProcessingStep<TCurrent, U, R2>,
-        options?: { retry?: RetryOptions }
-    ): TeamChain<TPost, TContext, ROut, U>
-}
+/** Chain over the pre-team phase. */
+type PreTeamChain<TInput, TContext, ROut extends string, CBatch, TCurrent> = Chain<
+    BatchElement<TInput, CBatch>,
+    BatchContext<TContext>,
+    ROut,
+    TCurrent
+>
 
-function pendingTeamChain<TPost, TContext, ROut extends string, TBlock, TCurrent>(
-    committed: TeamSubpipelineTransform<TPost, TContext, TBlock, ROut>,
-    pending: (
-        start: StartPipelineBuilder<TBlock, TeamAwareContext<TContext>>
-    ) => PipelineBuilder<TBlock, TCurrent, TeamAwareContext<TContext>, ROut>
-): TeamChain<TPost, TContext, ROut, TCurrent> {
-    return {
-        build: () => (builder) => committed(builder).sequentially(pending),
-        extend: (step, options) => pendingTeamChain(committed, (start) => pending(start).pipe(step, options)),
-    }
-}
-
-function committedTeamChain<TPost, TContext, ROut extends string, TCurrent>(
-    committed: TeamSubpipelineTransform<TPost, TContext, TCurrent, ROut>
-): TeamChain<TPost, TContext, ROut, TCurrent> {
-    return {
-        build: () => committed,
-        extend: (step, options) => pendingTeamChain(committed, (start) => start.pipe(step, options)),
-    }
-}
+/** Chain over the team-aware phase. */
+type TeamChain<TPost, TContext, ROut extends string, TCurrent> = Chain<
+    TPost,
+    TeamAwareContext<TContext>,
+    ROut,
+    TCurrent
+>
 
 export function newCommonIngestionPipeline<
     TInput extends { message: Message },
@@ -256,11 +243,10 @@ export class CommonBatchHooksStage<
         return new CommonPreTeamStage(
             this.config,
             this.beforeBatchCallback,
-            pendingPreTeamChain<
-                TInput,
-                TContext,
+            pendingChain<
+                BatchElement<TInput, CBatch>,
+                BatchContext<TContext>,
                 ROut,
-                CBatch,
                 BatchElement<TInput, CBatch>,
                 BatchElement<TInput, CBatch> & { headers: EventHeaders }
             >(
@@ -301,7 +287,7 @@ export class CommonPreTeamStage<
         return new CommonPreTeamStage(
             this.config,
             this.beforeBatchCallback,
-            committedPreTeamChain((builder) => committed(builder).pipeChunk(step, options))
+            committedChain((builder) => committed(builder).pipeChunk(step, options))
         )
     }
 
@@ -332,7 +318,7 @@ export class CommonPreTeamStage<
             this.config,
             this.beforeBatchCallback,
             resolved.build(),
-            committedTeamChain((builder) => builder)
+            committedChain((builder) => builder)
         )
     }
 }
@@ -375,7 +361,7 @@ export class CommonTeamStage<
             this.config,
             this.beforeBatchCallback,
             this.preTeamTransform,
-            committedTeamChain((builder) => committed(builder).pipeChunk(step, options))
+            committedChain((builder) => committed(builder).pipeChunk(step, options))
         )
     }
 
@@ -386,7 +372,7 @@ export class CommonTeamStage<
             this.config,
             this.beforeBatchCallback,
             this.preTeamTransform,
-            committedTeamChain((builder) => committed(builder).gather())
+            committedChain((builder) => committed(builder).gather())
         )
     }
 
@@ -407,7 +393,7 @@ export class CommonTeamStage<
             this.config,
             this.beforeBatchCallback,
             this.preTeamTransform,
-            committedTeamChain((builder) => committed(builder).concurrentlyPerGroup(groupingFn, callback, options))
+            committedChain((builder) => committed(builder).concurrentlyPerGroup(groupingFn, callback, options))
         )
     }
 
@@ -422,7 +408,7 @@ export class CommonTeamStage<
             this.config,
             this.beforeBatchCallback,
             this.preTeamTransform,
-            committedTeamChain((builder) => fn(committed(builder)))
+            committedChain((builder) => fn(committed(builder)))
         )
     }
 
