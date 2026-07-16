@@ -1,10 +1,9 @@
-import type { Dayjs } from 'dayjs'
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { dayjs } from 'lib/dayjs'
+import { dayjs, type Dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
