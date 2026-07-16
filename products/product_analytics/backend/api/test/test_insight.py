@@ -73,6 +73,25 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
+    def _create_dashboard_insight(self) -> tuple[Dashboard, Insight]:
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        return dashboard, insight
+
+    def _insight_result(self, *, is_cached: bool) -> InsightResult:
+        return InsightResult(
+            result=[],
+            last_refresh=timezone.now(),
+            cache_key="cache-key",
+            is_cached=is_cached,
+            timezone=self.team.timezone,
+        )
+
     @parameterized.expand(
         [
             ("trend", "/api/projects/{team_id}/insights/trend/"),
@@ -514,20 +533,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         expect_recorded_miss: bool,
         mock_calculate: mock.MagicMock,
     ) -> None:
-        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
-        insight = Insight.objects.create(
-            team=self.team,
-            created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-        )
-        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
-        mock_calculate.return_value = InsightResult(
-            result=[],
-            last_refresh=timezone.now(),
-            cache_key="cache-key",
-            is_cached=False,
-            timezone=self.team.timezone,
-        )
+        dashboard, insight = self._create_dashboard_insight()
+        mock_calculate.return_value = self._insight_result(is_cached=False)
         miss_counter = DASHBOARD_CACHE_OUTCOME_COUNTER.labels(access_method="human", result="miss")
         miss_count_before = miss_counter._value.get()
         query_params: dict[str, str] = {"from_dashboard": str(dashboard.id)}
@@ -548,20 +555,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     def test_dashboard_cache_hit_records_outcome_without_miss_pressure(self, mock_calculate: mock.MagicMock) -> None:
-        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
-        insight = Insight.objects.create(
-            team=self.team,
-            created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-        )
-        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
-        mock_calculate.return_value = InsightResult(
-            result=[],
-            last_refresh=timezone.now(),
-            cache_key="cache-key",
-            is_cached=True,
-            timezone=self.team.timezone,
-        )
+        dashboard, insight = self._create_dashboard_insight()
+        mock_calculate.return_value = self._insight_result(is_cached=True)
         hit_counter = DASHBOARD_CACHE_OUTCOME_COUNTER.labels(access_method="human", result="hit")
         hit_count_before = hit_counter._value.get()
 
@@ -576,22 +571,26 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(hit_counter._value.get(), hit_count_before + 1)
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_recent_dashboard_cache_miss_is_not_persisted_again(self, mock_calculate: mock.MagicMock) -> None:
+        dashboard, insight = self._create_dashboard_insight()
+        mock_calculate.return_value = self._insight_result(is_cached=False)
+        url = f"/api/projects/{self.team.id}/insights/{insight.id}/?from_dashboard={dashboard.id}"
+
+        first_response = self.client.get(url)
+        second_response = self.client.get(url)
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        dashboard.refresh_from_db()
+        most_recent_access = dashboard.most_recent_access
+        assert isinstance(most_recent_access, dict)
+        self.assertEqual(most_recent_access["human"]["cache_miss_count"], 1)
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     def test_shared_force_blocking_records_miss_after_mode_remapping(self, mock_calculate: mock.MagicMock) -> None:
-        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
-        insight = Insight.objects.create(
-            team=self.team,
-            created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-        )
-        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        dashboard, _ = self._create_dashboard_insight()
         sharing_config = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
-        mock_calculate.return_value = InsightResult(
-            result=[],
-            last_refresh=timezone.now(),
-            cache_key="cache-key",
-            is_cached=False,
-            timezone=self.team.timezone,
-        )
+        mock_calculate.return_value = self._insight_result(is_cached=False)
 
         response = self.client.get(f"/shared/{sharing_config.access_token}.json?refresh=force_blocking")
 

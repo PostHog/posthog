@@ -1,7 +1,7 @@
 import json
 import logging
 from collections.abc import Sequence
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
@@ -9,6 +9,7 @@ from django.db import transaction
 from django.db.models import Count, Exists, F, Max, OuterRef, Prefetch, QuerySet, Subquery
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
+from django.utils.dateparse import parse_datetime
 from django.utils.text import slugify
 from django.utils.timezone import now
 
@@ -158,6 +159,30 @@ tracer = trace.get_tracer(__name__)
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
 LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG = "legacy-insight-filters-disabled"
+DASHBOARD_CACHE_MISS_PERSISTENCE_INTERVAL = timedelta(minutes=1)
+
+
+def _has_recent_dashboard_cache_miss(
+    dashboard: Dashboard,
+    access_method: DashboardAccessMethod,
+    *,
+    current_time: datetime,
+) -> bool:
+    if not isinstance(dashboard.most_recent_access, dict):
+        return False
+    access_record = dashboard.most_recent_access.get(access_method.value)
+    if not isinstance(access_record, dict):
+        return False
+    raw_cache_miss_at = access_record.get("last_cache_miss_at")
+    if not isinstance(raw_cache_miss_at, str):
+        return False
+    cache_miss_at = parse_datetime(raw_cache_miss_at)
+    if cache_miss_at is None:
+        return False
+    if cache_miss_at.tzinfo is None:
+        cache_miss_at = cache_miss_at.replace(tzinfo=UTC)
+    cache_miss_age = current_time - cache_miss_at
+    return timedelta(0) <= cache_miss_age < DASHBOARD_CACHE_MISS_PERSISTENCE_INTERVAL
 
 
 EXPORT_QUERY_CACHE_MISS = Counter(
@@ -1220,10 +1245,16 @@ class InsightSerializer(InsightBasicSerializer):
                             request = self.context["request"]
                             recorded_miss_dashboard_ids = cast(
                                 set[int],
-                                request._request.__dict__.setdefault("_cache_warming_miss_dashboard_ids", set()),
+                                request.__dict__.setdefault("_cache_warming_miss_dashboard_ids", set()),
                             )
                             persist_miss = dashboard.id not in recorded_miss_dashboard_ids
                             recorded_miss_dashboard_ids.add(dashboard.id)
+                        if persist_miss:
+                            persist_miss = not _has_recent_dashboard_cache_miss(
+                                dashboard,
+                                access_method,
+                                current_time=now(),
+                            )
                         record_dashboard_cache_outcome(
                             dashboard,
                             access_method,

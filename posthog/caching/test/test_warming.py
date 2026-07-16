@@ -6,6 +6,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.caching.warming import _dashboard_warming_priority, insights_to_keep_fresh, schedule_warming_for_teams_task
+from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -229,6 +230,38 @@ class TestWarming(APIBaseTest):
         ]
 
         assert list(insights_to_keep_fresh(self.team)) == [(missed_api_insight.id, missed_api_dashboard.id)]
+
+    @patch("posthog.caching.warming.MAX_WARMING_CANDIDATES_PER_TEAM", 1)
+    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
+    def test_high_priority_candidate_is_selected_beyond_previous_pool_boundary(self, mock_get_stale_insights) -> None:
+        current_time = datetime.now(UTC)
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            most_recent_access={"human": {"timestamp": current_time.isoformat(), "count": 1}},
+        )
+        insight = Insight.objects.create(team=self.team)
+        DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        mock_get_stale_insights.return_value = [
+            *(f"{missing_insight_id}:{missing_insight_id}" for missing_insight_id in range(1, 2001)),
+            f"{insight.id}:{dashboard.id}",
+        ]
+
+        assert list(insights_to_keep_fresh(self.team)) == [(insight.id, dashboard.id)]
+        mock_get_stale_insights.assert_called_once_with(team_id=self.team.pk)
+
+    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
+    def test_shared_only_dashboard_candidates_use_shared_access_threshold(self, mock_get_stale_insights) -> None:
+        current_time = datetime.now(UTC)
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            most_recent_access={"human": {"timestamp": (current_time - timedelta(days=5)).isoformat(), "count": 1}},
+        )
+        insight = Insight.objects.create(team=self.team)
+        DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        mock_get_stale_insights.return_value = [f"{insight.id}:{dashboard.id}"]
+
+        assert list(insights_to_keep_fresh(self.team, shared_only=True)) == []
 
     @patch("posthog.caching.warming.DASHBOARD_CANDIDATE_QUERY_CHUNK_SIZE", 1)
     @patch("posthog.caching.warming.CACHE_WARMING_CANDIDATE_COUNTER")

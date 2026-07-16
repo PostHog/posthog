@@ -1,4 +1,5 @@
 import math
+import heapq
 import itertools
 from collections import Counter as CollectionCounter
 from collections.abc import Generator
@@ -62,7 +63,6 @@ CACHE_WARMING_PRIORITY_HISTOGRAM = Histogram(
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
 SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD = timedelta(days=3)
 MAX_WARMING_CANDIDATES_PER_TEAM = 500
-WARMING_CANDIDATE_POOL_SIZE = 2000
 CACHE_MISS_BOOST = 300.0
 CACHE_MISS_BOOST_THRESHOLD = timedelta(days=1)
 DASHBOARD_CANDIDATE_QUERY_CHUNK_SIZE = 100
@@ -107,6 +107,7 @@ def _dashboard_warming_priority(
     last_accessed_at: datetime | None,
     *,
     current_time: datetime,
+    max_access_age: timedelta | None = None,
 ) -> tuple[float, str, bool]:
     best_priority = 0.0
     best_access_method = "none"
@@ -124,6 +125,8 @@ def _dashboard_warming_priority(
             if accessed_at is not None:
                 latest_structured_access = max(latest_structured_access or accessed_at, accessed_at)
                 threshold = ACCESS_METHOD_THRESHOLDS[access_method]
+                if max_access_age is not None:
+                    threshold = min(threshold, max_access_age)
                 age = current_time - accessed_at
                 if timedelta(0) <= age <= threshold:
                     count = access_record.get("count", 0)
@@ -150,10 +153,11 @@ def _dashboard_warming_priority(
         latest_structured_access is None or last_accessed_at > latest_structured_access
     ):
         legacy_age = current_time - last_accessed_at
-        if timedelta(0) <= legacy_age <= LAST_VIEWED_THRESHOLD:
+        legacy_threshold = min(LAST_VIEWED_THRESHOLD, max_access_age) if max_access_age else LAST_VIEWED_THRESHOLD
+        if timedelta(0) <= legacy_age <= legacy_threshold:
             legacy_priority = (
                 ACCESS_METHOD_WEIGHTS[DashboardAccessMethod.API]
-                + max(0.0, 1.0 - legacy_age / LAST_VIEWED_THRESHOLD) * ACCESS_RECENCY_BONUS
+                + max(0.0, 1.0 - legacy_age / legacy_threshold) * ACCESS_RECENCY_BONUS
             )
             if legacy_priority > best_priority:
                 return legacy_priority, "legacy", False
@@ -202,15 +206,13 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
     Rank stale insight and dashboard combinations for the provided team, then keep the
     highest-priority candidates inside the per-team warming budget.
     """
-    # for shared insights, use a lower cut off
-    threshold = datetime.now(UTC) - (
-        LAST_VIEWED_THRESHOLD if not shared_only else SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD
-    )
+    current_time = datetime.now(UTC)
+    threshold = current_time - (SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD if shared_only else LAST_VIEWED_THRESHOLD)
 
     QueryCacheManagerBase.clean_up_stale_insights(team_id=team.pk, threshold=threshold)
 
     # get all insights currently in the cache for the team
-    combos = QueryCacheManagerBase.get_stale_insights(team_id=team.pk, limit=WARMING_CANDIDATE_POOL_SIZE)
+    combos = QueryCacheManagerBase.get_stale_insights(team_id=team.pk)
 
     STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(len(combos))
 
@@ -223,8 +225,18 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
         else:
             insight_ids_single.add(int(raw_insight_id))
 
-    candidates: list[WarmingCandidate] = []
+    candidate_heap: list[tuple[float, int, WarmingCandidate]] = []
+    candidate_sequence = itertools.count()
     candidate_metric_counts: CollectionCounter[tuple[str, str, str]] = CollectionCounter()
+
+    def add_candidate(candidate: WarmingCandidate) -> None:
+        cache_miss_boost = str(candidate.has_cache_miss_boost).lower()
+        candidate_metric_counts[(candidate.access_method, "deprioritized", cache_miss_boost)] += 1
+        heap_entry = (candidate.priority, -next(candidate_sequence), candidate)
+        if len(candidate_heap) < MAX_WARMING_CANDIDATES_PER_TEAM:
+            heapq.heappush(candidate_heap, heap_entry)
+        elif heap_entry[:2] > candidate_heap[0][:2]:
+            heapq.heapreplace(candidate_heap, heap_entry)
 
     if insight_ids_single:
         single_insights = team.insight_set.filter(
@@ -235,7 +247,7 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
             single_insights = single_insights.filter(sharingconfiguration__enabled=True)
 
         for single_insight_id in single_insights.distinct().values_list("id", flat=True):
-            candidates.append(
+            add_candidate(
                 WarmingCandidate(
                     insight_id=single_insight_id,
                     dashboard_id=None,
@@ -245,7 +257,6 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
             )
 
     if dashboard_pairs:
-        current_time = datetime.now(UTC)
         for dashboard_pair_chunk in itertools.batched(
             dashboard_pairs, DASHBOARD_CANDIDATE_QUERY_CHUNK_SIZE, strict=False
         ):
@@ -270,11 +281,12 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
                     most_recent_access,
                     last_accessed_at,
                     current_time=current_time,
+                    max_access_age=SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD if shared_only else None,
                 )
                 if priority <= 0:
                     candidate_metric_counts[(access_method, "ineligible", "false")] += 1
                     continue
-                candidates.append(
+                add_candidate(
                     WarmingCandidate(
                         insight_id=tile_insight_id,
                         dashboard_id=tile_dashboard_id,
@@ -284,22 +296,23 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
                     )
                 )
 
-    candidates.sort(key=lambda candidate: candidate.priority, reverse=True)
-    for index, candidate in enumerate(candidates):
-        outcome = "selected" if index < MAX_WARMING_CANDIDATES_PER_TEAM else "deprioritized"
-        candidate_metric_counts[(candidate.access_method, outcome, str(candidate.has_cache_miss_boost).lower())] += 1
-        if outcome == "deprioritized":
-            continue
+    selected_candidates = [entry[2] for entry in sorted(candidate_heap, reverse=True)]
+    for candidate in selected_candidates:
+        cache_miss_boost = str(candidate.has_cache_miss_boost).lower()
+        candidate_metric_counts[(candidate.access_method, "deprioritized", cache_miss_boost)] -= 1
+        candidate_metric_counts[(candidate.access_method, "selected", cache_miss_boost)] += 1
         CACHE_WARMING_PRIORITY_HISTOGRAM.labels(access_method=candidate.access_method).observe(candidate.priority)
 
     for (access_method, outcome, cache_miss_boost), count in candidate_metric_counts.items():
+        if count <= 0:
+            continue
         CACHE_WARMING_CANDIDATE_COUNTER.labels(
             access_method=access_method,
             outcome=outcome,
             cache_miss_boost=cache_miss_boost,
         ).inc(count)
 
-    for candidate in candidates[:MAX_WARMING_CANDIDATES_PER_TEAM]:
+    for candidate in selected_candidates:
         yield candidate.insight_id, candidate.dashboard_id
 
 
