@@ -33094,6 +33094,13 @@ export namespace Schemas {
          * @maxLength 4096
          */
       description: string;
+      /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
+      readonly body_total_length: number;
+      /**
+         * When body_length paging stops before the end of the body, the character offset to request next (pass as body_offset). Null when the returned body reaches the end.
+         * @nullable
+         */
+      readonly body_next_offset: number | null;
       /** The SKILL.md instruction content (markdown). */
       body: string;
       /**
@@ -33162,6 +33169,13 @@ export namespace Schemas {
          * @maxLength 4096
          */
       description: string;
+      /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
+      readonly body_total_length: number;
+      /**
+         * When body_length paging stops before the end of the body, the character offset to request next (pass as body_offset). Null when the returned body reaches the end.
+         * @nullable
+         */
+      readonly body_next_offset: number | null;
       /** The SKILL.md instruction content (markdown). */
       body: string;
       /**
@@ -67878,6 +67892,16 @@ export namespace Schemas {
 
     export type EnvironmentsLlmSkillsNameRetrieveParams = {
     /**
+     * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
+     * @minimum 1
+     */
+    body_length?: number;
+    /**
+     * Zero-based character offset to start the returned body from. Use with body_length to page through a large body that a client would otherwise truncate. Compare the returned body length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).
+     * @minimum 0
+     */
+    body_offset?: number;
+    /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
@@ -75495,6 +75519,16 @@ export namespace Schemas {
     };
 
     export type LlmSkillsNameRetrieveParams = {
+    /**
+     * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
+     * @minimum 1
+     */
+    body_length?: number;
+    /**
+     * Zero-based character offset to start the returned body from. Use with body_length to page through a large body that a client would otherwise truncate. Compare the returned body length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).
+     * @minimum 0
+     */
+    body_offset?: number;
     /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
      * @minimum 1
