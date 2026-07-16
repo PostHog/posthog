@@ -376,6 +376,18 @@ MAX_AD_ACCOUNT_PAGES = 100
 AD_ACCOUNT_LISTING_TIMEOUT_SECONDS = 10
 
 
+def _raise_for_meta_error(response: Response) -> None:
+    """Map a non-200 Meta listing response to the actionable error the picker surfaces. Called for every
+    page, including the one fetched just before the page cap, so an auth or rate-limit failure on the
+    final fetch isn't swallowed and mislabeled as "too many pages"."""
+    if response.status_code != 200:
+        if _is_permanent_auth_error(response):
+            raise MetaAdsAuthError(META_AUTH_ERROR_MESSAGE)
+        if _is_rate_limit_error(response):
+            raise MetaAdsRateLimitError(META_RATE_LIMIT_ERROR_MESSAGE)
+        _raise_meta_api_error(response)
+
+
 def list_ad_accounts(integration: Integration) -> list[dict]:
     """Every ad account the connected Meta user can access."""
     access_token = integration.sensitive_config["access_token"]
@@ -391,12 +403,7 @@ def list_ad_accounts(integration: Integration) -> list[dict]:
     )
 
     for _ in range(MAX_AD_ACCOUNT_PAGES):
-        if response.status_code != 200:
-            if _is_permanent_auth_error(response):
-                raise MetaAdsAuthError(META_AUTH_ERROR_MESSAGE)
-            if _is_rate_limit_error(response):
-                raise MetaAdsRateLimitError(META_RATE_LIMIT_ERROR_MESSAGE)
-            _raise_meta_api_error(response)
+        _raise_for_meta_error(response)
 
         body = response.json()
         page = body.get("data") or []
@@ -413,6 +420,9 @@ def list_ad_accounts(integration: Integration) -> list[dict]:
             timeout=AD_ACCOUNT_LISTING_TIMEOUT_SECONDS,
         )
 
+    # The response fetched on the final loop iteration is never re-checked by the loop, so surface a real
+    # auth/rate-limit failure there rather than masking it with the "too many pages" error below.
+    _raise_for_meta_error(response)
     # Hitting the cap means Meta kept returning a fresh, non-empty `next` cursor past the bound. Returning
     # `accounts` here would present a truncated (and possibly duplicated) list as the complete set, so the
     # picker would silently hide accounts. Fail closed with an actionable message instead.

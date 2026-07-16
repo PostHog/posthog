@@ -1319,6 +1319,21 @@ class TestListAdAccounts:
         # Initial request plus one per bounded page: it exhausts the cap rather than raising early.
         assert session.get.call_count == MAX_AD_ACCOUNT_PAGES + 1
 
+    def test_error_on_final_page_before_cap_surfaces_real_error_not_too_many_pages(self, monkeypatch) -> None:
+        # The response fetched on the last loop iteration isn't re-checked by the loop. If it carries an
+        # auth failure, it must surface as MetaAdsAuthError, not be masked by the "too many pages" error.
+        ok_page = _mock_response(
+            200,
+            {"data": [{"account_id": "1"}], "paging": {"next": "https://graph.facebook.com/v25.0/next?after=loop"}},
+        )
+        auth_error = _mock_response(400, {"error": {"code": 190, "message": "Invalid OAuth token"}})
+        session = mock.MagicMock()
+        session.get.side_effect = [ok_page] * MAX_AD_ACCOUNT_PAGES + [auth_error]
+        monkeypatch.setattr(meta_ads_module, "make_tracked_session", lambda *args, **kwargs: session)
+
+        with pytest.raises(MetaAdsAuthError):
+            list_ad_accounts(self._integration())
+
     def test_masks_token_and_sets_timeout_on_every_request(self, monkeypatch) -> None:
         session = mock.MagicMock()
         session.get.side_effect = [
