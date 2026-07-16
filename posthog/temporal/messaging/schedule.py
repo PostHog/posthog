@@ -57,9 +57,7 @@ from posthog.temporal.messaging.constants import (
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
     RealtimeCohortCalculationCoordinatorWorkflowInputs,
 )
-from posthog.temporal.messaging.reconcile_precalculated_events_workflow import (
-    ReconcilePrecalculatedEventsWorkflowInputs,
-)
+from posthog.temporal.messaging.reconcile_precalculated_data_workflow import ReconcilePrecalculatedEventsWorkflowInputs
 
 # Default configuration for realtime cohort calculation coordinator
 DEFAULT_COORDINATOR_PARALLELISM = 6

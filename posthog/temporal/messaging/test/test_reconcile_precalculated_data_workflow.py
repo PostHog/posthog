@@ -9,7 +9,7 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.team import Team
-from posthog.temporal.messaging.reconcile_precalculated_events_workflow import (
+from posthog.temporal.messaging.reconcile_precalculated_data_workflow import (
     ReconcileTeamInputs,
     get_reconciliation_team_ids_activity,
     reconcile_team_precalculated_events_activity,
@@ -95,7 +95,7 @@ class TestReconcileTeamPrecalculatedEventsActivity:
 
         mock_producer = MagicMock()
         with patch(
-            "posthog.temporal.messaging.reconcile_precalculated_events_workflow.get_producer",
+            "posthog.temporal.messaging.reconcile_precalculated_data_workflow.get_producer",
             return_value=mock_producer,
         ):
             result = await ActivityEnvironment().run(
@@ -133,7 +133,7 @@ class TestReconcileTeamPrecalculatedEventsActivity:
 
         mock_producer = MagicMock()
         with patch(
-            "posthog.temporal.messaging.reconcile_precalculated_events_workflow.get_producer",
+            "posthog.temporal.messaging.reconcile_precalculated_data_workflow.get_producer",
             return_value=mock_producer,
         ):
             incremental = await ActivityEnvironment().run(
@@ -164,7 +164,7 @@ class TestReconcileTeamPrecalculatedEventsActivity:
 
         mock_producer = MagicMock()
         with patch(
-            "posthog.temporal.messaging.reconcile_precalculated_events_workflow.get_producer",
+            "posthog.temporal.messaging.reconcile_precalculated_data_workflow.get_producer",
             return_value=mock_producer,
         ):
             result = await ActivityEnvironment().run(

@@ -23,7 +23,7 @@ from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator
     get_query_percentile_thresholds_activity,
     get_realtime_cohort_selection_activity,
 )
-from posthog.temporal.messaging.reconcile_precalculated_events_workflow import (
+from posthog.temporal.messaging.reconcile_precalculated_data_workflow import (
     ReconcilePrecalculatedEventsWorkflow,
     get_reconciliation_team_ids_activity,
     reconcile_team_precalculated_events_activity,
