@@ -79,6 +79,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
+import type { NodeApiSuspended } from 'products/data_modeling/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -6046,6 +6047,8 @@ export interface DataModelingNode {
     last_run_at?: string
     last_run_status?: DataModelingJobStatus
     sync_interval?: DataModelingSyncInterval
+    /** Suspension state keyed by materialization engine; null/absent when not suspended */
+    suspended?: NodeApiSuspended
 }
 
 export interface DataModelingEdge {
