@@ -36,7 +36,7 @@ describe('useMcpToolApplyBack', () => {
         cleanup()
     })
 
-    // The core terminal-mode contract: it buffers the last matching completion, applies it at the end
+    // The core turn-end contract: it buffers the last matching completion, applies it at the end
     // of a persistent run's turn, and falls back to run termination when no turn-complete frame arrives.
     // Regressions here caused completed execute-sql calls to stay buffered forever on persistent runs.
     it('applies the last matching completion at foreground turn or run completion', () => {
@@ -106,5 +106,30 @@ describe('useMcpToolApplyBack', () => {
             toolStreamEventsLogic.actions.emitTurnCompleteEvent({ streamKey: 'run-1' })
         })
         expect(onApply).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not apply while inactive and drops a buffered completion when deactivated', () => {
+        const onApply = jest.fn()
+        const { rerender } = renderHook(
+            ({ active }) => useMcpToolApplyBack({ tools: ['create_insight'], onApply, active }),
+            { initialProps: { active: false } }
+        )
+
+        act(() => {
+            foregroundStreamLogic.actions.setForegroundStream('run-1')
+            toolStreamEventsLogic.actions.emitToolEvent(toolEvent('call create_insight {"name":"hidden"}', 'hidden'))
+            toolStreamEventsLogic.actions.emitRunLifecycleEvent({ streamKey: 'run-1', status: 'completed' })
+        })
+        expect(onApply).not.toHaveBeenCalled()
+
+        rerender({ active: true })
+        act(() => {
+            toolStreamEventsLogic.actions.emitToolEvent(toolEvent('call create_insight {"name":"visible"}', 'visible'))
+        })
+        rerender({ active: false })
+        act(() => {
+            toolStreamEventsLogic.actions.emitRunLifecycleEvent({ streamKey: 'run-1', status: 'completed' })
+        })
+        expect(onApply).not.toHaveBeenCalled()
     })
 })

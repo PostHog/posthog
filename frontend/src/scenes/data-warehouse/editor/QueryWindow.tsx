@@ -177,6 +177,7 @@ export function QueryWindow({
     // that callback verbatim so the diff-mode gate and filters handling stay shared with legacy.
     useMcpToolApplyBack({
         tools: ['execute-sql'],
+        applyOn: 'tool_call_completed',
         onApply: (_event, { innerInput }) => {
             if (!innerInput) {
                 return

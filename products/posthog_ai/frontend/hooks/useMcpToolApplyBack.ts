@@ -22,6 +22,8 @@ export interface UseMcpToolApplyBackOptions {
     tools: string[] | '*'
     /** Called with the matching event and the parsed inner args (via `resolveToolCall`). */
     onApply: (event: ToolStreamEvent, context: McpToolApplyContext) => void
+    /** When false, no apply-back listener is registered. Defaults to true. */
+    active?: boolean
     /**
      * `'turn_end'` (default): apply the last matching completion once when the foreground turn ends.
      * `'tool_call_completed'`: apply each matching tool when it completes.
@@ -36,7 +38,12 @@ export interface UseMcpToolApplyBackOptions {
  * `'turn_end'` mode the last matching completed event wins and `onApply` fires once when the turn
  * finishes; `'tool_call_completed'` fires per matching completion.
  */
-export function useMcpToolApplyBack({ tools, onApply, applyOn = 'turn_end' }: UseMcpToolApplyBackOptions): void {
+export function useMcpToolApplyBack({
+    tools,
+    onApply,
+    active = true,
+    applyOn = 'turn_end',
+}: UseMcpToolApplyBackOptions): void {
     const { registerToolListener, deregisterToolListener } = useActions(toolStreamEventsLogic)
     const listenerIdRef = useRef<string>(`mcp-apply-back-${uuid()}`)
 
@@ -53,6 +60,10 @@ export function useMcpToolApplyBack({ tools, onApply, applyOn = 'turn_end' }: Us
     useEffect(() => {
         const listenerId = listenerIdRef.current
         bufferedEventRef.current = null
+
+        if (!active) {
+            return
+        }
 
         const apply = (event: ToolStreamEvent): void => {
             // The bus event carries no inner args — re-parse the exec `command` off the invocation.
@@ -100,5 +111,5 @@ export function useMcpToolApplyBack({ tools, onApply, applyOn = 'turn_end' }: Us
         })
         return () => deregisterToolListener(listenerId)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [toolsKey, registerToolListener, deregisterToolListener])
+    }, [active, toolsKey, registerToolListener, deregisterToolListener])
 }

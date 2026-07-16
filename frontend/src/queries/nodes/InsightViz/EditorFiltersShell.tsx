@@ -101,11 +101,10 @@ export function EditorFiltersShell({ query, showing, embedded, children }: Edito
 
     useMcpToolApplyBack({
         tools: QUERY_TOOL_NAMES,
+        active: showing && !embedded,
+        applyOn: 'tool_call_completed',
         onApply: (event, { innerInput }) => {
-            // Mirrors maxToolActive: an embedded insight (e.g. in a notebook) never registered the
-            // legacy MaxTool callback either, so a foreground run editing another insight must not
-            // reach in and swap this one's query.
-            if (!maxToolActive || !innerInput) {
+            if (!innerInput) {
                 return
             }
             const node = buildInsightNodeFromQueryTool(event.toolName, innerInput)
