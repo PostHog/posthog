@@ -106,7 +106,9 @@ def _store_frame_snapshot(run: NotebookNodeRun, envelope: dict, team_id: int) ->
     frames = envelope.get("frames")
     if frames is None or not run.kernel_runtime_id:
         return
-    # Team-scoped so a forged run_id can never reach another team's runtime row. Scoped to the
-    # dispatch-time kernel rather than "the notebook's current kernel": if the kernel was
-    # replaced mid-run, this snapshot describes the dead one and must not overwrite the live one.
-    KernelRuntime.objects.filter(id=run.kernel_runtime_id, team_id=team_id).update(frames=frames)
+    # Scoped to the dispatch-time kernel rather than "the notebook's current kernel": if the
+    # kernel was replaced mid-run, this snapshot describes the dead one and must not overwrite
+    # the live one. Team AND user because a KernelRuntime is scoped to both — kernels are per
+    # user, so a notebook's collaborators each have their own, and a snapshot must never land
+    # on someone else's row. Both come from the run, which was itself looked up team-scoped.
+    KernelRuntime.objects.filter(id=run.kernel_runtime_id, team_id=team_id, user_id=run.user_id).update(frames=frames)

@@ -1042,6 +1042,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         run = NotebookNodeRun.objects.create(
             team_id=self.team_id,
             notebook=notebook,
+            # The same user the run's kernel is resolved for, so the callback can scope the
+            # frame snapshot to that kernel. A token user has no kernel of its own, hence None.
+            user=user if isinstance(user, User) else None,
             node_id=serializer.validated_data["node_id"],
             code=run_code,
             node_type=node_type,

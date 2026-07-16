@@ -208,6 +208,13 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     # Tenant isolation is still enforced by the fail-closed TeamScopedRootMixin manager.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE)
+    # Who ran it. Kernels are per user, so this is the second half of a KernelRuntime's scope —
+    # the callback needs it to file the frame snapshot without a user-blind lookup by id.
+    # db_constraint=False: a real FK to the hot posthog_user table locks it on deploy.
+    # db_index=False: only ever read off a run we already hold; nothing queries runs by user.
+    user = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, db_index=False
+    )
     node_id = models.CharField(max_length=128)
     # How the run executed: hogql pushed to ClickHouse (pages re-query by `code`); python and
     # duckdb ran in the sandbox kernel (pages slice the on-sandbox result frame by `result_id`).

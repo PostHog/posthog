@@ -23,6 +23,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
+from posthog.models.user import User
 
 from products.notebooks.backend.kernel_package import kernel_package_bytes_and_hash
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
@@ -87,6 +88,7 @@ class TestSQLV2Callback(APIBaseTest):
             self.node_run = NotebookNodeRun.objects.create(
                 team=self.team,
                 notebook=self.notebook,
+                user=self.user,
                 node_id="node-1",
                 status=NotebookNodeRun.Status.RUNNING,
             )
@@ -168,15 +170,38 @@ class TestSQLV2Callback(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self._reload_run().status, NotebookNodeRun.Status.RUNNING)
 
-    def _create_runtime(self, status: str) -> KernelRuntime:
+    def _create_runtime(self, status: str, user: User | None = None) -> KernelRuntime:
         return KernelRuntime.objects.create(
             team=self.team,
             notebook=self.notebook,
             notebook_short_id=self.notebook.short_id,
-            user=self.user,
+            user=user or self.user,
             status=status,
             backend=KernelRuntime.Backend.DOCKER,
         )
+
+    def test_frame_snapshot_never_lands_on_another_users_kernel(self):
+        # Kernels are per user, so collaborators on one notebook each have their own. A snapshot
+        # filed by runtime id alone would write this user's frame names onto a teammate's kernel
+        # row, surfacing them in that teammate's schema browser.
+        collaborator = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+        theirs = self._create_runtime(KernelRuntime.Status.RUNNING, user=collaborator)
+        with team_scope(self.team.id):
+            self.node_run.kernel_runtime_id = theirs.id
+            self.node_run.save(update_fields=["kernel_runtime_id"])
+
+        token = mint_callback_token(str(self.node_run.id), self.team.id)
+        response = self._post(
+            token,
+            envelope={
+                **self.envelope,
+                "frames": [{"name": "secret_df", "kind": "frame", "columns": [], "row_count": 1}],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        theirs.refresh_from_db()
+        self.assertIsNone(theirs.frames)
 
     def test_frame_snapshot_lands_on_the_kernel_that_ran_it(self):
         # A snapshot describes one kernel's state, so it must follow the run's dispatch-time
