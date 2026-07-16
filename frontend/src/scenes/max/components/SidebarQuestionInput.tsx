@@ -23,7 +23,7 @@ export function SidebarQuestionInput({
 }: {
     isSticky?: boolean
     sidePanel?: boolean
-}): JSX.Element {
+}): JSX.Element | null {
     const { focusCounter, threadVisible } = useValues(maxLogic)
 
     // Use raw state values instead of selector to ensure re-renders on state changes
