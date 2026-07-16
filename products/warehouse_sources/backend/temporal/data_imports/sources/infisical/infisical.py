@@ -155,8 +155,9 @@ def _read_capped_body(response: requests.Response) -> None:
                 f"Infisical response exceeded {MAX_RESPONSE_BYTES} bytes; refusing to buffer it"
             )
         chunks.append(chunk)
+    # Setting _content to real bytes short-circuits Response.content, so downstream
+    # .json()/.text return this buffer instead of re-reading the consumed stream.
     response._content = b"".join(chunks)
-    response._content_consumed = True
 
 
 def _send(
