@@ -154,6 +154,10 @@ function formValuesInRange(form: BillingAlertForm): boolean {
     })
 }
 
+export function isBillingAlertHiddenByPausedFilter(alert: BillingAlertConfiguration, showPaused: boolean): boolean {
+    return !showPaused && !alert.enabled && alert.state !== 'broken'
+}
+
 function firstApiMessage(value: unknown): string | null {
     if (typeof value === 'string') {
         return value
@@ -479,7 +483,7 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
             (alerts: BillingAlertConfiguration[], filters: BillingAlertListFilters): BillingAlertConfiguration[] => {
                 const search = filters.search.trim().toLowerCase()
                 return alerts.filter((alert) => {
-                    if (!filters.showPaused && !alert.enabled) {
+                    if (isBillingAlertHiddenByPausedFilter(alert, filters.showPaused)) {
                         return false
                     }
                     if (filters.createdBy && alert.created_by?.id !== filters.createdBy) {
