@@ -35,6 +35,29 @@ describe('posthog provider credential target', () => {
         expect(p.credentialTarget).toBe('posthog_api')
     })
 
+    it.each([
+        ['https://us.posthog.com', ['us.posthog.com', 'mcp.us.posthog.com']],
+        ['https://app.posthog.com', ['app.posthog.com', 'mcp.us.posthog.com']],
+        ['https://eu.posthog.com', ['eu.posthog.com', 'mcp.eu.posthog.com']],
+        ['https://posthog.com', ['posthog.com', 'mcp.posthog.com']],
+    ])('allows the matching first-party MCP host for %s', (baseUrl, expectedHosts) => {
+        const managedProvider = new PostHogAuthProvider({
+            config: {
+                id: 'posthog',
+                authorizeUrl: `${baseUrl}/oauth/authorize/`,
+                tokenUrl: `${baseUrl}/oauth/token/`,
+                clientId: 'c',
+            },
+            links: {} as IdentityLinkStateStore,
+            credentials: {} as IdentityCredentialStore,
+            http: {} as HttpFetcher,
+        })
+        const seedOnlyProvider = new SeedOnlyPostHogProvider('posthog', baseUrl)
+
+        expect(managedProvider.allowedHosts()).toEqual(expectedHosts)
+        expect(seedOnlyProvider.allowedHosts()).toEqual(expectedHosts)
+    })
+
     it('SeedOnlyPostHogProvider surfaces the seed target + host but cannot link', async () => {
         const p = new SeedOnlyPostHogProvider('posthog', BASE)
         expect(p.credentialTarget).toBe('posthog_api')

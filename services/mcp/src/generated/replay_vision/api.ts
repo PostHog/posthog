@@ -59,7 +59,7 @@ export const VisionObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object(
     recording_subject: zod
         .string()
         .optional()
-        .describe('Filter to observations whose recording subject email contains this value (case-insensitive).'),
+        .describe('Filter to observations whose person email contains this value (case-insensitive).'),
     session_id: zod
         .string()
         .optional()
@@ -421,7 +421,7 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
     recording_subject: zod
         .string()
         .optional()
-        .describe('Filter to observations whose recording subject email contains this value (case-insensitive).'),
+        .describe('Filter to observations whose person email contains this value (case-insensitive).'),
     session_id: zod
         .string()
         .optional()
@@ -472,7 +472,7 @@ export const VisionScannersObservationsRetrieveQueryParams = /* @__PURE__ */ zod
     recording_subject: zod
         .string()
         .optional()
-        .describe('Filter to observations whose recording subject email contains this value (case-insensitive).'),
+        .describe('Filter to observations whose person email contains this value (case-insensitive).'),
     session_id: zod
         .string()
         .optional()
@@ -522,7 +522,7 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ *
     recording_subject: zod
         .string()
         .optional()
-        .describe('Filter to observations whose recording subject email contains this value (case-insensitive).'),
+        .describe('Filter to observations whose person email contains this value (case-insensitive).'),
     session_id: zod
         .string()
         .optional()
