@@ -69,6 +69,10 @@ from products.tasks.backend.temporal.task_management.activities.pending_followup
 _PATCH_ID_CAPABILITY_GATED_STEERING = "tasks-capability-gated-steering-signal"
 _PATCH_ID_ACK_BEFORE_COMPLETION = "tasks-task-management-ack-before-completion"
 _PATCH_ID_ACK_BEFORE_COMPLETION_SANDBOX_GENERATION = "tasks-task-management-ack-before-completion-sandbox-generation"
+_CHILD_SIGNAL_TERMINAL_ERROR_TYPES = {
+    "ExternalWorkflowExecutionNotFound",
+    "NamespaceNotFound",
+}
 
 
 def _ack_before_completion() -> bool:
@@ -81,6 +85,12 @@ def _ack_before_completion_for_sandbox_generation(generation: int) -> bool:
     if not workflow.in_workflow():
         return True
     return workflow.patched(f"{_PATCH_ID_ACK_BEFORE_COMPLETION_SANDBOX_GENERATION}-{generation}")
+
+
+def _child_cannot_receive_signals(error: Exception) -> bool:
+    return (
+        isinstance(error, temporalio.exceptions.ApplicationError) and error.type in _CHILD_SIGNAL_TERMINAL_ERROR_TYPES
+    )
 
 
 @dataclass
@@ -559,13 +569,15 @@ class TaskManagementWorkflow(PostHogWorkflow):
         # terminal and handled last so we don't drop in-flight messages.
         while self._pending_external_followups:
             followup = self._pending_external_followups.pop(0)
-            await self._signal_child_followup(
+            delivered = await self._signal_child_followup(
                 message=followup.message,
                 artifact_ids=followup.artifact_ids,
                 source=followup.source,
                 steer=followup.steer,
                 sequence=followup.sequence,
             )
+            if delivered is False:
+                return
         # The persisted queue is the orchestrator's recovery buffer — keep
         # it in sync after every drain so a restart sees an accurate picture
         # rather than re-delivering work we already forwarded.
@@ -645,6 +657,43 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 self._pending_external_followups.insert(index, followup)
                 return
         self._pending_external_followups.append(followup)
+
+    async def _recover_closed_sandbox(self, error: Exception) -> None:
+        child_acks_by_id = {ack.ack_id: ack for ack in self._child_acks}
+        requeued = 0
+        for ack_id, slot in self._pending_ack_slots.items():
+            ack = child_acks_by_id.get(ack_id)
+            if ack is not None and (ack.accepted or ack.detail != SHUTDOWN_REJECTION_DETAIL):
+                continue
+            if slot.signal_name not in {SEND_FOLLOWUP_SIGNAL, SEND_STEER_SIGNAL} or slot.signal_args is None:
+                continue
+            _ack_id, message, artifact_ids, source, *_legacy = slot.signal_args
+            self._insert_external_followup_in_arrival_order(
+                PendingExternalFollowup(
+                    message=message,
+                    artifact_ids=artifact_ids,
+                    source=source,
+                    sequence=slot.sequence,
+                )
+            )
+            requeued += 1
+
+        workflow.logger.warning(
+            "task_management_closed_sandbox_recovered",
+            run_id=self._run_id,
+            requeued=requeued,
+            error=str(error),
+        )
+        self._pending_ack_slots.clear()
+        self._child_acks.clear()
+        self._child_completion = None
+        self._sandbox_alive = False
+        self._child_steering_protocol_version = 0
+        self._ci_repetitions = 0
+        self._pr_fingerprint = None
+        self._heartbeat_received = False
+        self._last_active_time = None
+        await self._persist_pending_followups()
 
     # ------------------------------------------------------------------
     # Sandbox session lifecycle (multiple sessions per orchestrator)
@@ -840,7 +889,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         source: str = FOLLOWUP_SOURCE_USER,
         steer: bool = False,
         sequence: int | None = None,
-    ) -> None:
+    ) -> bool | None:
         if self._sandbox_workflow_id is None:
             workflow.logger.warning(
                 "task_management_followup_dropped_no_sandbox",
@@ -871,6 +920,9 @@ class TaskManagementWorkflow(PostHogWorkflow):
         try:
             await self._sandbox_handle().signal(signal_name, args=signal_args)
         except Exception as e:
+            if _child_cannot_receive_signals(e):
+                await self._recover_closed_sandbox(e)
+                return False
             # Keep the slot — `_retry_stale_acks` will try again after
             # ACK_TIMEOUT. This is the "child is dead, parent retries"
             # branch the design relies on.
@@ -880,6 +932,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 source=source,
                 error=str(e),
             )
+        return True
 
     async def _signal_child_complete(self, status: str, error_message: Optional[str]) -> None:
         if self._sandbox_workflow_id is None or not self._sandbox_alive:
@@ -897,6 +950,9 @@ class TaskManagementWorkflow(PostHogWorkflow):
         try:
             await self._sandbox_handle().signal(COMPLETE_TASK_SIGNAL, args=signal_args)
         except Exception as e:
+            if _child_cannot_receive_signals(e):
+                await self._recover_closed_sandbox(e)
+                return
             workflow.logger.warning(
                 "task_management_signal_complete_failed",
                 run_id=self._run_id,
@@ -947,6 +1003,9 @@ class TaskManagementWorkflow(PostHogWorkflow):
                     retry_count=slot.retry_count,
                 )
             except Exception as e:
+                if _child_cannot_receive_signals(e):
+                    await self._recover_closed_sandbox(e)
+                    return
                 # Don't advance sent_at on failure — we want to retry again
                 # at the next deadline rather than push it out by ACK_TIMEOUT.
                 workflow.logger.warning(

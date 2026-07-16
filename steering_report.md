@@ -11,7 +11,7 @@ The implementation is split across:
 - PostHog backend branch: `posthog-code/cloud-run-steering`
 - PostHog Code branch: `posthog-code/cloud-run-steering-agent`
 
-The latest fixes bound final child-to-parent signal delivery, let existing task-management histories adopt acknowledgement-first ordering on their next sandbox generation, and reconcile resume history by stable message identity instead of timestamps.
+The latest fixes make the final child-to-parent retry bound replay-safe, recover parent workflows when a child has already closed, and scope resume deduplication to ordered prompt turns instead of matching message payloads globally.
 
 ## What the feature does
 
@@ -269,15 +269,66 @@ Resume hydration now:
 
 The updated regression covers a persisted prompt whose timestamp differs from its live copy, a direct final message at a later timestamp than its partial chunks, and an unrelated same-timestamp response in the following turn.
 
+## Closed-child recovery, replay-safe retry bounds, and turn-scoped hydration
+
+### Final outbound retry exhaustion no longer strands the parent
+
+The child still bounds transient final acknowledgement and completion delivery for new histories, but a later parent signal to an already-closed child is now a recovery event instead of an indefinitely armed dead session.
+
+Task management:
+
+- Recognizes typed child workflow closed/not-found signal failures.
+- Reconciles acknowledgements already queued at the parent before deciding which slots remain unacknowledged.
+- Requeues unacknowledged follow-ups in their original arrival order.
+- Clears stale steer intent when the message crosses into a replacement sandbox.
+- Resets per-sandbox capability, heartbeat, and CI state.
+- Persists the restored queue before lazily starting the replacement sandbox.
+
+The same recovery runs when the initial signal fails or an acknowledgement retry discovers that the child has closed. Regressions cover replacement startup and multiple stale follow-ups restored in sequence.
+
+### The five-attempt final retry bound is replay-safe
+
+The bounded final retry behavior is selected with a new Temporal patch at the retry boundary.
+
+- New histories record the patch and stop after the configured five transient failures.
+- Existing histories without the patch preserve the earlier unbounded retry command sequence.
+- Closed or missing parent errors remain terminal immediately.
+
+The regression models an existing history that has already passed the new limit and verifies that it continues to its recorded successful delivery instead of stopping early.
+
+### Hydration deduplication is ordered and turn-scoped
+
+Resume hydration no longer removes events using a transcript-wide count of serialized message payloads.
+
+Hydrated events are grouped by their `session/prompt` turn and consumed in order only within the matching live turn. An identical completion or final response emitted by a later turn therefore remains present even when an earlier turn persisted the same payload.
+
+The authoritative-final versus inherited-chunk reconciliation now stores each prompt key once with a set of assistant message positions. It no longer embeds a potentially large prompt in a new string for every response position.
+
+The regression includes two turns with identical completion payloads and verifies that only the persisted earlier completion is deduplicated while the later live completion remains.
+
 ## Automated validation
 
 Latest validation:
 
 - Backend `process_task` workflow suite: 48 passed.
-- Backend `execute_sandbox` workflow suite: 61 passed.
-- Backend `task_management` workflow suite: 62 passed.
+- Backend `execute_sandbox` workflow suite: 62 passed.
+- Backend `task_management` workflow suite: 64 passed.
+- Combined focused backend workflow run: 126 passed.
 - Focused PostHog Code session host suite: 142 passed.
 - PostHog Code UI suite: 1,523 passed across 172 files.
+- PostHog Code `@posthog/core` and `@posthog/ui` typechecks passed.
+- Ruff, Python compilation, Biome, and diff checks passed for the changed files.
+
+## Live cloud E2E validation
+
+The running local backend and PostHog Code desktop app were tested after a full Electron main-process restart.
+
+- Fresh Codex cloud run: one prompt and one `STEERFIX716A` reply.
+- Active follow-up steering: the long-running queued prompt appeared once without its requested reply; the accepted `ACTIVESTEER716` steer appeared once and replied once in the same active turn.
+- Queue mode fallback: one prompt and one `QUEUE716` reply.
+- Real resume: the original run was terminalized before sending the next prompt, producing a new run that replied once with `RESUME716`.
+- Cold restart and reopen: `Restored sandbox` appeared once; every tested prompt/reply pair remained in order with no duplicates, error state, pending prompt, or stale Thinking state.
+- Cursor domains remained separate after cold hydration: the leaf-local `processedLineCount` was 54 while the full `cloudTranscriptEntryCount` was 191.
 - Core and UI TypeScript package typechecks passed.
 - Ruff, Python compilation, Biome formatting and lint, and diff checks passed.
 

@@ -218,6 +218,7 @@ class SandboxEvent(StrEnum):
 
 _PATCH_ID_CONCURRENT_FOLLOWUP_STEERING = "tasks-execute-sandbox-concurrent-followup-steering"
 _PATCH_ID_ORDERED_OUTBOUND_DELIVERY = "tasks-execute-sandbox-ordered-outbound-delivery"
+_PATCH_ID_BOUNDED_FINAL_OUTBOUND_DELIVERY = "tasks-execute-sandbox-bounded-final-outbound-delivery"
 _PARENT_SIGNAL_TERMINAL_ERROR_TYPES = {
     "ExternalWorkflowExecutionNotFound",
     "NamespaceNotFound",
@@ -228,6 +229,12 @@ def _ordered_outbound_delivery() -> bool:
     if not workflow.in_workflow():
         return True
     return workflow.patched(_PATCH_ID_ORDERED_OUTBOUND_DELIVERY)
+
+
+def _bounded_final_outbound_delivery() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_BOUNDED_FINAL_OUTBOUND_DELIVERY)
 
 
 def _parent_cannot_receive_signals(error: Exception) -> bool:
@@ -986,21 +993,21 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
 
     async def _flush_all_pending_outbound(self) -> None:
         attempts = 0
-        while (
-            self._pending_outbound
-            and not self._parent_signal_delivery_closed
-            and attempts < MAX_FINAL_OUTBOUND_FLUSH_ATTEMPTS
-        ):
+        while self._pending_outbound and not self._parent_signal_delivery_closed:
             attempts += 1
             await self._flush_pending_outbound()
-        if self._pending_outbound:
-            workflow.logger.warning(
-                "execute_sandbox_final_outbound_retries_exhausted",
-                run_id=self.context.run_id if self._context else None,
-                attempts=attempts,
-                undelivered=len(self._pending_outbound),
-            )
-            self._pending_outbound.clear()
+            if (
+                self._pending_outbound
+                and attempts >= MAX_FINAL_OUTBOUND_FLUSH_ATTEMPTS
+                and _bounded_final_outbound_delivery()
+            ):
+                workflow.logger.warning(
+                    "execute_sandbox_final_outbound_retries_exhausted",
+                    run_id=self.context.run_id if self._context else None,
+                    attempts=attempts,
+                    undelivered=len(self._pending_outbound),
+                )
+                self._pending_outbound.clear()
 
     # ------------------------------------------------------------------
     # Activities — these mirror process_task's implementations directly so

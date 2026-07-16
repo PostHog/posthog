@@ -3,6 +3,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from unittest.mock import AsyncMock, Mock
 
+from temporalio.exceptions import ApplicationError
+
 from products.tasks.backend.temporal.constants import (
     ACK_TIMEOUT,
     DEFAULT_CI_MESSAGE,
@@ -475,6 +477,69 @@ class TestDrainExternalSignals:
         complete_mock.assert_not_awaited()
         assert workflow._pending_external_complete is None
 
+    async def test_closed_child_requeues_followup_and_rebootstraps(
+        self, monkeypatch, fixed_now, silent_workflow_logger
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._sandbox_alive = True
+        workflow._pending_external_followups.append(
+            PendingExternalFollowup(message="retry me", artifact_ids=["artifact"], source="user", sequence=4)
+        )
+
+        handle = Mock()
+        handle.signal = AsyncMock(
+            side_effect=[
+                ApplicationError(
+                    "child workflow closed",
+                    type="ExternalWorkflowExecutionNotFound",
+                ),
+                None,
+            ]
+        )
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "get_external_workflow_handle",
+            Mock(return_value=handle),
+        )
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "uuid4",
+            Mock(side_effect=["closed-ack", "replacement-ack"]),
+        )
+        persist_mock = AsyncMock()
+        monkeypatch.setattr(workflow, "_persist_pending_followups", persist_mock)
+
+        await workflow._drain_external_signals()
+
+        assert workflow._sandbox_alive is False
+        assert workflow._pending_ack_slots == {}
+        assert workflow._pending_external_followups == [
+            PendingExternalFollowup(
+                message="retry me",
+                artifact_ids=["artifact"],
+                source="user",
+                sequence=4,
+            )
+        ]
+
+        async def mark_replacement_alive() -> None:
+            workflow._sandbox_alive = True
+
+        bootstrap_mock = AsyncMock(side_effect=mark_replacement_alive)
+        monkeypatch.setattr(workflow, "_ensure_sandbox_workflow_started", bootstrap_mock)
+
+        await workflow._drain_external_signals()
+
+        bootstrap_mock.assert_awaited_once()
+        assert handle.signal.await_args_list[-1].args == ("send_followup_message",)
+        assert handle.signal.await_args_list[-1].kwargs == {
+            "args": ["replacement-ack", "retry me", ["artifact"], "user"]
+        }
+        assert workflow._pending_external_followups == []
+        assert persist_mock.await_count >= 2
+
 
 class TestDrainChildSignals:
     async def test_matched_ack_clears_slot_and_logs(self, fixed_now, silent_workflow_logger):
@@ -829,6 +894,64 @@ class TestRetryStaleAcks:
         slot = workflow._pending_ack_slots["ack-retry-fail"]
         assert slot.sent_at == original_sent
         assert slot.retry_count == 0
+
+    async def test_closed_child_requeues_stale_followups_in_arrival_order(
+        self, monkeypatch, fixed_now, silent_workflow_logger
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._sandbox_alive = True
+        workflow._child_steering_protocol_version = STEERING_PROTOCOL_VERSION
+        workflow._pending_ack_slots["later"] = PendingAckSlot(
+            signal_name=SEND_STEER_SIGNAL,
+            sent_at=fixed_now.now,
+            signal_args=["later", "second", [], "user"],
+            sequence=2,
+        )
+        workflow._pending_ack_slots["earlier"] = PendingAckSlot(
+            signal_name="send_followup_message",
+            sent_at=fixed_now.now,
+            signal_args=["earlier", "first", ["artifact"], "user"],
+            sequence=1,
+        )
+        fixed_now.advance(ACK_TIMEOUT + timedelta(seconds=1))
+
+        handle = Mock()
+        handle.signal = AsyncMock(
+            side_effect=ApplicationError(
+                "child workflow closed",
+                type="ExternalWorkflowExecutionNotFound",
+            )
+        )
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "get_external_workflow_handle",
+            Mock(return_value=handle),
+        )
+        persist_mock = AsyncMock()
+        monkeypatch.setattr(workflow, "_persist_pending_followups", persist_mock)
+
+        await workflow._retry_stale_acks()
+
+        assert workflow._sandbox_alive is False
+        assert workflow._child_steering_protocol_version == 0
+        assert workflow._pending_ack_slots == {}
+        assert workflow._pending_external_followups == [
+            PendingExternalFollowup(
+                message="first",
+                artifact_ids=["artifact"],
+                source="user",
+                sequence=1,
+            ),
+            PendingExternalFollowup(
+                message="second",
+                artifact_ids=[],
+                source="user",
+                sequence=2,
+            ),
+        ]
+        persist_mock.assert_awaited_once()
 
 
 class TestWaitForAckRetry:

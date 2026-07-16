@@ -449,6 +449,44 @@ class TestFlushPendingOutbound:
         assert workflow._pending_outbound == []
         silent_workflow_logger.warning.assert_called()
 
+    async def test_existing_history_keeps_retrying_past_new_final_flush_bound(
+        self, monkeypatch, silent_workflow_logger
+    ):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        workflow._parent_workflow_id = "parent-wf"
+        workflow._pending_outbound.append(
+            OutboundSignal(
+                target_signal=PARENT_COMPLETED_SIGNAL,
+                args=[ChildCompletionPayload(success=True)],
+            )
+        )
+
+        signal_mock = AsyncMock(
+            side_effect=[
+                *[RuntimeError("parent temporarily unavailable")] * MAX_FINAL_OUTBOUND_FLUSH_ATTEMPTS,
+                None,
+            ]
+        )
+        handle_mock = Mock()
+        handle_mock.signal = signal_mock
+        monkeypatch.setattr(
+            execute_sandbox_workflow_module.workflow,
+            "get_external_workflow_handle",
+            Mock(return_value=handle_mock),
+        )
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "sleep", AsyncMock())
+        monkeypatch.setattr(
+            execute_sandbox_workflow_module,
+            "_bounded_final_outbound_delivery",
+            lambda: False,
+        )
+
+        await workflow._flush_all_pending_outbound()
+
+        assert signal_mock.await_count == MAX_FINAL_OUTBOUND_FLUSH_ATTEMPTS + 1
+        assert workflow._pending_outbound == []
+
     async def test_no_backoff_when_flush_succeeds(self, monkeypatch):
         workflow = ExecuteSandboxWorkflow()
         workflow._context = _build_context()
