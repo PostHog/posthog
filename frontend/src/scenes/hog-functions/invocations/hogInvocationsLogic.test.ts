@@ -9,16 +9,17 @@ describe('buildSearchClause', () => {
         expect(buildSearchClause(props, { date_from: '-24h' }).raw).toBe('')
     })
 
-    it('matches an exact id OR a log-message substring', () => {
-        const clause = buildSearchClause(props, { date_from: '-24h', search: 'bounce' }).raw
-        // Exact-id arms — pasting a UUID still finds that one run.
-        expect(clause).toContain("invocation_id = 'bounce'")
-        expect(clause).toContain("event_uuid = 'bounce'")
-        expect(clause).toContain("distinct_id = 'bounce'")
-        expect(clause).toContain("person_id = 'bounce'")
-        // ...OR a run that logged a matching message — the old Logs-tab behavior, folded in.
+    it('matches the typed term as an exact id OR a log-message substring', () => {
+        // One typed term goes into every arm: it's compared for equality against each id column (paste
+        // an id to find that run) and, via a log_entries subquery, as a substring of the message (type
+        // words to find a run that logged them). So the same term appears in all arms below.
+        const clause = buildSearchClause(props, { date_from: '-24h', search: 'run-42' }).raw
+        expect(clause).toContain("invocation_id = 'run-42'")
+        expect(clause).toContain("event_uuid = 'run-42'")
+        expect(clause).toContain("distinct_id = 'run-42'")
+        expect(clause).toContain("person_id = 'run-42'")
         expect(clause).toContain('FROM log_entries')
-        expect(clause).toContain("message ILIKE concat('%', 'bounce', '%')")
+        expect(clause).toContain("message ILIKE concat('%', 'run-42', '%')")
         // No level narrowing for a manual search — it matches any level.
         expect(clause).not.toContain('lower(level)')
     })

@@ -89,12 +89,6 @@ export interface HogInvocationsFilters {
      * no cross-shard subquery against `persons`.
      */
     person_uuid?: string
-    /**
-     * Optional level narrowing for the main search's log-message match, set only by metric
-     * drill-downs (e.g. the "Bounced" tile carries WARN/ERROR). It keeps the drill-down from also
-     * matching the INFO "Email sent to bounce@…" log. Absent for manual searches, which match any
-     * level.
-     */
     log_levels?: LogEntryLevel[]
 }
 
