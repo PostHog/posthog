@@ -448,8 +448,10 @@ def owner_team_lookup() -> Callable[[str], str]:
     """Repo-relative test file -> primary owning team slug, '' when unowned.
 
     Resolution is capture-time on purpose: a test is attributed to whoever owned it when it
-    ran. A resolver that can't load (a base checkout predating `tools/owners`) degrades to no
-    stamp, leaving those spans in the reader's `unowned` bucket rather than losing the emit.
+    ran. Ownership is best-effort next to the timings themselves, so every failure — a resolver
+    that can't load (a base checkout predating `tools/owners`) or one file that won't resolve —
+    degrades to no stamp, leaving those spans in the reader's `unowned` bucket rather than
+    losing the emit.
     """
     try:
         resolver = OwnersResolver()
@@ -461,7 +463,11 @@ def owner_team_lookup() -> Callable[[str], str]:
     def lookup(file: str) -> str:
         if not file:
             return ""
-        owners = resolver.resolve(file).owners
+        try:
+            owners = resolver.resolve(file).owners
+        except Exception:
+            logger.exception("owners resolution failed for %s; emitting span without team attribution", file)
+            return ""
         return owners[0] if owners else ""
 
     return lookup
