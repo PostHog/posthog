@@ -4,10 +4,10 @@ import { useDebouncedCallback } from 'use-debounce'
 
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
-import { TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterHeadless } from 'lib/components/TaxonomicFilter/headless'
+import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
 import { TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu'
+import { TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicMenuPreferenceLogic } from 'lib/components/TaxonomicPopover/taxonomicMenuPreferenceLogic'
