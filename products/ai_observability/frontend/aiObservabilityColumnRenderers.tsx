@@ -271,9 +271,9 @@ function LazyGenerationSentimentCell({ lookup }: { lookup: GenerationSentimentLo
         }
     }, [cached, ensureGenerationSentimentLoaded, loading, lookupGenerationIdsKey, lookupKey, lookupTraceId])
 
-    // Match the loaded bar's height so the cell doesn't reflow when sentiment resolves.
+    // Match the loaded bar's height (h-1.5 + my-0.5) so the cell doesn't reflow when sentiment resolves.
     if (loading || cached === undefined) {
-        return <SentimentBar loading size="full" />
+        return <LemonSkeleton className="h-1.5 w-3/4 my-0.5" />
     }
 
     if (cached === null) {
