@@ -14,6 +14,7 @@ import {
     AlertConfigFrequencyEnumApi,
     DeliveryTargetTypeEnumApi,
     VisionActionModeEnumApi,
+    VisionAlertDirectionEnumApi,
     VisionAlertMetricEnumApi,
     WindowDaysEnumApi,
 } from '../generated/api.schemas'
@@ -43,6 +44,7 @@ export interface VisionActionForm {
     alert_frequency: AlertConfigFrequencyEnumApi
     alert_metric: VisionAlertMetricEnumApi
     alert_threshold: number | null
+    alert_direction: VisionAlertDirectionEnumApi
     alert_window_days: WindowDaysEnumApi
 }
 
@@ -62,6 +64,7 @@ export const NEW_ACTION_FORM = (): VisionActionForm => ({
     alert_frequency: AlertConfigFrequencyEnumApi.EveryMatch,
     alert_metric: VisionAlertMetricEnumApi.Count,
     alert_threshold: 1,
+    alert_direction: VisionAlertDirectionEnumApi.Above,
     alert_window_days: 1,
 })
 
@@ -105,6 +108,7 @@ export function buildActionBody(form: VisionActionForm, scannerId: string): Para
                                 frequency: form.alert_frequency,
                                 metric: form.alert_metric,
                                 threshold: form.alert_threshold ?? 1,
+                                direction: form.alert_direction,
                                 window_days: form.alert_window_days,
                             },
               }
@@ -133,6 +137,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
         loadActions: true,
         loadActionsSuccess: (visionActions: VisionActionApi[]) => ({ visionActions }),
         loadActionsFailure: true,
+        addAction: (action: VisionActionApi) => ({ action }),
         toggleActionEnabled: (id: string) => ({ id }),
         revertActionEnabled: (id: string) => ({ id }),
         toggleActionEnabledDone: (id: string) => ({ id }),
@@ -145,6 +150,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
             [] as VisionActionApi[],
             {
                 loadActionsSuccess: (_, { visionActions }) => visionActions,
+                addAction: (state, { action }) => [...state, action],
                 deleteActionSuccess: (state, { id }) => state.filter((a) => a.id !== id),
                 // Optimistic flip on toggle; revert mirrors it back on failure.
                 toggleActionEnabled: (state, { id }) =>

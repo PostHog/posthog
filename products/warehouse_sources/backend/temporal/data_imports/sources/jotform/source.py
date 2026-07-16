@@ -39,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class JotformSource(ResumableSource[JotformSourceConfig, JotformResumeConfig]):
+    api_docs_url = "https://api.jotform.com/docs/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.JOTFORM

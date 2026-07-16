@@ -56,6 +56,10 @@ GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS = 30 * 24 * 60 * 60
 class GoogleAdsSource(
     ResumableSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, GoogleAdsResumeConfig], OAuthMixin
 ):
+    supported_versions = ("v23",)
+    default_version = "v23"
+    api_docs_url = "https://developers.google.com/google-ads/api/docs/release-notes"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GOOGLEADS
@@ -93,6 +97,10 @@ class GoogleAdsSource(
             # contains the bare "UNAUTHENTICATED" token, so the gRPC-status keys above don't catch it.
             # Retrying cannot recover — the user must reconnect their Google Ads account.
             "Request is missing required authentication credential": "Your Google Ads connection could not be authenticated. Please reconnect your Google Ads account.",
+            # The other gapic-wrapped Unauthenticated variant, str() "401 Request had invalid authentication
+            # credentials. ..." — raised when the OAuth access token itself is rejected. Same story: no bare
+            # "UNAUTHENTICATED" token, retrying cannot recover, the user must reconnect their Google Ads account.
+            "Request had invalid authentication credentials": "Your Google Ads connection could not be authenticated. Please reconnect your Google Ads account.",
         }
 
     # TODO: clean up google ads source to not have two auth config options

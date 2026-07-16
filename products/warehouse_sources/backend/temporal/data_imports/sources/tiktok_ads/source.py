@@ -43,6 +43,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConfig], OAuthMixin):
+    supported_versions = ("v1.3",)
+    default_version = "v1.3"
+    api_docs_url = "https://business-api.tiktok.com/portal/docs"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

@@ -280,6 +280,7 @@ function MetricsCard({ metrics }: { metrics: EvaluationReportStoredMetrics }): J
 function DeliveryStatusBadge({ status }: { status: string }): JSX.Element {
     const statusMap: Record<string, { label: string; status: 'success' | 'warning' | 'danger' | 'muted' }> = {
         delivered: { label: 'Delivered', status: 'success' },
+        generated: { label: 'Generated', status: 'success' },
         pending: { label: 'Pending', status: 'muted' },
         partial_failure: { label: 'Partial failure', status: 'warning' },
         failed: { label: 'Failed', status: 'danger' },

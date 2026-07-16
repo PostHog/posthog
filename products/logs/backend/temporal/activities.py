@@ -11,7 +11,6 @@ from datetime import UTC, datetime, timedelta
 from itertools import batched
 
 from django.db import transaction
-from django.db.models import Q
 from django.db.utils import IntegrityError
 
 import structlog
@@ -58,7 +57,7 @@ from products.logs.backend.alert_state_machine import (
     apply_outcome,
     evaluate_alert_check,
 )
-from products.logs.backend.alert_utils import advance_next_check_at, compute_shard_offset_seconds
+from products.logs.backend.alert_utils import advance_next_check_at, compute_shard_offset_seconds, due_alerts_q
 from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.constants import (
@@ -341,13 +340,12 @@ class EmitAlertSignalsInput:
 
 
 def _due_alerts_qs(now: datetime):
-    return (
-        LogsAlertConfiguration.objects.filter(
-            Q(enabled=True),
-            Q(next_check_at__lte=now) | Q(next_check_at__isnull=True),
+    return LogsAlertConfiguration.objects.filter(
+        due_alerts_q(
+            now,
+            broken_state=LogsAlertConfiguration.State.BROKEN,
+            snoozed_state=LogsAlertConfiguration.State.SNOOZED,
         )
-        .exclude(state=LogsAlertConfiguration.State.SNOOZED, snooze_until__gt=now)
-        .exclude(state=LogsAlertConfiguration.State.BROKEN)
     )
 
 

@@ -50,6 +50,18 @@ _PRIORITY_CHOICES = [priority.value for priority in IssuePriority]
 # Display order for the detail view: most urgent first.
 _PRIORITY_DISPLAY_RANK = {IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 1, IssuePriority.CONSIDER: 2}
 
+SCOPE_MINE = "mine"
+SCOPE_EVERYONE = "everyone"
+
+
+class ReviewsListParamsSerializer(serializers.Serializer):
+    scope = serializers.ChoiceField(
+        choices=[SCOPE_MINE, SCOPE_EVERYONE],
+        default=SCOPE_MINE,
+        help_text="Whose reviews to list: `mine` for reviews of the requesting user's pull requests "
+        "(the default), `everyone` for every review on this project.",
+    )
+
 
 class ReviewProgressSerializer(serializers.Serializer):
     review_stage = serializers.ChoiceField(
@@ -341,12 +353,14 @@ def _review_payload(
 
 
 class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """The requesting user's most recent ReviewHog reviews (reports where they are the acting user).
+    """Recent ReviewHog reviews on this project.
 
     Read-only meta for the Code review tab's "recent reviews" block: what was reviewed, how many
     valid findings at each effective priority, the reviewed PR's facts, and the pipeline shape of
-    the latest turn. `retrieve` adds the findings themselves (valid + dismissed) and the published
-    review body.
+    the latest turn. `list` covers the requesting user's reviews (reports where they are the acting
+    user) by default, or the whole project's via `scope=everyone` — mirroring the inbox's
+    "For you / Entire project" switch. `retrieve` adds the findings themselves (valid + dismissed)
+    and the published review body; it is project-wide so any listed review can be opened.
     """
 
     scope_object = "INTERNAL"
@@ -355,23 +369,30 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     serializer_class = ReviewRecentReviewSerializer
     pagination_class = None
 
-    def _reports(self, request: Request) -> tuple[int, QuerySet[ReviewReport]]:
+    def _reports(self, request: Request, scope: str = SCOPE_MINE) -> tuple[int, QuerySet[ReviewReport]]:
         team_id = resolve_effective_team_id(self.team_id)
-        return team_id, ReviewReport.objects.for_team(team_id, canonical=True).filter(acting_user_id=request.user.id)
+        queryset = ReviewReport.objects.for_team(team_id, canonical=True)
+        if scope == SCOPE_MINE:
+            queryset = queryset.filter(acting_user_id=request.user.id)
+        return team_id, queryset
 
     @extend_schema(
+        parameters=[ReviewsListParamsSerializer],
         responses={
             200: OpenApiResponse(
                 response=ReviewRecentReviewSerializer(many=True),
-                description="The user's reviews: in-progress runs first, then completed newest first.",
+                description="The scoped reviews: in-progress runs first, then completed newest first.",
             ),
         },
-        summary="List the user's recent reviews",
-        description="The requesting user's ReviewHog reviews on this project: actively running reviews "
-        "first (with the in-flight turn's stage), then the most recent completed ones (at most 5 rows).",
+        summary="List recent reviews",
+        description="Recent ReviewHog reviews on this project: actively running reviews first (with the "
+        "in-flight turn's stage), then the most recent completed ones (at most 5 rows). By default only "
+        "the requesting user's reviews; `scope=everyone` lists every review on the project.",
     )
     def list(self, request: Request, **kwargs) -> Response:
-        team_id, queryset = self._reports(request)
+        params = ReviewsListParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        team_id, queryset = self._reports(request, scope=params.validated_data["scope"])
         completed = list(queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:RECENT_REVIEWS_LIMIT])
         # First-turn runs have no completed turn yet; they only surface while visibly running.
         running_first_turn = list(
@@ -471,19 +492,20 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 response=ReviewDetailSerializer,
                 description="The review's detail: findings (valid and dismissed) and the published body.",
             ),
-            404: OpenApiResponse(description="No such review of the requesting user's pull requests."),
+            404: OpenApiResponse(description="No such review on this project."),
         },
         summary="Retrieve one review's detail",
-        description="One completed ReviewHog review of the requesting user's pull requests, with the latest "
-        "turn's validated findings, the findings the validator dismissed (and why), and the review body "
-        "published to GitHub.",
+        description="One completed ReviewHog review on this project, with the latest turn's validated "
+        "findings, the findings the validator dismissed (and why), and the review body published to "
+        "GitHub. Project-wide, so reviews listed under `scope=everyone` can be opened too.",
     )
     def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
         try:
             report_uuid = uuid.UUID(str(pk))
         except ValueError:
             raise NotFound("Review not found.")
-        team_id, queryset = self._reports(request)
+        # Project-wide on purpose: the detail must open for any review the everyone-scope list shows.
+        team_id, queryset = self._reports(request, scope=SCOPE_EVERYONE)
         # Detail describes a completed turn — a first run still in flight has nothing to show yet.
         report = queryset.filter(id=report_uuid, last_run_at__isnull=False).first()
         if report is None:
