@@ -238,7 +238,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             {
                 loadServers: async () => {
                     const response = await api.mcpServers.list()
-                    return response.results as MCPServerTemplateApi[]
+                    return (response?.results ?? []) as MCPServerTemplateApi[]
                 },
             },
         ],
@@ -247,7 +247,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             {
                 loadInstallations: async () => {
                     const response = await api.mcpServerInstallations.list()
-                    return response.results as MCPServerInstallationApi[]
+                    return (response?.results ?? []) as MCPServerInstallationApi[]
                 },
                 updateInstallation: async ({ id, data }: { id: string; data: Record<string, any> }) => {
                     const updated = (await api.mcpServerInstallations.update(id, data)) as MCPServerInstallationApi
@@ -273,7 +273,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                         throw e
                     }
                     const response = await api.mcpServerInstallations.list()
-                    return response.results as MCPServerInstallationApi[]
+                    return (response?.results ?? []) as MCPServerInstallationApi[]
                 },
                 unshareInstallation: async ({ id }: { id: string }) => {
                     try {
@@ -284,7 +284,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                         throw e
                     }
                     const response = await api.mcpServerInstallations.list()
-                    return response.results as MCPServerInstallationApi[]
+                    return (response?.results ?? []) as MCPServerInstallationApi[]
                 },
             },
         ],
@@ -295,7 +295,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                     const response = await api.mcpServerInstallations.listTools(installationId)
                     return {
                         ...values.installationTools,
-                        [installationId]: response.results as MCPServerInstallationToolApi[],
+                        [installationId]: (response?.results ?? []) as MCPServerInstallationToolApi[],
                     }
                 },
                 refreshInstallationTools: async ({ installationId }) => {
@@ -304,7 +304,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                         lemonToast.success('Tools refreshed')
                         return {
                             ...values.installationTools,
-                            [installationId]: response.results as MCPServerInstallationToolApi[],
+                            [installationId]: (response?.results ?? []) as MCPServerInstallationToolApi[],
                         }
                     } catch (e: any) {
                         lemonToast.error(e.detail || 'Failed to refresh tools')
