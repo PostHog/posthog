@@ -197,7 +197,10 @@ def ingest_slack_discussion_reply(
     try:
         client = SlackIntegration(mirror.integration).client
         client.timeout = 10
-        user_info = resolve_slack_user(client, slack_user_id)
+        # The profile feeds the workspace-membership trust check below — namespace the cache by
+        # this integration's workspace so a colliding user id from another workspace (Slack
+        # Connect) can't be served from a stale entry.
+        user_info = resolve_slack_user(client, slack_user_id, workspace=mirror.integration.integration_id or "")
     except Exception as exc:
         raise self.retry(exc=exc)
 
