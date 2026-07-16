@@ -140,6 +140,7 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
     def to_query(self) -> ast.SelectQuery:
         if self.group_by_source == "resource":
             return self._resource_query()
+        # nosemgrep: hogql-fstring-audit - only interpolates the int self.group_limit and the module-level _TOTALS_WINDOW constant (no user input); the grouping key flows in as an ast.Constant placeholder
         query = parse_select(
             f"""
             SELECT
@@ -182,6 +183,7 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
         # as the "has this attribute, non-empty" filter the map path expresses via
         # coalesce(...) != '': fingerprints without the key (or with '' as the value)
         # have no mapping row, so their logs drop out of groups and totals alike.
+        # nosemgrep: hogql-fstring-audit - only interpolates the int self.group_limit and the module-level _TOTALS_WINDOW constant (no user input); attribute_key/date bounds flow in as ast.Constant placeholders
         query = parse_select(
             f"""
             SELECT
@@ -216,7 +218,7 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
                         WHERE attribute_type = 'resource'
                             AND attribute_key = {{attribute_key}}
                             AND attribute_value != ''
-                            AND time_bucket >= toStartOfDay({{date_from}})
+                            AND time_bucket >= toStartOfInterval({{date_from}}, toIntervalMinute(10))
                             AND time_bucket <= {{date_to}}
                         GROUP BY resource_fingerprint
                     ) AS mapping
@@ -231,8 +233,10 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
                 "where": ast.And(exprs=self._base_where()),
                 "attribute_key": ast.Constant(value=self.group_by),
                 # Pruning only: the mapping is time-invariant, but bounding time_bucket keeps
-                # the rollup read to the parts covering the window. toStartOfDay matches the
-                # coarsest bucket a row inside the window can land in.
+                # the rollup read to the parts covering the window. The rollup's time_bucket is
+                # toStartOfInterval(timestamp, 10min), so a log with timestamp >= date_from can
+                # only land in a bucket >= toStartOfInterval(date_from, 10min) — the tightest
+                # lower bound that still covers every in-window row (matches LogFacetValues).
                 "date_from": ast.Constant(value=self.query_date_range.date_from()),
                 "date_to": ast.Constant(value=self.query_date_range.date_to()),
                 "order_field": ast.Field(chain=[self.order_groups_by]),
