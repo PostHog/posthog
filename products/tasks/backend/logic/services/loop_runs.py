@@ -25,6 +25,7 @@ from products.tasks.backend.loop_notifications import dispatch_loop_event
 from products.tasks.backend.loop_service import pause_loop_schedules, signal_loop_run_cancelled
 from products.tasks.backend.metrics import observe_loop_auto_paused, observe_loop_fire
 from products.tasks.backend.models import Channel, Loop, LoopFire, LoopTrigger, Task, TaskRun
+from products.tasks.backend.temporal.constants import LOOP_RUN_IDLE_TIMEOUT_SECONDS
 from products.tasks.backend.temporal.process_task.utils import get_default_model_for_runtime_adapter
 
 logger = logging.getLogger(__name__)
@@ -430,6 +431,13 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
     # regular task's sandbox_environment_id flows through Task._build_task.
     if loop.sandbox_environment_id is not None:
         extra_state["sandbox_environment_id"] = str(loop.sandbox_environment_id)
+    # Reclaim the sandbox promptly once the agent goes idle — a loop run is unattended,
+    # so nothing sends a follow-up. CI-watching loops keep the default window so the
+    # sandbox survives the orchestrator's CI follow-up cadence.
+    behaviors = loop.behaviors or {}
+    watches_ci = bool(behaviors.get("create_prs", False)) and bool(behaviors.get("watch_ci", False))
+    if not watches_ci:
+        extra_state["inactivity_timeout_seconds"] = LOOP_RUN_IDLE_TIMEOUT_SECONDS
     task_run = task.create_run(mode="background", extra_state=extra_state)
 
     team_id = loop.team_id
