@@ -10,7 +10,7 @@ import {
 } from 'scenes/insights/utils'
 import { retentionOptions } from 'scenes/retention/constants'
 import { MathCategory, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
-import { mathsLogicType } from 'scenes/trends/mathsLogicType'
+import type { mathsLogicType } from 'scenes/trends/mathsLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { cohortsModelType } from '~/models/cohortsModelType'
