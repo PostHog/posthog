@@ -84,6 +84,19 @@ def _get_session(access_token: str) -> requests.Session:
     )
 
 
+def _pinned_url(base_url: str, url: str) -> str:
+    """Pin a pagination URL to the validated Gitea origin.
+
+    next_url comes from the response's Link header (and is persisted in resume state), so a
+    tampered response must not be able to redirect the token-bearing request to another host,
+    port, or a plaintext http:// URL. Anything off the configured https origin is rejected.
+    """
+    base, target = urlparse(normalize_host(base_url)), urlparse(url)
+    if target.scheme != "https" or target.netloc.lower() != base.netloc.lower():
+        raise ValueError(f"Gitea pagination URL {url!r} is not on the configured instance {base_url!r}")
+    return url
+
+
 def _parse_next_url(link_header: str) -> str | None:
     """Return the URL with rel="next" from Gitea's Link header, if any."""
     if not link_header:
@@ -227,7 +240,7 @@ def get_rows(
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:
-        url: str = resume_config.next_url
+        url: str = _pinned_url(base_url, resume_config.next_url)
         logger.debug(f"Gitea: resuming from URL: {url}")
     else:
         url = _build_initial_url(
@@ -242,6 +255,8 @@ def get_rows(
 
         rows = [item_mapper(item) if item_mapper else item for item in data if isinstance(item, dict)]
         next_url = _parse_next_url(response.headers.get("Link", ""))
+        if next_url is not None:
+            next_url = _pinned_url(base_url, next_url)
 
         if rows:
             yield rows

@@ -205,6 +205,37 @@ class TestGetRows:
         assert "since=" not in url
         assert "sort=oldest" in url
 
+    @pytest.mark.parametrize(
+        "evil_next_url",
+        [
+            # Plaintext downgrade would send the token header in the clear.
+            "http://gitea.example.com/api/v1/repos/owner/repo/issues?page=2",
+            # Off-origin host would hand the token to another server (SSRF/exfiltration).
+            "https://169.254.169.254/api/v1/repos/owner/repo/issues?page=2",
+            "https://gitea.example.com:8443/api/v1/repos/owner/repo/issues?page=2",
+        ],
+    )
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_off_origin_link_header_url_is_rejected(self, mock_session, evil_next_url):
+        mock_session.return_value.get.return_value = _response(
+            [{"id": 1}], headers={"Link": f'<{evil_next_url}>; rel="next"'}
+        )
+
+        with pytest.raises(ValueError, match="not on the configured instance"):
+            list(get_rows(BASE_URL, "tok", REPO, "issues", mock.MagicMock(), _make_manager()))
+
+        # The poisoned URL is never fetched.
+        assert mock_session.return_value.get.call_count == 1
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_off_origin_resume_url_is_rejected(self, mock_session):
+        manager = _make_manager(GiteaResumeConfig(next_url="https://evil.example.com/api/v1/x"))
+
+        with pytest.raises(ValueError, match="not on the configured instance"):
+            list(get_rows(BASE_URL, "tok", REPO, "issues", mock.MagicMock(), manager))
+
+        mock_session.return_value.get.assert_not_called()
+
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_commits_are_flattened(self, mock_session):
         mock_session.return_value.get.return_value = _response(
