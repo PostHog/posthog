@@ -2710,6 +2710,21 @@
         },
         "feature_flag": "engineering-analytics"
     },
+    "engineering-analytics-team-ci-health": {
+        "description": "Per-owning-team rollup of the CI test surfaces each team owns, over a window (date_from default -14d, maximum 30 days): flaky-test count (same qualification bar as the flaky-test leaderboard), failed/error span count, and pass-on-retry count, each with an equal-length previous-window twin (*_prior) for honest deltas. Use this for \"which team owns the flakiest surfaces right now\" and to route a flaky-test or CI Signal to its owning team. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*/product.yaml + CODEOWNERS); spans without a stamp aggregate under the literal team 'unowned' (a nonempty 'unowned' row means ownership gaps, not a real team). Teams are organizational owners of code surfaces, never authors. Read all counts as absolute signal, never rates: fast passing runs are not emitted, so there is no honest denominator.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Team CI health roster",
+        "title": "Team CI health roster",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "engineering-analytics"
+    },
     "engineering-analytics-workflow-jobs": {
         "description": "The jobs of a single workflow run attempt, each with its status, conclusion, wall-clock duration_seconds, runner tier (runner_provider / runner_label), and estimated_cost_usd. Use this to see where a run spent its time and money job-by-job, or to find the slow or expensive job in a run. Scoped to one run_attempt (the latest unless you pass run_attempt) so a re-run's attempts don't merge. estimated_cost_usd is null for free GitHub-hosted, non-Linux, or unfinished jobs. Returns an empty list when the job-level source isn't synced yet.",
         "category": "Engineering analytics",
