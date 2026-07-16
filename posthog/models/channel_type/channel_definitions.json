@@ -792,6 +792,8 @@
     ["kvasir", "source", "Search", "Paid Search", "Organic Search", false],
     ["last.fm", "source", "Social", "Paid Social", "Organic Social", false],
     ["com.leaplock.colorfulballoons", "source", "Social", "Paid Social", "Organic Social", true],
+    ["lemon8-app.com", "source", "Social", "Paid Social", "Organic Social", false],
+    ["www.lemon8-app.com", "source", "Social", "Paid Social", "Organic Social", false],
     ["com.lenovo.anyshare.gps", "source", "Social", "Paid Social", "Organic Social", true],
     ["librarything", "source", "Social", "Paid Social", "Organic Social", false],
     ["librarything.com", "source", "Social", "Paid Social", "Organic Social", false],

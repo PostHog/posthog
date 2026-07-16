@@ -261,6 +261,8 @@ class Command(BaseCommand):
             "substack.com",
             # xiaohongshu / rednote
             "xiaohongshu.com",
+            # lemon8
+            "www.lemon8-app.com",
         ):
             entries[(social_domain, EntryKind.source)] = SourceEntry("Social", "Paid Social", "Organic Social")
 
