@@ -805,8 +805,8 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             # deterministic and terminal; anything else retries per policy. (Codes 241/159/160
             # arrive as the APIException subclasses handled just above, not here — this catches
             # 158/307/396 and the like.)
-            message = _MID_STREAM_MESSAGES_BY_CODE.get(exc.code or 0)
-            if message is None:
+            mapped = _MID_STREAM_MESSAGES_BY_CODE.get(exc.code or 0)
+            if mapped is None:
                 # Unrecognized code — plausibly transient (network, S3 blip), or a deterministic
                 # misconfig (e.g. 164 READONLY if the writer identity wasn't re-provisioned).
                 # Retry per policy, but log the code so a retry storm is attributable.
@@ -817,6 +817,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                     exception_code=exc.code,
                 )
                 raise
+            message = mapped
             logger.warning(
                 "notebook_frame_materialize_insert_error",
                 team_id=inputs.team_id,
