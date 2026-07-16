@@ -152,6 +152,7 @@ const dashboardActionsMapping: Record<
     is_shared: () => null,
     creation_mode: () => null,
     user_access_level: () => null,
+    effective_privilege_level: () => null,
     _highlight: () => null,
     last_refresh: () => null,
     tiles: () => null,
