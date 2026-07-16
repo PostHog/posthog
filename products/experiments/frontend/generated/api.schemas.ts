@@ -833,7 +833,7 @@ export interface ExperimentFlagRolloutGroupApi {
  * A single multivariate variant. Extra per-variant keys are dropped.
  */
 export interface ExperimentFlagVariantApi {
-    /** Unique variant key. Exactly one variant must use the key 'control' (the baseline). */
+    /** Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant. */
     key: string
     /** Human-readable variant name. */
     name?: string
@@ -849,7 +849,7 @@ export interface ExperimentFlagVariantApi {
  * Multivariate config for the experiment's feature flag.
  */
 export interface ExperimentFlagMultivariateApi {
-    /** Variant definitions. Exactly one variant key must be the literal string 'control'. */
+    /** Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant. */
     variants: ExperimentFlagVariantApi[]
 }
 
@@ -885,7 +885,7 @@ export interface ExperimentFeatureFlagFiltersApi {
  * reach this validation.
  */
 export interface ExperimentFeatureFlagInputApi {
-    /** Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state. */
+    /** Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to the variant keyed 'control' when present, else the first variant), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state. */
     filters?: ExperimentFeatureFlagFiltersApi
     /**
      * Whether the flag persists variant assignment across authentication steps.
@@ -1440,6 +1440,11 @@ export interface ExperimentWriteApi {
      * @nullable
      */
     conclusion_comment?: string | null
+    /**
+     * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+     * @nullable
+     */
+    readonly flag_cleanup_task_id: string | null
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
@@ -1449,6 +1454,8 @@ export interface ExperimentWriteApi {
     readonly status: ExperimentStatusEnumApi
     /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
     readonly is_legacy: boolean
+    /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
+    readonly can_freeze_exposure: boolean
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -1546,6 +1553,11 @@ export interface ExperimentApi {
      * @nullable
      */
     conclusion_comment?: string | null
+    /**
+     * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+     * @nullable
+     */
+    readonly flag_cleanup_task_id: string | null
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
@@ -1555,6 +1567,8 @@ export interface ExperimentApi {
     readonly status: ExperimentStatusEnumApi
     /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
     readonly is_legacy: boolean
+    /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
+    readonly can_freeze_exposure: boolean
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -1648,6 +1662,11 @@ export interface PatchedExperimentWriteApi {
      * @nullable
      */
     conclusion_comment?: string | null
+    /**
+     * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+     * @nullable
+     */
+    readonly flag_cleanup_task_id?: string | null
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
@@ -1657,6 +1676,8 @@ export interface PatchedExperimentWriteApi {
     readonly status?: ExperimentStatusEnumApi
     /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
     readonly is_legacy?: boolean
+    /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
+    readonly can_freeze_exposure?: boolean
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -1695,6 +1716,46 @@ export interface EndExperimentApi {
     conclusion_comment?: string | null
     /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
     open_cleanup_pr?: boolean
+}
+
+/**
+ * * `not_started` - not_started
+ * * `queued` - queued
+ * * `in_progress` - in_progress
+ * * `completed` - completed
+ * * `failed` - failed
+ * * `cancelled` - cancelled
+ */
+export type RunStatusEnumApi = (typeof RunStatusEnumApi)[keyof typeof RunStatusEnumApi]
+
+export const RunStatusEnumApi = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+export interface ExperimentFlagCleanupTaskApi {
+    /** ID of the flag-cleanup Code task. */
+    task_id: string
+    /** Status of the task's latest run.
+     *
+     * * `not_started` - not_started
+     * * `queued` - queued
+     * * `in_progress` - in_progress
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `cancelled` - cancelled */
+    run_status: RunStatusEnumApi
+    /** Whether the run has finished (successfully or not). Stop polling once true. */
+    is_terminal: boolean
+    /**
+     * URL of the pull request the task opened, when it opened one.
+     * @nullable
+     */
+    pr_url: string | null
 }
 
 /**
@@ -1860,11 +1921,6 @@ export interface ExperimentMetricsRecalculationApi {
     /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
     readonly results: readonly MetricRecalculationResultApi[]
     /**
-     * Count of metric queries currently running in ClickHouse (bounded by worker-pool concurrency)
-     * @nullable
-     */
-    running_metrics?: number | null
-    /**
      * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
      * @nullable
      */
@@ -1874,16 +1930,6 @@ export interface ExperimentMetricsRecalculationApi {
      * @nullable
      */
     estimated_rows_total?: number | null
-    /**
-     * Bytes read by the run's metric queries so far, both finished and currently running
-     * @nullable
-     */
-    bytes_read?: number | null
-    /**
-     * Active CPU time (microseconds) consumed by the run's metric queries so far, both finished and currently running
-     * @nullable
-     */
-    active_cpu_time?: number | null
 }
 
 export interface ShipVariantApi {
@@ -2066,6 +2112,49 @@ export interface CreateFromPromptInputApi {
     description?: string
 }
 
+/**
+ * One experiment whose feature flag a session recording saw.
+ */
+export interface ExperimentSessionContextItemApi {
+    /** ID of the experiment whose feature flag the session saw. */
+    experiment_id: number
+    /** Name of the experiment. */
+    experiment_name: string
+    /** Key of the experiment's feature flag. */
+    flag_key: string
+    /** Variant the session saw. Taken from the earliest $feature_flag_called event in the session when one exists, otherwise from the $feature/<key> property stamped on the session's events. */
+    variant: string
+    /** All distinct variant values observed for this flag during the session, sorted alphabetically. Only the flag's defined variant keys count; non-enrollment responses (false) are ignored. More than one value means the session saw multiple variants — a signal of multi-exposure bias. */
+    variants_seen: string[]
+    /** True when the session saw more than one variant of this flag. */
+    multiple_variants: boolean
+    /**
+     * Timestamp of the first $feature_flag_called event for this flag in the session — the moment the flag was evaluated to the variant. Null when the variant is only known from stamped $feature/<key> properties (e.g. the assignment carried over from an earlier session). For experiments with custom exposure criteria this is not the experiment's exposure moment.
+     * @nullable
+     */
+    first_flag_evaluation_timestamp: string | null
+    /**
+     * When the experiment was launched.
+     * @nullable
+     */
+    experiment_start_date: string | null
+    /**
+     * When the experiment ended. Null while the experiment is still running.
+     * @nullable
+     */
+    experiment_end_date: string | null
+}
+
+/**
+ * Experiment/variant context for a session recording.
+ */
+export interface ExperimentSessionContextResponseApi {
+    /** ID of the session recording the context was resolved for. */
+    session_id: string
+    /** Experiments (and variants) the session saw, sorted by experiment name. Empty when no launched experiment's run window overlaps the recording or no flag data was observed in the session. */
+    results: ExperimentSessionContextItemApi[]
+}
+
 export type ExperimentHoldoutsListParams = {
     /**
      * Number of results to return per page.
@@ -2166,4 +2255,11 @@ export type ExperimentsPromptTemplatesRetrieve200Item = {
     key: string
     label: string
     description: string
+}
+
+export type ExperimentsSessionContextRetrieveParams = {
+    /**
+     * ID of the session recording to resolve experiment context for.
+     */
+    session_id: string
 }

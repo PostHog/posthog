@@ -8,7 +8,14 @@ import { downloadExportedAsset } from './exporter'
 import { exportsLogic, pickPollDelayMs } from './exportsLogic'
 
 jest.mock('lib/lemon-ui/LemonToast', () => ({
-    lemonToast: { info: jest.fn(), success: jest.fn(), error: jest.fn(), dismiss: jest.fn() },
+    // promise() passes the underlying promise straight through so the loader's side effects still run.
+    lemonToast: {
+        info: jest.fn(),
+        success: jest.fn(),
+        error: jest.fn(),
+        dismiss: jest.fn(),
+        promise: jest.fn((p) => p),
+    },
 }))
 jest.mock('./exporter', () => ({
     ...jest.requireActual('./exporter'),
@@ -100,7 +107,7 @@ describe('exportsLogic', () => {
             logic.unmount()
         })
 
-        // Let the fire-and-forget IIFE in the createExport loader run to its toast.
+        // Let the fire-and-forget IIFE in the createExport loader run to settlement.
         const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
         const createCases: {
@@ -108,48 +115,45 @@ describe('exportsLogic', () => {
             response?: ExportedAssetType
             rejectWith?: Error
             format: ExporterFormat
-            toast: { fn: 'success' | 'error'; args: any[] }
+            settles: { resolved: string } | { rejected: string }
             expectsDownload: boolean
             freshIds: number[]
         }[] = [
             {
-                label: 'async export is acknowledged immediately and tracked as undownloaded',
+                label: 'async export resolves to "Export started" and is tracked as undownloaded',
                 response: asset({ id: 11, export_format: ExporterFormat.MP4, has_content: false }),
                 format: ExporterFormat.MP4,
-                toast: {
-                    fn: 'success',
-                    args: ['Export started', expect.objectContaining({ button: expect.any(Object) })],
-                },
+                settles: { resolved: 'Export started' },
                 expectsDownload: false,
                 freshIds: [11],
             },
             {
-                label: 'blocking export with content is downloaded and confirmed',
+                label: 'blocking export with content is downloaded and resolves to "Export complete!"',
                 response: asset({ id: 12, export_format: ExporterFormat.CSV, has_content: true }),
                 format: ExporterFormat.CSV,
-                toast: { fn: 'success', args: ['Export complete!'] },
+                settles: { resolved: 'Export complete!' },
                 expectsDownload: true,
                 freshIds: [],
             },
             {
-                label: 'export that failed in the request surfaces the error',
+                label: 'export that failed in the request rejects with the error',
                 response: asset({ id: 13, export_format: ExporterFormat.MP4, exception: 'boom' }),
                 format: ExporterFormat.MP4,
-                toast: { fn: 'error', args: ['Export failed: boom'] },
+                settles: { rejected: 'Export failed: boom' },
                 expectsDownload: false,
                 freshIds: [],
             },
             {
-                label: 'create request that throws surfaces the error from the catch',
+                label: 'create request that throws rejects with the error',
                 rejectWith: new Error('network down'),
                 format: ExporterFormat.MP4,
-                toast: { fn: 'error', args: ['Export failed: network down'] },
+                settles: { rejected: 'Export failed: network down' },
                 expectsDownload: false,
                 freshIds: [],
             },
         ]
 
-        it.each(createCases)('$label', async ({ response, rejectWith, format, toast, expectsDownload, freshIds }) => {
+        it.each(createCases)('$label', async ({ response, rejectWith, format, settles, expectsDownload, freshIds }) => {
             const createSpy = jest.spyOn(api.exports, 'create')
             if (rejectWith) {
                 createSpy.mockRejectedValue(rejectWith)
@@ -160,14 +164,25 @@ describe('exportsLogic', () => {
             logic.actions.createExport({ exportData: { export_format: format } })
             await flush()
 
-            expect(lemonToast[toast.fn]).toHaveBeenCalledWith(...toast.args)
+            // The loading spinner is driven by lemonToast.promise, so the user always sees "Preparing export…".
+            expect(lemonToast.promise).toHaveBeenCalledWith(
+                expect.any(Promise),
+                expect.objectContaining({ pending: 'Preparing export…' }),
+                expect.objectContaining({ toastId: expect.any(String) })
+            )
+            const runPromise = jest.mocked(lemonToast.promise).mock.calls[0][0]
+            if ('resolved' in settles) {
+                await expect(runPromise).resolves.toBe(settles.resolved)
+            } else {
+                await expect(runPromise).rejects.toThrow(settles.rejected)
+            }
             expect(jest.mocked(downloadExportedAsset).mock.calls).toEqual(expectsDownload ? [[response]] : [])
             expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual(freshIds)
         })
 
         it('does not confirm completion when the content download fails', async () => {
-            // The "Export complete!" toast must not fire if retrieval failed — otherwise the user sees
-            // success followed by a broken download (the reported black-screen symptom).
+            // The export toast must not settle as "Export complete!" if retrieval failed — otherwise
+            // the user sees success followed by a broken download (the reported black-screen symptom).
             jest.mocked(downloadExportedAsset).mockResolvedValueOnce(false)
             jest.spyOn(api.exports, 'create').mockResolvedValue(
                 asset({ id: 14, export_format: ExporterFormat.PNG, has_content: true })
@@ -176,7 +191,29 @@ describe('exportsLogic', () => {
             logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG } })
             await flush()
 
-            expect(lemonToast.success).not.toHaveBeenCalledWith('Export complete!')
+            // The export promise rejects instead of resolving to "Export complete!"...
+            const runPromise = jest.mocked(lemonToast.promise).mock.calls[0][0]
+            await expect(runPromise).rejects.toThrow('Export download failed')
+            // ...and the generic failure toast is dismissed, since downloadExportedAsset
+            // already surfaced the specific error.
+            expect(lemonToast.dismiss).toHaveBeenCalled()
+        })
+
+        it('replaces the failure toast with the upsell survey when the export limit is reached', async () => {
+            jest.spyOn(api.exports, 'create').mockRejectedValue({
+                data: { attr: 'export_limit_exceeded', detail: 'You hit the cap' },
+            })
+
+            logic.actions.createExport({ exportData: { export_format: ExporterFormat.MP4 } })
+            await flush()
+
+            expect(logic.values.hasReachedExportFullVideoLimit).toBe(true)
+            expect(lemonToast.dismiss).toHaveBeenCalled()
+            expect(lemonToast.error).toHaveBeenCalledWith(
+                'You hit the cap',
+                expect.objectContaining({ button: expect.objectContaining({ label: 'I want more' }) })
+            )
+            expect(jest.mocked(downloadExportedAsset).mock.calls).toEqual([])
         })
     })
 })

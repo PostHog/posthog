@@ -6,10 +6,11 @@ import { SpinnerOverlay } from '@posthog/lemon-ui'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { AnyResponseType, MetricsQuery, MetricsQueryResponse } from '~/queries/schema/schema-general'
+import { AnyResponseType, MetricsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { MetricsSeriesChart } from '../components/MetricsSeriesChart'
+import { seriesFromMetricsResponse } from './metricsResponseSeries'
 
 let uniqueNode = 0
 
@@ -35,8 +36,7 @@ export function MetricsQueryNode(props: {
     useAttachedLogic(logic, props.attachTo)
 
     const { response, responseLoading } = useValues(logic)
-    const queryResponse = response as MetricsQueryResponse | undefined
-    const series = queryResponse?.results ?? []
+    const series = seriesFromMetricsResponse(response)
     const hasPoints = series.some((s) => s.points.length > 0)
     const fallbackName = props.query.clauses[0]?.metricName ?? 'metric'
 

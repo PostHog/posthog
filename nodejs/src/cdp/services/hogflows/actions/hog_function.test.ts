@@ -44,7 +44,12 @@ describe('HogFunctionHandler', () => {
         hub = await createHub()
         team = await getFirstTeam(hub.postgres)
 
-        const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const hogInputsService = new HogInputsService(
+            hub.integrationManager,
+            recipientTokensService,
+            hub.encryptedFields
+        )
         const emailService = new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -58,7 +63,6 @@ describe('HogFunctionHandler', () => {
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
         )
-        const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         mockHogFunctionExecutor = new HogExecutorService(
             {
                 hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
@@ -70,7 +74,8 @@ describe('HogFunctionHandler', () => {
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
             emailService,
-            recipientTokensService
+            recipientTokensService,
+            undefined as any
         )
         mockHogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         mockHogFlowFunctionsService = new HogFlowFunctionsService(
@@ -185,7 +190,7 @@ describe('HogFunctionHandler', () => {
               [
                 "http://localhost/test",
                 {
-                  "body": "{"name":"John Doe","oauth":{"team":"foobar","access_token":"token","not_encrypted":"not-encrypted","access_token_raw":"token"}}",
+                  "body": "{"name":"John Doe","oauth":{"$integration_id":1,"team":"foobar","access_token":"token","not_encrypted":"not-encrypted","access_token_raw":"token"}}",
                   "headers": {
                     "Content-Type": "application/json",
                   },
@@ -244,6 +249,62 @@ describe('HogFunctionHandler', () => {
 
             expect(handlerResult.error).toBeUndefined()
             expect(mockFetch.mock.calls[0][1].body).toContain('"name":"Chris McNeill"')
+        })
+    })
+
+    describe('missing variable references', () => {
+        beforeEach(() => {
+            // {variables.coupon} compiled to hog bytecode; the run has no `coupon` variable
+            action.config.inputs.name = {
+                value: '{variables.coupon}',
+                templating: 'hog',
+                bytecode: ['_H', 1, 32, 'coupon', 32, 'variables', 1, 2],
+            }
+            invocation.state.variables = {}
+        })
+
+        it('warns in the run log when an input references a variable the run does not have', async () => {
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+            const warnings = invocationResult.logs.filter(
+                (l) => l.level === 'warn' && l.message.includes('not set for this run')
+            )
+            expect(warnings).toHaveLength(1)
+            expect(warnings[0].message).toContain('coupon')
+            // Rendering is unchanged: the step still executes, with the reference rendered empty
+            expect(handlerResult.error).toBeUndefined()
+            expect(mockFetch).toHaveBeenCalled()
+        })
+
+        it('does not warn again on a continuation that reuses already-rendered state', async () => {
+            const firstResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+            await hogFunctionHandler.execute({ invocation, action, result: firstResult })
+
+            // Simulate a continuation: the rendered function state is carried on the action,
+            // exactly as the handler persists it for a paused function
+            invocation.state.currentAction!.hogFunctionState = {
+                globals: { ...createExampleHogFlowInvocation(invocation.hogFlow).state.event, inputs: {} } as any,
+                timings: [],
+                attempts: 0,
+            } as any
+
+            const continuationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+            await hogFunctionHandler.execute({ invocation, action, result: continuationResult })
+
+            expect(
+                continuationResult.logs.filter((l) => l.level === 'warn' && l.message.includes('not set for this run'))
+            ).toHaveLength(0)
         })
     })
 

@@ -33,6 +33,11 @@ export const DEFAULT_ORDER_BY: LogsOrderBy = 'latest'
 export type LogsViewerViewMode = 'logs' | 'patterns' | 'group'
 export const DEFAULT_VIEW_MODE: LogsViewerViewMode = 'logs'
 
+// Patterns compare-mode baseline: 'lastWeek' omits the explicit range so the backend defaults
+// to the same window one week earlier (absorbs daily/weekly cycles); 'preceding' compares
+// against the window immediately before the current one (the post-deploy / spike comparison).
+export type PatternsBaselineMode = 'lastWeek' | 'preceding'
+
 export interface LogsViewerGroupBy {
     key: string
     // Where the key lives, in the group-by endpoint's vocabulary: "log" / "resource"
@@ -61,6 +66,8 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
         setFacetRailCollapsed: (facetRailCollapsed: boolean) => ({ facetRailCollapsed }),
         setViewMode: (viewMode: LogsViewerViewMode) => ({ viewMode }),
         setGroupBy: (groupBy: LogsViewerGroupBy | null) => ({ groupBy }),
+        setCompareEnabled: (enabled: boolean) => ({ enabled }),
+        setBaselineMode: (mode: PatternsBaselineMode) => ({ mode }),
 
         // Typed columns (unified column model)
         setColumns: (columns: LogsColumnConfig[]) => ({ columns }),
@@ -113,6 +120,21 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
             DEFAULT_VIEW_MODE as LogsViewerViewMode,
             {
                 setViewMode: (_, { viewMode }) => viewMode,
+            },
+        ],
+        // Compare state lives here (not in logsPatternsLogic) so the choice survives
+        // Logs↔Patterns switches within a visit — the patterns logic unmounts when leaving
+        // the lens. Not persisted, like viewMode and groupBy.
+        compareEnabled: [
+            false,
+            {
+                setCompareEnabled: (_, { enabled }) => enabled,
+            },
+        ],
+        baselineMode: [
+            'lastWeek' as PatternsBaselineMode,
+            {
+                setBaselineMode: (_, { mode }) => mode,
             },
         ],
         columns: [

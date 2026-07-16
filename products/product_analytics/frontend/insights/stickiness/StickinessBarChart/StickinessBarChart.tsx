@@ -5,8 +5,6 @@ import { TimeSeriesBarChart } from '@posthog/quill-charts'
 import type { PointClickData, Series, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -23,7 +21,6 @@ import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
-import { INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
 import { makeChartErrorHandler } from '../../trends/shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../../trends/shared/getTrendsSeriesDisplayLabel'
 import {
@@ -31,7 +28,6 @@ import {
     resolveGroupTypeLabel,
     type TrendsSeriesMeta,
 } from '../../trends/shared/trendsSeriesMeta'
-import { TrendsTooltip } from '../../trends/shared/TrendsTooltip'
 import { useInsightsLegendConfig } from '../../trends/shared/useInsightsLegendConfig'
 import { handleStickinessChartClick } from '../StickinessLineChart/handleStickinessChartClick'
 import {
@@ -51,9 +47,7 @@ const handleChartError = makeChartErrorHandler('stickiness-bar-chart')
 export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.Element | null {
     const theme = useChartTheme()
     const { insightProps } = useValues(insightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
-    const tooltipConfig = quillTooltipEnabled ? STICKINESS_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY
+    const tooltipConfig = STICKINESS_TOOLTIP_CONFIG
 
     const legendConfig = useInsightsLegendConfig({ insightProps })
     const quillLegendEnabled = !!legendConfig
@@ -68,7 +62,6 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
         currentPeriodResult,
         breakdownFilter,
         trendsFilter,
-        formula,
         labelGroupType,
         hasPersonsModal,
         querySource,
@@ -176,21 +169,19 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
                 onRowClick,
                 altTitle,
             }
-            return quillTooltipEnabled ? <InsightSeriesTooltip {...sharedProps} /> : <TrendsTooltip {...sharedProps} />
+            return <InsightSeriesTooltip {...sharedProps} />
         },
         [
             timezone,
             interval,
             breakdownFilter,
             trendsFilter,
-            formula,
             baseCurrency,
             resolvedGroupTypeLabel,
             formatCompareLabel,
             hasClickHandler,
             clickDeps,
             altTitle,
-            quillTooltipEnabled,
         ]
     )
 

@@ -102,16 +102,6 @@ export const ExperimentSchema = z.object({
     saved_metrics_ids: z.array(z.any()).nullable(),
     parameters: z
         .object({
-            feature_flag_variants: z
-                .array(
-                    z.object({
-                        key: z.string(),
-                        name: z.string().nullish(),
-                        rollout_percentage: z.number().nullish(),
-                        split_percent: z.number().nullish(),
-                    })
-                )
-                .nullish(),
             minimum_detectable_effect: z.number().nullish(),
             recommended_running_time: z.number().nullish(),
             recommended_sample_size: z.number().nullish(),
@@ -204,7 +194,6 @@ export interface ExperimentResultsSummary {
             key: string
             name?: string | null | undefined
             rollout_percentage?: number | null | undefined
-            split_percent?: number | null | undefined
         }>
     }
     exposures: ExperimentExposureQueryResponse

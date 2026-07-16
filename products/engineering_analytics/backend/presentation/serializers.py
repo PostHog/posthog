@@ -11,22 +11,30 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
     Author,
+    BranchPRMatch,
+    BrokenTestRow,
+    BrokenTestsResult,
     CICardSummary,
     CIFailureLogLine,
     CIFailureLogs,
     CIJobFailureLog,
     CIStatusRollup,
     CostPerMergeBucket,
+    CurrentBranchHealth,
     FlakyTestItem,
     FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
+    OpenToMergeBucket,
+    PassRateBucket,
     PRCostSummary,
     PRLifecycle,
     PRLifecycleEvent,
+    PRLLMSpend,
     PullRequest,
     PullRequestList,
     PullRequestListItem,
+    PushCISample,
     QuarantineEntry,
     QuarantineFile,
     QuarantineRequest,
@@ -35,6 +43,13 @@ from products.engineering_analytics.backend.facade.contracts import (
     RepoRef,
     RunCost,
     RunFailureLogs,
+    TeamCIActivity,
+    TeamCIHealthItem,
+    TeamCIHealthList,
+    TeamMergeTrend,
+    TeamMergeTrendPoint,
+    TeamTestSignal,
+    TimeToGreenBucket,
     WorkflowCost,
     WorkflowHealthBucket,
     WorkflowHealthItem,
@@ -236,6 +251,7 @@ class WorkflowRunActivityPointSerializer(DataclassSerializer):
             },
             "head_branch": {"help_text": "Git branch the run was triggered on, or '' when unknown."},
             "pr_number": {"help_text": "Attributed pull request number, or 0 when unattributed."},
+            "head_sha": {"help_text": "Head commit SHA of the run/commit, or '' when unknown."},
         }
 
 
@@ -333,10 +349,33 @@ class RunCostSerializer(DataclassSerializer):
         }
 
 
+class PRLLMSpendSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PRLLMSpend
+        extra_kwargs = {
+            "cost_usd": {
+                "help_text": "Total agent LLM token cost in USD attributed to this PR "
+                "(sum of $ai_total_cost_usd over the matched $ai_generation events).",
+            },
+            "input_tokens": {"help_text": "Total input (prompt) tokens across the attributed generations."},
+            "output_tokens": {"help_text": "Total output (completion) tokens across the attributed generations."},
+            "generations": {
+                "help_text": "Number of $ai_generation events attributed to this PR by git branch ($ai_git_branch).",
+            },
+        }
+
+
 class PRCostSummarySerializer(DataclassSerializer):
     by_workflow = WorkflowCostSerializer(many=True, help_text="Same spend broken down per workflow.")
     by_run = RunCostSerializer(
         many=True, help_text="Same spend broken down per workflow run, keyed by (run_id, run_attempt)."
+    )
+    llm_spend = PRLLMSpendSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Agent LLM token spend attributed to this PR by git branch ($ai_git_branch), or null when "
+        "no generation matched — independent of the CI cost figures, so it can be present even when "
+        "jobs_available is false. The UI hides the row when null.",
     )
 
     class Meta:
@@ -392,6 +431,10 @@ class FlakyTestItemSerializer(DataclassSerializer):
                 "help_text": "Distinct pull requests among the failed/error spans. Failures on master or "
                 "unattributed branches carry no PR number and are excluded here (still in failed_count).",
             },
+            "master_failed_count": {
+                "help_text": "Failed/error spans on the default branch (master/main approximation) — the "
+                "'matters right now' signal that a flake is breaking the trunk, not just PR branches.",
+            },
             "branch_count": {
                 "help_text": "Distinct git branches across all of the test's flaky-signal spans in the window.",
             },
@@ -418,6 +461,187 @@ class FlakyTestListSerializer(DataclassSerializer):
         }
 
 
+class TeamCIHealthItemSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TeamCIHealthItem
+        extra_kwargs = {
+            "owner_team": {
+                "help_text": "Owning team slug (the CODEOWNERS handle minus '@PostHog/', e.g. 'team-replay'), "
+                "or the literal 'unowned' for tests whose spans carry no ownership stamp.",
+            },
+            "flaky_test_count": {
+                "help_text": "Owned tests meeting the flaky-leaderboard bar in the window (passed on retry "
+                "or failed on enough distinct PRs). Compare with flaky_test_count_prior for the delta.",
+            },
+            "flaky_test_count_prior": {
+                "help_text": "Same count over the equal-length window immediately before date_from.",
+            },
+            "failed_count": {
+                "help_text": "Signal spans on owned tests with final outcome 'failed' or 'error' in the "
+                "window. An absolute count, not a rate: fast passing runs are not emitted.",
+            },
+            "failed_count_prior": {"help_text": "Same count over the prior window."},
+            "rerun_passed_count": {
+                "help_text": "Spans on owned tests that failed, then passed on an automatic retry, the "
+                "strongest flaky signal. Only rerun-enabled CI lanes emit it.",
+            },
+            "rerun_passed_count_prior": {"help_text": "Same count over the prior window."},
+            "xfailed_count": {
+                "help_text": "Spans on owned tests that failed while quarantined (xfail): masked in CI "
+                "but still flaky.",
+            },
+            "xfailed_count_prior": {"help_text": "Same count over the prior window."},
+            "last_seen_at": {"help_text": "Most recent signal span across the team's owned tests, either window."},
+        }
+
+
+class TeamCIHealthListSerializer(DataclassSerializer):
+    items = TeamCIHealthItemSerializer(
+        many=True,
+        help_text="Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. "
+        "Teams are organizational owners of code surfaces; this never aggregates by author.",
+    )
+
+    class Meta:
+        dataclass = TeamCIHealthList
+        extra_kwargs = {
+            "truncated": {"help_text": "True when more teams had signal than the cap."},
+            "limit": {"help_text": "Maximum number of teams returned in `items`."},
+        }
+
+
+class TeamTestSignalSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TeamTestSignal
+        extra_kwargs = {
+            "nodeid": {"help_text": "Reconstructed pytest nodeid (the CI span name), a stable grouping key."},
+            "selector": {"help_text": "Runnable pytest selector; exact when the CI reporter emitted it."},
+            "signal_count": {
+                "help_text": "Failed + error + pass-on-retry spans in the current window (xfail excluded).",
+            },
+            "signal_count_prior": {"help_text": "Same count over the equal-length window before date_from."},
+            "last_seen_at": {"help_text": "Most recent signal span for this test, either window."},
+        }
+
+
+class TeamCIActivitySerializer(DataclassSerializer):
+    tests = TeamTestSignalSerializer(
+        many=True,
+        help_text="The team's owned tests with signal in either window, ranked by the stronger window's count "
+        "(the current-vs-prior pairs behind a before/after comparison).",
+    )
+
+    class Meta:
+        dataclass = TeamCIActivity
+        extra_kwargs = {
+            "owner_team": {"help_text": "The team slug this activity is scoped to, or 'unowned'."},
+            "truncated_tests": {"help_text": "True when more owned tests had signal than the test cap."},
+        }
+
+
+class TeamMergeTrendPointSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TeamMergeTrendPoint
+        extra_kwargs = {
+            "day": {"help_text": "Start of the day bucket (team timezone), keyed on merged_at."},
+            "median_seconds": {
+                "help_text": "Median open→merge seconds of the PRs this team's members merged that day; "
+                "null on a day the team merged nothing.",
+            },
+            "average_seconds": {
+                "help_text": "Average open→merge seconds over the same merges; diverges above the median "
+                "when a few long-running PRs drag the mean. Null on a day the team merged nothing.",
+            },
+            "merged_count": {"help_text": "Merged PRs behind that day's median and average."},
+        }
+
+
+class TeamMergeTrendSerializer(DataclassSerializer):
+    points = TeamMergeTrendPointSerializer(
+        many=True,
+        help_text="Daily median and average open→merge over the PRs this team's members merged, ascending "
+        "by day. Coarse timing (open→merge combines draft and review time); bots excluded.",
+    )
+
+    class Meta:
+        dataclass = TeamMergeTrend
+        extra_kwargs = {
+            "owner_team": {"help_text": "The team slug this trend is scoped to."},
+            "has_membership_data": {
+                "help_text": "False when the GitHub source has no team_members snapshot synced: the trend "
+                "then has no honest team attribution and `points` is empty.",
+            },
+        }
+
+
+class BrokenTestRowSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = BrokenTestRow
+        extra_kwargs = {
+            "fingerprint": {
+                "help_text": "Stable identity of this distinct failure: the failing test's node id plus a "
+                "normalized error signature, so the same failure across runs groups into one row.",
+            },
+            "test_id": {"help_text": "The pytest node id from the CI 'FAILED <id>' line — the failing test."},
+            "error_signature": {
+                "help_text": "The trailing failure detail with volatile bits (numbers, hashes) normalized, shared "
+                "across runs of the same failure. Empty when the FAILED line carried no detail.",
+            },
+            "job_name": {
+                "help_text": "The CI job the failure most recently came from. Matched against default-branch job "
+                "status to decide whether trunk is currently broken by it.",
+            },
+            "repo": {"help_text": "'owner/name' repository the failure belongs to."},
+            "state": {
+                "help_text": "The classifier's verdict on how this failure is behaving right now: "
+                "'breaking_master' (failing on trunk, latest trunk run still red), 'novel_burst' (new within a "
+                "day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk but "
+                "trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' "
+                "(confined to one branch — one PR's own problem).",
+            },
+            "first_seen": {"help_text": "Earliest failure line for this fingerprint in the analysis window."},
+            "last_seen": {"help_text": "Most recent failure line for this fingerprint in the analysis window."},
+            "occurrences": {
+                "help_text": "Total failure lines for this fingerprint in the window. An absolute count, never a "
+                "rate — passing runs aren't in this data.",
+            },
+            "branches": {"help_text": "Distinct branches the failure appeared on in the window."},
+            "master_hits": {
+                "help_text": "Failure lines on the default branch (master/main). 0 means it never reached trunk.",
+            },
+            "latest_run_id": {
+                "help_text": "The most recent failing workflow run for this fingerprint — pass it to "
+                "run_failure_logs to fetch the actual failing log lines.",
+            },
+            "latest_branch": {"help_text": "The branch of the most recent failing run."},
+            "trend_24h": {
+                "help_text": "Hourly failure counts over the last 24 hours, oldest first (fixed 24-slot array), "
+                "for the row sparkline. All zeros when nothing failed in the last day.",
+            },
+        }
+
+
+class BrokenTestsResultSerializer(DataclassSerializer):
+    rows = BrokenTestRowSerializer(
+        many=True,
+        help_text="Classified failures ranked by triage urgency — breaking trunk first, single-PR failures last.",
+    )
+
+    class Meta:
+        dataclass = BrokenTestsResult
+        extra_kwargs = {
+            "breaking_master_jobs": {
+                "help_text": "Default-branch job names whose latest completed run is failing — the 'what's on fire "
+                "right now' summary. Empty when the job-level source isn't synced or trunk is green.",
+            },
+            "window_days": {"help_text": "Length in days of the analysis window the counts cover."},
+            "truncated": {
+                "help_text": "True when more failures qualified than the cap; `rows` is the top `limit` by urgency.",
+            },
+            "limit": {"help_text": "Maximum number of rows returned."},
+        }
+
+
 class CIStatusRollupSerializer(DataclassSerializer):
     class Meta:
         dataclass = CIStatusRollup
@@ -433,10 +657,33 @@ class CIStatusRollupSerializer(DataclassSerializer):
         }
 
 
+class PushCISampleSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PushCISample
+        extra_kwargs = {
+            "head_sha": {"help_text": "Head commit SHA of this push (CI round)."},
+            "started_at": {"help_text": "Earliest workflow-run start on this push."},
+            "wall_seconds": {
+                "help_text": "Wall-clock CI seconds for this push: earliest run start to latest completed "
+                "run end. Null while nothing has completed.",
+                "allow_null": True,
+            },
+            "failed": {
+                "help_text": "True when any latest-per-workflow run on this push concluded 'failure' or 'timed_out'.",
+            },
+            "pending": {"help_text": "True when any latest-per-workflow run on this push hasn't completed yet."},
+        }
+
+
 class PullRequestListItemSerializer(DataclassSerializer):
     author = AuthorSerializer(help_text="The pull request author.")
     repo = RepoRefSerializer(help_text="Repository the pull request belongs to.")
     ci = CIStatusRollupSerializer(help_text="CI status from the latest workflow runs on the head SHA.")
+    push_history = PushCISampleSerializer(
+        many=True,
+        help_text="This PR's CI rounds oldest-first, capped to the most recent pushes - one sample per "
+        "push for the push-history sparkline. `pushes` stays the uncapped count.",
+    )
 
     class Meta:
         dataclass = PullRequestListItem
@@ -484,6 +731,23 @@ class PullRequestListSerializer(DataclassSerializer):
                 "and the aggregate counts in ci_cards can exceed it.",
             },
             "limit": {"help_text": "Maximum number of pull requests returned in `items`."},
+        }
+
+
+class BranchPRMatchSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = BranchPRMatch
+        extra_kwargs = {
+            "repo": {"help_text": "Repository the pull request belongs to, as 'owner/name'."},
+            "number": {"help_text": "Pull request number within the repository — pair with `repo` to link to it."},
+            "title": {
+                "help_text": "Pull request title, or null when the snapshot carries no title.",
+                "allow_null": True,
+            },
+            "state": {
+                "help_text": "Derived PR state ('open', 'closed', 'merged'), or null when the snapshot carries no state.",
+                "allow_null": True,
+            },
         }
 
 
@@ -725,11 +989,74 @@ class CostPerMergeBucketSerializer(DataclassSerializer):
         }
 
 
+class TimeToGreenBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TimeToGreenBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to time_to_green_series_granularity (top of hour, midnight, or Monday)."
+            },
+            "p50_seconds": {
+                "help_text": "Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. "
+                "Null when the bucket had no successful PR run (a gap, not instant CI).",
+                "allow_null": True,
+            },
+        }
+
+
+class PassRateBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PassRateBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday)."
+            },
+            "success_rate": {
+                "help_text": "Fraction (0-1) of completed runs started in this bucket that succeeded. "
+                "Null when the bucket had no completed run (a gap, not a 0% pass rate).",
+                "allow_null": True,
+            },
+        }
+
+
+class OpenToMergeBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = OpenToMergeBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to open_to_merge_series_granularity (top of hour, midnight, or Monday)."
+            },
+            "p50_seconds": {
+                "help_text": "Median merged_at - created_at seconds over PRs merged in this bucket, bots and "
+                "drafts excluded. Null when nothing merged in the bucket (a gap, not instant merges).",
+                "allow_null": True,
+            },
+        }
+
+
 class RepoOverviewSerializer(DataclassSerializer):
     cost_series = CostPerMergeBucketSerializer(
         many=True,
         help_text="CI cost per merged PR across the window, oldest first, zero-filled, bucketed by "
-        "cost_series_granularity. Empty when the job-level source isn't synced.",
+        "cost_series_granularity. Empty when the job-level source isn't synced or include_series=false.",
+    )
+    time_to_green_series = TimeToGreenBucketSerializer(
+        many=True,
+        help_text="Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the "
+        "window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the "
+        "whole series is empty when include_series=false.",
+    )
+    success_rate_series = PassRateBucketSerializer(
+        many=True,
+        help_text="CI pass rate (completed runs that succeeded, all branches) per bucket across the window, "
+        "oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole "
+        "series is empty when include_series=false.",
+    )
+    open_to_merge_series = OpenToMergeBucketSerializer(
+        many=True,
+        help_text="Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across "
+        "the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; "
+        "the whole series is empty when include_series=false.",
     )
 
     class Meta:
@@ -749,6 +1076,11 @@ class RepoOverviewSerializer(DataclassSerializer):
             },
             "rerun_cycles": {"help_text": "Runs in the window that were a 2nd+ attempt (attempt > 1)."},
             "rerun_cycles_prev": {"help_text": "Re-run cycles over the previous window."},
+            "merged_pr_count": {
+                "help_text": "PRs merged in the window, all authors and bots included — the merge population "
+                "that triggered the CI spend, so it divides cleanly into billable_minutes and estimated_cost_usd."
+            },
+            "merged_pr_count_prev": {"help_text": "Merged-PR count over the previous window."},
             "median_open_to_merge_seconds": {
                 "help_text": "Median merged_at - created_at over PRs merged in the window, bots and drafts excluded. "
                 "Coarse by design: draft and ready-for-review time are fused. Null when nothing merged.",
@@ -780,6 +1112,33 @@ class RepoOverviewSerializer(DataclassSerializer):
             "default_branch": {"help_text": "'master' or 'main', picked by observed run volume in the window."},
             "cost_series_granularity": {
                 "help_text": "Bucket width of the cost_series trend, chosen to fit the window: 'hour', 'day', or 'week'."
+            },
+            "time_to_green_series_granularity": {
+                "help_text": "Bucket width of the time_to_green_series trend: 'hour', 'day', or 'week'."
+            },
+            "success_rate_series_granularity": {
+                "help_text": "Bucket width of the success_rate_series trend: 'hour', 'day', or 'week'."
+            },
+            "open_to_merge_series_granularity": {
+                "help_text": "Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'."
+            },
+        }
+
+
+class CurrentBranchHealthSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CurrentBranchHealth
+        extra_kwargs = {
+            "default_branch": {
+                "help_text": "Detected default branch ('master' or 'main') from runs in the same 24-hour window."
+            },
+            "settled_workflows": {"help_text": "Workflows with at least one completed run in the last 24 hours."},
+            "failing_workflows": {
+                "help_text": "Workflows whose latest completed run in the last 24 hours failed or timed out."
+            },
+            "failing_workflow_names": {
+                "help_text": "Alphabetical preview of failing workflow names, capped at 20; use failing_workflows "
+                "for the complete count."
             },
         }
 

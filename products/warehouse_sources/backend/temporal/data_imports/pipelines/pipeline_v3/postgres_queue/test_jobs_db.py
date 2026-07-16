@@ -338,7 +338,9 @@ class TestBatchQueueFailRun:
         await _insert_batch(conn, batch_index=2, run_uuid="run-x")
         await BatchQueue.update_status(conn, batch_id=bid1, job_state="succeeded", attempt=1)
 
-        count = await BatchQueue.fail_run(conn, run_uuid="run-x", reason="test failure")
+        count = await BatchQueue.fail_run(
+            conn, run_uuid="run-x", team_id=1, schema_id="schema-1", reason="test failure"
+        )
 
         assert count == 2
 
@@ -519,6 +521,31 @@ class TestBatchQueueLeaseRenewal:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestVerifyGroupLeaseSync:
+    # Must agree with the async verify_advisory_lock predicate: a divergence
+    # (e.g. dropping the expiry check) silently disarms the pre-commit guard.
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "lease_expires_in,checked_owner,expected",
+        [
+            (300, OWNER_A, True),  # live lease, right owner
+            (-1, OWNER_A, False),  # expired lease
+            (300, OWNER_B, False),  # live lease held by someone else
+            (None, OWNER_A, False),  # no lease row at all
+        ],
+    )
+    async def test_matches_lease_state(self, conn, _db_url, lease_expires_in, checked_owner, expected):
+        if lease_expires_in is not None:
+            await _insert_lease(conn, team_id=1, schema_id="s1", owner=OWNER_A, expires_in_seconds=lease_expires_in)
+
+        owns = BatchQueue.verify_group_lease_sync(
+            _db_url, team_id=1, schema_id="s1", owner_token=checked_owner, connect_timeout_seconds=5
+        )
+
+        assert owns is expected
+
+
+@pytest.mark.django_db(transaction=True)
 class TestQueueFreshnessProbe:
     @pytest.mark.asyncio
     async def test_reports_only_batches_never_picked_up(self, conn):
@@ -531,6 +558,70 @@ class TestQueueFreshnessProbe:
         # Any status row means the batch was picked up — it must stop counting.
         await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=1)
         assert await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn) is None
+
+
+@pytest.mark.django_db(transaction=True)
+class TestOldestNonTerminalBatchAge:
+    @pytest.mark.parametrize(
+        "job_state,expect_pending",
+        [
+            (None, True),  # never claimed
+            ("executing", True),
+            ("waiting_retry", True),
+            ("succeeded", False),
+            ("failed", False),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_counts_only_non_terminal_states(self, conn, sync_conn, job_state, expect_pending):
+        bid = await _insert_batch(conn)
+        if job_state is not None:
+            await BatchQueue.update_status(conn, batch_id=bid, job_state=job_state, attempt=1)
+
+        age = BatchQueue.get_oldest_non_terminal_batch_age_seconds(sync_conn, team_id=1, schema_ids=["schema-1"])
+
+        if expect_pending:
+            assert age is not None and age >= 0
+        else:
+            assert age is None
+
+    @pytest.mark.asyncio
+    async def test_scoped_to_team_and_schemas(self, conn, sync_conn):
+        await _insert_batch(conn)
+
+        assert (
+            BatchQueue.get_oldest_non_terminal_batch_age_seconds(sync_conn, team_id=1, schema_ids=["other-schema"])
+            is None
+        )
+        assert (
+            BatchQueue.get_oldest_non_terminal_batch_age_seconds(sync_conn, team_id=2, schema_ids=["schema-1"]) is None
+        )
+        assert (
+            BatchQueue.get_oldest_non_terminal_batch_age_seconds(
+                sync_conn, team_id=1, schema_ids=["schema-1", "other-schema"]
+            )
+            is not None
+        )
+
+    @pytest.mark.asyncio
+    async def test_dead_run_remnants_do_not_count(self, conn, sync_conn):
+        # A batch enqueued into a run after fail_run swept it stays 'pending' but can
+        # never be claimed; counting it would hold the CDC backpressure guard down for
+        # the whole pruning window (a full extraction stop for the source).
+        failed = await _insert_batch(conn, run_uuid="dead-run", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
+        await _insert_batch(conn, run_uuid="dead-run", batch_index=1)
+
+        assert (
+            BatchQueue.get_oldest_non_terminal_batch_age_seconds(sync_conn, team_id=1, schema_ids=["schema-1"]) is None
+        )
+
+        await _insert_batch(conn, run_uuid="live-run", batch_index=0)
+
+        assert (
+            BatchQueue.get_oldest_non_terminal_batch_age_seconds(sync_conn, team_id=1, schema_ids=["schema-1"])
+            is not None
+        )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -921,7 +1012,7 @@ class TestStateDualWrite:
         done = await _insert_batch(conn, batch_index=1, run_uuid="run-dw")
         await BatchQueue.update_status(conn, batch_id=done, job_state="succeeded", attempt=1)
 
-        failed = await BatchQueue.fail_run(conn, run_uuid="run-dw", reason="boom")
+        failed = await BatchQueue.fail_run(conn, run_uuid="run-dw", team_id=1, schema_id="schema-1", reason="boom")
 
         assert failed == 1
         assert (await _batch_state(conn, pending))[0] == "failed"

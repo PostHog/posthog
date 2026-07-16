@@ -10,9 +10,10 @@
 # (`go build -o hclexp ./cmd/hclexp` in the sibling repo) for faster iteration.
 set -euo pipefail
 
-# Pinned to a concrete build (not :latest) for reproducibility.
-# Override via $HCLEXP_IMAGE; bump when intentionally upgrading hclexp.
-HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:sha-0409212}"
+# Pinned to a concrete build (not :latest) for reproducibility, in bin/image.txt
+# — the one place to bump. Override for a single run via $HCLEXP_IMAGE.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HCLEXP_IMAGE="${HCLEXP_IMAGE:-$(cat "$HERE/image.txt")}"
 
 if [[ -n "${HCLEXP_BIN:-}" ]]; then
   exec "$HCLEXP_BIN" "$@"

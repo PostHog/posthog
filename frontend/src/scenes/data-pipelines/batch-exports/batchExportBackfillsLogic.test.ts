@@ -84,6 +84,7 @@ describe('batchExportBackfillsLogic', () => {
         results: RawBatchExportBackfill[]
         next: string | null
     }): Promise<void> {
+        // eslint-disable-next-line react-hooks/rules-of-hooks -- useMocks is an MSW test helper, not a React hook
         useMocks({
             get: {
                 [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/`]: MOCK_BATCH_EXPORT_CONFIG,

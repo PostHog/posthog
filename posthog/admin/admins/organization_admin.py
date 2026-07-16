@@ -30,7 +30,6 @@ from posthog.person_db_router import PERSONS_DB_MODELS
 BULK_DELETE_MODEL_REGISTRY: tuple[tuple[str, str, str], ...] = (
     ("early_access_features.EarlyAccessFeature", "team_id", "Early Access Features"),
     ("error_tracking.ErrorTrackingIssueFingerprintV2", "team_id", "Error Tracking Fingerprints"),
-    ("product_analytics.InsightCachingState", "team_id", "Insight Caching States"),
 )
 
 # Subset of persons-db models that are part of the bulk-delete path.

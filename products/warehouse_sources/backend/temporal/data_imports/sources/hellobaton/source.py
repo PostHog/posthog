@@ -53,7 +53,6 @@ class HellobatonSource(ResumableSource[HellobatonSourceConfig, HellobatonResumeC
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Baton",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Baton (Hellobaton) company instance and API key to pull your onboarding and implementation data into the PostHog Data warehouse.
 
 Your company instance is the subdomain of your Baton URL — for `yourcompany.hellobaton.com`, enter `yourcompany`.

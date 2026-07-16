@@ -42,7 +42,7 @@
  * - Team-scoped processing: Teams can be processed in parallel
  * - User event ordering: Events for the same user maintain order
  */
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -103,7 +103,7 @@ describe('Grouped Processing', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event>()
+        const pipeline = newChunkPipelineBuilder<Event>()
             .concurrentlyPerGroup(
                 (event) => event.userId,
                 (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createProcessEventStep()))
@@ -140,7 +140,7 @@ describe('Grouped Processing', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event>()
+        const pipeline = newChunkPipelineBuilder<Event>()
             .concurrentlyPerGroup(
                 (event) => event.userId,
                 (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createProcessEventStep()))
@@ -173,7 +173,7 @@ describe('Grouped Processing', () => {
      * If sequential (input order): alice would finish first
      * If concurrent (all start together): bob finishes first, then charlie, then alice
      *
-     * Each call to next() returns a complete group's results as a batch.
+     * Each call to next() returns a complete group's results as a chunk.
      */
     it('items in different groups can process concurrently', async () => {
         const delays: Record<string, number> = {
@@ -189,7 +189,7 @@ describe('Grouped Processing', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event>()
+        const pipeline = newChunkPipelineBuilder<Event>()
             .concurrentlyPerGroup(
                 (event) => event.userId,
                 (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createVariableDelayStep()))
@@ -208,12 +208,12 @@ describe('Grouped Processing', () => {
         const batch = events.map((e) => createOkContext(e, {}))
         pipeline.feed(batch)
 
-        // Collect batches as groups complete
-        const batches: string[][] = []
+        // Collect chunks as groups complete
+        const chunks: string[][] = []
         const collectResults = (async () => {
             let result = await pipeline.next()
             while (result !== null) {
-                batches.push(
+                chunks.push(
                     result.map((r) => {
                         const event = (r.result as { value: Event }).value
                         return `${event.userId}:${event.eventId}`
@@ -231,7 +231,7 @@ describe('Grouped Processing', () => {
         // - bob (2 x 10ms = 20ms) finishes first
         // - charlie (2 x 20ms = 40ms) finishes second
         // - alice (2 x 30ms = 60ms) finishes last
-        expect(batches).toEqual([
+        expect(chunks).toEqual([
             ['bob:2', 'bob:5'],
             ['charlie:3', 'charlie:6'],
             ['alice:1', 'alice:4'],
@@ -277,7 +277,7 @@ describe('Grouped Processing', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<IngestionEvent>()
+        const pipeline = newChunkPipelineBuilder<IngestionEvent>()
             .concurrentlyPerGroup(
                 (event) => `${event.token}:${event.distinctId}`,
                 (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createProcessEventStep()))

@@ -54,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCErrorCategory,
     CDCErrorInfo,
     CDCSchemaMergeError,
+    CDCSlotNotConfiguredError,
     classify_cdc_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
@@ -103,6 +104,12 @@ CDC_ORPHAN_JOB_MIN_AGE = dt.timedelta(minutes=30)
 # "no batches" verdict is only trustworthy within that window. Never touch older rows — we cannot
 # tell an abandoned run from one whose batches simply aged out.
 CDC_ORPHAN_JOB_MAX_AGE = dt.timedelta(days=14)
+
+# Backpressure guard: past this age a skipped tick is a stuck load, not a slow one — well beyond
+# the loader's recovery-sweep grace (300s) and retry backoffs, so it only trips when a run needs
+# operator attention. Skips past it log at error level; the tick is still skipped (see
+# _previous_load_still_pending for why we never auto-fail the pending run).
+CDC_BACKPRESSURE_STUCK_AGE = dt.timedelta(hours=2)
 
 # Per-peek bound on WAL changes. A large backlog is drained over several passes (and, if needed,
 # several scheduled runs) instead of one unbounded read that risks the 2h activity timeout and
@@ -691,6 +698,9 @@ class CDCExtractActivity:
         if not self._setup():
             return
 
+        if self._previous_load_still_pending():
+            return
+
         self._mark_schemas_running()
         # Best-effort — must never break the extraction run, so guard the call
         # site: the method itself has unguarded lines (activity.info(),
@@ -701,6 +711,7 @@ class CDCExtractActivity:
             self.log.warning("cdc_orphan_reconcile_unexpected_failed", exc_info=True)
 
         try:
+            self._require_configured_slot()
             self.reader.connect()
 
             self._load_pk_columns()
@@ -777,6 +788,52 @@ class CDCExtractActivity:
             delete_cdc_extraction_schedule(str(self.inputs.source_id))
         except Exception:
             self.log.exception("failed_to_delete_own_schedule")
+
+    def _previous_load_still_pending(self) -> bool:
+        """Backpressure guard: skip this tick while a previous run's batches are still loading.
+
+        CDC ticks don't hold the per-schema pipeline lock the way external-data-job runs do,
+        so without this check every tick enqueues a fresh run regardless of whether the
+        previous one landed. Coexisting runs of one schema can then be claimed out of order
+        by the loader (its head-of-line gate is run-scoped), and an incremental merge applied
+        out of order silently overwrites newer rows with older ones. Skipping keeps at most
+        one active run per schema; nothing has been peeked and the slot is untouched, so WAL
+        accumulates and the next tick catches up.
+
+        Per-source, not per-schema: the slot is read once for all tables, so one table's
+        pending load must hold back the whole source's tick.
+
+        Deliberately no auto-remediation past CDC_BACKPRESSURE_STUCK_AGE: the slot already
+        advanced past the pending runs' events, so failing their batches would leave a
+        permanent gap in the table. The queue-freshness alert fires well before the
+        threshold, and if nobody intervenes the engine eventually invalidates the slot,
+        which triggers the existing full re-sync recovery. Fail-open on probe errors — the
+        producer writes to the same DB, so a run that can't be probed can't enqueue either.
+        """
+        schema_ids = [str(s.id) for s in self.cdc_schemas]
+        try:
+            conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
+        except Exception:
+            self.log.warning("cdc_backpressure_probe_connect_failed", exc_info=True)
+            return False
+        try:
+            age = BatchQueue.get_oldest_non_terminal_batch_age_seconds(
+                conn, team_id=self.inputs.team_id, schema_ids=schema_ids
+            )
+        except Exception:
+            self.log.warning("cdc_backpressure_probe_failed", exc_info=True)
+            return False
+        finally:
+            conn.close()
+
+        if age is None:
+            return False
+
+        stuck = age >= CDC_BACKPRESSURE_STUCK_AGE.total_seconds()
+        log = self.log.error if stuck else self.log.info
+        log("cdc_tick_skipped_pending_load", oldest_pending_age_seconds=round(age, 1), stuck=stuck)
+        metrics.get_tick_skipped_metric(self.inputs.team_id, str(self.inputs.source_id), stuck).add(1)
+        return True
 
     def _mark_schemas_running(self) -> None:
         """Mark CDC schemas as Running at the start."""
@@ -1132,6 +1189,19 @@ class CDCExtractActivity:
         except Exception:
             schema_log.warning("failed_to_unpause_schema_schedule", schema_id=str(schema.id), exc_info=True)
 
+    def _pause_cdc_extraction_schedule(self) -> None:
+        """Pause the source's CDC extraction schedule after a non-retryable failure (best-effort)."""
+        assert self.source is not None
+        source_id = str(self.source.id)
+        try:
+            # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
+            from products.data_warehouse.backend.facade.api import pause_cdc_extraction_schedule
+
+            pause_cdc_extraction_schedule(source_id)
+            self.log.warning("cdc_extraction_schedule_paused_non_retryable", source_id=source_id)
+        except Exception:
+            self.log.warning("cdc_pause_schedule_failed", source_id=source_id, exc_info=True)
+
     def _handle_no_changes(self, truncated_tables: list[str]) -> None:
         """Early-return path: no DML events were read."""
         if truncated_tables:
@@ -1229,6 +1299,19 @@ class CDCExtractActivity:
                 continue
             self._update_schema_sync_type_config(schema, updates={"cdc_last_log_position": self.last_end_lsn})
 
+    def _require_configured_slot(self) -> None:
+        """Fail fast when a CDC-enabled source has no replication slot name stored.
+
+        Streaming an empty slot name surfaces as ``replication slot "" does not exist``, which
+        the invalidation check reads as a recoverable slot drop — so recovery (and Repair CDC)
+        run, only to dead-end because there is no slot name to recreate. Raise the non-retryable
+        misconfiguration up front instead, with guidance that actually resolves it.
+        """
+        assert self.adapter is not None
+        assert self.source is not None
+        if not self.adapter.parse_cdc_config(self.source).slot_name:
+            raise CDCSlotNotConfiguredError()
+
     # ------------------------------------------------------------------
     # Failure / success finalization
     # ------------------------------------------------------------------
@@ -1303,10 +1386,18 @@ class CDCExtractActivity:
         # the per-schema FAILED state + the cdc_broken marker the UI/health check read and pauses the
         # schedule, so it stops firing hourly against a resource that is gone (the same zombie the lag
         # safety net produces). Any other failure just fails this run's schemas.
-        marked_broken = info.category in (CDCErrorCategory.SLOT_MISSING, CDCErrorCategory.PUBLICATION_MISSING)
+        marked_broken = info.category in (
+            CDCErrorCategory.SLOT_MISSING,
+            CDCErrorCategory.SLOT_NOT_CONFIGURED,
+            CDCErrorCategory.PUBLICATION_MISSING,
+        )
         if marked_broken:
             assert self.source is not None
             mark_cdc_broken(self.source, info.category.value, friendly)
+        elif not info.retryable and self.source is not None:
+            # A non-retryable error re-fails every scheduled run, so pause the schedule instead of
+            # looping it. No cdc_broken marker: the slot is intact, so it stays Repair-CDC-ineligible.
+            self._pause_cdc_extraction_schedule()
         for schema in self.cdc_schemas:
             if not marked_broken:
                 schema.status = ExternalDataSchema.Status.FAILED

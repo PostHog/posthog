@@ -1151,6 +1151,39 @@ class TestSharingOverrideProtection(TestCase):
 
         assert result == {"breakdown": "region"}
 
+    # The path-based /shared/<token> page load resolves the token from the URL, so no authenticator
+    # runs and the successful_authenticator check is blind to it. is_shared must block overrides on
+    # its own — otherwise an anonymous viewer can vary these params to churn the query cache key.
+    def test_filters_override_blocked_for_shared_context_without_authenticator(self):
+        request = self._make_request(None, query_params={"filters_override": json.dumps({"date_from": "-7d"})})
+        dashboard = type("Dashboard", (), {"filters": {"date_from": "-30d"}})()
+
+        result = filters_override_requested_by_client(request, dashboard, is_shared=True)
+
+        assert result == {"date_from": "-30d"}
+
+    @patch(
+        "products.product_analytics.backend.api.insight_variable.map_stale_to_latest",
+        side_effect=lambda variables, _: variables,
+    )
+    def test_variables_override_blocked_for_shared_context_without_authenticator(self, _mock):
+        request = self._make_request(
+            None, query_params={"variables_override": json.dumps({"injected": {"value": "evil"}})}
+        )
+        dashboard = type("Dashboard", (), {"variables": {"var1": {"value": "safe"}}})()
+
+        result = variables_override_requested_by_client(request, dashboard, variables=[], is_shared=True)
+
+        assert result == {"var1": {"value": "safe"}}
+
+    def test_tile_filters_override_blocked_for_shared_context_without_authenticator(self):
+        request = self._make_request(None, query_params={"tile_filters_override": json.dumps({"breakdown": "region"})})
+        tile = type("DashboardTile", (), {"filters_overrides": {"breakdown": "country"}})()
+
+        result = tile_filters_override_requested_by_client(request, tile, is_shared=True)
+
+        assert result == {"breakdown": "country"}
+
 
 class TestTemplateContextHistogram(TestCase):
     @staticmethod

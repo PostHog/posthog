@@ -1,5 +1,6 @@
 import { create } from '@bufbuild/protobuf'
 import { Client } from '@connectrpc/connect'
+import { DateTime } from 'luxon'
 
 import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
 import { GroupKeySchema } from '~/common/generated/personhog/personhog/types/v1/common_pb'
@@ -70,6 +71,8 @@ export class PersonHogGroupOperations {
             group_type_index: GroupTypeIndex
             group_key: string
             group_properties: Record<string, any>
+            created_at: DateTime
+            version: number
         }[]
     > {
         if (teamIds.length === 0) {
@@ -81,6 +84,8 @@ export class PersonHogGroupOperations {
             group_type_index: GroupTypeIndex
             group_key: string
             group_properties: Record<string, any>
+            created_at: DateTime
+            version: number
         }[] = []
 
         for (let i = 0; i < teamIds.length; i += PERSONHOG_BATCH_SIZE) {
@@ -109,6 +114,8 @@ export class PersonHogGroupOperations {
                         group_type_index: toGroupTypeIndex(result.key.groupTypeIndex),
                         group_key: result.key.groupKey,
                         group_properties: parseJsonBytes(result.group.groupProperties) ?? {},
+                        created_at: epochMsToDateTime(result.group.createdAt),
+                        version: Number(result.group.version),
                     })
                 }
             }

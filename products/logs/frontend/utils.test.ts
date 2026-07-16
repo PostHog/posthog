@@ -1,4 +1,5 @@
 import {
+    buildLogsSessionUrl,
     formatFilterGroupValues,
     getFiltersSummaryLines,
     getSessionIdFromLogAttributes,
@@ -90,6 +91,99 @@ describe('logs utils', () => {
                     resourceAttributes as Record<string, unknown> | undefined
                 )
             ).toBe(expected)
+        })
+    })
+
+    describe('configured session ID keys', () => {
+        it.each([
+            [
+                'configured key wins over a built-in convention key',
+                ['my.custom.key'],
+                { session_id: 'builtin', 'my.custom.key': 'custom' },
+                undefined,
+                'custom',
+            ],
+            [
+                'configured keys are checked in list order',
+                ['second.key', 'first.key'],
+                { 'first.key': 'first', 'second.key': 'second' },
+                undefined,
+                'second',
+            ],
+            [
+                'configured key found in resource_attributes',
+                ['my.custom.key'],
+                undefined,
+                { 'my.custom.key': 'from-resource' },
+                'from-resource',
+            ],
+            [
+                'falls back to built-in conventions when configured keys are absent',
+                ['my.custom.key'],
+                { $session_id: 'builtin' },
+                undefined,
+                'builtin',
+            ],
+            [
+                'configured keys match exactly, not by dot suffix',
+                ['custom.key'],
+                { 'prefix.custom.key': 'suffixed' },
+                undefined,
+                null,
+            ],
+        ])('%s', (_, configuredKeys, attributes, resourceAttributes, expected) => {
+            expect(
+                getSessionIdFromLogAttributes(
+                    attributes as Record<string, unknown> | undefined,
+                    resourceAttributes as Record<string, unknown> | undefined,
+                    configuredKeys
+                )
+            ).toBe(expected)
+        })
+
+        it.each([
+            ['my.custom.key', ['my.custom.key'], true],
+            ['prefix.my.custom.key', ['my.custom.key'], false],
+        ])('isSessionIdKey(%s, %j) returns %s', (key, configuredKeys, expected) => {
+            expect(isSessionIdKey(key, configuredKeys)).toBe(expected)
+        })
+    })
+
+    describe('buildLogsSessionUrl', () => {
+        const parseUrl = (url: string): { path: string; params: URLSearchParams } => {
+            const [path, query] = url.split('?')
+            return { path, params: new URLSearchParams(query) }
+        }
+
+        it.each([
+            ['defaults to the SDK convention key', undefined, ['posthogSessionId']],
+            ['uses configured keys in order', ['session.id', 'custom.key'], ['session.id', 'custom.key']],
+            ['empty configured list falls back to default', [], ['posthogSessionId']],
+        ])('%s', (_, configuredKeys, expectedKeys) => {
+            const { path, params } = parseUrl(buildLogsSessionUrl('sess-1', configuredKeys))
+            expect(path).toBe('/logs')
+
+            const filterGroup = JSON.parse(params.get('filterGroup')!)
+            const innerGroup = filterGroup.values[0]
+            expect(innerGroup.type).toBe('OR')
+            expect(innerGroup.values).toEqual(
+                expectedKeys.map((key) => ({
+                    key,
+                    value: ['sess-1'],
+                    operator: 'exact',
+                    type: 'log_attribute',
+                }))
+            )
+            expect(params.get('dateRange')).toBeNull()
+        })
+
+        it('scopes the date range around the timestamp', () => {
+            const { params } = parseUrl(buildLogsSessionUrl('sess-1', undefined, '2026-03-24T12:00:00.000Z'))
+            const dateRange = JSON.parse(params.get('dateRange')!)
+            expect(dateRange).toEqual({
+                date_from: '2026-03-24T11:30:00.000Z',
+                date_to: '2026-03-24T12:30:00.000Z',
+            })
         })
     })
 

@@ -102,7 +102,7 @@ hour. Trust the ledger: if an item was checked 20 minutes ago by a prior run, it
 
 **Leave yourself pointers.** When you run low on budget mid-sweep, write a quick note (reuse
 the run summary, or a `watchlist:` `next_due` you set to "now" on the next item) so the next
-run knows where to resume. The run summary (`signals-scout-runs-list`) is the natural place to
+run knows where to resume. The run summary (`scout-runs-list`) is the natural place to
 say "checked items A–F; G–K still due next run."
 
 ## The four states (classify every candidate before reporting)

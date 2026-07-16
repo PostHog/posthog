@@ -61,6 +61,22 @@ def test_summarize_assurance_counts_threads_not_flattened_replies() -> None:
     assert pipeline._summarize_assurance()["unresolved_threads"] == 1
 
 
+def test_summarize_assurance_excludes_author_self_review() -> None:
+    # An author replying within their own PR records a COMMENTED review at head.
+    # That self-review must not read as a vouch — otherwise the review body and
+    # the trusted assurance block both claim "<author> reviewed the current head."
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")  # _fake_pr author is "alice"
+    pr.reviews = [
+        {"user": "alice", "state": "COMMENTED", "is_current_head": True, "commit_id": "abc123"},
+        {"user": "bob", "state": "COMMENTED", "is_current_head": True, "commit_id": "abc123"},
+    ]
+    pipeline.pr = pr
+
+    assurance = pipeline._summarize_assurance()
+    assert assurance["head_commented_users"] == ["bob"]
+
+
 def test_to_dict_includes_head_sha() -> None:
     """The post-review workflow step reads head_sha from the JSON output to
     lock the resulting GitHub review to the sha the LLM actually saw — see
@@ -420,3 +436,23 @@ def test_wait_refetch_reclassifies_before_review(monkeypatch: pytest.MonkeyPatch
 
     assert verdict == "REFUSED"
     assert pipeline.classification["deny_categories"] == ["infra_cicd"]
+
+
+def test_capture_review_completed_merges_server_extras_base_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The hosted server stamps runtime/team context through STAMPHOG_EXTRA_PROPERTIES; the event's
+    # own props must win on collision so a stamped extra can never spoof e.g. the repo.
+    monkeypatch.setenv(
+        "STAMPHOG_EXTRA_PROPERTIES",
+        '{"stamphog_runtime":"hosted","stamphog_repo":"spoofed/repo"}',
+    )
+    fake_posthog = MagicMock()
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", True)
+    monkeypatch.setattr(review_pr, "posthoganalytics", fake_posthog, raising=False)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="abc123")
+    pipeline._capture_review_completed("PASSED", "APPROVE")
+
+    props = fake_posthog.capture.call_args.kwargs["properties"]
+    assert props["stamphog_runtime"] == "hosted"
+    assert props["stamphog_repo"] == "PostHog/posthog"

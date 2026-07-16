@@ -9,13 +9,19 @@ import { cn } from './lib/utils'
 import { RadioIndicator } from './radio-group'
 import { Separator } from './separator'
 
-function ItemGroup({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
+function ItemGroup({
+    className,
+    combined = false,
+    ...props
+}: React.ComponentProps<'div'> & { combined?: boolean }): React.ReactElement {
     return (
         <div
             role="list"
             data-slot="item-group"
+            data-combined={combined ? '' : undefined}
             className={cn(
-                'quill-item-group group/item-group flex w-full flex-col gap-4 has-data-[size=sm]:gap-2.5 has-data-[size=xs]:gap-2',
+                'quill-item-group group/item-group flex w-full flex-col',
+                combined ? 'gap-0' : 'gap-4 has-data-[size=sm]:gap-2.5 has-data-[size=xs]:gap-2',
                 className
             )}
             {...props}
@@ -45,10 +51,19 @@ const itemVariants = cva(
                 sm: 'quill-item--size-sm',
                 xs: 'quill-item--size-xs',
             },
+            tone: {
+                default: '',
+                info: 'quill-item--tone-info',
+                success: 'quill-item--tone-success',
+                warning: 'quill-item--tone-warning',
+                completed: 'quill-item--tone-completed',
+                destructive: 'quill-item--tone-destructive',
+            },
         },
         defaultVariants: {
             variant: 'default',
             size: 'default',
+            tone: 'default',
         },
     }
 )
@@ -57,6 +72,7 @@ function Item({
     className,
     variant = 'default',
     size = 'default',
+    tone = 'default',
     role,
     render,
     ...props
@@ -66,7 +82,8 @@ function Item({
         props: mergeProps<'div'>(
             {
                 'data-quill': '',
-                className: cn(itemVariants({ variant, size, className })),
+                'data-tone': tone && tone !== 'default' ? tone : undefined,
+                className: cn(itemVariants({ variant, size, tone, className })),
                 role: variant === 'pressable' ? 'link' : undefined,
             } as Omit<React.ComponentProps<'div'>, 'ref'>,
             props
@@ -76,6 +93,7 @@ function Item({
             slot: 'item',
             variant,
             size,
+            tone,
         },
     })
 }
@@ -196,7 +214,7 @@ function ItemMedia({
     )
 }
 
-const itemContentVariants = cva('quill-item__content flex flex-1 flex-col gap-1', {
+const itemContentVariants = cva('quill-item__content flex flex-1 flex-col gap-0.5', {
     variants: {
         variant: {
             default: '',

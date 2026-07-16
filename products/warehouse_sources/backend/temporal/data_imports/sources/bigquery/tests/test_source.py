@@ -425,6 +425,63 @@ def test_bigquery_get_rows_to_sync_retries_transient_job_not_found(mock_sleep):
     mock_capture.assert_not_called()
 
 
+def test_bigquery_get_rows_to_sync_skips_capture_when_table_missing():
+    # A table deleted/renamed after schema discovery (or absent from the queried region) makes the
+    # COUNT query raise a terminal NotFound. The main read path already surfaces this non-retryably,
+    # so the best-effort probe must fall back to 0 without capturing error-tracking noise.
+    table = mock.MagicMock(project="proj", dataset_id="ds", table_id="t")
+    table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
+    client = mock.MagicMock()
+    job = mock.MagicMock()
+    job.result.side_effect = NotFound("404 Not found: Table proj:ds.t was not found in location EU")
+    client.query.return_value = job
+
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.capture_exception"
+    ) as mock_capture:
+        result = _get_rows_to_sync(
+            table=table,
+            client=client,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            logger=mock.MagicMock(),
+            row_filters=[
+                ValidatedRowFilter(column="age", operator="IN", value=[21, 30], category=ColumnTypeCategory.INTEGER)
+            ],
+        )
+
+    assert result == 0
+    mock_capture.assert_not_called()
+
+
+def test_bigquery_get_rows_to_sync_captures_unexpected_error():
+    # A NotFound is only skipped for the missing-table/region wording; an unrelated failure must
+    # still be captured so genuine bugs stay visible.
+    table = mock.MagicMock(project="proj", dataset_id="ds", table_id="t")
+    table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
+    client = mock.MagicMock()
+    job = mock.MagicMock()
+    job.result.side_effect = ValueError("something unexpected")
+    client.query.return_value = job
+
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.capture_exception"
+    ) as mock_capture:
+        result = _get_rows_to_sync(
+            table=table,
+            client=client,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            logger=mock.MagicMock(),
+            row_filters=[
+                ValidatedRowFilter(column="age", operator="IN", value=[21, 30], category=ColumnTypeCategory.INTEGER)
+            ],
+        )
+
+    assert result == 0
+    mock_capture.assert_called_once()
+
+
 def test_bigquery_get_query_in_filter_expands_to_one_param_per_value():
     bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
     bq_table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]

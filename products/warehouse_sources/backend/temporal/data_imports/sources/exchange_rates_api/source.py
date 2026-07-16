@@ -49,7 +49,6 @@ class ExchangeRatesApiSource(ResumableSource[ExchangeRatesApiSourceConfig, Excha
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Exchange Rates API",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Exchange Rates API access key to pull foreign-exchange reference rates into the PostHog Data warehouse.
 
 Create a key in your [exchangeratesapi.io dashboard](https://exchangeratesapi.io/dashboard).

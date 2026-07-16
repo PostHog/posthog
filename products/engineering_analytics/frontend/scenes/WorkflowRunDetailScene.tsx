@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { IconCheckCircle, IconExternal, IconHourglass, IconPause, IconXCircle } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
@@ -23,6 +23,7 @@ import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
 import { githubCommitUrl, githubRunUrl } from '../lib/github'
 import { isDecisiveFailure } from '../lib/lifecycle'
 import { verdictTag } from '../lib/runStatus'
+import { withScope } from '../lib/scope'
 import { WorkflowRunDetailLogicProps, workflowRunDetailLogic } from './workflowRunDetailLogic'
 
 export const scene: SceneExport<WorkflowRunDetailLogicProps> = {
@@ -50,6 +51,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
         failureLogsLoading,
     } = useValues(workflowRunDetailLogic)
     const { loadRun } = useActions(workflowRunDetailLogic)
+    const { searchParams } = useValues(router)
 
     if (!isValidRunId) {
         return (
@@ -110,8 +112,9 @@ export function WorkflowRunDetailScene(): JSX.Element {
 
     return (
         <SceneContent>
+            {/* Scene chrome keeps the generic label; the EntityHeader below owns the title. */}
             <SceneTitleSection
-                name={run?.workflow_name ?? 'Workflow run'}
+                name="Workflow run"
                 resourceType={{ type: 'health' }}
                 actions={
                     githubUrl ? (
@@ -134,20 +137,22 @@ export function WorkflowRunDetailScene(): JSX.Element {
                         repoSlot={
                             <RepoScopeChip
                                 label={`${run.repo.owner}/${run.repo.name}`}
-                                to={combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url}
+                                to={withScope(urls.engineeringAnalytics(), searchParams, sourceId)}
                             />
                         }
                         crumbs={[
                             {
                                 label: run.workflow_name,
-                                to: combineUrl(
+                                // Carries the window scope back so stepping up doesn't reset it.
+                                to: withScope(
                                     urls.engineeringAnalyticsWorkflowRuns(
                                         run.repo.owner,
                                         run.repo.name,
                                         run.workflow_name
                                     ),
-                                    sourceId ? { source: sourceId } : {}
-                                ).url,
+                                    searchParams,
+                                    sourceId
+                                ),
                             },
                             { label: `run #${run.id}` },
                         ]}

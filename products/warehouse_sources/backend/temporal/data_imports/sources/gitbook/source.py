@@ -68,7 +68,6 @@ You can create a personal access token under **Account settings → Developer** 
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
