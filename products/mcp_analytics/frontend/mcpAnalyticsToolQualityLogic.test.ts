@@ -5,7 +5,14 @@ import api from 'lib/api'
 import { initKeaTests } from '~/test/init'
 
 import { formatMsAsSeconds } from './dashboard/formatters'
-import { type DailyToolStat, buildDailyChartData, mcpAnalyticsToolQualityLogic } from './mcpAnalyticsToolQualityLogic'
+import {
+    type DailyToolStat,
+    type SortState,
+    type ToolQualityRow,
+    buildDailyChartData,
+    mcpAnalyticsToolQualityLogic,
+    searchToolRows,
+} from './mcpAnalyticsToolQualityLogic'
 
 jest.mock('lib/api')
 jest.mock('~/queries/query', () => ({
@@ -70,6 +77,43 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             [Infinity, '—'],
         ])('formats %s ms as %s', (input, expected) => {
             expect(formatMsAsSeconds(input)).toBe(expected)
+        })
+    })
+
+    describe('searchToolRows', () => {
+        const sort: SortState = { column: 'tool', direction: 'ASC' }
+        const row = (tool: string): ToolQualityRow => ({
+            tool,
+            total_calls: 0,
+            errors: 0,
+            error_rate_pct: 0,
+            p50_duration_ms: 0,
+            p95_duration_ms: 0,
+            p99_duration_ms: 0,
+            users: 0,
+            sessions: 0,
+            first_seen: '',
+            last_seen: '',
+        })
+        const names = (rows: ToolQualityRow[]): string[] => rows.map((r) => r.tool)
+        const rows = [row('query-run'), row('query'), row('insight-create'), row('dashboard-get')]
+
+        it('ranks an exact match above substring ("contains") matches', () => {
+            // Both contain "query", but the exact match must come first.
+            expect(names(searchToolRows(rows, 'query', sort))).toEqual(['query', 'query-run'])
+        })
+
+        it('returns every substring match when there is no exact match', () => {
+            expect(names(searchToolRows(rows, 'insight', sort))).toEqual(['insight-create'])
+        })
+
+        it('falls back to trigram similarity for a typo instead of returning nothing', () => {
+            // "querey" contains no tool as a substring; the fuzzy tier still surfaces the close names.
+            expect(names(searchToolRows(rows, 'querey', sort))).toContain('query')
+        })
+
+        it('returns no rows when nothing is even fuzzy-close', () => {
+            expect(searchToolRows(rows, 'zzzzzz', sort)).toEqual([])
         })
     })
 

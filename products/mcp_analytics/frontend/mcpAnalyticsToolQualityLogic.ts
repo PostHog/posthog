@@ -175,17 +175,76 @@ export function buildDailyChartData(
     }
 }
 
-function sortToolRows(rows: ToolQualityRow[], sort: SortState): ToolQualityRow[] {
+function toolRowComparator(sort: SortState): (a: ToolQualityRow, b: ToolQualityRow) => number {
     const direction = sort.direction === 'ASC' ? 1 : -1
     const column = sort.column as keyof ToolQualityRow
-    return [...rows].sort((a, b) => {
+    return (a, b) => {
         const aValue = a[column]
         const bValue = b[column]
         if (typeof aValue === 'number' && typeof bValue === 'number') {
             return (aValue - bValue) * direction
         }
         return String(aValue).localeCompare(String(bValue)) * direction
-    })
+    }
+}
+
+function sortToolRows(rows: ToolQualityRow[], sort: SortState): ToolQualityRow[] {
+    return [...rows].sort(toolRowComparator(sort))
+}
+
+// Trigram (Jaccard) similarity between two strings, mirroring the exact/contains/fuzzy
+// fallback other search boxes use. Returns 1 for an exact match, 0 for no shared trigrams.
+function trigramSimilarity(a: string, b: string): number {
+    if (a === b) {
+        return 1
+    }
+    const trigrams = (value: string): Set<string> => {
+        const padded = `  ${value} `
+        const grams = new Set<string>()
+        for (let i = 0; i < padded.length - 2; i++) {
+            grams.add(padded.slice(i, i + 3))
+        }
+        return grams
+    }
+    const left = trigrams(a)
+    const right = trigrams(b)
+    if (left.size === 0 || right.size === 0) {
+        return 0
+    }
+    let shared = 0
+    for (const gram of left) {
+        if (right.has(gram)) {
+            shared += 1
+        }
+    }
+    return shared / (left.size + right.size - shared)
+}
+
+// Minimum trigram similarity for a tool to surface as a fuzzy fallback match.
+const TRIGRAM_MATCH_THRESHOLD = 0.3
+
+// Rank tools by relevance to the search term: exact matches first, then substring
+// ("contains") matches, then a trigram-similarity fallback so a typo or partial recall
+// still surfaces the closest tools instead of an empty table. Within each tier the
+// active column sort is preserved.
+export function searchToolRows(rows: ToolQualityRow[], term: string, sort: SortState): ToolQualityRow[] {
+    const comparator = toolRowComparator(sort)
+    return rows
+        .map((row) => {
+            const name = row.tool.toLowerCase()
+            let tier = 0
+            if (name === term) {
+                tier = 3
+            } else if (name.includes(term)) {
+                tier = 2
+            } else if (trigramSimilarity(name, term) >= TRIGRAM_MATCH_THRESHOLD) {
+                tier = 1
+            }
+            return { row, tier }
+        })
+        .filter((entry) => entry.tier > 0)
+        .sort((a, b) => b.tier - a.tier || comparator(a.row, b.row))
+        .map((entry) => entry.row)
 }
 
 export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType>([
@@ -398,8 +457,7 @@ ORDER BY day
             (s) => [s.toolRows, s.toolQualitySort, s.searchTerm],
             (toolRows: ToolQualityRow[], sort: SortState, searchTerm: string): ToolQualityRow[] => {
                 const term = searchTerm.trim().toLowerCase()
-                const filtered = term ? toolRows.filter((row) => row.tool.toLowerCase().includes(term)) : toolRows
-                return sortToolRows(filtered, sort)
+                return term ? searchToolRows(toolRows, term, sort) : sortToolRows(toolRows, sort)
             },
         ],
         dailyChartData: [
