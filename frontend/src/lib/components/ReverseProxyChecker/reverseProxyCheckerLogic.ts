@@ -42,7 +42,7 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
                             scene: currentScene,
                             productKey: 'platform_and_support',
                         })
-                        return !!res.results?.find((x) => !!x[0])
+                        return !!res?.results?.find((x) => !!x[0])
                     } catch (error) {
                         // This check is advisory (used only to auto-complete a setup task).
                         // Swallow errors so kea-loaders does not surface a user-visible toast
