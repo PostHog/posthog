@@ -1,5 +1,5 @@
 /**
- * Auth methodology for the native `@posthog/*` data tools.
+ * Auth methodology for native `@posthog/*` tools and the first-party PostHog MCP.
  *
  * These tools act **as the connected PostHog user**: they target an EXPLICIT
  * `project_id` the agent passes (resolved via the `get_context` client tool or
@@ -13,10 +13,14 @@
  * bearer — never the agent's owning team.
  */
 
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import request from 'supertest'
 import { vi } from 'vitest'
 
 import { AuthProvider, publicVerifier, readBearer } from '@posthog/agent-ingress'
+import type { McpTransportFactory } from '@posthog/agent-runner'
 
 import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '../harness'
 
@@ -53,7 +57,7 @@ const callerProvider: AuthProvider = {
     ],
 }
 
-describe('@posthog/* data tools: act as the calling user, not the agent team', () => {
+describe('PostHog tools: act as the calling user, not the agent team', () => {
     let c: Cluster
     const fetchMock = vi.fn(
         async (_url: string | URL, _init?: RequestInit) =>
@@ -105,14 +109,51 @@ describe('@posthog/* data tools: act as the calling user, not the agent team', (
         expect(authHeaders).toContain('Bearer caller-token')
     })
 
-    it('makes the caller bearer available when a worker is already polling', async () => {
-        c.setScript([fauxCallTool('@posthog/agent-applications-list', { project_id: CALLER_TEAM }), fauxText('listed')])
+    it('opens the PostHog MCP with the caller bearer when a worker is already polling', async () => {
+        const mcpTargets: Array<{ url: string; headers: Record<string, string> }> = []
+        const mcpTransportFactory: McpTransportFactory = (target): Transport => {
+            mcpTargets.push(target)
+            const server = new McpServer({ name: 'posthog', version: '1.0.0' })
+            server.registerTool(
+                'agent-applications-list',
+                { description: 'List agents', inputSchema: {} },
+                async () => ({ content: [{ type: 'text' as const, text: JSON.stringify({ results: [] }) }] })
+            )
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+            void server.server.connect(serverTransport)
+            return clientTransport
+        }
+
+        await c.teardown()
+        c = await buildCluster({
+            authProvider: callerProvider,
+            mcpTransportFactory,
+            teamId: AGENT_TEAM,
+        })
+        c.setScript([fauxCallTool('posthog__agent-applications-list', { project_id: CALLER_TEAM }), fauxText('listed')])
         await c.deployAgent({
             slug: 'polling-worker',
             teamId: AGENT_TEAM,
             spec: {
                 auth: { modes: [{ type: 'posthog' }] },
-                tools: [{ kind: 'native', id: '@posthog/agent-applications-list' }],
+                tools: [
+                    {
+                        kind: 'client',
+                        id: 'get_context',
+                        description: 'Read the current PostHog Code context.',
+                        args_schema: { type: 'object', properties: {}, additionalProperties: false },
+                    },
+                ],
+                mcps: [
+                    {
+                        kind: 'principal',
+                        id: 'posthog',
+                        url: 'http://localhost:8787/mcp',
+                        auth: { provider: 'posthog' },
+                        default_tool_approval: 'allow',
+                        tools: ['agent-applications-list'],
+                    },
+                ],
             },
         })
 
@@ -146,15 +187,12 @@ describe('@posthog/* data tools: act as the calling user, not the agent team', (
         const runRequest = request(c.ingress)
             .post('/agents/polling-worker/run')
             .set('authorization', 'Bearer caller-token')
-            .send({ message: 'list my agents' })
+            .send({ message: 'list my agents', supported_client_tools: ['get_context'] })
             .then((response) => response)
         const [res] = await Promise.all([runRequest, workerLoop])
 
         expect(res.status).toBe(200)
-        const authHeaders = fetchMock.mock.calls.map((call) => {
-            const init = call[1] as { headers?: Record<string, string> } | undefined
-            return init?.headers?.Authorization
-        })
-        expect(authHeaders).toContain('Bearer caller-token')
+        expect(mcpTargets).toHaveLength(1)
+        expect(mcpTargets[0].headers.Authorization).toBe('Bearer caller-token')
     })
 })
