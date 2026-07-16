@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 from posthog.test.base import (
     APIBaseTest,
@@ -8,6 +8,7 @@ from posthog.test.base import (
     _create_event,
     flush_persons_and_events,
     snapshot_postgres_queries,
+    snapshot_postgres_queries_context,
 )
 from unittest.mock import ANY, patch
 
@@ -27,10 +28,36 @@ from products.cohorts.backend.models.util import sort_cohorts_topologically
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.api.organization_feature_flag import (
+    EXISTING_TARGET_SCHEDULE_DEPENDENCY_WARNING,
+    MAX_COPY_FLAGS_TARGET_PROJECTS,
+    TARGET_COPY_PERMISSION_ERROR,
+    OrganizationFeatureFlagView,
+)
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 from products.surveys.backend.models import Survey
+
+
+def _flag_dependency_property(dependency_flag: FeatureFlag, as_int: bool = False) -> dict[str, Any]:
+    return {
+        "key": dependency_flag.id if as_int else str(dependency_flag.id),
+        "type": "flag",
+        "value": "true",
+        "operator": "flag_evaluates_to",
+    }
+
+
+def _add_release_condition_payload(properties: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "operation": "add_release_condition",
+        "value": {
+            "groups": [{"rollout_percentage": 100, "properties": properties}],
+            "payloads": {},
+            "multivariate": None,
+        },
+    }
 
 
 class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
@@ -407,6 +434,17 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         super().setUp()
 
+    def _enable_access_control(self):
+        from posthog.constants import AvailableFeature
+
+        self.organization.available_product_features = [
+            {
+                "name": AvailableFeature.ACCESS_CONTROL,
+                "key": AvailableFeature.ACCESS_CONTROL,
+            }
+        ]
+        self.organization.save()
+
     @snapshot_postgres_queries
     def test_copy_feature_flag_create_new(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
@@ -466,6 +504,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
             "is_used_in_replay_settings": False,
+            "is_eligible_for_experiment": False,
             "team_id": target_project.id,
             "updated_existing": False,
         }
@@ -474,6 +513,36 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         assert flag_response == expected_flag_response
         assert flag_response["created_by"]["id"] == self.user.id
+
+    def test_copy_feature_flag_with_dependencies_query_count(self):
+        dependency_keys = ("flag-c-query-count", "flag-b-query-count", "flag-a-query-count")
+        flag_to_copy, _, _ = self._create_dependency_chain(
+            "flag-a-query-count", "flag-b-query-count", "flag-c-query-count"
+        )
+
+        def dependency_target_flag_lookup(query: str) -> bool:
+            return (
+                'FROM "posthog_featureflag"' in query
+                and '"posthog_featureflag"."key" IN' in query
+                and any(dependency_key in query for dependency_key in dependency_keys)
+            )
+
+        with snapshot_postgres_queries_context(
+            self, custom_query_matcher=dependency_target_flag_lookup
+        ) as query_context:
+            response = self._post_copy_flag(flag_to_copy, copy_dependencies=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["failed"], [])
+        self.assertEqual(
+            response.json()["success"][0]["copied_dependency_keys"], ["flag-c-query-count", "flag-b-query-count"]
+        )
+        target_team_refetches = [
+            query["sql"]
+            for query in query_context.captured_queries
+            if 'FROM "posthog_team"' in query["sql"] and f'"posthog_team"."id" IN ({self.team_2.id})' in query["sql"]
+        ]
+        self.assertEqual(target_team_refetches, [])
 
     def test_copy_feature_flag_update_existing(self):
         target_project = self.team_2
@@ -563,6 +632,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
             "is_used_in_replay_settings": False,
+            "is_eligible_for_experiment": False,
             "team_id": target_project.id,
             "updated_existing": True,
         }
@@ -578,6 +648,52 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         assert str(feature.id) == flag_response["features"][0]["id"]
         assert analytics_dashboard.id == flag_response["analytics_dashboards"][0]
         assert usage_dashboard.id == flag_response["usage_dashboard"]
+
+    def test_copy_feature_flag_restores_request_method_between_targets(self):
+        target_project_with_existing_flag = self.team_2
+        target_project_with_new_cohort = Team.objects.create(organization=self.organization)
+        source_cohort = Cohort.objects.create(
+            team=self.team_1,
+            name="request-method-cohort",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"key": "email", "value": "test@example.com", "type": "person", "operator": "exact"},
+                    ],
+                }
+            },
+        )
+        self.feature_flag_to_copy.filters = {
+            "groups": [
+                {
+                    "rollout_percentage": self.rollout_percentage_to_copy,
+                    "properties": [{"key": "id", "type": "cohort", "value": source_cohort.id}],
+                }
+            ]
+        }
+        self.feature_flag_to_copy.save()
+        FeatureFlag.objects.create(
+            team=target_project_with_existing_flag,
+            created_by=self.user,
+            key=self.feature_flag_key,
+            filters={"groups": [{"rollout_percentage": 99}]},
+        )
+
+        response = self._post_copy_flag(
+            self.feature_flag_to_copy,
+            [target_project_with_existing_flag.id, target_project_with_new_cohort.id],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["failed"], [])
+        self.assertCountEqual(
+            [flag["team_id"] for flag in response.json()["success"]],
+            [target_project_with_existing_flag.id, target_project_with_new_cohort.id],
+        )
+        copied_cohort = Cohort.objects.get(team=target_project_with_new_cohort, name=source_cohort.name)
+        copied_flag = FeatureFlag.objects.get(team=target_project_with_new_cohort, key=self.feature_flag_key)
+        self.assertEqual(copied_flag.filters["groups"][0]["properties"][0]["value"], copied_cohort.id)
 
     def test_copy_feature_flag_with_old_legacy_flags(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
@@ -705,6 +821,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
             "is_used_in_replay_settings": False,
+            "is_eligible_for_experiment": False,
             "team_id": target_project.id,
             # A soft-deleted flag doesn't count as existing: the copy replaces it with a fresh flag
             "updated_existing": False,
@@ -784,7 +901,10 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         response = self.client.post(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("error", response.json())
+        body = response.json()
+        self.assertEqual(body["type"], "validation_error")
+        self.assertEqual(body["code"], "required")
+        self.assertIn("This field is required.", body["detail"])
 
     def test_copy_feature_flag_nonexistent_key(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
@@ -845,18 +965,9 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
     def test_copy_feature_flag_to_inaccessible_team_fails(self):
         """Test that copying a flag to a team the user cannot access fails."""
-        from posthog.constants import AvailableFeature
-
         from ee.models.rbac.access_control import AccessControl
 
-        # Enable access control for the organization
-        self.organization.available_product_features = [
-            {
-                "name": AvailableFeature.ACCESS_CONTROL,
-                "key": AvailableFeature.ACCESS_CONTROL,
-            }
-        ]
-        self.organization.save()
+        self._enable_access_control()
 
         # Make team_2 private by setting default access to "none"
         AccessControl.objects.create(
@@ -882,18 +993,167 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["failed"][0]["project_id"], self.team_2.id)
         self.assertEqual(response.json()["failed"][0]["error_message"], "Project not found.")
 
-    def test_copy_feature_flag_to_team_without_flag_editor_access_fails(self):
-        from posthog.constants import AvailableFeature
-
+    def test_copy_feature_flag_to_target_without_feature_flag_create_access_fails(self):
         from ee.models.rbac.access_control import AccessControl
 
-        self.organization.available_product_features = [
-            {
-                "name": AvailableFeature.ACCESS_CONTROL,
-                "key": AvailableFeature.ACCESS_CONTROL,
-            }
-        ]
-        self.organization.save()
+        self._enable_access_control()
+        copying_user = self._create_user("copy-target-create-denied@posthog.com")
+        source_dependency = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=copying_user,
+            key="source-parent",
+            active=True,
+        )
+        flag_to_copy = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=copying_user,
+            key="copy-needs-target-create-access",
+            active=True,
+            filters={
+                "groups": [
+                    {"rollout_percentage": 100, "properties": [self._flag_dependency_property(source_dependency)]}
+                ]
+            },
+        )
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="feature_flag",
+            resource_id=None,
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        self.client.force_login(copying_user)
+
+        requirements_response = self._post_dependency_requirements(flag_to_copy)
+        self.assertEqual(requirements_response.status_code, status.HTTP_200_OK)
+        requirements = requirements_response.json()
+        self.assertFalse(requirements["can_copy_dependencies"])
+        self.assertIn("permission", requirements["reason"])
+        self.assertEqual(requirements["copied_dependency_keys"], [])
+
+        response = self._post_copy_flag(flag_to_copy, copy_dependencies=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["success"], [])
+        self.assertEqual(len(response.json()["failed"]), 1)
+        self.assertIn("permission", response.json()["failed"][0]["error_message"])
+        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=source_dependency.key).exists())
+        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=flag_to_copy.key).exists())
+
+    def test_copy_feature_flag_with_dependencies_succeeds_for_allowed_target_when_another_target_is_denied(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        self._enable_access_control()
+        copying_user = self._create_user("copy-mixed-target-create-access@posthog.com")
+        allowed_target = Team.objects.create(organization=self.organization)
+        source_dependency = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=copying_user,
+            key="mixed-target-parent",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        flag_to_copy = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=copying_user,
+            key="mixed-target-dependent",
+            active=True,
+            filters={
+                "groups": [
+                    {"rollout_percentage": 100, "properties": [self._flag_dependency_property(source_dependency)]}
+                ]
+            },
+        )
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="feature_flag",
+            resource_id=None,
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        self.client.force_login(copying_user)
+
+        response = self._post_copy_flag(
+            flag_to_copy,
+            [allowed_target.id, self.team_2.id],
+            copy_dependencies=True,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(len(body["success"]), 1)
+        self.assertEqual(body["success"][0]["team_id"], allowed_target.id)
+        self.assertEqual(body["success"][0]["copied_dependency_keys"], [source_dependency.key])
+        self.assertEqual(len(body["failed"]), 1)
+        self.assertEqual(body["failed"][0]["project_id"], self.team_2.id)
+        self.assertIn("permission", body["failed"][0]["error_message"])
+        self.assertTrue(FeatureFlag.objects.filter(team=allowed_target, key=source_dependency.key).exists())
+        self.assertTrue(FeatureFlag.objects.filter(team=allowed_target, key=flag_to_copy.key).exists())
+        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=source_dependency.key).exists())
+        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=flag_to_copy.key).exists())
+
+    def test_copy_feature_flag_does_not_update_object_denied_target_flag(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        self._enable_access_control()
+        copying_user = self._create_user("copy-target-object-denied@posthog.com")
+        source_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=copying_user,
+            key="object-denied-target",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 25}]},
+        )
+        existing_target_flag = FeatureFlag.objects.create(
+            team=self.team_2,
+            created_by=self.user,
+            key=source_flag.key,
+            active=True,
+            filters={"groups": [{"rollout_percentage": 99}]},
+        )
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="feature_flag",
+            resource_id=str(existing_target_flag.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        self.client.force_login(copying_user)
+
+        response = self._post_copy_flag(source_flag)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["success"], [])
+        self.assertEqual(len(response.json()["failed"]), 1)
+        self.assertIn("permission", response.json()["failed"][0]["error_message"])
+        existing_target_flag.refresh_from_db()
+        self.assertEqual(existing_target_flag.filters["groups"][0]["rollout_percentage"], 99)
+
+    def test_copy_feature_flag_to_target_outside_route_organization_fails(self):
+        other_organization = Organization.objects.create(name="Other organization")
+        other_team = Team.objects.create(organization=other_organization)
+        self.user.join(organization=other_organization)
+        self.user.current_organization = self.organization
+        self.user.current_team = self.team_1
+        self.user.save()
+        self.client.force_login(self.user)
+
+        response = self._post_copy_flag(self.feature_flag_to_copy, [other_team.id])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["success"], [])
+        self.assertEqual(
+            response.json()["failed"], [{"project_id": other_team.id, "error_message": "Project not found."}]
+        )
+        self.assertFalse(FeatureFlag.objects.filter(team=other_team, key=self.feature_flag_key).exists())
+
+    def test_copy_feature_flag_to_team_without_flag_editor_access_fails(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        self._enable_access_control()
 
         # team_2 stays visible, but feature_flag write access there is restricted
         AccessControl.objects.create(
@@ -905,13 +1165,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             access_level="viewer",
         )
 
-        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
-        data = {
-            "feature_flag_key": self.feature_flag_key,
-            "from_project": self.team_1.id,
-            "target_project_ids": [self.team_2.id],
-        }
-        response = self.client.post(url, data)
+        response = self._post_copy_flag(self.feature_flag_to_copy)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["success"]), 0)
@@ -920,7 +1174,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             [
                 {
                     "project_id": self.team_2.id,
-                    "error_message": "You do not have permission to create or edit feature flags in this project.",
+                    "error_message": TARGET_COPY_PERMISSION_ERROR,
                 }
             ],
         )
@@ -1210,13 +1464,123 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         if destination_cohort is not None:
             self.assertTrue(destination_cohort.groups[0]["properties"][0]["value"] == destination_cohort_prop_value)
 
-    def _flag_dependency_property(self, dependency_flag, as_int=False):
-        return {
-            "key": dependency_flag.id if as_int else str(dependency_flag.id),
-            "type": "flag",
-            "value": "true",
-            "operator": "flag_evaluates_to",
+    def _copy_flags_url(self) -> str:
+        return f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+
+    def _dependency_requirements_url(self) -> str:
+        return f"{self._copy_flags_url()}/dependency_requirements"
+
+    def _post_copy_flag(
+        self,
+        feature_flag: FeatureFlag,
+        target_project_ids: list[int] | None = None,
+        **overrides: Any,
+    ) -> Any:
+        data: dict[str, Any] = {
+            "feature_flag_key": feature_flag.key,
+            "from_project": feature_flag.team_id,
+            "target_project_ids": target_project_ids if target_project_ids is not None else [self.team_2.id],
         }
+        data.update(overrides)
+        return self.client.post(self._copy_flags_url(), data)
+
+    def _post_dependency_requirements(
+        self,
+        feature_flag: FeatureFlag,
+        target_project_ids: list[int] | None = None,
+    ) -> Any:
+        return self.client.post(
+            self._dependency_requirements_url(),
+            {
+                "feature_flag_key": feature_flag.key,
+                "from_project": feature_flag.team_id,
+                "target_project_ids": target_project_ids if target_project_ids is not None else [self.team_2.id],
+            },
+        )
+
+    def _create_dependency_chain(self, *keys: str) -> list[FeatureFlag]:
+        next_dependency: FeatureFlag | None = None
+        flags_by_key: dict[str, FeatureFlag] = {}
+
+        for key in reversed(keys):
+            properties: list[dict[str, Any]] = (
+                [self._flag_dependency_property(next_dependency)] if next_dependency else []
+            )
+            flag = FeatureFlag.objects.create(
+                team=self.team_1,
+                created_by=self.user,
+                key=key,
+                active=True,
+                filters={"groups": [{"rollout_percentage": 100, "properties": properties}]},
+            )
+            flags_by_key[key] = flag
+            next_dependency = flag
+
+        return [flags_by_key[key] for key in keys]
+
+    def _flag_dependency_property(self, dependency_flag, as_int=False):
+        return _flag_dependency_property(dependency_flag, as_int=as_int)
+
+    @parameterized.expand(
+        [
+            ("copy_flags", "copy_flags"),
+            ("dependency_requirements", "dependency_requirements"),
+        ]
+    )
+    def test_copy_feature_flag_source_project_denied_returns_not_found(self, _name, endpoint):
+        from ee.models.rbac.access_control import AccessControl
+
+        self._enable_access_control()
+        copying_user = self._create_user("copy-source-project-denied@posthog.com")
+        AccessControl.objects.create(
+            team=self.team_1,
+            resource="project",
+            resource_id=str(self.team_1.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        self.client.force_login(copying_user)
+
+        if endpoint == "dependency_requirements":
+            response = self._post_dependency_requirements(self.feature_flag_to_copy)
+        else:
+            response = self._post_copy_flag(self.feature_flag_to_copy)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("does not exist", response.json()["error"])
+        self.assertNotIn(self.feature_flag_key, response.content.decode())
+        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=self.feature_flag_key).exists())
+
+    @parameterized.expand(
+        [
+            ("copy_flags", "copy_flags"),
+            ("dependency_requirements", "dependency_requirements"),
+        ]
+    )
+    def test_copy_feature_flag_source_object_denied_returns_forbidden(self, _name, endpoint):
+        from ee.models.rbac.access_control import AccessControl
+
+        self._enable_access_control()
+        copying_user = self._create_user("copy-source-object-denied@posthog.com")
+        AccessControl.objects.create(
+            team=self.team_1,
+            resource="feature_flag",
+            resource_id=str(self.feature_flag_to_copy.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        self.client.force_login(copying_user)
+
+        if endpoint == "dependency_requirements":
+            response = self._post_dependency_requirements(self.feature_flag_to_copy)
+        else:
+            response = self._post_copy_flag(self.feature_flag_to_copy)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("permission", response.json()["error"])
+        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=self.feature_flag_key).exists())
 
     @parameterized.expand(
         [
@@ -1261,13 +1625,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             filters={"groups": [{"rollout_percentage": 100, "properties": properties}]},
         )
 
-        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
-        data = {
-            "feature_flag_key": dependent_flag.key,
-            "from_project": dependent_flag.team_id,
-            "target_project_ids": [target_project.id],
-        }
-        response = self.client.post(url, data)
+        response = self._post_copy_flag(dependent_flag, [target_project.id])
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["failed"]), 0)
@@ -1288,9 +1646,89 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             self.assertIn("flag_dependency_warnings", success)
             self.assertIn(expected_warning_substring, success["flag_dependency_warnings"][0])
 
+    def test_copy_feature_flag_drops_disabled_source_dependency_even_when_target_same_key_flag_is_active(self):
+        source_parent = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="disabled-source-parent",
+            active=False,
+        )
+        target_parent = FeatureFlag.objects.create(
+            team=self.team_2,
+            created_by=self.user,
+            key=source_parent.key,
+            active=True,
+        )
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependent-on-disabled-source",
+            active=True,
+            filters={
+                "groups": [{"rollout_percentage": 100, "properties": [self._flag_dependency_property(source_parent)]}]
+            },
+        )
+
+        requirements_response = self._post_dependency_requirements(dependent_flag)
+
+        self.assertEqual(requirements_response.status_code, status.HTTP_200_OK)
+        requirements = requirements_response.json()
+        self.assertFalse(requirements["can_copy_dependencies"])
+        self.assertEqual(requirements["copied_dependency_keys"], [])
+        self.assertEqual(requirements["reused_dependency_keys"], [])
+        self.assertIn("disabled in the source project", requirements["reason"])
+
+        response = self._post_copy_flag(dependent_flag, copy_dependencies=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["failed"], [])
+        success = response.json()["success"][0]
+        self.assertIn("disabled in the source project", success["flag_dependency_warnings"][0])
+
+        target_parent.refresh_from_db()
+        self.assertTrue(target_parent.active)
+        copied_flag = FeatureFlag.objects.get(key=dependent_flag.key, team=self.team_2)
+        self.assertFalse(copied_flag.active)
+        self.assertEqual(copied_flag.filters["groups"][0]["properties"], [])
+
+    def test_copy_feature_flag_drops_unresolved_dependency_when_dependency_map_is_empty(self):
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependent-flag",
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [
+                            {
+                                "key": "999999999",
+                                "type": "flag",
+                                "value": "true",
+                                "operator": "flag_evaluates_to",
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+
+        response = self._post_copy_flag(dependent_flag, [self.team_2.id])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["failed"], [])
+        success = response.json()["success"][0]
+        self.assertIn("flag_dependency_warnings", success)
+        self.assertIn("could not be resolved", success["flag_dependency_warnings"][0])
+
+        copied_flag = FeatureFlag.objects.get(key="dependent-flag", team=self.team_2)
+        self.assertFalse(copied_flag.active)
+        self.assertEqual(copied_flag.filters["groups"][0]["properties"], [])
+
     def test_copy_feature_flag_remaps_int_keyed_dependency(self):
         # Dependencies are usually stored as string keys, so the int-key branch of the remap is
-        # otherwise untested — assert it remaps and preserves the int key type in the target.
+        # otherwise untested — assert it remaps and normalizes to the string key shape used downstream.
         target_project = self.team_2
         source_parent = FeatureFlag.objects.create(
             team=self.team_1, created_by=self.user, key="parent-flag", active=True
@@ -1313,20 +1751,13 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             },
         )
 
-        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
-        data = {
-            "feature_flag_key": dependent_flag.key,
-            "from_project": dependent_flag.team_id,
-            "target_project_ids": [target_project.id],
-        }
-        response = self.client.post(url, data)
+        response = self._post_copy_flag(dependent_flag, [target_project.id])
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["failed"]), 0)
         copied_flag = FeatureFlag.objects.get(key="dependent-flag", team_id=target_project.id)
         remapped_key = copied_flag.filters["groups"][0]["properties"][0]["key"]
-        self.assertEqual(remapped_key, target_parent.id)
-        self.assertIsInstance(remapped_key, int)
+        self.assertEqual(remapped_key, str(target_parent.id))
         self.assertTrue(copied_flag.active)
 
     def test_copy_feature_flag_with_multiple_dependencies_in_one_group(self):
@@ -1361,13 +1792,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             },
         )
 
-        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
-        data = {
-            "feature_flag_key": dependent_flag.key,
-            "from_project": dependent_flag.team_id,
-            "target_project_ids": [target_project.id],
-        }
-        response = self.client.post(url, data)
+        response = self._post_copy_flag(dependent_flag, [target_project.id])
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["failed"]), 0)
@@ -1406,13 +1831,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             },
         )
 
-        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
-        data = {
-            "feature_flag_key": dependent_flag.key,
-            "from_project": dependent_flag.team_id,
-            "target_project_ids": [target_1.id, target_2.id],
-        }
-        response = self.client.post(url, data)
+        response = self._post_copy_flag(dependent_flag, [target_1.id, target_2.id])
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["failed"]), 0)
@@ -1428,7 +1847,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
     def test_copy_remote_config_flag_preserves_type(self):
         """Test that copying a remote config flag preserves the is_remote_configuration field."""
-        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
         target_project = self.team_2
 
         remote_config_flag = FeatureFlag.objects.create(
@@ -1440,12 +1858,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             has_encrypted_payloads=False,
         )
 
-        data = {
-            "feature_flag_key": remote_config_flag.key,
-            "from_project": remote_config_flag.team_id,
-            "target_project_ids": [target_project.id],
-        }
-        response = self.client.post(url, data)
+        response = self._post_copy_flag(remote_config_flag, [target_project.id])
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("success", response.json())
@@ -1465,7 +1878,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         """Test that copying a flag with encrypted payloads decrypts them before copying."""
         from products.feature_flags.backend.encrypted_flag_payloads import encrypt_flag_payloads
 
-        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
         target_project = self.team_2
 
         # Create a flag with encrypted payloads
@@ -1484,12 +1896,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             has_encrypted_payloads=True,
         )
 
-        data = {
-            "feature_flag_key": encrypted_flag.key,
-            "from_project": encrypted_flag.team_id,
-            "target_project_ids": [target_project.id],
-        }
-        response = self.client.post(url, data)
+        response = self._post_copy_flag(encrypted_flag, [target_project.id])
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("success", response.json())
@@ -1518,8 +1925,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             get_decrypted_flag_payload,
         )
 
-        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
-
         # Create third team for testing multiple targets
         team_3 = Team.objects.create(organization=self.organization)
         team_3.api_token = "phc_test_copy_token_3"
@@ -1541,12 +1946,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             has_encrypted_payloads=True,
         )
 
-        data = {
-            "feature_flag_key": encrypted_flag.key,
-            "from_project": encrypted_flag.team_id,
-            "target_project_ids": [self.team_2.id, team_3.id],
-        }
-        response = self.client.post(url, data)
+        response = self._post_copy_flag(encrypted_flag, [self.team_2.id, team_3.id])
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("success", response.json())
@@ -1561,6 +1961,980 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             # Verify the encrypted payload can be decrypted back to the original value
             decrypted_payload = get_decrypted_flag_payload(copied_flag.filters["payloads"]["true"], should_decrypt=True)
             self.assertEqual(decrypted_payload, '{"key": "secret_value"}')
+
+    def test_copy_feature_flag_dependency_requirements_returns_no_dependencies(self):
+        response = self._post_dependency_requirements(self.feature_flag_to_copy)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertFalse(body["can_copy_dependencies"])
+        self.assertEqual(body["dependency_count"], 0)
+        self.assertEqual(body["copied_dependency_keys"], [])
+        self.assertEqual(body["reused_dependency_keys"], [])
+        self.assertEqual(body["warnings"], [])
+        self.assertIn("doesn't have dependencies", body["reason"])
+
+    def test_copy_feature_flag_dependency_requirements_returns_missing_dependencies(self):
+        flag_a, _, _ = self._create_dependency_chain("flag-a", "flag-b", "flag-c")
+
+        response = self._post_dependency_requirements(flag_a)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertTrue(body["can_copy_dependencies"])
+        self.assertEqual(body["dependency_count"], 2)
+        self.assertEqual(body["copied_dependency_keys"], ["flag-c", "flag-b"])
+        self.assertEqual(body["reused_dependency_keys"], [])
+
+    def test_copy_feature_flag_dependency_requirements_blocks_copy_when_any_target_is_unreachable(self):
+        other_organization = Organization.objects.create(name="Other organization")
+        other_team = Team.objects.create(organization=other_organization)
+        flag_a, _ = self._create_dependency_chain("unreachable-target-flag-a", "unreachable-target-flag-b")
+
+        response = self._post_dependency_requirements(flag_a, [self.team_2.id, other_team.id])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertFalse(body["can_copy_dependencies"])
+        self.assertEqual(body["dependency_count"], 1)
+        self.assertEqual(body["copied_dependency_keys"], [])
+        self.assertEqual(body["reused_dependency_keys"], [])
+        self.assertEqual(body["warnings"], ["Project not found."])
+        self.assertEqual(body["reason"], "Project not found.")
+
+    def test_copy_feature_flag_rejects_more_than_50_target_projects(self):
+        flag_to_copy = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="flag-to-copy",
+            active=True,
+        )
+        target_project_ids = list(range(51))
+
+        requirements_response = self._post_dependency_requirements(flag_to_copy, target_project_ids)
+        copy_response = self._post_copy_flag(flag_to_copy, target_project_ids)
+
+        self.assertEqual(requirements_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(copy_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("no more than 50", requirements_response.content.decode())
+        self.assertIn("no more than 50", copy_response.content.decode())
+
+    def test_copy_feature_flag_dependency_requirements_returns_disabled_target_blocker(self):
+        source_parent = FeatureFlag.objects.create(
+            team=self.team_1, created_by=self.user, key="parent-flag", active=True
+        )
+        FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key="parent-flag", active=False)
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependent-flag",
+            active=True,
+            filters={
+                "groups": [{"rollout_percentage": 100, "properties": [self._flag_dependency_property(source_parent)]}]
+            },
+        )
+
+        response = self._post_dependency_requirements(dependent_flag)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertFalse(body["can_copy_dependencies"])
+        self.assertEqual(body["copied_dependency_keys"], [])
+        self.assertEqual(body["reused_dependency_keys"], [])
+        self.assertIn("disabled in the target project", body["reason"])
+        self.assertEqual(body["warnings"], [body["reason"]])
+
+    def test_copy_feature_flag_with_dependencies_copies_direct_dependency_even_when_intermediate_is_reused(self):
+        flag_c = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="flag-c",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        flag_b = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="flag-b",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100, "properties": [self._flag_dependency_property(flag_c)]}]},
+        )
+        flag_a = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="flag-a",
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [
+                            self._flag_dependency_property(flag_b),
+                            self._flag_dependency_property(flag_c),
+                        ],
+                    }
+                ]
+            },
+        )
+        target_b = FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key="flag-b", active=True)
+
+        requirements_response = self._post_dependency_requirements(flag_a)
+
+        self.assertEqual(requirements_response.status_code, status.HTTP_200_OK)
+        requirements = requirements_response.json()
+        self.assertTrue(requirements["can_copy_dependencies"])
+        self.assertEqual(requirements["copied_dependency_keys"], ["flag-c"])
+        self.assertEqual(requirements["reused_dependency_keys"], ["flag-b"])
+
+        response = self._post_copy_flag(flag_a, copy_dependencies=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["failed"], [])
+        self.assertEqual(response.json()["success"][0]["copied_dependency_keys"], ["flag-c"])
+
+        copied_c = FeatureFlag.objects.get(team=self.team_2, key="flag-c")
+        copied_a = FeatureFlag.objects.get(team=self.team_2, key="flag-a")
+        copied_dependency_keys = [prop["key"] for prop in copied_a.filters["groups"][0]["properties"]]
+        self.assertEqual(copied_dependency_keys, [str(target_b.id), str(copied_c.id)])
+
+    def test_copy_feature_flag_with_dependencies_ignores_restricted_transitive_dependency_under_reused_target(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        self._enable_access_control()
+        copying_user = self._create_user("copy-reused-branch-restricted-child@posthog.com")
+        flag_c = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="flag-c",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        flag_b = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="flag-b",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100, "properties": [self._flag_dependency_property(flag_c)]}]},
+        )
+        flag_d = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="flag-d",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        flag_a = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=copying_user,
+            key="flag-a",
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [
+                            self._flag_dependency_property(flag_b),
+                            self._flag_dependency_property(flag_d),
+                        ],
+                    }
+                ]
+            },
+        )
+        target_b = FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key=flag_b.key, active=True)
+        target_c = FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key=flag_c.key, active=True)
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="feature_flag",
+            resource_id=str(target_c.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        self.client.force_login(copying_user)
+
+        requirements_response = self._post_dependency_requirements(flag_a)
+
+        self.assertEqual(requirements_response.status_code, status.HTTP_200_OK)
+        requirements = requirements_response.json()
+        self.assertTrue(requirements["can_copy_dependencies"])
+        self.assertEqual(requirements["copied_dependency_keys"], [flag_d.key])
+        self.assertEqual(requirements["reused_dependency_keys"], [flag_b.key])
+        self.assertEqual(requirements["warnings"], [])
+
+        response = self._post_copy_flag(flag_a, copy_dependencies=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["failed"], [])
+        success = response.json()["success"][0]
+        self.assertEqual(success["copied_dependency_keys"], [flag_d.key])
+        self.assertNotIn("flag_dependency_warnings", success)
+        self.assertNotIn("dependency_copy_warnings", success)
+
+        copied_d = FeatureFlag.objects.get(team=self.team_2, key=flag_d.key)
+        copied_a = FeatureFlag.objects.get(team=self.team_2, key=flag_a.key)
+        copied_dependency_keys = [prop["key"] for prop in copied_a.filters["groups"][0]["properties"]]
+        self.assertEqual(copied_dependency_keys, [str(target_b.id), str(copied_d.id)])
+        self.assertTrue(copied_a.active)
+
+    def test_copy_feature_flag_with_dependencies_copies_transitive_graph_dependency_first(self):
+        flag_a, _, _ = self._create_dependency_chain("flag-a", "flag-b", "flag-c")
+
+        response = self._post_copy_flag(flag_a, copy_dependencies=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["failed"], [])
+        self.assertEqual(response.json()["success"][0]["copied_dependency_keys"], ["flag-c", "flag-b"])
+
+        copied_c = FeatureFlag.objects.get(team=self.team_2, key="flag-c")
+        copied_b = FeatureFlag.objects.get(team=self.team_2, key="flag-b")
+        copied_a = FeatureFlag.objects.get(team=self.team_2, key="flag-a")
+
+        self.assertEqual(copied_b.filters["groups"][0]["properties"][0]["key"], str(copied_c.id))
+        self.assertEqual(copied_a.filters["groups"][0]["properties"][0]["key"], str(copied_b.id))
+        self.assertTrue(copied_a.active)
+        self.assertTrue(copied_b.active)
+        self.assertTrue(copied_c.active)
+
+    def test_copy_feature_flag_with_dependencies_preserves_dependency_active_state_when_root_copy_disabled(self):
+        flag_a, flag_b = self._create_dependency_chain("flag-a", "flag-b")
+
+        response = self._post_copy_flag(
+            flag_a,
+            copy_dependencies=True,
+            disable_copied_flag=True,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["failed"], [])
+
+        copied_a = FeatureFlag.objects.get(team=self.team_2, key=flag_a.key)
+        copied_b = FeatureFlag.objects.get(team=self.team_2, key=flag_b.key)
+        self.assertFalse(copied_a.active)
+        self.assertTrue(copied_b.active)
+        self.assertEqual(copied_a.filters["groups"][0]["properties"][0]["key"], str(copied_b.id))
+
+    def test_copy_feature_flag_with_dependencies_preserves_key_based_dependency_reference(self):
+        source_parent = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="parent-flag",
+            active=True,
+        )
+        target_parent = FeatureFlag.objects.create(
+            team=self.team_2,
+            created_by=self.user,
+            key=source_parent.key,
+            active=True,
+        )
+        key_based_dependency = self._flag_dependency_property(source_parent)
+        key_based_dependency["key"] = source_parent.key
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependent-flag",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100, "properties": [key_based_dependency]}]},
+        )
+
+        requirements_response = self._post_dependency_requirements(dependent_flag)
+
+        self.assertEqual(requirements_response.status_code, status.HTTP_200_OK)
+        requirements = requirements_response.json()
+        self.assertEqual(requirements["dependency_count"], 1)
+        self.assertFalse(requirements["can_copy_dependencies"])
+        self.assertEqual(requirements["copied_dependency_keys"], [])
+        self.assertEqual(requirements["reused_dependency_keys"], [source_parent.key])
+        self.assertEqual(requirements["warnings"], [])
+
+        response = self._post_copy_flag(dependent_flag, copy_dependencies=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["failed"], [])
+        success = response.json()["success"][0]
+        self.assertNotIn("copied_dependency_keys", success)
+        self.assertNotIn("flag_dependency_warnings", success)
+
+        copied_flag = FeatureFlag.objects.get(team=self.team_2, key=dependent_flag.key)
+        self.assertTrue(copied_flag.active)
+        self.assertEqual(copied_flag.filters["groups"][0]["properties"][0]["key"], str(target_parent.id))
+
+    def test_copy_feature_flag_with_dependencies_preserves_numeric_key_based_dependency_reference(self):
+        source_parent = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="temporary-parent",
+            active=True,
+        )
+        numeric_dependency_key = str(source_parent.id + 1000000)
+        source_parent.key = numeric_dependency_key
+        source_parent.save(update_fields=["key"])
+        target_parent = FeatureFlag.objects.create(
+            team=self.team_2,
+            created_by=self.user,
+            key=numeric_dependency_key,
+            active=True,
+        )
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependent-flag",
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [
+                            {
+                                "key": numeric_dependency_key,
+                                "type": "flag",
+                                "value": "true",
+                                "operator": "flag_evaluates_to",
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+
+        requirements_response = self._post_dependency_requirements(dependent_flag)
+
+        self.assertEqual(requirements_response.status_code, status.HTTP_200_OK)
+        requirements = requirements_response.json()
+        self.assertEqual(requirements["dependency_count"], 1)
+        self.assertFalse(requirements["can_copy_dependencies"])
+        self.assertEqual(requirements["copied_dependency_keys"], [])
+        self.assertEqual(requirements["reused_dependency_keys"], [numeric_dependency_key])
+        self.assertEqual(requirements["warnings"], [])
+
+        response = self._post_copy_flag(dependent_flag, copy_dependencies=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["failed"], [])
+        success = response.json()["success"][0]
+        self.assertNotIn("copied_dependency_keys", success)
+        self.assertNotIn("flag_dependency_warnings", success)
+
+        copied_flag = FeatureFlag.objects.get(team=self.team_2, key=dependent_flag.key)
+        self.assertTrue(copied_flag.active)
+        self.assertEqual(copied_flag.filters["groups"][0]["properties"][0]["key"], str(target_parent.id))
+
+    def test_copy_feature_flag_with_dependencies_prefers_id_over_numeric_key_collision(self):
+        id_matched_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="id-matched-flag",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        key_matched_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key=str(id_matched_flag.id),
+            active=True,
+        )
+        target_numeric_key_flag = FeatureFlag.objects.create(
+            team=self.team_2,
+            created_by=self.user,
+            key=key_matched_flag.key,
+            active=True,
+        )
+        dependency = self._flag_dependency_property(id_matched_flag)
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependent-flag",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100, "properties": [dependency]}]},
+        )
+
+        requirements_response = self._post_dependency_requirements(dependent_flag)
+
+        self.assertEqual(requirements_response.status_code, status.HTTP_200_OK)
+        requirements = requirements_response.json()
+        self.assertTrue(requirements["can_copy_dependencies"])
+        self.assertEqual(requirements["dependency_count"], 1)
+        self.assertEqual(requirements["copied_dependency_keys"], [id_matched_flag.key])
+        self.assertEqual(requirements["reused_dependency_keys"], [])
+        self.assertEqual(requirements["warnings"], [])
+
+        response = self._post_copy_flag(dependent_flag, copy_dependencies=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["failed"], [])
+        success = response.json()["success"][0]
+        self.assertEqual(success["copied_dependency_keys"], [id_matched_flag.key])
+
+        copied_dependency = FeatureFlag.objects.get(team=self.team_2, key=id_matched_flag.key)
+        copied_flag = FeatureFlag.objects.get(team=self.team_2, key=dependent_flag.key)
+        self.assertEqual(copied_flag.filters["groups"][0]["properties"][0]["key"], str(copied_dependency.id))
+        self.assertNotEqual(copied_flag.filters["groups"][0]["properties"][0]["key"], str(target_numeric_key_flag.id))
+
+    def test_copy_feature_flag_with_dependencies_does_not_reuse_restricted_target_dependency(self):
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        copying_user = self._create_user("copy-restricted-target-dependencies@posthog.com")
+
+        source_parent = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="restricted-target-parent",
+            active=True,
+        )
+        target_parent = FeatureFlag.objects.create(
+            team=self.team_2,
+            created_by=self.user,
+            key=source_parent.key,
+            active=True,
+        )
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=copying_user,
+            key="dependent-flag",
+            active=True,
+            filters={
+                "groups": [{"rollout_percentage": 100, "properties": [self._flag_dependency_property(source_parent)]}]
+            },
+        )
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="feature_flag",
+            resource_id=str(target_parent.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        self.client.force_login(copying_user)
+
+        requirements_response = self._post_dependency_requirements(dependent_flag)
+
+        self.assertEqual(requirements_response.status_code, status.HTTP_200_OK)
+        requirements = requirements_response.json()
+        self.assertFalse(requirements["can_copy_dependencies"])
+        self.assertEqual(requirements["copied_dependency_keys"], [])
+        self.assertEqual(requirements["reused_dependency_keys"], [])
+        self.assertIn("restricted", requirements["reason"])
+        self.assertNotIn(source_parent.key, requirements_response.content.decode())
+
+        response = self._post_copy_flag(dependent_flag, copy_dependencies=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["failed"], [])
+        success = response.json()["success"][0]
+        self.assertNotIn("copied_dependency_keys", success)
+        self.assertIn("restricted", success["flag_dependency_warnings"][0])
+        self.assertNotIn(source_parent.key, response.content.decode())
+
+        copied_flag = FeatureFlag.objects.get(team=self.team_2, key=dependent_flag.key)
+        self.assertFalse(copied_flag.active)
+        self.assertEqual(copied_flag.filters["groups"][0]["properties"], [])
+
+    def test_copy_feature_flag_with_dependencies_leaves_disabled_same_key_target_dependency(self):
+        source_parent = FeatureFlag.objects.create(
+            team=self.team_1, created_by=self.user, key="parent-flag", active=True
+        )
+        target_parent = FeatureFlag.objects.create(
+            team=self.team_2, created_by=self.user, key="parent-flag", active=False
+        )
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependent-flag",
+            active=True,
+            filters={
+                "groups": [{"rollout_percentage": 100, "properties": [self._flag_dependency_property(source_parent)]}]
+            },
+        )
+        ScheduledChange.objects.create(
+            record_id=str(dependent_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": True}},
+            scheduled_at=timezone.now() + timedelta(days=1),
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        response = self._post_copy_flag(dependent_flag, copy_dependencies=True, copy_schedule=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        target_parent.refresh_from_db()
+        self.assertFalse(target_parent.active)
+
+        success = response.json()["success"][0]
+        self.assertNotIn("copied_dependency_keys", success)
+        self.assertIn("disabled in the target project", success["flag_dependency_warnings"][0])
+        self.assertIn("Skipped scheduled changes", success["schedule_copy_warning"])
+        copied_flag = FeatureFlag.objects.get(team=self.team_2, key="dependent-flag")
+        self.assertFalse(copied_flag.active)
+        self.assertFalse(
+            ScheduledChange.objects.filter(
+                record_id=str(copied_flag.id),
+                model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+                team=self.team_2,
+            ).exists()
+        )
+
+    def test_copy_feature_flag_with_dependencies_copies_unblocked_dependency_when_one_target_dependency_disabled(self):
+        disabled_source_dependency = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="disabled-target-parent",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 25}]},
+        )
+        missing_source_dependency = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="missing-parent",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 50}]},
+        )
+        target_disabled_dependency = FeatureFlag.objects.create(
+            team=self.team_2,
+            created_by=self.user,
+            key=disabled_source_dependency.key,
+            active=False,
+            filters={"groups": [{"rollout_percentage": 75}]},
+        )
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="mixed-dependency-flag",
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [
+                            self._flag_dependency_property(disabled_source_dependency),
+                            self._flag_dependency_property(missing_source_dependency),
+                        ],
+                    }
+                ]
+            },
+        )
+
+        requirements_response = self._post_dependency_requirements(dependent_flag)
+
+        self.assertEqual(requirements_response.status_code, status.HTTP_200_OK)
+        requirements = requirements_response.json()
+        self.assertTrue(requirements["can_copy_dependencies"])
+        self.assertEqual(requirements["copied_dependency_keys"], [missing_source_dependency.key])
+        self.assertEqual(requirements["reused_dependency_keys"], [])
+        self.assertIn("disabled in the target project", requirements["warnings"][0])
+        self.assertIn("Some dependencies will be left unchanged", requirements["reason"])
+
+        response = self._post_copy_flag(dependent_flag, copy_dependencies=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["failed"], [])
+        success = response.json()["success"][0]
+        self.assertEqual(success["copied_dependency_keys"], [missing_source_dependency.key])
+        self.assertIn("disabled in the target project", success["flag_dependency_warnings"][0])
+
+        target_disabled_dependency.refresh_from_db()
+        self.assertFalse(target_disabled_dependency.active)
+        copied_dependency = FeatureFlag.objects.get(team=self.team_2, key=missing_source_dependency.key)
+        copied_flag = FeatureFlag.objects.get(team=self.team_2, key=dependent_flag.key)
+        self.assertFalse(copied_flag.active)
+        self.assertEqual(copied_flag.filters["groups"][0]["properties"][0]["key"], str(copied_dependency.id))
+
+    def test_copy_feature_flag_with_more_than_50_dependencies_returns_400(self):
+        previous_dependency = None
+        for index in range(51):
+            properties: list[dict[str, Any]] = (
+                [self._flag_dependency_property(previous_dependency)] if previous_dependency else []
+            )
+            previous_dependency = FeatureFlag.objects.create(
+                team=self.team_1,
+                created_by=self.user,
+                key=f"dependency-{index}",
+                active=True,
+                filters={"groups": [{"rollout_percentage": 100, "properties": properties}]},
+            )
+        flag_to_copy = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="flag-with-too-many-dependencies",
+            active=True,
+            filters={
+                "groups": [
+                    {"rollout_percentage": 100, "properties": [self._flag_dependency_property(previous_dependency)]}
+                ]
+            },
+        )
+
+        response = self._post_copy_flag(flag_to_copy, copy_dependencies=True)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json()["error"],
+            "This flag depends on more than 50 flags, so dependencies can't be copied automatically. Copy the flag without dependencies or reduce the dependency chain.",
+        )
+        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=flag_to_copy.key).exists())
+
+    def test_copy_feature_flag_with_dependency_cycle_returns_400(self):
+        flag_a = FeatureFlag.objects.create(team=self.team_1, created_by=self.user, key="flag-a", active=True)
+        flag_b = FeatureFlag.objects.create(team=self.team_1, created_by=self.user, key="flag-b", active=True)
+        flag_a.filters = {
+            "groups": [{"rollout_percentage": 100, "properties": [self._flag_dependency_property(flag_b)]}]
+        }
+        flag_a.save()
+        flag_b.filters = {
+            "groups": [{"rollout_percentage": 100, "properties": [self._flag_dependency_property(flag_a)]}]
+        }
+        flag_b.save()
+
+        response = self._post_copy_flag(flag_a, copy_dependencies=True)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json()["error"],
+            "A circular flag dependency was detected, so dependencies can't be copied automatically. Copy the flag without dependencies or remove the cycle first.",
+        )
+        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=flag_a.key).exists())
+
+    def test_copy_feature_flag_dependency_failure_rolls_back_only_that_target(self):
+        successful_target = Team.objects.create(organization=self.organization)
+        source_dependency = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependency-flag",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        flag_to_copy = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependent-flag",
+            active=True,
+            filters={
+                "groups": [
+                    {"rollout_percentage": 100, "properties": [self._flag_dependency_property(source_dependency)]}
+                ]
+            },
+        )
+        blocked_tombstone = FeatureFlag.objects.create(
+            team=self.team_2,
+            created_by=self.user,
+            key=source_dependency.key,
+            deleted=True,
+        )
+        Experiment.objects.create(team=self.team_2, created_by=self.user, feature_flag_id=blocked_tombstone.id)
+
+        response = self._post_copy_flag(
+            flag_to_copy,
+            target_project_ids=[self.team_2.id, successful_target.id],
+            copy_dependencies=True,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 1)
+        self.assertEqual(response.json()["success"][0]["key"], flag_to_copy.key)
+        self.assertEqual(len(response.json()["failed"]), 1)
+        self.assertEqual(response.json()["failed"][0]["project_id"], self.team_2.id)
+
+        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=flag_to_copy.key).exists())
+        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=source_dependency.key).exists())
+        self.assertTrue(FeatureFlag.objects.filter(team=successful_target, key=flag_to_copy.key).exists())
+        self.assertTrue(FeatureFlag.objects.filter(team=successful_target, key=source_dependency.key).exists())
+
+    def test_copy_feature_flag_with_dependencies_does_not_update_dependency_created_during_copy(self):
+        source_dependency = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependency-created-during-copy",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 10}]},
+        )
+        flag_to_copy = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependent-created-during-copy",
+            active=True,
+            filters={
+                "groups": [
+                    {"rollout_percentage": 100, "properties": [self._flag_dependency_property(source_dependency)]}
+                ]
+            },
+        )
+        original_copy_feature_flag_to_target = OrganizationFeatureFlagView._copy_feature_flag_to_target
+
+        def create_target_dependency_during_copy(
+            view: OrganizationFeatureFlagView,
+            request: Any,
+            source_flag: FeatureFlag,
+            target_team: Team,
+            target_project_id: int,
+            copy_schedule: bool,
+            disable_copied_flag: bool,
+            update_existing_target: bool = True,
+            **kwargs: Any,
+        ) -> dict[str, Any]:
+            if source_flag.key == source_dependency.key and target_team == self.team_2:
+                FeatureFlag.objects.get_or_create(
+                    team=self.team_2,
+                    key=source_dependency.key,
+                    defaults={
+                        "created_by": self.user,
+                        "active": True,
+                        "filters": {"groups": [{"rollout_percentage": 99}]},
+                    },
+                )
+            return original_copy_feature_flag_to_target(
+                view,
+                request,
+                source_flag,
+                target_team,
+                target_project_id,
+                copy_schedule,
+                disable_copied_flag,
+                update_existing_target=update_existing_target,
+                **kwargs,
+            )
+
+        with patch.object(
+            OrganizationFeatureFlagView,
+            "_copy_feature_flag_to_target",
+            autospec=True,
+            side_effect=create_target_dependency_during_copy,
+        ):
+            response = self._post_copy_flag(flag_to_copy, copy_dependencies=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["success"], [])
+        self.assertEqual(len(response.json()["failed"]), 1)
+        self.assertEqual(response.json()["failed"][0]["project_id"], self.team_2.id)
+        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=flag_to_copy.key).exists())
+
+    def test_copy_feature_flag_with_dependencies_copies_dependency_schedules(self):
+        source_nested_dependency = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="nested-dependency-flag",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        source_dependency = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependency-flag",
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [self._flag_dependency_property(source_nested_dependency)],
+                    }
+                ]
+            },
+        )
+        flag_to_copy = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependent-flag",
+            active=True,
+            filters={
+                "groups": [
+                    {"rollout_percentage": 100, "properties": [self._flag_dependency_property(source_dependency)]}
+                ]
+            },
+        )
+        ScheduledChange.objects.create(
+            record_id=str(source_dependency.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload=_add_release_condition_payload([self._flag_dependency_property(source_nested_dependency)]),
+            scheduled_at=timezone.now() + timedelta(days=1),
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        response = self._post_copy_flag(flag_to_copy, copy_dependencies=True, copy_schedule=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        copied_dependency = FeatureFlag.objects.get(team=self.team_2, key=source_dependency.key)
+        copied_nested_dependency = FeatureFlag.objects.get(team=self.team_2, key=source_nested_dependency.key)
+        self.assertEqual(
+            ScheduledChange.objects.filter(
+                record_id=str(copied_dependency.id),
+                model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+                team=self.team_2,
+            ).count(),
+            1,
+        )
+        copied_schedule = ScheduledChange.objects.get(
+            record_id=str(copied_dependency.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            team=self.team_2,
+        )
+        schedule_dependency_key = copied_schedule.payload["value"]["groups"][0]["properties"][0]["key"]
+        self.assertEqual(schedule_dependency_key, str(copied_nested_dependency.id))
+        self.assertNotEqual(schedule_dependency_key, str(source_nested_dependency.id))
+
+    def test_copy_feature_flag_with_dependency_denied_returns_forbidden(self):
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        copying_user = self._create_user("copy-dependencies@posthog.com")
+
+        source_dependency = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependency-flag",
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [
+                            {
+                                "key": "hidden-child-dependency",
+                                "type": "flag",
+                                "value": "true",
+                                "operator": "flag_evaluates_to",
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+        flag_to_copy = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=copying_user,
+            key="dependent-flag",
+            active=True,
+            filters={
+                "groups": [
+                    {"rollout_percentage": 100, "properties": [self._flag_dependency_property(source_dependency)]}
+                ]
+            },
+        )
+        AccessControl.objects.create(
+            team=self.team_1,
+            resource="feature_flag",
+            resource_id=str(source_dependency.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        self.client.force_login(copying_user)
+
+        requirements_response = self._post_dependency_requirements(flag_to_copy)
+
+        self.assertEqual(requirements_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(requirements_response.json()["can_copy_dependencies"])
+        self.assertIn("dependency flags", requirements_response.json()["reason"])
+        self.assertNotIn(source_dependency.key, requirements_response.content.decode())
+        self.assertNotIn("hidden-child-dependency", requirements_response.content.decode())
+
+        response = self._post_copy_flag(flag_to_copy, copy_dependencies=True)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("dependency flags", response.json()["error"])
+        self.assertNotIn(source_dependency.key, response.content.decode())
+        self.assertNotIn("hidden-child-dependency", response.content.decode())
+        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=flag_to_copy.key).exists())
+
+    def test_copy_feature_flag_too_many_target_projects(self):
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        # One more than the cap. team_2 is a real, writable target, included to prove it gets
+        # nothing even though it would otherwise succeed on its own.
+        target_project_ids = [*range(10_000, 10_000 + MAX_COPY_FLAGS_TARGET_PROJECTS), self.team_2.id]
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": target_project_ids,
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "target_project_ids")
+        self.assertEqual(response.json()["code"], "max_length")
+        self.assertFalse(FeatureFlag.objects.filter(key=self.feature_flag_key, team_id=self.team_2.id).exists())
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch("posthog.rate_limit.CopyFlagsBurstRateThrottle.rate", new="1/minute")
+    def test_copy_feature_flag_throttles_session_authenticated_requests(self, *_args):
+        # CopyFlagsBurstRateThrottle subclasses PersonalApiKeyOrUserRateThrottle, which applies
+        # regardless of auth method, so it must catch the test client's session-authenticated
+        # calls too. The patched rate makes the second request trip it deterministically.
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+        }
+
+        first = self.client.post(url, data)
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+
+        second = self.client.post(url, data)
+        self.assertEqual(second.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_copy_feature_flag_overwrite_denied_by_object_level_access_control_fails(self):
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {
+                "name": AvailableFeature.ACCESS_CONTROL,
+                "key": AvailableFeature.ACCESS_CONTROL,
+            }
+        ]
+        self.organization.save()
+
+        # A flag with this key already exists in team_2, created by a different user so the
+        # creator-always-visible exception doesn't grant self.user access to it.
+        other_user = self._create_user("other-copy@posthog.com")
+        existing_flag = FeatureFlag.objects.create(
+            team=self.team_2,
+            created_by=other_user,
+            key=self.feature_flag_key,
+            filters={"groups": [{"rollout_percentage": 10}]},
+        )
+
+        # Deny editor access to this specific flag at the object level (team_2 stays visible).
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="feature_flag",
+            resource_id=str(existing_flag.id),
+            organization_member=None,
+            role=None,
+            access_level="viewer",
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 0)
+        self.assertEqual(
+            response.json()["failed"],
+            [
+                {
+                    "project_id": self.team_2.id,
+                    "error_message": TARGET_COPY_PERMISSION_ERROR,
+                }
+            ],
+        )
+        existing_flag.refresh_from_db()
+        self.assertEqual(existing_flag.filters, {"groups": [{"rollout_percentage": 10}]})
 
 
 class TestOrganizationFeatureFlagCopyPersonalAPIKey(APIBaseTest):
@@ -1675,6 +3049,15 @@ class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):
 
         super().setUp()
 
+    def _post_copy_flag(self, **overrides: Any) -> Any:
+        data: dict[str, Any] = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+        }
+        data.update(overrides)
+        return self.client.post(f"/api/organizations/{self.organization.id}/feature_flags/copy_flags", data)
+
     def test_copy_flag_without_schedules(self):
         """Copying a flag without copy_schedule=True should not copy schedules."""
         scheduled_time = timezone.now() + timedelta(days=1)
@@ -1706,6 +3089,96 @@ class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):
             team=self.team_2,
         )
         self.assertEqual(target_schedules.count(), 0)
+
+    def test_copy_flag_with_dropped_dependency_warns_about_existing_target_schedule(self):
+        source_dependency = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="current-parent-flag",
+            active=True,
+        )
+        self.feature_flag.filters = {
+            "groups": [
+                {
+                    "rollout_percentage": 50,
+                    "properties": [_flag_dependency_property(source_dependency)],
+                }
+            ]
+        }
+        self.feature_flag.save()
+        existing_target_flag = FeatureFlag.objects.create(
+            team=self.team_2,
+            created_by=self.user,
+            key=self.feature_flag_key,
+            active=True,
+            filters={"groups": [{"rollout_percentage": 10}]},
+        )
+        ScheduledChange.objects.create(
+            record_id=str(existing_target_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": True}},
+            scheduled_at=timezone.now() + timedelta(days=1),
+            team=self.team_2,
+            created_by=self.user,
+        )
+
+        response = self._post_copy_flag(copy_schedule=False)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["failed"], [])
+        result = response.json()["success"][0]
+        self.assertIn("flag_dependency_warnings", result)
+        self.assertIn("schedule_copy_warning", result)
+        self.assertIn("Pending scheduled changes already attached", result["schedule_copy_warning"])
+
+        existing_target_flag.refresh_from_db()
+        self.assertFalse(existing_target_flag.active)
+        self.assertEqual(result["id"], existing_target_flag.id)
+        self.assertEqual(
+            ScheduledChange.objects.filter(
+                record_id=str(existing_target_flag.id),
+                model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+                team=self.team_2,
+                executed_at__isnull=True,
+            ).count(),
+            1,
+        )
+
+    def test_copy_flag_warns_about_existing_target_schedule_without_dependency_warnings(self):
+        existing_target_flag = FeatureFlag.objects.create(
+            team=self.team_2,
+            created_by=self.user,
+            key=self.feature_flag_key,
+            active=True,
+            filters={"groups": [{"rollout_percentage": 10}]},
+        )
+        ScheduledChange.objects.create(
+            record_id=str(existing_target_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": False}},
+            scheduled_at=timezone.now() + timedelta(days=1),
+            team=self.team_2,
+            created_by=self.user,
+        )
+
+        response = self._post_copy_flag(copy_schedule=False)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["failed"], [])
+        result = response.json()["success"][0]
+        self.assertNotIn("flag_dependency_warnings", result)
+        self.assertIn("schedule_copy_warning", result)
+        self.assertIn(EXISTING_TARGET_SCHEDULE_DEPENDENCY_WARNING, result["schedule_copy_warning"])
+        self.assertEqual(result["id"], existing_target_flag.id)
+        self.assertEqual(
+            ScheduledChange.objects.filter(
+                record_id=str(existing_target_flag.id),
+                model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+                team=self.team_2,
+                executed_at__isnull=True,
+            ).count(),
+            1,
+        )
 
     def test_copy_flag_with_single_schedule(self):
         """Copying a flag with copy_schedule=True should copy the schedule."""
@@ -1869,7 +3342,43 @@ class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):
         self.assertEqual(copied_schedule.recurrence_interval, "weekly")
         self.assertEqual(copied_schedule.end_date, end_date)
 
-    def test_copy_flag_with_schedule_containing_cohort(self):
+    def test_copy_flag_with_cron_recurring_schedule(self):
+        scheduled_time = timezone.now() + timedelta(days=1)
+        end_date = timezone.now() + timedelta(days=30)
+        source_schedule = ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": False}},
+            scheduled_at=scheduled_time,
+            is_recurring=True,
+            cron_expression="0 9 * * 1-5",
+            timezone="America/New_York",
+            end_date=end_date,
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        response = self._post_copy_flag(copy_schedule=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        copied_schedule = ScheduledChange.objects.get(
+            record_id=str(copied_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            team=self.team_2,
+        )
+        self.assertTrue(copied_schedule.is_recurring)
+        self.assertEqual(copied_schedule.cron_expression, source_schedule.cron_expression)
+        self.assertEqual(copied_schedule.timezone, source_schedule.timezone)
+        self.assertEqual(copied_schedule.end_date, source_schedule.end_date)
+
+    @parameterized.expand(
+        [
+            ("canonical_value", "value"),
+            ("legacy_filters", "filters"),
+        ]
+    )
+    def test_copy_flag_with_schedule_containing_cohort(self, _name, filter_payload_key):
         """Schedule payloads with cohort references should be remapped to target project cohorts."""
         source_cohort = Cohort.objects.create(
             team=self.team_1,
@@ -1883,33 +3392,23 @@ class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):
         )
 
         scheduled_time = timezone.now() + timedelta(days=1)
+        filters: dict[str, Any] = {
+            "groups": [
+                {"rollout_percentage": 100, "properties": [{"key": "id", "type": "cohort", "value": source_cohort.id}]}
+            ],
+            "payloads": {},
+            "multivariate": None,
+        }
         ScheduledChange.objects.create(
             record_id=str(self.feature_flag.id),
             model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
-            payload={
-                "operation": "add_release_condition",
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 100,
-                            "properties": [{"key": "id", "type": "cohort", "value": source_cohort.id}],
-                        }
-                    ]
-                },
-            },
+            payload={"operation": "add_release_condition", filter_payload_key: filters},
             scheduled_at=scheduled_time,
             team=self.team_1,
             created_by=self.user,
         )
 
-        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
-        data = {
-            "feature_flag_key": self.feature_flag_key,
-            "from_project": self.team_1.id,
-            "target_project_ids": [self.team_2.id],
-            "copy_schedule": True,
-        }
-        response = self.client.post(url, data)
+        response = self._post_copy_flag(copy_schedule=True)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1924,9 +3423,260 @@ class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):
         )
 
         # Verify the cohort ID in the schedule payload was remapped
-        schedule_cohort_id = copied_schedule.payload["filters"]["groups"][0]["properties"][0]["value"]
+        schedule_cohort_id = copied_schedule.payload[filter_payload_key]["groups"][0]["properties"][0]["value"]
         self.assertEqual(schedule_cohort_id, target_cohort.id)
         self.assertNotEqual(schedule_cohort_id, source_cohort.id)
+
+    def test_copy_flag_with_schedule_containing_nested_cohort(self):
+        source_child_cohort = Cohort.objects.create(
+            team=self.team_1,
+            name="Schedule Child Cohort",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"key": "email", "value": "@example.com", "type": "person", "operator": "icontains"}],
+                }
+            },
+        )
+        source_parent_cohort = Cohort.objects.create(
+            team=self.team_1,
+            name="Schedule Parent Cohort",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"key": "id", "type": "cohort", "value": source_child_cohort.id}],
+                }
+            },
+        )
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload=_add_release_condition_payload([{"key": "id", "type": "cohort", "value": source_parent_cohort.id}]),
+            scheduled_at=timezone.now() + timedelta(days=1),
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        response = self._post_copy_flag(copy_schedule=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        target_child_cohort = Cohort.objects.get(name="Schedule Child Cohort", team=self.team_2)
+        target_parent_cohort = Cohort.objects.get(name="Schedule Parent Cohort", team=self.team_2)
+
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        copied_schedule = ScheduledChange.objects.get(
+            record_id=str(copied_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            team=self.team_2,
+        )
+        schedule_parent_cohort_id = copied_schedule.payload["value"]["groups"][0]["properties"][0]["value"]
+        self.assertEqual(schedule_parent_cohort_id, target_parent_cohort.id)
+        self.assertNotEqual(schedule_parent_cohort_id, source_parent_cohort.id)
+
+        target_parent_filters = cast(dict[str, Any], target_parent_cohort.filters)
+        target_parent_child_cohort_id = target_parent_filters["properties"]["values"][0]["value"]
+        self.assertEqual(target_parent_child_cohort_id, target_child_cohort.id)
+        self.assertNotEqual(target_parent_child_cohort_id, source_child_cohort.id)
+
+    def test_copy_flag_schedule_prefers_value_over_legacy_filters(self):
+        legacy_cohort = Cohort.objects.create(
+            team=self.team_1,
+            name="Legacy Schedule Cohort",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"key": "email", "value": "@legacy.com", "type": "person", "operator": "icontains"}],
+                }
+            },
+        )
+        canonical_cohort = Cohort.objects.create(
+            team=self.team_1,
+            name="Canonical Schedule Cohort",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"key": "email", "value": "@canonical.com", "type": "person", "operator": "icontains"}],
+                }
+            },
+        )
+        payload = _add_release_condition_payload([{"key": "id", "type": "cohort", "value": canonical_cohort.id}])
+        payload["filters"] = {
+            "groups": [
+                {"rollout_percentage": 100, "properties": [{"key": "id", "type": "cohort", "value": legacy_cohort.id}]}
+            ]
+        }
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload=payload,
+            scheduled_at=timezone.now() + timedelta(days=1),
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        response = self._post_copy_flag(copy_schedule=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        target_canonical_cohort = Cohort.objects.get(name="Canonical Schedule Cohort", team=self.team_2)
+        self.assertFalse(Cohort.objects.filter(name="Legacy Schedule Cohort", team=self.team_2).exists())
+
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        copied_schedule = ScheduledChange.objects.get(
+            record_id=str(copied_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            team=self.team_2,
+        )
+        schedule_cohort_id = copied_schedule.payload["value"]["groups"][0]["properties"][0]["value"]
+        self.assertEqual(schedule_cohort_id, target_canonical_cohort.id)
+        self.assertNotEqual(schedule_cohort_id, canonical_cohort.id)
+
+    @parameterized.expand(
+        [
+            ("missing_target_dependency", False, "no flag with that key exists"),
+            ("disabled_target_dependency", True, "disabled in the target project"),
+        ]
+    )
+    def test_copy_flag_schedule_dependency_warning_skips_unsafe_schedule(
+        self, _name, create_disabled_target_dependency, expected_warning
+    ):
+        source_schedule_dependency = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="schedule-parent",
+            active=True,
+        )
+        if create_disabled_target_dependency:
+            FeatureFlag.objects.create(
+                team=self.team_2,
+                created_by=self.user,
+                key=source_schedule_dependency.key,
+                active=False,
+            )
+
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload=_add_release_condition_payload([_flag_dependency_property(source_schedule_dependency)]),
+            scheduled_at=timezone.now() + timedelta(days=1),
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        response = self._post_copy_flag(copy_schedule=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result = response.json()["success"][0]
+        self.assertIn("schedule_copy_warning", result)
+        self.assertIn("scheduled changes had dependency warnings", result["schedule_copy_warning"])
+        self.assertIn(expected_warning, result["schedule_copy_warning"])
+        self.assertIn("Skipped scheduled change", result["schedule_copy_warning"])
+
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        self.assertFalse(
+            ScheduledChange.objects.filter(
+                record_id=str(copied_flag.id),
+                model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+                team=self.team_2,
+            ).exists()
+        )
+
+    def test_copy_flag_schedule_unresolved_dependency_warning_skips_unsafe_schedule(self):
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload=_add_release_condition_payload(
+                [
+                    {
+                        "key": "999999999",
+                        "type": "flag",
+                        "value": "true",
+                        "operator": "flag_evaluates_to",
+                    }
+                ]
+            ),
+            scheduled_at=timezone.now() + timedelta(days=1),
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        response = self._post_copy_flag(copy_schedule=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result = response.json()["success"][0]
+        self.assertIn("schedule_copy_warning", result)
+        self.assertIn("could not be resolved", result["schedule_copy_warning"])
+        self.assertIn("Skipped scheduled change", result["schedule_copy_warning"])
+
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        self.assertFalse(
+            ScheduledChange.objects.filter(
+                record_id=str(copied_flag.id),
+                model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+                team=self.team_2,
+            ).exists()
+        )
+
+    def test_copy_flag_schedule_dependency_denied_does_not_disclose_key(self):
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        copying_user = self._create_user("copy-schedule-dependencies@posthog.com")
+
+        denied_dependency = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="hidden-schedule-parent",
+            active=True,
+        )
+        flag_to_copy = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=copying_user,
+            key="flag-with-denied-schedule-dependency",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 50}]},
+        )
+        ScheduledChange.objects.create(
+            record_id=str(flag_to_copy.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload=_add_release_condition_payload([_flag_dependency_property(denied_dependency)]),
+            scheduled_at=timezone.now() + timedelta(days=1),
+            team=self.team_1,
+            created_by=copying_user,
+        )
+        AccessControl.objects.create(
+            team=self.team_1,
+            resource="feature_flag",
+            resource_id=str(denied_dependency.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        self.client.force_login(copying_user)
+
+        response = self._post_copy_flag(
+            feature_flag_key=flag_to_copy.key,
+            copy_schedule=True,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result = response.json()["success"][0]
+        self.assertIn("schedule_copy_warning", result)
+        self.assertIn("scheduled flag dependencies", result["schedule_copy_warning"])
+        self.assertNotIn(denied_dependency.key, response.content.decode())
+
+        copied_flag = FeatureFlag.objects.get(key=flag_to_copy.key, team=self.team_2)
+        self.assertFalse(
+            ScheduledChange.objects.filter(
+                record_id=str(copied_flag.id),
+                model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+                team=self.team_2,
+            ).exists()
+        )
 
     def test_copy_flag_schedule_failure_surfaces_warning(self):
         """If schedule copying fails, the flag should still be copied with a warning."""
@@ -1940,19 +3690,22 @@ class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):
             created_by=self.user,
         )
 
-        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
-        data = {
-            "feature_flag_key": self.feature_flag_key,
-            "from_project": self.team_1.id,
-            "target_project_ids": [self.team_2.id],
-            "copy_schedule": True,
-        }
+        def fail_after_partial_schedule_copy(source_schedules, target_flag, user, *_args):
+            ScheduledChange.objects.create(
+                record_id=str(target_flag.id),
+                model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+                payload=source_schedules[0].payload,
+                scheduled_at=source_schedules[0].scheduled_at,
+                team=target_flag.team,
+                created_by=user,
+            )
+            raise Exception("Database error")
 
         with patch(
             "products.feature_flags.backend.api.organization_feature_flag.OrganizationFeatureFlagView._copy_feature_flag_schedules"
         ) as mock_copy:
-            mock_copy.side_effect = Exception("Database error")
-            response = self.client.post(url, data)
+            mock_copy.side_effect = fail_after_partial_schedule_copy
+            response = self._post_copy_flag(copy_schedule=True)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["success"]), 1)
@@ -1965,6 +3718,14 @@ class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):
         result = response.json()["success"][0]
         self.assertIn("schedule_copy_warning", result)
         self.assertIn("Database error", result["schedule_copy_warning"])
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        self.assertFalse(
+            ScheduledChange.objects.filter(
+                record_id=str(copied_flag.id),
+                model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+                team=self.team_2,
+            ).exists()
+        )
 
     def test_copy_flag_to_multiple_projects_with_schedules(self):
         """Schedules should be copied to all target projects."""

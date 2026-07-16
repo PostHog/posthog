@@ -9,18 +9,22 @@ from posthog.models.utils import UUIDTModel
 
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
+from .evaluation_configs import REPORTABLE_OUTPUT_TYPES
 from .evaluations import EvaluationTarget
 
 
 class EvaluationReportQuerySet(models.QuerySet):
-    def deliverable(self) -> "EvaluationReportQuerySet":
-        # Reports run a generation-oriented agent, so trace-target evals never deliver — this
-        # also covers evals switched from generation to trace after a report was created.
+    def reportable(self) -> "EvaluationReportQuerySet":
         return self.filter(
+            evaluation__output_type__in=REPORTABLE_OUTPUT_TYPES,
+            evaluation__target=EvaluationTarget.GENERATION,
+        )
+
+    def deliverable(self) -> "EvaluationReportQuerySet":
+        return self.reportable().filter(
             enabled=True,
             deleted=False,
             evaluation__deleted=False,
-            evaluation__target=EvaluationTarget.GENERATION,
         )
 
 
@@ -175,6 +179,7 @@ def validate_report_rrule(rrule_string: str) -> None:
 class EvaluationReportRun(UUIDTModel):
     class DeliveryStatus(models.TextChoices):
         PENDING = "pending"
+        GENERATED = "generated"
         DELIVERED = "delivered"
         PARTIAL_FAILURE = "partial_failure"
         FAILED = "failed"

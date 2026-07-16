@@ -6,7 +6,7 @@ from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -48,11 +48,14 @@ from posthog.models.person.util import get_person_ids_and_uuids_by_uuids
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.utils import str_to_bool
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
+from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -72,6 +75,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
+    ExposureFreezeBlocker,
     experiment_has_legacy_metrics,
     holdout_filters_for_flag,
 )
@@ -89,8 +93,9 @@ from products.feature_flags.backend.facade.api import (
     update_flag,
     user_can_edit_flag,
 )
+from products.feature_flags.backend.facade.filters import restrict_groups_to_cohort, strip_group_cohort_restriction
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -209,6 +214,57 @@ def _deprecated_fields_in_request(request: Any) -> dict[str, Any]:
     if deprecated_param_keys:
         props["experiment_create_deprecated_parameters_keys"] = deprecated_param_keys
     return props
+
+
+# The user-facing validation message for each freeze-exposure blocker the model can report.
+_FREEZE_EXPOSURE_BLOCKER_MESSAGES: dict[ExposureFreezeBlocker, str] = {
+    "draft": "Experiment has not been launched yet.",
+    "stopped": "Experiment has already ended.",
+    "paused": "Cannot freeze a paused experiment. Resume it first.",
+    "already_frozen": "Experiment exposure is already frozen.",
+    "no_flag": "Experiment does not have a feature flag linked.",
+    "flag_deleted": "Experiment's feature flag has been deleted.",
+    "group_aggregation": "Group-aggregated experiments cannot have their exposure frozen.",
+    "holdout": (
+        "Experiments in a holdout cannot have their exposure frozen: holdout assignment is "
+        "evaluated before release conditions, so new users would keep entering the holdout."
+    ),
+    "super_groups": (
+        "This experiment's feature flag has early access conditions, which are evaluated "
+        "before release conditions, so freezing cannot stop new enrollment."
+    ),
+    "no_groups": "Experiment's feature flag has no release conditions to freeze.",
+}
+
+# Dict literals keyed by a Literal union aren't exhaustiveness-checked, and the union's
+# variants span two modules — fail at import rather than 500 on a missing message.
+_expected_blockers = {variant for literal in get_args(ExposureFreezeBlocker) for variant in get_args(literal)}
+assert set(_FREEZE_EXPOSURE_BLOCKER_MESSAGES) == _expected_blockers, (
+    f"_FREEZE_EXPOSURE_BLOCKER_MESSAGES out of sync with ExposureFreezeBlocker: "
+    f"{_expected_blockers ^ set(_FREEZE_EXPOSURE_BLOCKER_MESSAGES)}"
+)
+
+
+def _restrict_filters_to_frozen_cohort(filters: dict, cohort_id: int) -> dict:
+    """The facade's generic cohort restriction, bound to the experiments freeze marker."""
+    return restrict_groups_to_cohort(
+        filters,
+        cohort_id,
+        marker_key=EXPOSURE_FROZEN_GROUP_KEY,
+        cohort_key=EXPOSURE_FROZEN_COHORT_KEY,
+        marker_note=EXPOSURE_FROZEN_GROUP_MARKER,
+    )
+
+
+def _strip_frozen_exposure(filters: dict) -> tuple[dict, list[int]]:
+    """Inverse of _restrict_filters_to_frozen_cohort: strip the freeze marker and its cohort
+    conditions, returning the stripped filters plus the snapshot cohort ids for cleanup."""
+    return strip_group_cohort_restriction(
+        filters,
+        marker_key=EXPOSURE_FROZEN_GROUP_KEY,
+        cohort_key=EXPOSURE_FROZEN_COHORT_KEY,
+        marker_note=EXPOSURE_FROZEN_GROUP_MARKER,
+    )
 
 
 class ExperimentQueryStatus(str, Enum):
@@ -554,7 +610,8 @@ class ExperimentService:
         When ``variant_keys`` is provided, a ``baseline_variant_key`` set in
         ``stats_config`` must be one of them. When ``variant_keys`` is None/empty,
         baseline validation is skipped (the caller couldn't supply the keys).
-        Absence of ``baseline_variant_key`` is always valid (defaults to control downstream).
+        Absence of ``baseline_variant_key`` is always valid (downstream defaults to
+        'control' when present, else the first variant — see get_baseline_variant_key).
         """
         if not stats_config:
             return
@@ -569,6 +626,38 @@ class ExperimentService:
                 f"Invalid baseline_variant_key: '{baseline_variant_key}'. "
                 f"Must be one of: {', '.join(sorted(variant_keys))}"
             )
+
+    @staticmethod
+    def _materialize_baseline_variant_key(
+        stats_config: dict | None, variant_keys: list[str], *, current_variant_keys: list[str] | None = None
+    ) -> dict | None:
+        """Pin the inferred baseline for control-less variant sets.
+
+        Without 'control' among the variants the implicit default is the first variant,
+        which is order-sensitive — a later reorder of the same keys would silently move
+        the baseline under historical results. Persisting the key at write time makes
+        the choice explicit and visible to API/frontend consumers. With 'control'
+        present the default is order-independent, so absence is left as-is.
+
+        ``current_variant_keys`` is the pre-update variant set: the pinned key is the
+        baseline currently in effect (a [A, B] → [B, A] reorder keeps A), not the first
+        key of the new order. When the current baseline does not survive into
+        ``variant_keys``, nothing is pinned — the launch paths pin against the flag's
+        final variant set instead.
+
+        Contract: returns ``stats_config`` itself (the same object) when nothing is
+        pinned, and a new dict only when a baseline was pinned. Callers rely on this
+        identity (``result is not stats_config``) to detect a pin — every no-op branch
+        must keep returning the input object, never an equal copy.
+        """
+        if (stats_config or {}).get("baseline_variant_key"):
+            return stats_config
+        if not variant_keys or CONTROL_VARIANT_KEY in variant_keys:
+            return stats_config
+        baseline = get_baseline_variant_key(stats_config, current_variant_keys or variant_keys)
+        if baseline not in variant_keys:
+            return stats_config
+        return {**(stats_config or {}), "baseline_variant_key": baseline}
 
     # Feature-flag config keys that historically lived on the deprecated `parameters` surface but
     # belong on the linked FeatureFlag (the source of truth). A legacy caller still sending them in
@@ -920,11 +1009,15 @@ class ExperimentService:
         used_variant_keys = self._variant_keys(used_variants)
         self.validate_stats_config(stats_config, used_variant_keys)
 
+        self._assert_web_experiment_has_control(type, used_variant_keys)
+
+        stats_config = self._materialize_baseline_variant_key(stats_config, used_variant_keys)
+
         # Validate excluded_variants against the variants the flag actually ends up with,
         # mirroring the baseline check above. Resolving against the flag (not the request
         # payload) is what lets the excluded_variants path skip re-sending feature_flag_variants.
         if excluded_variants:
-            baseline_key = (stats_config or {}).get("baseline_variant_key", "control")
+            baseline_key = get_baseline_variant_key(stats_config, used_variant_keys)
             self._validate_excluded_variant_keys(excluded_variants, used_variant_keys, baseline_key)
 
         team_config = self._get_team_experiments_config()
@@ -1191,18 +1284,33 @@ class ExperimentService:
 
     def _validate_existing_flag(self, feature_flag: FeatureFlag) -> None:
         """Validate that an existing feature flag is suitable for experiment use."""
-        variants = feature_flag.filters.get("multivariate", {}).get("variants", [])
+        error = experiment_eligibility_error(feature_flag.variants)
+        if error:
+            raise ValidationError(error)
 
-        if len(variants) < 2:
-            raise ValidationError("Feature flag must have at least 2 variants (control and at least one test variant)")
-
-        if "control" not in [variant["key"] for variant in variants]:
-            raise ValidationError("Feature flag must have a variant with key 'control'")
+    @staticmethod
+    def _assert_web_experiment_has_control(experiment_type: str | None, variant_keys: list[str]) -> None:
+        """The toolbar editor and WebExperimentsAPISerializer hard-require a 'control'
+        variant, so a control-less web experiment could never be edited or saved from
+        the toolbar. Enforced on create, update, and launch."""
+        if experiment_type == "web" and CONTROL_VARIANT_KEY not in variant_keys:
+            raise ValidationError("Web experiments require a variant with key 'control'")
 
     def _assert_flag_not_deleted_for_launch(self, feature_flag: FeatureFlag) -> None:
         """A deleted flag distributes no traffic, so an experiment can never go live on it."""
         if feature_flag.deleted:
             raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
+
+    def _validate_flag_for_launch(self, experiment: Experiment, feature_flag: FeatureFlag) -> None:
+        """Flag guards shared by launch_experiment and the PATCH(start_date) launch path.
+
+        The flag can drift after create (edited directly through the flags API), so launch
+        re-checks everything create enforced: not deleted, experiment-eligible variants,
+        and the web-only 'control' requirement.
+        """
+        self._assert_flag_not_deleted_for_launch(feature_flag)
+        self._validate_existing_flag(feature_flag)
+        self._assert_web_experiment_has_control(experiment.type, self._variant_keys(feature_flag.variants))
 
     @staticmethod
     def _assign_uuids_to_metrics(
@@ -1503,8 +1611,21 @@ class ExperimentService:
 
         # Validate feature flag configuration
         feature_flag = experiment.feature_flag
-        self._assert_flag_not_deleted_for_launch(feature_flag)
-        self._validate_existing_flag(feature_flag)
+        self._validate_flag_for_launch(experiment, feature_flag)
+
+        # The flag may have lost 'control' since create (out-of-band edit), so pin the
+        # inferred baseline before it goes live — the fingerprints below and all later
+        # results must not depend on variant order. A dangling configured baseline is
+        # rejected rather than silently launched with uncomputable results.
+        flag_variant_keys = self._variant_keys(feature_flag.variants)
+        self.validate_stats_config(experiment.stats_config, flag_variant_keys)
+        experiment.stats_config = self._materialize_baseline_variant_key(experiment.stats_config, flag_variant_keys)
+        if experiment.excluded_variants:
+            self._validate_excluded_variant_keys(
+                experiment.excluded_variants,
+                flag_variant_keys,
+                get_baseline_variant_key(experiment.stats_config, flag_variant_keys),
+            )
 
         # Activate the feature flag through the approval gate first. If approval is
         # required this raises ApprovalRequired (-> 409) before we touch the experiment,
@@ -1883,7 +2004,7 @@ class ExperimentService:
                 # return the flag's default for everyone. This is the standard behavior of any static-cohort flag,
                 # not specific to freezing — it just means a frozen experiment is evaluated server-side via /decide
                 # rather than locally.
-                new_filters = self._transform_filters_for_frozen_exposure(locked_flag.filters, exposure_snapshot.id)
+                new_filters = _restrict_filters_to_frozen_cohort(locked_flag.filters, exposure_snapshot.id)
 
                 # 5. Persist the narrowed filters via the gated flag write.
                 #
@@ -1935,46 +2056,12 @@ class ExperimentService:
 
     def _validate_freeze_exposure_state(self, experiment: Experiment) -> None:
         """Guards for freeze_exposure, run twice: unlocked before the expensive snapshot build to
-        fail fast, and again under the flag lock to fail closed against whatever landed mid-build."""
-        if experiment.is_draft:
-            raise ValidationError("Experiment has not been launched yet.")
-        if experiment.is_stopped:
-            raise ValidationError("Experiment has already ended.")
-        if experiment.is_paused:
-            # A paused flag serves no one, so there is no live enrollment to freeze; freezing anyway
-            # would mislabel the (inactive) experiment as "exposure_frozen". Resume first.
-            raise ValidationError("Cannot freeze a paused experiment. Resume it first.")
-        if experiment.is_exposure_frozen:
-            raise ValidationError("Experiment exposure is already frozen.")
-
-        # Guard on the id, not the relation: feature_flag is a non-nullable FK, so accessing
-        # experiment.feature_flag when it's unset raises RelatedObjectDoesNotExist rather than
-        # returning None.
-        if experiment.feature_flag_id is None:
-            raise ValidationError("Experiment does not have a feature flag linked.")
-        flag = experiment.feature_flag
-        if flag.deleted:
-            raise ValidationError("Experiment's feature flag has been deleted.")
-        if flag.aggregation_group_type_index is not None:
-            raise ValidationError("Group-aggregated experiments cannot have their exposure frozen.")
-        # Holdout assignment and early-access enrollment (super_groups) are evaluated by the flag
-        # matcher before release conditions, so narrowing the release groups to a cohort cannot stop
-        # new users from entering through those paths. Fail closed rather than freeze partially.
-        flag_filters = flag.filters or {}
-        if experiment.holdout_id is not None or flag_filters.get("holdout") or flag_filters.get("holdout_groups"):
-            raise ValidationError(
-                "Experiments in a holdout cannot have their exposure frozen: holdout assignment is "
-                "evaluated before release conditions, so new users would keep entering the holdout."
-            )
-        if flag_filters.get("super_groups"):
-            raise ValidationError(
-                "This experiment's feature flag has early access conditions, which are evaluated "
-                "before release conditions, so freezing cannot stop new enrollment."
-            )
-        # Without release conditions there is nothing to narrow: the transform would be a no-op and
-        # the frozen state (derived from the per-group key) could never be detected.
-        if not flag_filters.get("groups"):
-            raise ValidationError("Experiment's feature flag has no release conditions to freeze.")
+        fail fast, and again under the flag lock to fail closed against whatever landed mid-build.
+        The preconditions live on the model (Experiment.freeze_exposure_blocker) so the serializer's
+        can_freeze_exposure gate and this validator can't drift apart."""
+        blocker = experiment.freeze_exposure_blocker
+        if blocker is not None:
+            raise ValidationError(_FREEZE_EXPOSURE_BLOCKER_MESSAGES[blocker])
 
     def _fetch_exposed_person_uuids(self, experiment: Experiment) -> list[str]:
         """Return the UUIDs of persons already exposed to the experiment, bounded by time and count.
@@ -2132,78 +2219,6 @@ class ExperimentService:
             raise
         return cohort
 
-    @staticmethod
-    def _transform_filters_for_frozen_exposure(current_filters: dict, cohort_id: int) -> dict:
-        """AND a static-cohort condition into every release group and stamp the freeze key.
-
-        AND (not a new group): groups are OR'd, so a separate group would *widen* access.
-        AND (not replace): the original per-group ``properties``/``rollout_percentage`` are
-        preserved so a future unfreeze or manual revert strips back to exactly the original.
-        The frozen state lives in the structured EXPOSURE_FROZEN_GROUP_KEY on each group;
-        the marker is merely prepended to the (preserved) ``description`` as a human-readable
-        note. Everything else (``multivariate``, ``payloads``, aggregation index) is left
-        byte-for-byte.
-        """
-        cohort_condition = {"key": "id", "type": "cohort", "value": cohort_id, "operator": "in"}
-
-        new_groups = []
-        for group in current_filters.get("groups", []):
-            # One deepcopy per group so the new filters never alias the original flag's dicts.
-            new_group = deepcopy(group)
-            new_group["properties"] = [*new_group.get("properties", []), cohort_condition]
-            new_group[EXPOSURE_FROZEN_GROUP_KEY] = True
-            new_group[EXPOSURE_FROZEN_COHORT_KEY] = cohort_id
-            existing_description = new_group.get("description")
-            new_group["description"] = (
-                f"{EXPOSURE_FROZEN_GROUP_MARKER} {existing_description}"
-                if existing_description
-                else EXPOSURE_FROZEN_GROUP_MARKER
-            )
-            new_groups.append(new_group)
-        return {**current_filters, "groups": new_groups}
-
-    @staticmethod
-    def _strip_frozen_exposure_from_filters(current_filters: dict) -> tuple[dict, list[int]]:
-        """Inverse of _transform_filters_for_frozen_exposure: remove the freeze stamps from every
-        release group — the AND'd snapshot-cohort condition (identified via the per-group
-        EXPOSURE_FROZEN_COHORT_KEY, so user-added cohort conditions survive), the two structured
-        keys, and the description marker note. Groups without the freeze key pass through untouched.
-
-        Returns the stripped filters plus the snapshot cohort ids that were referenced, so callers
-        can clean up the then-orphaned cohorts once the stripped filters are persisted — and only
-        then: deleting earlier would yank the cohort from under a still-frozen flag if the save fails.
-        """
-        new_groups = []
-        cohort_ids: list[int] = []
-        for group in current_filters.get("groups", []):
-            new_group = deepcopy(group)
-            if new_group.get(EXPOSURE_FROZEN_GROUP_KEY) is not True:
-                new_groups.append(new_group)
-                continue
-            new_group.pop(EXPOSURE_FROZEN_GROUP_KEY, None)
-            cohort_id = new_group.pop(EXPOSURE_FROZEN_COHORT_KEY, None)
-            if cohort_id is not None:
-                cohort_ids.append(cohort_id)
-                new_group["properties"] = [
-                    condition
-                    for condition in new_group.get("properties", [])
-                    if not (
-                        condition.get("type") == "cohort"
-                        and condition.get("key") == "id"
-                        and condition.get("value") == cohort_id
-                    )
-                ]
-            description = new_group.get("description")
-            if isinstance(description, str) and EXPOSURE_FROZEN_GROUP_MARKER in description:
-                stripped_description = description.replace(EXPOSURE_FROZEN_GROUP_MARKER, "").strip()
-                if stripped_description:
-                    new_group["description"] = stripped_description
-                else:
-                    # The freeze added the description outright — restore its absence.
-                    del new_group["description"]
-            new_groups.append(new_group)
-        return {**current_filters, "groups": new_groups}, list(dict.fromkeys(cohort_ids))
-
     def _delete_orphaned_snapshot_cohorts(self, cohort_ids: list[int]) -> None:
         """Soft-delete freeze snapshot cohorts whose flag reference was just removed.
 
@@ -2256,7 +2271,7 @@ class ExperimentService:
             raise ValidationError("Experiment exposure is not frozen.")
 
         flag = experiment.feature_flag
-        new_filters, cohort_ids = self._strip_frozen_exposure_from_filters(flag.filters or {})
+        new_filters, cohort_ids = _strip_frozen_exposure(flag.filters or {})
 
         update_flag(flag, {"filters": new_filters}, team=self.team, user=self.user, request=request)
 
@@ -2528,7 +2543,7 @@ class ExperimentService:
         )
         if flag is None or flag.deleted:
             return
-        stripped_filters, cohort_ids = self._strip_frozen_exposure_from_filters(flag.filters or {})
+        stripped_filters, cohort_ids = _strip_frozen_exposure(flag.filters or {})
         if stripped_filters == (flag.filters or {}):
             return
 
@@ -2598,7 +2613,7 @@ class ExperimentService:
         # Shipping a winner ends the enrollment freeze by definition, so strip it in the same flag
         # write: preserved, it would lock the shipped variant to the stale snapshot forever in the
         # default mode, and linger as dead weight below the catch-all in release_to_everyone mode.
-        base_filters, frozen_cohort_ids = self._strip_frozen_exposure_from_filters(flag.filters)
+        base_filters, frozen_cohort_ids = _strip_frozen_exposure(flag.filters)
 
         # Update the flag through the gated write to preserve the approval
         # workflow. If change-request approval is required, this raises
@@ -2799,22 +2814,59 @@ class ExperimentService:
         # Revalidate the baseline whenever either side of the constraint changes:
         # the stats_config itself, or the variant set it references. A variants-only
         # PATCH (e.g. updateDistribution) that renames/removes the current baseline
-        # must not leave a dangling baseline_variant_key behind.
+        # must not leave a dangling baseline_variant_key behind. Launching via PATCH
+        # (start_date) also runs this so the flag's current variants get a pinned
+        # baseline exactly like the dedicated launch action.
         update_variants = self._flag_config_variants(feature_flag_config)
-        if "stats_config" in update_data or update_variants is not None:
+        stats_config_updated = "stats_config" in update_data
+        launching = experiment.is_draft and update_data.get("start_date") is not None
+        durable_baseline_pin: dict | None = None
+        if stats_config_updated or update_variants is not None or launching:
             variant_keys = self._resolved_variant_keys(experiment, feature_flag_config)
+            current_variant_keys = self._variant_keys(feature_flag.variants)
             effective_stats_config = update_data.get("stats_config", experiment.stats_config)
             self.validate_stats_config(effective_stats_config, variant_keys)
 
+            # `type` is immutable on update (rejected by _validate_update_payload's
+            # allowlist), so the persisted value is the effective one.
+            if update_variants is not None:
+                self._assert_web_experiment_has_control(experiment.type, variant_keys)
+
+            # A variants update can leave an absent baseline pointing at an
+            # order-sensitive default — pin the currently effective baseline, like on
+            # create. When the flag write below is approval-gated, the approved change
+            # request later applies flag-side only, so the pin must also be committed
+            # independently of this update (durable_baseline_pin, persisted before the
+            # flag write).
+            materialized = self._materialize_baseline_variant_key(
+                effective_stats_config, variant_keys, current_variant_keys=current_variant_keys
+            )
+            if materialized is not effective_stats_config:
+                update_data["stats_config"] = materialized
+            if update_variants is not None:
+                pinned = self._materialize_baseline_variant_key(
+                    experiment.stats_config, variant_keys, current_variant_keys=current_variant_keys
+                )
+                if pinned is not experiment.stats_config:
+                    durable_baseline_pin = pinned
+
         # Validate excluded_variants against the resolved flag variants — no
-        # feature_flag_variants resend required.
-        if "excluded_variants" in update_data:
-            new_excluded = update_data["excluded_variants"]
-            if new_excluded:
+        # feature_flag_variants resend required. The stored list is revalidated too
+        # whenever the variant set or baseline moves under it (e.g. a variants update
+        # must not silently leave the baseline excluded, breaking result queries).
+        if "excluded_variants" in update_data or stats_config_updated or update_variants is not None or launching:
+            effective_excluded = (
+                update_data["excluded_variants"] if "excluded_variants" in update_data else experiment.excluded_variants
+            )
+            if effective_excluded:
+                # Not hoisted from the block above: the materialization there may have
+                # replaced update_data["stats_config"] with a pinned baseline, which this
+                # check must see. variant_keys is re-derived (same value) only because this
+                # branch also runs for excluded_variants-only PATCHes that skip that block.
                 variant_keys = self._resolved_variant_keys(experiment, feature_flag_config)
                 effective_stats_config = update_data.get("stats_config", experiment.stats_config)
-                baseline_key = (effective_stats_config or {}).get("baseline_variant_key", "control")
-                self._validate_excluded_variant_keys(new_excluded, variant_keys, baseline_key)
+                baseline_key = get_baseline_variant_key(effective_stats_config, variant_keys)
+                self._validate_excluded_variant_keys(effective_excluded, variant_keys, baseline_key)
 
         # Defense-in-depth: only validate the inline metric lists this update
         # is actually touching. Dedup-on-input has already made these lists
@@ -2822,6 +2874,16 @@ class ExperimentService:
         # other PATCH) on rows that pre-date the dedup logic.
         if "metrics" in update_data or "metrics_secondary" in update_data:
             self.validate_no_duplicate_metric_uuids(update_data.get("metrics"), update_data.get("metrics_secondary"))
+
+        # --- durable baseline pin (BEFORE the flag write) ---------------------
+        # An approval-gated variants change raises ApprovalRequired below, aborting the
+        # rest of this update, and the approved ChangeRequest later applies flag-side
+        # only — it never re-enters this service. So the pin is committed on its own
+        # first. It restates the currently effective baseline, which makes it a no-op
+        # if the change request is rejected.
+        if durable_baseline_pin is not None:
+            experiment.stats_config = durable_baseline_pin
+            experiment.save(update_fields=["stats_config", "updated_at"])
 
         # --- feature flag sync (OUTSIDE the atomic block) ---------------------
         # The flag write goes through the FeatureFlagSerializer approval gate.
@@ -3121,10 +3183,9 @@ class ExperimentService:
 
         # Launching a draft via PATCH (start_date) is an alternate launch path, so it must
         # run the same flag guards as the dedicated launch_experiment action: flag not
-        # deleted, and a valid control/variant configuration.
+        # deleted, and a valid variant configuration.
         if experiment.is_draft and update_data.get("start_date") is not None:
-            self._assert_flag_not_deleted_for_launch(feature_flag)
-            self._validate_existing_flag(feature_flag)
+            self._validate_flag_for_launch(experiment, feature_flag)
 
         # Check for legacy metrics first
         if experiment_has_legacy_metrics(experiment):
@@ -3690,17 +3751,17 @@ class ExperimentService:
         evaluation_runtime: str | None,
         has_evaluation_contexts: str | bool | None,
     ) -> QuerySet[FeatureFlag]:
-        queryset = FeatureFlag.objects.filter(team__project_id=self.team.project_id)
+        queryset = FeatureFlag.objects.filter(team__project_id=self.team.project_id).eligible_for_experiment()
 
-        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
-        queryset = queryset.extra(
-            where=[
-                """
-                jsonb_array_length(filters->'multivariate'->'variants') >= 2
-                AND filters->'multivariate'->'variants'->0->>'key' = 'control'
-                """
-            ]
-        )
+        # This action is experiment-scoped, so the flag resource's object-level access
+        # controls are not applied by the viewset — filter here like the flag list
+        # endpoint does, so private flags don't leak through the eligible-flags listing.
+        if isinstance(self.user, User):
+            queryset = UserAccessControl(user=self.user, team=self.team).filter_queryset_by_access_level(
+                queryset, include_all_if_admin=True
+            )
+        else:
+            queryset = queryset.none()
 
         if excluded_flag_ids:
             queryset = queryset.exclude(id__in=excluded_flag_ids)

@@ -10,7 +10,7 @@ import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { escapeHogQLString, hogql } from '~/queries/utils'
-import { PersonType } from '~/types'
+import { LogEntryLevel, PersonType } from '~/types'
 
 import { hogFunctionsRerunCreate } from 'products/cdp/frontend/generated/api'
 import type { HogInvocationRerunFilterStatusEnumApi } from 'products/cdp/frontend/generated/api.schemas'
@@ -89,6 +89,7 @@ export interface HogInvocationsFilters {
      * no cross-shard subquery against `persons`.
      */
     person_uuid?: string
+    log_levels?: LogEntryLevel[]
 }
 
 export interface HogInvocationsLogicProps {
@@ -141,6 +142,7 @@ const URL_PARAMS = {
     order_by: `${URL_PARAM_PREFIX}order`,
     problem_only: `${URL_PARAM_PREFIX}problems`,
     person_uuid: `${URL_PARAM_PREFIX}person`,
+    log_levels: `${URL_PARAM_PREFIX}log_levels`,
 } as const
 
 const filtersToSearchParams = (filters: HogInvocationsFilters): Record<string, string | undefined> => ({
@@ -153,6 +155,7 @@ const filtersToSearchParams = (filters: HogInvocationsFilters): Record<string, s
     [URL_PARAMS.order_by]: filters.order_by === 'first_scheduled' ? undefined : filters.order_by,
     [URL_PARAMS.problem_only]: filters.problem_only ? '1' : undefined,
     [URL_PARAMS.person_uuid]: filters.person_uuid,
+    [URL_PARAMS.log_levels]: filters.log_levels?.length ? filters.log_levels.join(',') : undefined,
 })
 
 const searchParamsToFilters = (searchParams: Record<string, string | undefined>): Partial<HogInvocationsFilters> => {
@@ -189,6 +192,10 @@ const searchParamsToFilters = (searchParams: Record<string, string | undefined>)
     if (searchParams[URL_PARAMS.person_uuid]) {
         next.person_uuid = searchParams[URL_PARAMS.person_uuid]
     }
+    const logLevels = searchParams[URL_PARAMS.log_levels]
+    if (logLevels) {
+        next.log_levels = logLevels.split(',').filter(Boolean) as LogEntryLevel[]
+    }
     return next
 }
 
@@ -201,6 +208,18 @@ const DEFAULT_FILTERS: HogInvocationsFilters = {
     search: undefined,
     order_by: 'first_scheduled',
     person_uuid: undefined,
+}
+
+/**
+ * Build the `inv_`-prefixed router search params that deep-link the Invocations tab to a filter
+ * subset. Lets callers outside the tab (e.g. the workflow metrics tiles) point at it without
+ * duplicating the URL param scheme. Unset keys fall back to defaults and are dropped from the URL.
+ */
+export function buildHogInvocationsSearchParams(filters: Partial<HogInvocationsFilters>): Record<string, string> {
+    const params = filtersToSearchParams({ ...DEFAULT_FILTERS, ...filters })
+    return Object.fromEntries(
+        Object.entries(params).filter((entry): entry is [string, string] => entry[1] !== undefined)
+    )
 }
 
 const AUTO_REFRESH_INTERVAL_MS = 10000
@@ -352,6 +371,45 @@ export const problemClauseFor = (
 }
 
 /**
+ * The main search box: one term matches an exact invocation / event / distinct / person id, OR — like
+ * the old Logs tab — a run that logged an entry whose message contains it (case-insensitive
+ * substring). `log_levels` narrows only the message match and is set solely by metric drill-downs
+ * (e.g. the "Bounced" tile carries WARN/ERROR so it doesn't also match the INFO "Email sent to
+ * bounce@…" log); manual searches leave it unset and match any level. The message subquery is
+ * deliberately not date-scoped — a bounce/complaint can land after the run's scheduled window, and
+ * the outer `scheduled_at` filter already bounds which invocations appear. Empty when no search.
+ */
+export const buildSearchClause = (
+    props: HogInvocationsLogicProps,
+    filters: HogInvocationsFilters
+): ReturnType<typeof hogql.raw> => {
+    const search = filters.search?.trim()
+    if (!search) {
+        return hogql.raw('')
+    }
+    const levels = filters.log_levels ?? []
+    const levelClause = levels.length
+        ? `AND lower(level) IN (${levels.map((level) => escapeHogQLString(level.toLowerCase())).join(',')})`
+        : ''
+    // Escape ILIKE wildcards for the message arm so a term with % or _ (e.g. "50%") matches literally
+    // (ClickHouse ILIKE uses backslash as its escape char); the exact-id arms use the raw term.
+    const likeTerm = search.replace(/[\\%_]/g, '\\$&')
+    return hogql.raw(
+        `AND (` +
+            `invocation_id = ${escapeHogQLString(search)} ` +
+            `OR event_uuid = ${escapeHogQLString(search)} ` +
+            `OR distinct_id = ${escapeHogQLString(search)} ` +
+            `OR person_id = ${escapeHogQLString(search)} ` +
+            `OR invocation_id IN (` +
+            `SELECT instance_id FROM log_entries ` +
+            `WHERE log_source = ${escapeHogQLString(props.functionKind)} ` +
+            `AND log_source_id = ${escapeHogQLString(props.id)} ` +
+            `AND message ILIKE concat('%', ${escapeHogQLString(likeTerm)}, '%') ` +
+            `${levelClause}))`
+    )
+}
+
+/**
  * Tier selection for the sparkline. Each tier carries both the HogQL bucket
  * expression and the equivalent client-side interval (in ms) so we can
  * generate every bucket boundary in the filter range, not just the ones CH
@@ -417,17 +475,6 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
     const optionalErrorKindClause = filters.error_kind?.length
         ? hogql.raw(`AND error_kind IN (${filters.error_kind.map(escapeHogQLString).join(',')})`)
         : hogql.raw('')
-    const trimmedSearch = filters.search?.trim()
-    const optionalSearchClause = trimmedSearch
-        ? hogql.raw(
-              `AND (
-                  invocation_id = ${escapeHogQLString(trimmedSearch)}
-                  OR event_uuid = ${escapeHogQLString(trimmedSearch)}
-                  OR distinct_id = ${escapeHogQLString(trimmedSearch)}
-                  OR person_id = ${escapeHogQLString(trimmedSearch)}
-              )`
-          )
-        : hogql.raw('')
     // Person filter is applied as a hard equality on `person_id`. The UUID is resolved
     // client-side via `api.persons.list` (Django/Postgres) — we can't join `persons` in
     // the invocations query itself because the two tables live on different CH clusters.
@@ -460,7 +507,7 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
             HAVING argMax(is_deleted, version) = 0
                ${optionalStatusClause}
                ${optionalErrorKindClause}
-               ${optionalSearchClause}
+               ${buildSearchClause(props, filters)}
                ${optionalPersonClause}
                ${problemClauseFor(props, filters)}
         )
@@ -516,17 +563,6 @@ async function fetchRunsPage(
     const optionalErrorKindClause = filters.error_kind?.length
         ? hogql.raw(`AND error_kind IN (${filters.error_kind.map(escapeHogQLString).join(', ')})`)
         : hogql.raw('')
-    const trimmedSearch = filters.search?.trim()
-    const optionalSearchClause = trimmedSearch
-        ? hogql.raw(
-              `AND (
-                  invocation_id = ${escapeHogQLString(trimmedSearch)}
-                  OR event_uuid = ${escapeHogQLString(trimmedSearch)}
-                  OR distinct_id = ${escapeHogQLString(trimmedSearch)}
-                  OR person_id = ${escapeHogQLString(trimmedSearch)}
-              )`
-          )
-        : hogql.raw('')
     // Person filter is applied as a hard equality on `person_id`. The UUID is resolved
     // client-side via `api.persons.list` (Django/Postgres) — we can't join `persons` in
     // the invocations query itself because the two tables live on different CH clusters.
@@ -570,7 +606,7 @@ async function fetchRunsPage(
         HAVING argMax(is_deleted, version) = 0
            ${optionalStatusClause}
            ${optionalErrorKindClause}
-           ${optionalSearchClause}
+           ${buildSearchClause(props, filters)}
            ${optionalPersonClause}
            ${problemClauseFor(props, filters)}
         ${orderClause}

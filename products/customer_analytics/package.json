@@ -23,6 +23,7 @@
         "@testing-library/dom": "*",
         "@testing-library/react": "*",
         "@testing-library/user-event": "*",
+        "@tiptap/core": "*",
         "@types/react": "*",
         "clsx": "*",
         "fuse.js": "*",

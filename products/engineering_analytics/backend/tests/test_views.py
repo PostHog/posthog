@@ -8,12 +8,15 @@ import pandas as pd
 
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.constants import AvailableFeature
 from posthog.models.team import Team
+from posthog.rbac.user_access_control import UserAccessControl
 
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
     GitHubTables,
+    list_github_sources,
 )
 from products.engineering_analytics.backend.logic.views import pull_requests, workflow_runs
 from products.engineering_analytics.backend.logic.views.source_schema import (
@@ -23,6 +26,8 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
+
+from ee.models.rbac.access_control import AccessControl
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.views"
 
@@ -160,6 +165,42 @@ def _run_row(
         "pull_requests": f'[{{"number": {pr_number}}}]' if pr_number is not None else None,
         "repository": f'{{"full_name": "{full_name}"}}',
     }
+
+
+class TestListGithubSourcesAccessControl(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+    def test_none_resource_access_fails_closed_to_self_created_sources(self) -> None:
+        # filter_queryset_by_access_level returns the queryset UNFILTERED for a user with "none"
+        # resource access and no object grants — without the guard, such a user enumerates every
+        # GitHub source on the team.
+        mine = create_github_source(self.team, prefix="mine_", source_id="gh-mine")
+        mine.created_by = self.user
+        mine.save()
+        theirs = create_github_source(self.team, prefix="theirs_", source_id="gh-theirs")
+        access_control = UserAccessControl(user=self.user, team=self.team)
+
+        assert len(list_github_sources(team=self.team, user_access_control=access_control)) == 2
+
+        AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+        visible = list_github_sources(
+            team=self.team, user_access_control=UserAccessControl(user=self.user, team=self.team)
+        )
+        assert [source.id for source in visible] == [str(mine.id)]
+
+        # An explicit object grant survives the fail-closed guard.
+        AccessControl.objects.create(
+            team=self.team, resource="external_data_source", resource_id=str(theirs.id), access_level="editor"
+        )
+        visible = list_github_sources(
+            team=self.team, user_access_control=UserAccessControl(user=self.user, team=self.team)
+        )
+        assert {source.id for source in visible} == {str(mine.id), str(theirs.id)}
 
 
 class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):

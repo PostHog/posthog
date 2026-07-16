@@ -493,10 +493,12 @@ export function HogInvocations({
                     <LemonInput
                         type="search"
                         size="small"
-                        placeholder="Search by invocation, event, distinct, or person ID…"
+                        placeholder="Search by ID or log message…"
                         fullWidth
                         value={filters.search ?? ''}
-                        onChange={(value) => setFilters({ search: value || undefined })}
+                        // Clear the drill-down's level narrowing on manual typing — a hand-typed
+                        // search matches log messages at any level, not just WARN/ERROR.
+                        onChange={(value) => setFilters({ search: value || undefined, log_levels: undefined })}
                         prefix={<IconSearch />}
                         allowClear
                     />

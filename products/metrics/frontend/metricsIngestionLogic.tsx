@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { metricsHasMetricsRetrieve } from './generated/api'
+import { canViewMetrics } from './metricsAccess'
 import type { metricsIngestionLogicType } from './metricsIngestionLogicType'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
@@ -20,7 +21,11 @@ export const metricsIngestionLogic = kea<metricsIngestionLogicType>([
     loaders(({ values }) => ({
         teamHasMetrics: {
             __default: undefined as boolean | undefined,
-            loadTeamHasMetrics: async (): Promise<boolean> => {
+            loadTeamHasMetrics: async (): Promise<boolean | undefined> => {
+                if (!canViewMetrics()) {
+                    // No access means "unknown", not "no metrics" - false would show the setup prompt
+                    return values.teamHasMetrics
+                }
                 const response = await retryWithBackoff(() => metricsHasMetricsRetrieve(String(values.currentTeamId)), {
                     maxAttempts: 3,
                 })
@@ -51,7 +56,11 @@ export const metricsIngestionLogic = kea<metricsIngestionLogicType>([
     listeners(({ actions, cache }) => ({
         loadTeamHasMetricsSuccess: ({ teamHasMetrics }) => {
             if (!teamHasMetrics) {
-                cache.sawNoMetrics = true
+                // Only an observed "no metrics yet" arms the intent - an access-denied
+                // skip resolves with undefined and must not count.
+                if (teamHasMetrics === false) {
+                    cache.sawNoMetrics = true
+                }
                 return
             }
             // Only an observed no-metrics -> has-metrics transition is an intent: the user
@@ -76,7 +85,7 @@ export const metricsIngestionLogic = kea<metricsIngestionLogicType>([
     }),
 
     afterMount(({ actions, values }) => {
-        if (values.cachedTeamHasMetrics !== true) {
+        if (canViewMetrics() && values.cachedTeamHasMetrics !== true) {
             actions.loadTeamHasMetrics()
         }
     }),

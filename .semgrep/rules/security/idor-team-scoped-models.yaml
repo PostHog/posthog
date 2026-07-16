@@ -197,6 +197,7 @@ rules:
                               |MessageRecipientPreference
                               |MessageTemplate
                               |Metric
+                              |RelationshipProposal
                               |MCPAnalyticsSubmission
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
@@ -494,6 +495,7 @@ rules:
                         |MessageRecipientPreference
                         |MessageTemplate
                         |Metric
+                        |RelationshipProposal
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
                         |MCPSession

@@ -25,6 +25,73 @@ export interface WorkflowCostApi {
     excluded_jobs: number
 }
 
+/**
+ * * `breaking_master` - BREAKING_MASTER
+ * * `novel_burst` - NOVEL_BURST
+ * * `potentially_resolved` - POTENTIALLY_RESOLVED
+ * * `flaky` - FLAKY
+ * * `pr_only` - PR_ONLY
+ */
+export type BrokenTestRowStateEnumApi = (typeof BrokenTestRowStateEnumApi)[keyof typeof BrokenTestRowStateEnumApi]
+
+export const BrokenTestRowStateEnumApi = {
+    BreakingMaster: 'breaking_master',
+    NovelBurst: 'novel_burst',
+    PotentiallyResolved: 'potentially_resolved',
+    Flaky: 'flaky',
+    PrOnly: 'pr_only',
+} as const
+
+export interface BrokenTestRowApi {
+    /** Stable identity of this distinct failure: the failing test's node id plus a normalized error signature, so the same failure across runs groups into one row. */
+    fingerprint: string
+    /** The pytest node id from the CI 'FAILED <id>' line — the failing test. */
+    test_id: string
+    /** The trailing failure detail with volatile bits (numbers, hashes) normalized, shared across runs of the same failure. Empty when the FAILED line carried no detail. */
+    error_signature: string
+    /** The CI job the failure most recently came from. Matched against default-branch job status to decide whether trunk is currently broken by it. */
+    job_name: string
+    /** 'owner/name' repository the failure belongs to. */
+    repo: string
+    /** The classifier's verdict on how this failure is behaving right now: 'breaking_master' (failing on trunk, latest trunk run still red), 'novel_burst' (new within a day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk but trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' (confined to one branch — one PR's own problem).
+     *
+     * * `breaking_master` - BREAKING_MASTER
+     * * `novel_burst` - NOVEL_BURST
+     * * `potentially_resolved` - POTENTIALLY_RESOLVED
+     * * `flaky` - FLAKY
+     * * `pr_only` - PR_ONLY */
+    state: BrokenTestRowStateEnumApi
+    /** Earliest failure line for this fingerprint in the analysis window. */
+    first_seen: string
+    /** Most recent failure line for this fingerprint in the analysis window. */
+    last_seen: string
+    /** Total failure lines for this fingerprint in the window. An absolute count, never a rate — passing runs aren't in this data. */
+    occurrences: number
+    /** Distinct branches the failure appeared on in the window. */
+    branches: number
+    /** Failure lines on the default branch (master/main). 0 means it never reached trunk. */
+    master_hits: number
+    /** The most recent failing workflow run for this fingerprint — pass it to run_failure_logs to fetch the actual failing log lines. */
+    latest_run_id: number
+    /** The branch of the most recent failing run. */
+    latest_branch: string
+    /** Hourly failure counts over the last 24 hours, oldest first (fixed 24-slot array), for the row sparkline. All zeros when nothing failed in the last day. */
+    trend_24h?: number[]
+}
+
+export interface BrokenTestsResultApi {
+    /** Classified failures ranked by triage urgency — breaking trunk first, single-PR failures last. */
+    rows: BrokenTestRowApi[]
+    /** Default-branch job names whose latest completed run is failing — the 'what's on fire right now' summary. Empty when the job-level source isn't synced or trunk is green. */
+    breaking_master_jobs: string[]
+    /** Length in days of the analysis window the counts cover. */
+    window_days: number
+    /** True when more failures qualified than the cap; `rows` is the top `limit` by urgency. */
+    truncated: boolean
+    /** Maximum number of rows returned. */
+    limit: number
+}
+
 export interface CICardSummaryApi {
     /** Count of open pull requests. */
     open_prs: number
@@ -111,6 +178,8 @@ export interface FlakyTestItemApi {
     failed_count: number
     /** Distinct pull requests among the failed/error spans. Failures on master or unattributed branches carry no PR number and are excluded here (still in failed_count). */
     failed_pr_count: number
+    /** Failed/error spans on the default branch (master/main approximation) — the 'matters right now' signal that a flake is breaking the trunk, not just PR branches. */
+    master_failed_count: number
     /** Distinct git branches across all of the test's flaky-signal spans in the window. */
     branch_count: number
     /** Runs where the test failed while quarantined (xfail) — already masked in CI but still flaky. */
@@ -977,6 +1046,13 @@ export type EngineeringAnalyticsAuthorWorkflowCostsParams = {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsBrokenTestsParams = {
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

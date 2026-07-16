@@ -65,6 +65,7 @@ import {
 } from '~/types'
 
 import {
+    attachedContextLogic,
     getRandomThinkingMessage,
     isTerminalRunStatus,
     INITIAL_PERMISSION_MODE,
@@ -713,6 +714,48 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         // The sandbox runtime has no agent modes — they're a legacy LangGraph concept. If the
                         // user still picked one, carry it through as a context note so the agent can acknowledge it.
                         const attachedContext: AttachedContext[] = [...values.sandboxAttachments]
+                        // Merge context from the new `attachedContextLogic` store (e.g. a future @-mention
+                        // picker, or trace refs only the new store knows) into the legacy send. Known entity
+                        // types map to `{ type, id, name }`; anything else degrades to a text item (the
+                        // backend validates against its fixed type set). Server-side `prune_repeated_entity_refs`
+                        // collapses any overlap with `sandboxAttachments`.
+                        const allowedEntityTypes = new Set<AttachedContext['type']>([
+                            'dashboard',
+                            'insight',
+                            'event',
+                            'action',
+                            'error_tracking_issue',
+                            'evaluation',
+                            'notebook',
+                        ])
+                        // `findMounted` — the store is only mounted while something provides context (the
+                        // scene bridge or a `useAttachedContext` consumer); a bare legacy chat must not
+                        // fail the send over an unmounted logic.
+                        for (const item of attachedContextLogic.findMounted()?.values.contextItems ?? []) {
+                            if (
+                                item.type !== 'text' &&
+                                allowedEntityTypes.has(item.type as AttachedContext['type']) &&
+                                item.key != null &&
+                                item.key !== ''
+                            ) {
+                                attachedContext.push({
+                                    type: item.type as AttachedContext['type'],
+                                    id: item.key,
+                                    name: item.label,
+                                })
+                            } else {
+                                // Keyed items outside the allowlist (e.g. a trace ref) carry no `value`,
+                                // so render their key/label the way posthogContextBlock's formatItem does.
+                                const keyedFallback =
+                                    item.key != null && item.key !== ''
+                                        ? `${item.type} ${item.key}${item.label ? ` ("${item.label}")` : ''}`
+                                        : ''
+                                const fallback = item.value || keyedFallback
+                                if (fallback.trim()) {
+                                    attachedContext.push({ type: 'text', value: fallback })
+                                }
+                            }
+                        }
                         if (values.agentMode) {
                             attachedContext.push({
                                 type: 'text',
@@ -1626,12 +1669,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     // We're already on the notebook page, refresh it
                     let logic = notebookLogic.findMounted({ shortId: notebookId })
                     if (logic) {
-                        logic.actions.setLocalContent(notebookContent, true, true)
+                        logic.actions.setLocalContent(notebookContent, true)
                     }
                 } else {
                     // Navigate to the notebook
-                    await openNotebook(notebookId, NotebookTarget.Scene, undefined, (logic) => {
-                        logic.actions.setLocalContent(notebookContent, true, true)
+                    await openNotebook(notebookId, NotebookTarget.Scene, (logic) => {
+                        logic.actions.setLocalContent(notebookContent, true)
                     })
                 }
             } catch (error) {
