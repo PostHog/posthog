@@ -209,10 +209,13 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
     event_ingest_url: str | None = settings.TASKS_AGENT_PROXY_INGEST_URL if event_stream_ingest_enabled else None
     # Fetched once; serves both the ingest token and the imported MCP servers below.
     task_run = TaskRun.objects.filter(id=ctx.run_id, task_id=ctx.task_id, team_id=ctx.team_id).first()
+    if task_run is None:
+        raise SandboxExecutionError(
+            "Task run not found for agent server launch",
+            {"task_id": ctx.task_id, "run_id": ctx.run_id},
+        )
     if event_stream_ingest_enabled:
         try:
-            if task_run is None:
-                raise TaskRun.DoesNotExist(f"TaskRun {ctx.run_id} not found")
             event_ingest_token = create_sandbox_event_ingest_token(task_run)
         except Exception as e:
             raise SandboxExecutionError(
@@ -239,9 +242,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs
 
-    imported_mcp_configs = (
-        get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs}) if task_run else []
-    )
+    imported_mcp_configs = get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs})
     if imported_mcp_configs:
         mcp_configs = mcp_configs + imported_mcp_configs
 
