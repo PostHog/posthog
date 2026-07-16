@@ -1,6 +1,7 @@
 from enum import Enum
 from typing import Self
 
+from django.conf import settings
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
@@ -212,6 +213,11 @@ class BatchImportConfigBuilder:
         }
         if endpoint_url:
             source["endpoint_url"] = endpoint_url
+            if settings.DEBUG:
+                # Local dev: let custom endpoints point at the dev stack
+                # (SeaweedFS on localhost) — the worker's SSRF guard blocks
+                # non-public IPs otherwise. Never set outside DEBUG.
+                source["allow_internal_ips"] = True
         self.batch_import.import_config["source"] = source
         self.batch_import.secrets[access_key_id_key] = access_key_id
         self.batch_import.secrets[secret_access_key_key] = secret_access_key
@@ -238,6 +244,11 @@ class BatchImportConfigBuilder:
         }
         if endpoint_url:
             source["endpoint_url"] = endpoint_url
+            if settings.DEBUG:
+                # Local dev: let custom endpoints point at the dev stack
+                # (SeaweedFS on localhost) — the worker's SSRF guard blocks
+                # non-public IPs otherwise. Never set outside DEBUG.
+                source["allow_internal_ips"] = True
         self.batch_import.import_config["source"] = source
         self.batch_import.secrets[access_key_id_key] = access_key_id
         self.batch_import.secrets[secret_access_key_key] = secret_access_key

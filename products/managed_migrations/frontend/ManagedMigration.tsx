@@ -22,7 +22,8 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { type ManagedMigrationForm, managedMigrationLogic } from './managedMigrationLogic'
+import { TRIAL_RECORD_LIMIT_MAX, type ManagedMigrationForm, managedMigrationLogic } from './managedMigrationLogic'
+import { TrialResultsModal } from './TrialResultsModal'
 import { type ManagedMigration as ManagedMigrationData } from './types'
 
 const STATUS_COLORS = {
@@ -89,7 +90,7 @@ export function ManagedMigration(): JSX.Element {
                     resourceType={{ type: 'managed_migration', forceIcon: <IconSort /> }}
                     actions={
                         <LemonButton type="primary" htmlType="submit" size="small">
-                            Import Data
+                            {managedMigration.is_trial ? 'Start trial run' : 'Import Data'}
                         </LemonButton>
                     }
                     forceBackTo={{
@@ -269,9 +270,35 @@ export function ManagedMigration(): JSX.Element {
                     </div>
                 )}
 
+                <LemonField name="is_trial">
+                    <LemonCheckbox
+                        checked={managedMigration.is_trial === true}
+                        onChange={(checked) => setManagedMigrationValue('is_trial', checked)}
+                        label="Run as a trial first"
+                    />
+                </LemonField>
+                {managedMigration.is_trial && (
+                    <>
+                        <div className="text-muted text-sm -mt-2">
+                            A trial parses and transforms a sample of your data and shows the exact events a real import
+                            would create, without ingesting anything. Trials still call the source API, so they consume
+                            its export quota.
+                        </div>
+                        <LemonField name="trial_record_limit" label="Number of records to test">
+                            <LemonInput
+                                type="number"
+                                min={1}
+                                max={TRIAL_RECORD_LIMIT_MAX}
+                                value={managedMigration.trial_record_limit}
+                                onChange={(value) => setManagedMigrationValue('trial_record_limit', value)}
+                            />
+                        </LemonField>
+                    </>
+                )}
+
                 <div className="flex justify-end">
                     <LemonButton type="primary" htmlType="submit">
-                        Import Data
+                        {managedMigration.is_trial ? 'Start trial run' : 'Import Data'}
                     </LemonButton>
                 </div>
             </SceneContent>
@@ -280,8 +307,8 @@ export function ManagedMigration(): JSX.Element {
 }
 
 export function ManagedMigrations(): JSX.Element {
-    const { managedMigrationId, migrations, migrationsLoading } = useValues(managedMigrationLogic)
-    const { pauseMigration, resumeMigration } = useActions(managedMigrationLogic)
+    const { managedMigrationId, migrations, migrationsLoading, promotingMigrationId } = useValues(managedMigrationLogic)
+    const { pauseMigration, resumeMigration, promoteTrial, viewTrialResults } = useActions(managedMigrationLogic)
 
     const calculateProgress = (
         migration: ManagedMigrationData
@@ -374,6 +401,7 @@ export function ManagedMigrations(): JSX.Element {
                                         <div className="flex items-center gap-2">
                                             <img src={config.icon} alt={config.alt} className="w-4 h-4" />
                                             {config.label}
+                                            {migration.is_trial && <LemonTag type="highlight">Trial</LemonTag>}
                                         </div>
                                     )
                                 },
@@ -481,6 +509,30 @@ export function ManagedMigrations(): JSX.Element {
                                 title: 'Actions',
                                 key: 'actions',
                                 render: (_: any, migration: ManagedMigrationData) => {
+                                    if (migration.is_trial && migration.display_status === 'completed') {
+                                        return (
+                                            <div className="flex gap-2">
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="small"
+                                                    onClick={() => viewTrialResults(migration.id)}
+                                                >
+                                                    View results
+                                                </LemonButton>
+                                                <LemonButton
+                                                    type="primary"
+                                                    size="small"
+                                                    onClick={() => promoteTrial(migration.id)}
+                                                    loading={promotingMigrationId === migration.id}
+                                                    disabledReason={
+                                                        promotingMigrationId ? 'Starting import…' : undefined
+                                                    }
+                                                >
+                                                    Run full import
+                                                </LemonButton>
+                                            </div>
+                                        )
+                                    }
                                     if (migration.display_status === 'running') {
                                         return (
                                             <LemonButton
@@ -510,6 +562,7 @@ export function ManagedMigrations(): JSX.Element {
                         ]}
                         emptyState="No migrations found. Create a new migration to get started."
                     />
+                    <TrialResultsModal />
                 </>
             )}
         </SceneContent>
