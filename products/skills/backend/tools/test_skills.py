@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 
 from asgiref.sync import async_to_sync
 
-from posthog.models import Team
+from posthog.models import Organization, Team
 
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.skills.backend.tools.skills import (
@@ -78,6 +78,22 @@ class TestListLLMSkillsTool(BaseTest):
         result, _ = _run(tool)
 
         assert "private-skill" not in result
+
+    def test_lists_global_skill_from_another_team(self):
+        owner_org = Organization.objects.create(name="Owner Org")
+        owner_team = Team.objects.create(organization=owner_org, name="Owner Team")
+        LLMSkill.objects.create(
+            team=owner_team,
+            name="global-skill",
+            description="Shared everywhere.",
+            body="body",
+            is_global=True,
+        )
+
+        tool = ListLLMSkillsTool(team=self.team, user=self.user)
+        result, _ = _run(tool)
+
+        assert "global-skill" in result
 
 
 class TestGetLLMSkillTool(BaseTest):

@@ -32703,6 +32703,10 @@ export namespace Schemas {
       metadata?: LLMSkillMetadata;
       /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
       readonly category: string;
+      /** Whether this skill is visible to every team, not just its owning team. Only PostHog staff can change this, via the visibility action — it is never writable through create or publish. A team viewing a global skill it does not own sees it read-only. */
+      readonly is_global: boolean;
+      /** ID of the team that owns this skill. For a global skill surfaced in another team's project, this differs from the requesting team — compare it to the current project to tell whether the skill is editable here. */
+      readonly team_id: number;
       /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
       readonly files: readonly LLMSkillFileManifest[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -32771,6 +32775,10 @@ export namespace Schemas {
       metadata?: LLMSkillCreateMetadata;
       /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
       readonly category: string;
+      /** Whether this skill is visible to every team, not just its owning team. Only PostHog staff can change this, via the visibility action — it is never writable through create or publish. A team viewing a global skill it does not own sees it read-only. */
+      readonly is_global: boolean;
+      /** ID of the team that owns this skill. For a global skill surfaced in another team's project, this differs from the requesting team — compare it to the current project to tell whether the skill is editable here. */
+      readonly team_id: number;
       /** Bundled files to include with the initial version (scripts, references, assets). */
       files?: LLMSkillFileInput[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -32898,6 +32906,10 @@ export namespace Schemas {
       metadata?: LLMSkillListMetadata;
       /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
       readonly category: string;
+      /** Whether this skill is visible to every team, not just its owning team. Only PostHog staff can change this, via the visibility action — it is never writable through create or publish. A team viewing a global skill it does not own sees it read-only. */
+      readonly is_global: boolean;
+      /** ID of the team that owns this skill. For a global skill surfaced in another team's project, this differs from the requesting team — compare it to the current project to tell whether the skill is editable here. */
+      readonly team_id: number;
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
@@ -32998,6 +33010,11 @@ export namespace Schemas {
       skill: LLMSkill;
       versions: LLMSkillVersionSummary[];
       has_more: boolean;
+    }
+
+    export interface LLMSkillVisibility {
+      /** Set true to make this skill visible to every team (the 'make visible to everyone' action), or false to restrict it back to its owning team. Applies to all versions of the skill. Staff-only. */
+      is_global: boolean;
     }
 
     export interface LLMTaggerConfig {

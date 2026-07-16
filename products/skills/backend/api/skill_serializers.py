@@ -26,6 +26,23 @@ MAX_SKILL_FILE_COUNT = 50
 SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 
 
+def _mask_foreign_global_author(instance: LLMSkill, context: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
+    """Hide the authoring staff member on a global skill surfaced in another team's project.
+
+    A global skill is readable cross-team, but its `created_by` (name + email) is the publishing
+    PostHog staff member and must not leak to consuming customers. The owning team still sees it.
+    """
+    if not instance.is_global or "created_by" not in data:
+        return data
+    get_team = context.get("get_team")
+    if get_team is None:
+        return data
+    viewer_team = get_team()
+    if viewer_team is not None and instance.team_id != viewer_team.id:
+        data["created_by"] = None
+    return data
+
+
 def validate_skill_name_value(value: str) -> str:
     if value.lower() in RESERVED_SKILL_NAMES:
         raise serializers.ValidationError(
@@ -346,6 +363,18 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         "not writable via the API. Empty for an ordinary skill. Groups skills into their own surface "
         "(e.g. the Scouts tab) independently of the skill name.",
     )
+    is_global = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether this skill is visible to every team, not just its owning team. Only PostHog staff "
+        "can change this, via the visibility action — it is never writable through create or publish. "
+        "A team viewing a global skill it does not own sees it read-only.",
+    )
+    team_id = serializers.IntegerField(
+        read_only=True,
+        help_text="ID of the team that owns this skill. For a global skill surfaced in another team's project, "
+        "this differs from the requesting team — compare it to the current project to tell whether the skill "
+        "is editable here.",
+    )
     files = serializers.SerializerMethodField(
         help_text="Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/.",
     )
@@ -365,6 +394,8 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "allowed_tools",
             "metadata",
             "category",
+            "is_global",
+            "team_id",
             "files",
             "outline",
             "version",
@@ -379,6 +410,8 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "is_global",
+            "team_id",
             "files",
             "outline",
             "version",
@@ -403,6 +436,10 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             },
             "metadata": {"help_text": "Arbitrary key-value metadata."},
         }
+
+    def to_representation(self, instance: LLMSkill) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        return _mask_foreign_global_author(instance, self.context, data)
 
     def get_is_latest(self, instance: LLMSkill) -> bool:
         return bool(getattr(instance, "is_latest", False))
@@ -521,6 +558,10 @@ class LLMSkillVersionSummarySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    def to_representation(self, instance: LLMSkill) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        return _mask_foreign_global_author(instance, self.context, data)
+
 
 class LLMSkillImportSerializer(serializers.Serializer):
     file = serializers.FileField(
@@ -536,6 +577,14 @@ class LLMSkillDuplicateSerializer(serializers.Serializer):
 
     def validate_new_name(self, value: str) -> str:
         return validate_skill_name_value(value)
+
+
+class LLMSkillVisibilitySerializer(serializers.Serializer):
+    is_global = serializers.BooleanField(
+        help_text="Set true to make this skill visible to every team (the 'make visible to everyone' "
+        "action), or false to restrict it back to its owning team. Applies to all versions of the skill. "
+        "Staff-only.",
+    )
 
 
 class LLMSkillResolveResponseSerializer(serializers.Serializer):

@@ -18,6 +18,9 @@ tools:
     llm-skills-name-export-retrieve:
         operation: llm_skills_name_export_retrieve
         enabled: false
+    llm-skills-name-visibility-create:
+        operation: llm_skills_name_visibility_create
+        enabled: false
     skill-archive:
         operation: llm_skills_name_archive_create
         enabled: true

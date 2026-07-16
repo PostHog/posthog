@@ -286,7 +286,8 @@ class ListLLMSkillsTool(MaxTool):
         return "\n".join(lines), None
 
     def _list_skills(self, search: str | None) -> list[LLMSkill]:
-        queryset = get_latest_skills_queryset(self._team)
+        # Include globally-visible skills so agents on any team discover staff-published skills too.
+        queryset = get_latest_skills_queryset(self._team, include_global=True)
         if search:
             queryset = queryset.filter(Q(name__icontains=search) | Q(description__icontains=search))
         # Fetch one extra row so we can distinguish "exactly at the cap" from "truncated".
@@ -313,7 +314,7 @@ class GetLLMSkillTool(MaxTool):
     def _fetch_skill_with_files(
         self, skill_name: str, version: int | None
     ) -> tuple[LLMSkill | None, list[LLMSkillFile]]:
-        skill = get_skill_by_name_from_db(self._team, skill_name, version)
+        skill = get_skill_by_name_from_db(self._team, skill_name, version, include_global=True)
         if skill is None:
             return None, []
         files = list(LLMSkillFile.objects.filter(skill=skill).order_by("path"))
@@ -358,7 +359,7 @@ class GetLLMSkillFileTool(MaxTool):
         )
 
     def _fetch_skill_file(self, skill_name: str, file_path: str, version: int | None) -> LLMSkillFile | None:
-        skill = get_skill_by_name_from_db(self._team, skill_name, version)
+        skill = get_skill_by_name_from_db(self._team, skill_name, version, include_global=True)
         if skill is None:
             return None
         return LLMSkillFile.objects.filter(skill=skill, path=file_path).first()

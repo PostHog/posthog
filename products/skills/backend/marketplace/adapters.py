@@ -7,7 +7,7 @@ serialization and git synthesis stay unit-testable without booting the app.
 from typing import Any
 
 from django.core.cache import cache
-from django.db.models import Max
+from django.db.models import Max, Q
 
 import structlog
 from rest_framework import serializers
@@ -91,8 +91,15 @@ def build_team_marketplace_tree(team: Team, version: str | None = None) -> FileT
         version = _team_plugin_version(team)
 
     # Lean query: the marketplace only needs the latest live skills, not the version-history
-    # annotations / created_by join that get_latest_skills_queryset adds.
-    skills = list(LLMSkill.objects.filter(team=team, deleted=False, is_latest=True).order_by("name"))
+    # annotations / created_by join that get_latest_skills_queryset adds. Includes globally-visible
+    # skills published by another team, but a team's own same-named skill shadows the global (git
+    # trees can't hold two dirs with the same skill name) — mirrors _shadow_globals in the service layer.
+    own_names = LLMSkill.objects.filter(team=team, deleted=False).values("name")
+    skills = list(
+        LLMSkill.objects.filter(Q(team=team) | Q(is_global=True), deleted=False, is_latest=True)
+        .exclude(Q(is_global=True) & ~Q(team=team) & Q(name__in=own_names))
+        .order_by("name")
+    )
 
     files_by_skill = _files_by_skill_id(skills)
 
@@ -182,5 +189,7 @@ def _team_plugin_version(team: Team) -> str:
     # monotonic and reflects archives. Deriving it from only live skills would regress the version
     # when the most-recently-updated skill is archived. Milliseconds (not seconds) so two edits
     # within the same second still produce distinct versions and clients don't miss an update.
-    latest = LLMSkill.objects.filter(team=team).aggregate(latest=Max("updated_at"))["latest"]
+    # Globals are included (set_skill_visibility bumps their updated_at) so a team's clone re-versions
+    # when a skill it consumes becomes — or stops being — globally visible.
+    latest = LLMSkill.objects.filter(Q(team=team) | Q(is_global=True)).aggregate(latest=Max("updated_at"))["latest"]
     return compute_plugin_version(int(latest.timestamp() * 1000)) if latest is not None else "1.0.0"

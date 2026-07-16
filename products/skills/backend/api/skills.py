@@ -61,6 +61,7 @@ from .skill_serializers import (
     LLMSkillResolveResponseSerializer,
     LLMSkillSerializer,
     LLMSkillVersionSummarySerializer,
+    LLMSkillVisibilitySerializer,
     validate_allowed_tool,
     validate_skill_body_size,
     validate_skill_file_path,
@@ -86,6 +87,7 @@ from .skill_services import (
     publish_skill_version,
     rename_skill_file,
     resolve_versions_page,
+    set_skill_visibility,
 )
 
 logger = structlog.get_logger(__name__)
@@ -248,7 +250,10 @@ class LLMSkillViewSet(
         return cast(dict[str, Any], LLMSkillSerializer(skill, context=self.get_serializer_context()).data)
 
     def _serialize_version_summaries(self, skills: list[LLMSkill]) -> list[dict[str, Any]]:
-        return cast(list[dict[str, Any]], LLMSkillVersionSummarySerializer(skills, many=True).data)
+        return cast(
+            list[dict[str, Any]],
+            LLMSkillVersionSummarySerializer(skills, many=True, context=self.get_serializer_context()).data,
+        )
 
     def _get_requested_version_params(self, request: Request) -> dict[str, Any]:
         serializer = LLMSkillFetchQuerySerializer(data=request.query_params)
@@ -268,7 +273,9 @@ class LLMSkillViewSet(
     def _get_list_queryset(self, request: Request) -> QuerySet[LLMSkill]:
         params = self._get_list_params(request)
 
-        queryset = get_latest_skills_queryset(self.team)
+        # Global skills (staff-published, owned by another team) surface in every team's list,
+        # read-only; a team's own same-named skill shadows the global (handled in the service layer).
+        queryset = get_latest_skills_queryset(self.team, include_global=True)
 
         search = params.get("search", "").strip()
         if search:
@@ -322,7 +329,7 @@ class LLMSkillViewSet(
     def get_by_name(self, request: Request, skill_name: str = "", **kwargs) -> Response:
         version_params = self._get_requested_version_params(request)
         version = cast(int | None, version_params.get("version"))
-        skill = get_skill_by_name_from_db(self.team, skill_name, version)
+        skill = get_skill_by_name_from_db(self.team, skill_name, version, include_global=True)
 
         if skill is None and _is_uuid(skill_name):
             redirect = self._redirect_to_name(request, skill_name)
@@ -335,7 +342,7 @@ class LLMSkillViewSet(
         return Response(self._serialize_skill(skill))
 
     def _redirect_to_name(self, request: Request, skill_name: str) -> Response | None:
-        skill_by_id = get_active_skill_queryset(self.team).filter(id=skill_name).first()
+        skill_by_id = get_active_skill_queryset(self.team, include_global=True).filter(id=skill_name).first()
         if skill_by_id is None:
             return None
         # Use a relative path (no build_absolute_uri) to avoid embedding the
@@ -461,6 +468,7 @@ class LLMSkillViewSet(
             skill_name=skill_name,
             version=version,
             version_id=str(version_id) if version_id else None,
+            include_global=True,
         )
         if skill is None:
             return self._skill_not_found_response(skill_name)
@@ -474,6 +482,7 @@ class LLMSkillViewSet(
             limit=limit,
             offset=offset,
             before_version=before_version,
+            include_global=True,
         )
         return Response(
             {
@@ -493,7 +502,7 @@ class LLMSkillViewSet(
     def export(self, request: Request, skill_name: str = "", **kwargs) -> Response | HttpResponse:
         version_params = self._get_requested_version_params(request)
         version = cast(int | None, version_params.get("version"))
-        skill = get_skill_by_name_from_db(self.team, skill_name, version)
+        skill = get_skill_by_name_from_db(self.team, skill_name, version, include_global=True)
         if skill is None:
             return self._skill_not_found_response(skill_name)
 
@@ -806,6 +815,57 @@ class LLMSkillViewSet(
         )
         return Response(self._serialize_skill(new_skill), status=status.HTTP_201_CREATED)
 
+    @extend_schema(request=LLMSkillVisibilitySerializer, responses={200: LLMSkillSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=r"name/(?P<skill_name>[^/]+)/visibility",
+        required_scopes=["llm_skill:write"],
+    )
+    @llma_track_latency("llma_skills_set_visibility")
+    @monitor(feature=None, endpoint="llma_skills_set_visibility", method="POST")
+    def set_visibility(self, request: Request, skill_name: str = "", **kwargs) -> Response:
+        """Staff-only: make a skill visible to every team, or restrict it back to its owning team.
+
+        The "make visible to everyone" analog of a global dashboard template. Operates on the skill
+        as it exists in the current project, so an un-publish must be issued from the owning project.
+        """
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        user = cast(User, request.user)
+        if not user.is_staff:
+            return Response(
+                {"detail": "Only PostHog staff can change a skill's global visibility."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        payload = LLMSkillVisibilitySerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        is_global = payload.validated_data["is_global"]
+
+        try:
+            skill = set_skill_visibility(self.team, skill_name, is_global=is_global)
+        except LLMSkillNotFoundError:
+            return self._skill_not_found_response(skill_name)
+
+        props = {**_skill_analytics_props(skill), "is_global": is_global}
+        logger.info(
+            "llma_skill_visibility_changed",
+            team_id=self.team.id,
+            user_id=user.id,
+            **props,
+        )
+        report_user_action(
+            user,
+            "llma skill visibility changed",
+            props,
+            team=self.team,
+            request=request,
+        )
+        return Response(self._serialize_skill(skill))
+
     @extend_schema(
         parameters=[LLMSkillFetchQuerySerializer],
         responses={200: LLMSkillFileSerializer},
@@ -825,7 +885,7 @@ class LLMSkillViewSet(
     def get_file(self, request: Request, skill_name: str = "", file_path: str = "", **kwargs) -> Response:
         version_params = self._get_requested_version_params(request)
         version = cast(int | None, version_params.get("version"))
-        skill = get_skill_by_name_from_db(self.team, skill_name, version)
+        skill = get_skill_by_name_from_db(self.team, skill_name, version, include_global=True)
         if skill is None:
             return self._skill_not_found_response(skill_name)
 
