@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
 
+from posthog.hogql.errors import QueryError
+
 from posthog.models import ActivityLog
 from posthog.models.activity_logging.activity_log import Detail
 
@@ -1163,6 +1165,54 @@ class TestSavedQuery(APIBaseTest):
 
             # Verify get_columns was called
             mock_get_columns.assert_called_once()
+
+    def test_create_surfaces_query_error_without_capturing(self):
+        # A user-facing query error during column inference (e.g. referencing an inaccessible table)
+        # should be surfaced to the user, not captured as an exception in error tracking.
+        query_error = QueryError("You don't have access to table `vitally.accounts`.")
+        with (
+            patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=query_error),
+            patch("products.data_warehouse.backend.presentation.views.saved_query.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "vitally_view",
+                    "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+                },
+            )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("vitally.accounts", response.json()["detail"])
+        mock_capture.assert_not_called()
+
+    def test_update_surfaces_query_error_without_capturing(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+
+        query_error = QueryError("You don't have access to table `vitally.accounts`.")
+        with (
+            patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=query_error),
+            patch("products.data_warehouse.backend.presentation.views.saved_query.capture_exception") as mock_capture,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 10"},
+                    "edited_history_id": saved_query["latest_history_id"],
+                },
+            )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("vitally.accounts", response.json()["detail"])
+        mock_capture.assert_not_called()
 
     def test_create_with_activity_log(self):
         response = self.client.post(
