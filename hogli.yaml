@@ -830,15 +830,6 @@ quality:
         cmd: pnpm run --filter @posthog/mcp format
         description: Format MCP files
 auth:
-    github:login:
-        click: hogli_commands.github_app_auth:github_login
-        description: Mint an 8h GitHub App token for unattended signed publishing
-    github:status:
-        click: hogli_commands.github_app_auth:github_status
-        description: Show which GitHub auth git:publish-signed would use
-    github:logout:
-        click: hogli_commands.github_app_auth:github_logout
-        description: Delete the cached GitHub App token
     metabase:login:
         click: hogli_commands.metabase:metabase_login
         description: Log in to Metabase via SSO and cache the session cookie
@@ -849,6 +840,9 @@ tools:
     git:publish-signed:
         click: hogli_commands.signed_commits:git_publish_signed
         description: Publish local commits as GitHub-signed (Verified) commits via the GitHub API
+    git:signing-session:
+        click: hogli_commands.signing_session:git_signing_session
+        description: Start an 8h signing session so unattended agents can publish signed commits
     metabase:databases:
         click: hogli_commands.metabase:metabase_databases
         description: List Metabase databases (id, name, engine) for a region

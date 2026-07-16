@@ -281,7 +281,7 @@ class TestAuthIntegration:
         result = CliRunner().invoke(git_publish_signed, [])
 
         assert result.exit_code != 0
-        assert "hogli github:login" in result.output
+        assert "hogli git:signing-session" in result.output
 
     @pytest.mark.parametrize(
         ("mode", "expect_scope_error"),

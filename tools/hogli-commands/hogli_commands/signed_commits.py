@@ -7,10 +7,10 @@ token. No local signing key, agent, or human approval is needed, so this
 works for unattended agent sessions and satisfies `required_signatures`
 rulesets.
 
-Auth prefers the 8-hour hogli-publisher app token (`hogli github:login`, see
-github_app_auth) over GH_TOKEN/GITHUB_TOKEN and the gh CLI's long-lived OAuth
-token; `--auth` / HOGLI_PUBLISH_AUTH pins one source. The resolved token is
-passed to every gh subprocess via GH_TOKEN, which gh honors over its keyring;
+Auth prefers the 8-hour hogli-publisher app token (`hogli git:signing-session`,
+see signing_session) over GH_TOKEN/GITHUB_TOKEN and the gh CLI's long-lived
+OAuth token; `--auth` / HOGLI_PUBLISH_AUTH pins one source. The resolved token
+is passed to every gh subprocess via GH_TOKEN, which gh honors over its keyring;
 new subprocesses added here must thread the same env through.
 
 Fidelity contract: every commit in the range is validated individually before
@@ -40,7 +40,7 @@ from pathlib import Path
 
 import click
 
-from hogli_commands.github_app_auth import AuthChoice, AuthMode, run_device_login, token_for_mode
+from hogli_commands.signing_session import AuthChoice, AuthMode, run_device_login, token_for_mode
 
 # createCommitOnBranch has no documented payload cap, but large payloads time
 # out or hit the REST blob ceiling (~40 MiB); refuse well before that.
@@ -188,8 +188,8 @@ def _default_branch() -> str:
 
 
 _AUTH_HINTS: dict[str, str] = {
-    "auto": "Run `hogli github:login` (8h app token) or `gh auth login`.",
-    "app": "Run `hogli github:login`.",
+    "auto": "Run `hogli git:signing-session` (8h app token) or `gh auth login`.",
+    "app": "Run `hogli git:signing-session`.",
     "env": "Set GH_TOKEN or GITHUB_TOKEN.",
     "gh": "Run `gh auth login`.",
 }
@@ -359,7 +359,7 @@ def _commit_failure_hint(stderr: str, mode: AuthMode) -> str:
     lowered = stderr.lower()
     if "bad credentials" in lowered or "http 401" in lowered:
         if mode == "app":
-            return ". The app token may have expired mid-publish; run `hogli github:login` and retry."
+            return ". The app token may have expired mid-publish; run `hogli git:signing-session` and retry."
         return ""
     if "workflow" in lowered:
         if mode == "app":
@@ -459,7 +459,7 @@ def git_publish_signed(dry_run: bool, auth: AuthChoice) -> None:
     the local ones (the local branch is repointed to the new history).
 
     For unattended agent sessions, mint an 8h app token first with
-    `hogli github:login`; it is preferred over the gh CLI's long-lived
+    `hogli git:signing-session`; it is preferred over the gh CLI's long-lived
     OAuth token.
     """
     git_dir = Path(_git_text(["rev-parse", "--absolute-git-dir"]))
@@ -519,7 +519,7 @@ def git_publish_signed(dry_run: bool, auth: AuthChoice) -> None:
     token, mode = resolved if resolved else _resolve_or_login(auth)
     if auth == "auto" and mode == "gh":
         click.secho(
-            "Using the long-lived gh CLI token; run `hogli github:login` for a short-lived app token.",
+            "Using the long-lived gh CLI token; run `hogli git:signing-session` for a short-lived app token.",
             fg="yellow",
             err=True,
         )
