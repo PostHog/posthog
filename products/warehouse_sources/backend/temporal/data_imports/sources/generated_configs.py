@@ -36,6 +36,14 @@ class BigQueryUseCustomRegionConfig(config.Config):
 
 
 @config.config
+class BitbucketAuthMethodConfig(config.Config):
+    selection: Literal["api_token", "access_token"] = "api_token"
+    email: str | None = None
+    api_token: str | None = None
+    access_token: str | None = None
+
+
+@config.config
 class ElasticsearchAuthMethodConfig(config.Config):
     selection: Literal["basic", "api_key"] = "basic"
     username: str | None = None
@@ -527,7 +535,8 @@ class BingAdsSourceConfig(config.Config):
 
 @config.config
 class BitbucketSourceConfig(config.Config):
-    pass
+    workspace: str
+    auth_method: BitbucketAuthMethodConfig
 
 
 @config.config

@@ -78,6 +78,7 @@ the row lists both.
 | bigmailer                        | HTTP                        | requests                                                        | ✅                          |
 | bigquery                         | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads                         | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
+| bitbucket                        | HTTP                        | requests                                                        | ✅                          |
 | bland_ai                         | HTTP                        | requests                                                        | ✅                          |
 | blogger                          | HTTP                        | requests                                                        | ✅                          |
 | bluetally                        | HTTP                        | requests                                                        | ✅                          |
@@ -573,7 +574,6 @@ doesn't conflict with concurrent PRs.
 - basecamp
 - bettermode
 - bigcommerce
-- bitbucket
 - bitly
 - bitrise
 - box
