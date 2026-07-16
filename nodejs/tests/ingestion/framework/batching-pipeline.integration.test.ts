@@ -349,7 +349,7 @@ class Harness {
         // are only admitted into the grouping stage when filterMap's
         // sub-pipeline drains.
         this.pipeline = newBatchingPipeline<In, ProcessedEvent, Ctx, StoreBatchContext, Ctx>(
-            (before) => before.pipe(bindStoresBeforeBatchStep),
+            (before) => before.pipe(bindStoresBeforeBatchStep).handleSideEffects(this.scheduler, { await: false }),
             (batch) =>
                 batch
                     .messageAware((b) =>
@@ -377,7 +377,8 @@ class Harness {
                             outputs: this.outputs as unknown as FlushBatchStoresOutputs,
                         })
                     )
-                    .pipe(recordAfterBatchStep),
+                    .pipe(recordAfterBatchStep)
+                    .handleSideEffects(this.scheduler, { await: false }),
             { concurrentBatches: options.concurrentBatches }
         )
     }
@@ -409,13 +410,12 @@ class Harness {
         return this.pipeline.feed(batch)
     }
 
-    /** Drain the pipeline like the consumer/API server: next() until null, scheduling side effects. */
+    /** Drain the pipeline like the consumer/API server: next() until null. */
     async drain(): Promise<void> {
         let result = await this.pipeline.next()
         while (result !== null) {
-            for (const sideEffect of result.sideEffects ?? []) {
-                void this.scheduler.schedule(sideEffect)
-            }
+            // The pipeline handles its own side effects; none may leak to drivers.
+            expect(result.sideEffects ?? []).toEqual([])
             result = await this.pipeline.next()
         }
     }
