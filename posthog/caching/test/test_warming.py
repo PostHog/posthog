@@ -118,6 +118,61 @@ class TestWarming(APIBaseTest):
         ]
         self.assertEqual(insights, expected_results)
 
+    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
+    def test_human_views_are_prioritized_over_frequent_api_reads(self, mock_get_stale_insights):
+        current_time = datetime.now(UTC)
+        human_dashboard = Dashboard.objects.create(
+            team=self.team,
+            most_recent_access={"human": {"timestamp": current_time.isoformat(), "count": 1}},
+        )
+        api_dashboard = Dashboard.objects.create(
+            team=self.team,
+            most_recent_access={"api": {"timestamp": current_time.isoformat(), "count": 100}},
+        )
+        human_insight = Insight.objects.create(team=self.team)
+        api_insight = Insight.objects.create(team=self.team)
+        DashboardTile.objects.create(insight=human_insight, dashboard=human_dashboard)
+        DashboardTile.objects.create(insight=api_insight, dashboard=api_dashboard)
+        mock_get_stale_insights.return_value = [
+            f"{api_insight.id}:{api_dashboard.id}",
+            f"{human_insight.id}:{human_dashboard.id}",
+        ]
+
+        assert list(insights_to_keep_fresh(self.team)) == [
+            (human_insight.id, human_dashboard.id),
+            (api_insight.id, api_dashboard.id),
+        ]
+
+    @patch("posthog.caching.warming.MAX_WARMING_CANDIDATES_PER_TEAM", 1)
+    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
+    def test_recent_cache_miss_can_move_a_candidate_inside_the_warming_budget(self, mock_get_stale_insights):
+        current_time = datetime.now(UTC)
+        human_dashboard = Dashboard.objects.create(
+            team=self.team,
+            most_recent_access={"human": {"timestamp": (current_time - timedelta(days=2)).isoformat(), "count": 1}},
+        )
+        missed_api_dashboard = Dashboard.objects.create(
+            team=self.team,
+            most_recent_access={
+                "api": {
+                    "timestamp": current_time.isoformat(),
+                    "count": 1,
+                    "last_cache_miss_at": current_time.isoformat(),
+                    "cache_miss_count": 1,
+                }
+            },
+        )
+        human_insight = Insight.objects.create(team=self.team)
+        missed_api_insight = Insight.objects.create(team=self.team)
+        DashboardTile.objects.create(insight=human_insight, dashboard=human_dashboard)
+        DashboardTile.objects.create(insight=missed_api_insight, dashboard=missed_api_dashboard)
+        mock_get_stale_insights.return_value = [
+            f"{human_insight.id}:{human_dashboard.id}",
+            f"{missed_api_insight.id}:{missed_api_dashboard.id}",
+        ]
+
+        assert list(insights_to_keep_fresh(self.team)) == [(missed_api_insight.id, missed_api_dashboard.id)]
+
 
 class TestScheduleWarmingForTeamsTask(APIBaseTest):
     def setUp(self) -> None:

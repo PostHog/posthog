@@ -1,5 +1,8 @@
+import json
+from datetime import datetime
 from enum import StrEnum
 
+from django.db.models.expressions import RawSQL
 from django.utils.timezone import now
 
 from prometheus_client import Counter
@@ -19,12 +22,12 @@ class DashboardAccessMethod(StrEnum):
 
 DASHBOARD_ACCESS_COUNTER = Counter(
     "posthog_dashboard_access_total",
-    "Dashboard accesses by source",
+    "Dashboard accesses recorded for cache warming prioritization",
     ["access_method"],
 )
 DASHBOARD_CACHE_OUTCOME_COUNTER = Counter(
     "posthog_dashboard_cache_outcome_total",
-    "Dashboard insight cache outcomes by access source",
+    "Dashboard insight cache outcomes recorded from views",
     ["access_method", "result"],
 )
 
@@ -41,18 +44,73 @@ def dashboard_access_method(
     return DashboardAccessMethod.API
 
 
-def record_dashboard_access(access_method: DashboardAccessMethod) -> None:
-    DASHBOARD_ACCESS_COUNTER.labels(access_method=access_method.value).inc()
+def record_dashboard_access(
+    dashboard: Dashboard,
+    access_method: DashboardAccessMethod,
+    *,
+    accessed_at: datetime | None = None,
+) -> None:
+    access_timestamp = accessed_at or now()
+    access_key = access_method.value
+    updated_access = RawSQL(
+        """
+        jsonb_set(
+            COALESCE(most_recent_access, '{}'::jsonb),
+            ARRAY[%s]::text[],
+            COALESCE(most_recent_access -> %s, '{}'::jsonb) || jsonb_build_object(
+                'timestamp', %s::jsonb,
+                'count', COALESCE((most_recent_access -> %s ->> 'count')::bigint, 0) + 1
+            ),
+            true
+        )
+        """,
+        (
+            access_key,
+            access_key,
+            json.dumps(access_timestamp.isoformat()),
+            access_key,
+        ),
+    )
+
+    Dashboard.objects.for_team(dashboard.team_id).filter(pk=dashboard.pk).update(
+        last_accessed_at=access_timestamp,
+        most_recent_access=updated_access,
+    )
+    dashboard.last_accessed_at = access_timestamp
+    DASHBOARD_ACCESS_COUNTER.labels(access_method=access_key).inc()
 
 
-def record_dashboard_view(dashboard: Dashboard, access_method: DashboardAccessMethod) -> None:
-    dashboard.last_accessed_at = now()
-    dashboard.save(update_fields=["last_accessed_at"])
-    record_dashboard_access(access_method)
+def record_dashboard_cache_outcome(
+    dashboard: Dashboard,
+    access_method: DashboardAccessMethod,
+    *,
+    is_cached: bool,
+    observed_at: datetime | None = None,
+) -> None:
+    outcome = "hit" if is_cached else "miss"
+    DASHBOARD_CACHE_OUTCOME_COUNTER.labels(access_method=access_method.value, result=outcome).inc()
+    if is_cached:
+        return
 
-
-def record_dashboard_cache_outcome(access_method: DashboardAccessMethod, *, is_cached: bool) -> None:
-    DASHBOARD_CACHE_OUTCOME_COUNTER.labels(
-        access_method=access_method.value,
-        result="hit" if is_cached else "miss",
-    ).inc()
+    observation_timestamp = observed_at or now()
+    access_key = access_method.value
+    updated_access = RawSQL(
+        """
+        jsonb_set(
+            COALESCE(most_recent_access, '{}'::jsonb),
+            ARRAY[%s]::text[],
+            COALESCE(most_recent_access -> %s, '{}'::jsonb) || jsonb_build_object(
+                'last_cache_miss_at', %s::jsonb,
+                'cache_miss_count', COALESCE((most_recent_access -> %s ->> 'cache_miss_count')::bigint, 0) + 1
+            ),
+            true
+        )
+        """,
+        (
+            access_key,
+            access_key,
+            json.dumps(observation_timestamp.isoformat()),
+            access_key,
+        ),
+    )
+    Dashboard.objects.for_team(dashboard.team_id).filter(pk=dashboard.pk).update(most_recent_access=updated_access)

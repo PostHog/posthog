@@ -95,7 +95,7 @@ from posthog.utils import (
 
 from products.ai_observability.backend.dashboard_templates import get_ai_observability_default_template
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.dashboards.backend.access import dashboard_access_method, record_dashboard_access, record_dashboard_view
+from products.dashboards.backend.access import dashboard_access_method, record_dashboard_access
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
@@ -2323,7 +2323,7 @@ class DashboardsViewSet(
         dashboard = self.get_object()
 
         access_method = dashboard_access_method(request)
-        record_dashboard_view(dashboard, access_method)
+        record_dashboard_access(dashboard, access_method)
         serializer_context = self.get_serializer_context()
         serializer_context["dashboard_access_method"] = access_method
         serializer = DashboardSerializer(dashboard, context=serializer_context)
@@ -2369,7 +2369,7 @@ class DashboardsViewSet(
 
         # Do all database operations and data loading synchronously first
         access_method = dashboard_access_method(request)
-        record_dashboard_view(dashboard, access_method)
+        record_dashboard_access(dashboard, access_method)
 
         context = self.get_serializer_context()
 
@@ -2814,7 +2814,7 @@ class DashboardsViewSet(
         output_format = request.query_params.get("output_format", "optimized")
 
         access_method = dashboard_access_method(request)
-        record_dashboard_access(access_method)
+        record_dashboard_access(dashboard, access_method)
 
         context = self.get_serializer_context()
         context["dashboard"] = dashboard

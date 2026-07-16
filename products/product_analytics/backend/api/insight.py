@@ -1216,6 +1216,7 @@ class InsightSerializer(InsightBasicSerializer):
                         }
                     ):
                         record_dashboard_cache_outcome(
+                            dashboard,
                             access_method,
                             is_cached=insight_result.is_cached,
                         )
