@@ -209,13 +209,25 @@ script; do not re-type or edit the generated files.
 
    Do NOT wait for the first workflow run to complete — reviewer 1 keeps reviewing while
    the rest launch, so all reviewers run concurrently apart from this brief warm-up
-   window. If the poll times out, continue anyway — a cache miss costs money, not
-   correctness.
+   window. If the poll times out, first check whether the `launch_first` run errored,
+   then continue and note in the final report that the run proceeded uncached — a cache
+   miss costs money, not correctness, but it should be attributable.
 
 3. Invoke the Workflow tool with `{scriptPath: "$RUN_DIR/launch_rest.js"}`. It launches
    the remaining reviewers in parallel; each reads the cached prefix reviewer 1 wrote.
 4. Both workflow runs return `{ reviews: [...] }` as they complete — collect both for
-   Step 4.
+   Step 4. Failed reviewers appear as explicit `REVIEWER FAILED: ...` sentinel entries,
+   never as silently missing reviews.
+5. **Reconcile before synthesizing:** `personas/` must be empty and the number of
+   collected reviews (sentinels included) must equal the persona count. On a mismatch,
+   name the unclaimed or unreviewed personas in the report — or relaunch a single agent
+   for the leftovers — rather than presenting partial coverage as a complete review.
+   (Known limitation: a claim is not idempotent — an agent that reruns the claim consumes
+   a second persona and starves a later reviewer; the reconciliation step is what catches
+   this.)
+
+After the report is written, best-effort clean up the run directory (`rm -rf "$RUN_DIR"`)
+— it contains the full diff on disk and has no further use.
 
 **Fallback:** if the Workflow tool is unavailable, launch agents directly with the Agent
 tool using one shared prompt that references the run-dir files instead of embedding the

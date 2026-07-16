@@ -21,9 +21,9 @@ const PROMPT_TEMPLATE = `You are a code reviewer. Your specific review focus is 
 
 1. FIRST action — run this exact command with the Bash tool to receive your review focus:
 
-   bash __RUN_DIR__/claim_persona.sh
+   bash "__RUN_DIR__/claim_persona.sh"
 
-   It prints your assigned focus, expertise, checklist, and known failure patterns. Conduct your entire review through that lens. Do not read, list, or otherwise inspect anything inside __RUN_DIR__ other than running this command.
+   It prints your assigned focus, expertise, checklist, and known failure patterns. Conduct your entire review through that lens. If the command reports an error, stop immediately and report that error text as your entire review — do not improvise a focus. Do not read, list, or otherwise inspect anything inside __RUN_DIR__ other than running this command and, if step 2 below explicitly instructs it, reading the diff file it names.
 
 2. The code changes to review:
 
@@ -71,9 +71,11 @@ const FIRST_TEMPLATE = `export const meta = {
 const PROMPT = __PROMPT_JSON__
 phase('First reviewer')
 const review = await agent(PROMPT, { label: 'reviewer-1', phase: 'First reviewer' })
-return { reviews: [review] }
+return { reviews: [review || 'REVIEWER FAILED: reviewer-1 returned no review'] }
 `
 
+// Failed reviewers must stay visible as explicit sentinels — a silently shorter
+// review list reads as complete coverage during synthesis.
 const REST_TEMPLATE = `export const meta = {
   name: 'qa-team-launch-rest',
   description: 'Launch the remaining QA reviewers against the warmed prefix',
@@ -81,12 +83,13 @@ const REST_TEMPLATE = `export const meta = {
 }
 const PROMPT = __PROMPT_JSON__
 phase('Reviewers')
-const reviews = await parallel(
+const results = await parallel(
   Array.from({ length: __REST_COUNT__ }, (_, i) => () =>
     agent(PROMPT, { label: \`reviewer-\${i + 2}\`, phase: 'Reviewers' })
   )
 )
-return { reviews: reviews.filter(Boolean) }
+const reviews = results.map((r, i) => r || \`REVIEWER FAILED: reviewer-\${i + 2} returned no review\`)
+return { reviews }
 `
 
 function main() {
@@ -96,7 +99,6 @@ function main() {
     }
     const runDir = path.resolve(process.argv[2])
 
-    const diff = fs.readFileSync(path.join(runDir, 'diff.patch'), 'utf8')
     const fileList = fs.readFileSync(path.join(runDir, 'files.txt'), 'utf8').trim()
     const commitLog = fs.readFileSync(path.join(runDir, 'commits.txt'), 'utf8').trim()
     const reviewerCount = fs.readdirSync(path.join(runDir, 'personas')).filter((f) => f.endsWith('.md')).length
@@ -105,10 +107,16 @@ function main() {
         process.exit(1)
     }
 
+    const diffPath = path.join(runDir, 'diff.patch')
+    const diffSize = fs.statSync(diffPath).size
+    if (diffSize === 0) {
+        console.error('diff.patch is empty — nothing to review')
+        process.exit(1)
+    }
     const fullDiff =
-        Buffer.byteLength(diff, 'utf8') > MAX_EMBED_BYTES
-            ? `The diff is too large to inline. Read it from ${runDir}/diff.patch with the Read tool (in chunks if needed) before reviewing.`
-            : diff.trim()
+        diffSize > MAX_EMBED_BYTES
+            ? `The diff is too large to inline. Read it from "${diffPath}" with the Read tool (in chunks if needed) before reviewing.`
+            : fs.readFileSync(diffPath, 'utf8').trim()
 
     // Single-pass fill: every placeholder is substituted in one scan of the
     // original template, so placeholder-shaped text inside substituted content
@@ -124,7 +132,10 @@ function main() {
         COMMIT_LOG: commitLog,
         FULL_DIFF: fullDiff,
     })
-    const promptJson = JSON.stringify(prompt)
+    // U+2028/U+2029 are valid in JSON strings but only valid in JS string
+    // literals under ES2019 JSON-superset parsing — escape them so the
+    // generated scripts parse under any dialect.
+    const promptJson = JSON.stringify(prompt).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')
 
     fs.writeFileSync(path.join(runDir, 'launch_first.js'), fill(FIRST_TEMPLATE, { PROMPT_JSON: promptJson }))
     fs.writeFileSync(
