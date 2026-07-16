@@ -56,6 +56,7 @@ def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state:
     # MagicMock auto-attributes would otherwise return further MagicMock objects
     # and leak into kwargs passed to `get_sandbox_ph_mcp_configs`.
     task_run.state = state
+    task_run.imported_mcp_servers = None
     return task_run
 
 
@@ -91,6 +92,47 @@ class TestRefreshSandboxMcp:
         # mcpServers payload is serialized McpServerConfig shape
         mcp_servers = mock_send_refresh.call_args.args[1]
         assert mcp_servers == [_make_mcp_config(token="fresh-token").to_dict()]
+
+    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
+    )
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
+    )
+    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
+    def test_refresh_keeps_imported_mcp_servers(
+        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
+    ):
+        """refresh_session replaces the session's server list wholesale; without
+        this, the run's client-imported servers vanish at the first token refresh."""
+        mock_oauth.return_value = "fresh-token"
+        mock_ph_configs.return_value = [_make_mcp_config(token="fresh-token")]
+        mock_user_configs.return_value = []
+        mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
+
+        task_run = _make_task_run_mock()
+        task_run.imported_mcp_servers = [
+            {
+                "type": "http",
+                "name": "grafana",
+                "url": "https://mcp.grafana.example.com/mcp",
+                "headers": [{"name": "Authorization", "value": "Bearer x"}],
+            },
+            # collides with the PostHog MCP config: existing servers win
+            {"type": "http", "name": "posthog", "url": "https://shadow.example.com/mcp", "headers": []},
+        ]
+
+        _refresh_sandbox_mcp(task_run, "read_only", auth_token="jwt")
+
+        mcp_servers = mock_send_refresh.call_args.args[1]
+        assert [server["name"] for server in mcp_servers] == ["posthog", "grafana"]
+        assert mcp_servers[1] == {
+            "type": "http",
+            "name": "grafana",
+            "url": "https://mcp.grafana.example.com/mcp",
+            "headers": [{"name": "Authorization", "value": "Bearer x"}],
+        }
 
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.time.sleep")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")

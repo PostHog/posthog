@@ -24,9 +24,8 @@ from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
-    RuntimeAdapter,
-    build_imported_mcp_server_configs,
     format_allowed_domains_for_log,
+    get_imported_mcp_server_configs,
     get_sandbox_ph_mcp_configs,
     get_task_run_credential_user,
     get_user_mcp_server_configs,
@@ -188,20 +187,6 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
     return not task.internal
 
 
-def _imported_mcp_configs_for(
-    ctx: TaskProcessingContext, task_run: TaskRun | None, existing_names: set[str]
-) -> list[McpServerConfig]:
-    """Client-imported MCP servers persisted on the run at creation time.
-
-    codex-acp hard-fails the session when any configured MCP server is
-    unreachable and the sandbox does no reachability pruning, so imported
-    servers are claude-only for now (an unset adapter defaults to claude).
-    """
-    if task_run is None or ctx.runtime_adapter not in (None, RuntimeAdapter.CLAUDE.value):
-        return []
-    return build_imported_mcp_server_configs(task_run.imported_mcp_servers, existing_names)
-
-
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _LaunchParams:
     try:
         task = Task.objects.select_related("created_by", "team").get(id=ctx.task_id)
@@ -254,8 +239,8 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs
 
-    imported_mcp_configs = _imported_mcp_configs_for(
-        ctx, task_run, existing_names={config.name for config in mcp_configs}
+    imported_mcp_configs = (
+        get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs}) if task_run else []
     )
     if imported_mcp_configs:
         mcp_configs = mcp_configs + imported_mcp_configs

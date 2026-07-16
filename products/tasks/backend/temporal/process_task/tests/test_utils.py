@@ -892,9 +892,11 @@ class TestGitHubCredentialSourceHelpers(TestCase):
 
 
 class TestBuildImportedMcpServerConfigs(TestCase):
-    def test_returns_empty_for_none_or_empty(self):
+    def test_returns_empty_for_none_empty_or_non_list(self):
         assert build_imported_mcp_server_configs(None, set()) == []
         assert build_imported_mcp_server_configs([], {"posthog"}) == []
+        # The encrypted column is schemaless at read time; drift must not break launches.
+        assert build_imported_mcp_server_configs("junk", set()) == []
 
     def test_builds_configs_dropping_collisions_and_malformed_entries(self):
         configs = build_imported_mcp_server_configs(
