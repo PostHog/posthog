@@ -1,17 +1,15 @@
+import json
 from typing import Any
 
 import pytest
 from unittest import mock
 
 import requests
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.campayn.campayn import (
-    CampaynRetryableError,
-    _as_rows,
-    _fetch,
     base_url,
     campayn_source,
-    get_rows,
     is_subdomain_valid,
     normalize_subdomain,
     validate_credentials,
@@ -20,42 +18,56 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.campayn.se
     CAMPAYN_ENDPOINTS,
     ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClient,
+    RESTClientRetryableError,
+)
 
-SESSION_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.campayn.campayn.make_tracked_session"
-
-
-class FakeResponse:
-    def __init__(self, status_code: int = 200, json_data: Any = None) -> None:
-        self.status_code = status_code
-        self._json = json_data if json_data is not None else []
-        self.text = str(self._json)
-
-    @property
-    def ok(self) -> bool:
-        return 200 <= self.status_code < 300
-
-    def json(self) -> Any:
-        return self._json
-
-    def raise_for_status(self) -> None:
-        if not self.ok:
-            raise requests.HTTPError(
-                f"{self.status_code} Client Error", response=mock.MagicMock(status_code=self.status_code)
-            )
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the campayn module.
+CAMPAYN_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.campayn.campayn.make_tracked_session"
+)
 
 
-class FakeSession:
-    def __init__(self, responses_by_url: dict[str, FakeResponse]) -> None:
-        self._responses_by_url = responses_by_url
-        self.calls: list[dict[str, Any]] = []
+def _response(body: Any, status: int = 200, reason: str | None = None, url: str | None = None) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(body).encode()
+    resp.reason = reason
+    resp.url = url  # type: ignore[assignment]
+    return resp
 
-    def get(self, url: str, headers: Any = None, timeout: Any = None) -> FakeResponse:
-        self.calls.append({"url": url, "headers": headers})
-        # Match by suffix so tests don't have to spell out the full subdomain host every time.
-        for suffix, response in self._responses_by_url.items():
-            if url.endswith(suffix):
-                return response
-        raise AssertionError(f"unexpected URL: {url}")
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and snapshot each request's URL + auth headers AT PREPARE TIME.
+
+    The framework auth object only runs against the prepared request, so we apply it to a stand-in
+    with a real headers dict to observe the Authorization header it would send.
+    """
+    session.headers = {}
+    seen: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        prepared = mock.MagicMock()
+        prepared.headers = {}
+        if request.auth is not None:
+            request.auth(prepared)
+        seen.append({"url": request.url, "auth_headers": dict(prepared.headers)})
+        return prepared
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return seen
+
+
+def _source(endpoint: str):
+    return campayn_source("acme", "k", endpoint, team_id=1, job_id="j")
+
+
+def _batches(source_response) -> list[list[dict[str, Any]]]:
+    return [list(page) for page in source_response.items()]
 
 
 class TestNormalizeSubdomain:
@@ -94,112 +106,166 @@ class TestIsSubdomainValid:
         assert is_subdomain_valid(raw) is expected
 
 
-class TestAsRows:
-    @pytest.mark.parametrize(
-        "payload, expected",
-        [
-            ([{"id": "1"}, {"id": "2"}], [{"id": "1"}, {"id": "2"}]),
-            ([{"id": "1"}, "junk"], [{"id": "1"}]),
-            ({"data": [{"id": "1"}]}, [{"id": "1"}]),
-            ({"id": "1"}, [{"id": "1"}]),
-            ("nope", []),
-            ([], []),
-        ],
-    )
-    def test_coercion(self, payload: Any, expected: list[dict[str, Any]]) -> None:
-        assert _as_rows(payload) == expected
+class TestTopLevelEndpoints:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_lists_yields_single_batch(self, MockSession) -> None:
+        session = MockSession.return_value
+        seen = _wire(session, [_response([{"id": "1"}, {"id": "2"}])])
 
+        batches = _batches(_source("lists"))
 
-class TestGetRowsTopLevel:
-    def test_lists_yields_single_batch(self) -> None:
-        session = FakeSession({"/lists.json": FakeResponse(json_data=[{"id": "1"}, {"id": "2"}])})
-        with mock.patch(SESSION_PATH, return_value=session):
-            batches = list(get_rows("acme", "k", "lists", mock.MagicMock()))
         assert batches == [[{"id": "1"}, {"id": "2"}]]
-        assert session.calls[0]["url"] == f"{base_url('acme')}/lists.json"
-        assert session.calls[0]["headers"]["Authorization"] == "TRUEREST apikey=k"
+        # No pagination anywhere on Campayn's API — exactly one request per endpoint.
+        assert session.send.call_count == 1
+        assert seen[0]["url"] == f"{base_url('acme')}/lists.json"
+        assert seen[0]["auth_headers"]["Authorization"] == "TRUEREST apikey=k"
+        assert session.headers.get("Accept") == "application/json"
 
-    def test_empty_response_yields_nothing(self) -> None:
-        session = FakeSession({"/emails.json": FakeResponse(json_data=[])})
-        with mock.patch(SESSION_PATH, return_value=session):
-            batches = list(get_rows("acme", "k", "emails", mock.MagicMock()))
-        assert batches == []
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_response_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([])])
+
+        assert _batches(_source("emails")) == []
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_object_body_is_wrapped_as_one_row(self, MockSession) -> None:
+        # Defensive: the docs say list endpoints return bare arrays, but a single-object body is
+        # tolerated as one row rather than crashing the sync.
+        session = MockSession.return_value
+        _wire(session, [_response({"id": "1"})])
+
+        assert _batches(_source("reports")) == [[{"id": "1"}]]
 
 
-class TestGetRowsFanOut:
-    def test_contacts_fan_out_injects_list_id(self) -> None:
-        session = FakeSession(
-            {
-                "/lists.json": FakeResponse(json_data=[{"id": "10"}, {"id": "20"}]),
-                "/lists/10/contacts.json": FakeResponse(json_data=[{"id": "1", "email": "a@x.com"}]),
-                "/lists/20/contacts.json": FakeResponse(json_data=[{"id": "2", "email": "b@x.com"}]),
-            }
+class TestFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_contacts_fan_out_injects_list_id(self, MockSession) -> None:
+        session = MockSession.return_value
+        seen = _wire(
+            session,
+            [
+                _response([{"id": "10"}, {"id": "20"}]),
+                _response([{"id": "1", "email": "a@x.com"}]),
+                _response([{"id": "2", "email": "b@x.com"}]),
+            ],
         )
-        with mock.patch(SESSION_PATH, return_value=session):
-            batches = list(get_rows("acme", "k", "contacts", mock.MagicMock()))
+
+        batches = _batches(_source("contacts"))
 
         assert batches == [
             [{"id": "1", "email": "a@x.com", "list_id": "10"}],
             [{"id": "2", "email": "b@x.com", "list_id": "20"}],
         ]
+        assert [s["url"] for s in seen] == [
+            f"{base_url('acme')}/lists.json",
+            f"{base_url('acme')}/lists/10/contacts.json",
+            f"{base_url('acme')}/lists/20/contacts.json",
+        ]
 
-    def test_fan_out_skips_list_deleted_mid_sync(self) -> None:
-        session = FakeSession(
-            {
-                "/lists.json": FakeResponse(json_data=[{"id": "10"}, {"id": "20"}]),
-                "/lists/10/contacts.json": FakeResponse(status_code=404),
-                "/lists/20/contacts.json": FakeResponse(json_data=[{"id": "2"}]),
-            }
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fan_out_stringifies_numeric_parent_id(self, MockSession) -> None:
+        # The composite primary key expects list_id as a string, whatever JSON type the API returns.
+        session = MockSession.return_value
+        seen = _wire(session, [_response([{"id": 10}]), _response([{"id": "1"}])])
+
+        batches = _batches(_source("contacts"))
+
+        assert batches == [[{"id": "1", "list_id": "10"}]]
+        assert seen[1]["url"] == f"{base_url('acme')}/lists/10/contacts.json"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fan_out_with_no_lists_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([])])
+
+        assert _batches(_source("forms")) == []
+        assert session.send.call_count == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fan_out_skips_list_deleted_mid_sync(self, MockSession) -> None:
+        # A list deleted between enumeration and the child fetch 404s — skip it, keep syncing.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": "10"}, {"id": "20"}]),
+                _response({"error": "not found"}, status=404),
+                _response([{"id": "2"}]),
+            ],
         )
-        logger = mock.MagicMock()
-        with mock.patch(SESSION_PATH, return_value=session):
-            batches = list(get_rows("acme", "k", "contacts", logger))
+
+        batches = _batches(_source("contacts"))
 
         assert batches == [[{"id": "2", "list_id": "20"}]]
-        logger.warning.assert_called_once()
 
-    def test_fan_out_reraises_non_404_http_error(self) -> None:
-        session = FakeSession(
-            {
-                "/lists.json": FakeResponse(json_data=[{"id": "10"}]),
-                "/lists/10/forms.json": FakeResponse(status_code=403),
-            }
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fan_out_reraises_non_404_http_error(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": "10"}]),
+                _response({"error": "forbidden"}, status=403, reason="Forbidden", url="https://x"),
+            ],
         )
-        with mock.patch(SESSION_PATH, return_value=session):
-            with pytest.raises(requests.HTTPError):
-                list(get_rows("acme", "k", "forms", mock.MagicMock()))
+
+        with pytest.raises(requests.HTTPError, match="403 Client Error"):
+            _batches(_source("forms"))
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fan_out_fails_loudly_on_parent_row_missing_id(self, MockSession) -> None:
+        # `id` drives all fan-out, so a malformed list record must fail rather than silently
+        # dropping its contacts/forms.
+        session = MockSession.return_value
+        _wire(session, [_response([{"name": "no id here"}])])
+
+        with pytest.raises(ValueError, match="field 'id'"):
+            _batches(_source("contacts"))
 
 
-class TestFetchRetry:
+class TestErrorHandling:
     @pytest.mark.parametrize("status", [429, 500, 503])
-    def test_retryable_statuses_raise_retryable_error(self, status: int) -> None:
-        # Override tenacity's backoff sleep so the 5 retries don't actually wait; the decorator
-        # reraises the last CampaynRetryableError once attempts are exhausted.
-        session = FakeSession({"/lists.json": FakeResponse(status_code=status)})
-        with mock.patch(SESSION_PATH, return_value=session), mock.patch.object(_fetch.retry, "sleep"):  # type: ignore[attr-defined]
-            with pytest.raises(CampaynRetryableError):
-                list(get_rows("acme", "k", "lists", mock.MagicMock()))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_statuses_raise_retryable_error(self, MockSession, status: int) -> None:
+        # Override tenacity's backoff sleep so the 5 retries don't actually wait; the client
+        # reraises the last retryable error once attempts are exhausted.
+        session = MockSession.return_value
+        _wire(session, [_response({}, status=status) for _ in range(5)])
 
-    @pytest.mark.parametrize("status", [401, 403, 404])
-    def test_client_errors_raise_http_error(self, status: int) -> None:
-        session = FakeSession({"/lists.json": FakeResponse(status_code=status)})
-        with mock.patch(SESSION_PATH, return_value=session):
-            with pytest.raises(requests.HTTPError):
-                list(get_rows("acme", "k", "lists", mock.MagicMock()))
+        with (
+            mock.patch.object(RESTClient._send_request.retry, "sleep"),  # type: ignore[attr-defined]
+            pytest.raises(RESTClientRetryableError),
+        ):
+            _batches(_source("lists"))
+        assert session.send.call_count == 5
+
+    @pytest.mark.parametrize(
+        "status, reason",
+        [(401, "Unauthorized"), (403, "Forbidden"), (404, "Not Found")],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_errors_raise_http_error(self, MockSession, status: int, reason: str) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({}, status=status, reason=reason, url="https://x")])
+
+        # The "<status> Client Error" prefix is what get_non_retryable_errors matches on.
+        with pytest.raises(requests.HTTPError, match=f"{status} Client Error"):
+            _batches(_source("lists"))
 
 
 class TestCampaynSource:
     def test_all_endpoints_buildable_with_correct_primary_keys(self) -> None:
         for endpoint in ENDPOINTS:
-            response = campayn_source("acme", "k", endpoint, mock.MagicMock())
+            response = _source(endpoint)
             assert response.name == endpoint
             assert response.primary_keys == CAMPAYN_ENDPOINTS[endpoint].primary_keys
             # No stable creation-time field exists, so nothing is partitioned.
             assert response.partition_mode is None
 
     def test_fan_out_endpoints_key_includes_parent_list_id(self) -> None:
-        assert campayn_source("acme", "k", "contacts", mock.MagicMock()).primary_keys == ["list_id", "id"]
-        assert campayn_source("acme", "k", "forms", mock.MagicMock()).primary_keys == ["list_id", "id"]
+        assert _source("contacts").primary_keys == ["list_id", "id"]
+        assert _source("forms").primary_keys == ["list_id", "id"]
 
 
 class TestValidateCredentials:
@@ -207,24 +273,22 @@ class TestValidateCredentials:
         "status, expected",
         [(200, True), (401, False), (403, False), (500, False)],
     )
-    def test_status_mapping(self, status: int, expected: bool) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = FakeResponse(status_code=status)
-        with mock.patch(SESSION_PATH, return_value=session):
-            assert validate_credentials("acme", "k") is expected
+    @mock.patch(CAMPAYN_SESSION_PATCH)
+    def test_status_mapping(self, mock_session: mock.MagicMock, status: int, expected: bool) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
+        assert validate_credentials("acme", "k") is expected
 
-    def test_connection_error_returns_false(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = Exception("boom")
-        with mock.patch(SESSION_PATH, return_value=session):
-            assert validate_credentials("acme", "k") is False
+    @mock.patch(CAMPAYN_SESSION_PATCH)
+    def test_connection_error_returns_false(self, mock_session: mock.MagicMock) -> None:
+        mock_session.return_value.get.side_effect = Exception("boom")
+        assert validate_credentials("acme", "k") is False
 
-    def test_probes_lists_endpoint(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = FakeResponse(status_code=200)
-        with mock.patch(SESSION_PATH, return_value=session):
-            validate_credentials("acme", "k")
-        called_url = (
-            session.get.call_args.args[0] if session.get.call_args.args else session.get.call_args.kwargs["url"]
-        )
+    @mock.patch(CAMPAYN_SESSION_PATCH)
+    def test_probes_lists_endpoint_with_auth_header(self, mock_session: mock.MagicMock) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        validate_credentials("acme", "k")
+
+        call = mock_session.return_value.get.call_args
+        called_url = call.args[0] if call.args else call.kwargs["url"]
         assert called_url == f"{base_url('acme')}/lists.json"
+        assert call.kwargs["headers"]["Authorization"] == "TRUEREST apikey=k"
