@@ -228,6 +228,21 @@ export function shouldHydrateSourceFromUrl(
     return !(selectedConnector?.name === source.name && currentAccessMethod === urlAccessMethod && currentStep > 1)
 }
 
+/**
+ * Resolve the `direct_query_enabled` create-payload value. Synced direct-capable sources
+ * default to live queries enabled unless the toggle was switched off; the flag is omitted
+ * for pure direct sources (backend ignores it) and for sources that can't be live-queried.
+ */
+export function resolveCreateDirectQueryEnabled(
+    sourceValues: { access_method?: string; direct_query_enabled?: boolean },
+    connectorName: string
+): boolean | undefined {
+    if (!supportsDirectQuery(connectorName) || sourceValues.access_method === 'direct') {
+        return undefined
+    }
+    return sourceValues.direct_query_enabled !== false
+}
+
 function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | null | undefined): boolean {
     return !!webhookResult?.success && (webhookResult.pending_inputs?.length ?? 0) === 0
 }
@@ -561,6 +576,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 prefix: string
                 description: string
                 access_method: 'warehouse' | 'direct'
+                direct_query_enabled?: boolean
                 payload: Record<string, any>
             },
             {
@@ -569,6 +585,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         prefix: source.prefix ?? state.prefix,
                         description: source.description ?? state.description,
                         access_method: source.access_method ?? state.access_method,
+                        direct_query_enabled:
+                            'direct_query_enabled' in source ? source.direct_query_enabled : state.direct_query_enabled,
                         payload: {
                             ...state.payload,
                             ...source.payload,
@@ -1712,6 +1730,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     const payload: Record<string, any> = {
                         ...sourceValues,
                         access_method: isDirectQueryMode ? 'direct' : 'warehouse',
+                        direct_query_enabled: resolveCreateDirectQueryEnabled(
+                            sourceValues,
+                            values.selectedConnector.name
+                        ),
                         source_type: values.selectedConnector.name,
                     }
                     actions.setIsLoading(true)

@@ -438,7 +438,8 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
 - **`ReviewUserSettings`** (migration 0008; one row per team+user, `db_constraint=False` FKs):
   `review_inbox_prs` (default off; consumed by the Stage-6 inbox trigger since 2026-07-02),
   `review_labeled_prs` (default on), `urgency_threshold` (`consider`/`should_fix`/`must_fix`, default
-  `should_fix`, values mirror `IssuePriority`). GET/PATCH singleton at `review_hog/settings` — the
+  `consider` since 2026-07-16 — see the follow-up below; values mirror `IssuePriority`). GET/PATCH
+  singleton at `review_hog/settings` — the
   action method is `user_settings` because a method named `settings` shadows DRF's `APIView.settings`
   and breaks the whole view (found by test).
 - **Label gate:** `resolve_acting_user_activity` now returns the acting user's settings snapshot
@@ -451,8 +452,8 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
   from `BuildBodyInput.urgency_threshold` / `PublishInput.urgency_threshold` (dataclass defaults keep
   in-flight payloads deserializing) on the **workflow** path. "All issues" publishes `consider`
   findings inline too. The standalone `publish_review` command always uses `DEFAULT_URGENCY_THRESHOLD`
-  (should_fix) — see the adversarial-review follow-up below for why it doesn't take a per-user
-  threshold.
+  (`consider` since 2026-07-16) — see the adversarial-review follow-up below for why it doesn't take a
+  per-user threshold.
 - **Skill lists feed the drawer:** the three config list endpoints (+ PATCH responses) now include the
   skill `body`; "Edit skill ↗" links to `/skills/review-hog`.
 - **"Create your own …":** task kickoff mirroring Inbox "Make a scout" (`api.tasks.create` →
@@ -469,6 +470,20 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
   skip, the CLI-override bypass, and threshold threading into body+publish.
 - **Still deferred:** reset-to-canonical (needs the force-re-pull helper in `lazy_seed`); non-staff
   rollout. (The "Review all your Inbox PRs" behavior is **BUILT** — see Stage 6.)
+
+#### ✅ BUILT 2026-07-16 — default urgency threshold flipped to "All issues" (`consider`)
+
+The default `urgency_threshold` moved from `should_fix` to `consider`, so out of the box every
+validated finding reaches the pull request (consider-level findings survive validation too, so
+they're worth surfacing by default). Changed in one place each: the `ReviewUserSettings` field
+`default`/`db_default` and `DEFAULT_URGENCY_THRESHOLD` in `constants.py`; the temporal input
+dataclass defaults (`ResolveActingUserResult`/`BuildBodyInput`/`PublishInput`) follow so "defaults
+match the model's" stays true. Migration 0017 alters the column default and resets existing rows to
+`consider` (safe — no persisted rows yet; done for correctness). Slider copy moved the "default"
+annotation to "All issues" and the frontend fallbacks (`?? 'should_fix'`) now fall back to
+`consider`. The `should_fix`-threshold test fixtures were renamed `_DEFAULT_PUBLISHED` →
+`_SHOULD_FIX_PUBLISHED` (they exercise the publish gate at that threshold; they never meant "the
+product default").
 
 #### ✅ Follow-up 2026-07-02 — adversarial review (partial) caught a real regression; fixed 2, reverted 1 as overengineered
 
@@ -488,7 +503,7 @@ missing required argument`) — those call sites were never updated. Caught only
    adversarial reviewer ran the product's real `backend:test` script (`backend/tests` **+**
    `backend/reviewer/tests`); my own verification during the build had only run `backend/tests`,
    silently skipping the second directory the whole session. Fixed: all 8 call sites now pass a
-   `_DEFAULT_PUBLISHED = published_priorities_for(IssuePriority.SHOULD_FIX)` test constant (matching
+   `_SHOULD_FIX_PUBLISHED = published_priorities_for(IssuePriority.SHOULD_FIX)` test constant (matching
    prior implicit behavior), plus two comments that assumed the old "consider never publishes"
    absolute rule reworded to "below the default threshold." **Lesson: verify against a product's
    `package.json` `backend:test` script, not a hand-picked test path** — `backend/reviewer/tests/` is
