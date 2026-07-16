@@ -9,10 +9,10 @@ import structlog
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
-from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 
+from products.alerts.backend.facade.api import send_alert_email
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, derive_detector_event_fields
 from products.alerts.backend.scheduling import (
     EVERY_15_MINUTES_CADENCE_MINUTES as EVERY_15_MINUTES_CADENCE_MINUTES,
@@ -185,7 +185,9 @@ def send_notifications_for_breaches(
         campaign_key = f"alert-firing-notification-{idempotency_key}"
         insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
         alert_url = f"{insight_url}?alert_id={alert.id}"
-        message = EmailMessage(
+        logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
+        send_alert_email(
+            recipients=email_targets,
             campaign_key=campaign_key,
             subject=subject,
             template_name="alert_check_firing",
@@ -198,12 +200,6 @@ def send_notifications_for_breaches(
                 "project_name": alert.team.name,
             },
         )
-
-        for target in email_targets:
-            message.add_recipient(email=target)
-
-        logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
-        message.send()
 
     # Join with newlines so each breach/investigation line renders on its own line in
     # Slack/Discord/Teams destinations rather than as one run-on comma-separated string.
@@ -391,7 +387,8 @@ def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targ
     campaign_key = f"alert-disabled-notification-{alert.id}-{timezone.now().timestamp()}"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
     alert_url = f"{insight_url}?alert_id={alert.id}"
-    message = EmailMessage(
+    send_alert_email(
+        recipients=targets,
         campaign_key=campaign_key,
         subject=subject,
         template_name="alert_disabled",
@@ -404,7 +401,3 @@ def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targ
             "project_name": alert.team.name,
         },
     )
-    for target in targets:
-        message.add_recipient(email=target)
-
-    message.send()

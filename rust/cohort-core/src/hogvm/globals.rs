@@ -4,8 +4,8 @@ use chrono::{DateTime, NaiveDateTime};
 use metrics::counter;
 use serde_json::{json, Value};
 
-use crate::consumers::events::CohortStreamEvent;
-use crate::observability::metrics::STAGE1_GLOBALS_PARSE_ERROR;
+use crate::events::CohortStreamEvent;
+use crate::metrics::STAGE1_GLOBALS_PARSE_ERROR;
 
 /// A malformed `properties`/`person_properties` JSON payload.
 #[derive(Debug, thiserror::Error)]
