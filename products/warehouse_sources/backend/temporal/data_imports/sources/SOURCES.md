@@ -331,6 +331,7 @@ the row lists both.
 | openfda                          | HTTP                        | requests                                                        | ✅                          |
 | openrouter                       | HTTP                        | requests                                                        | ✅                          |
 | openweather                      | HTTP                        | requests                                                        | ✅                          |
+| opsgenie                         | HTTP                        | requests                                                        | ✅                          |
 | ortto                            | HTTP                        | requests                                                        | ✅                          |
 | oura                             | HTTP                        | requests                                                        | ✅                          |
 | outbrain                         | HTTP                        | requests                                                        | ✅                          |
@@ -789,7 +790,6 @@ doesn't conflict with concurrent PRs.
 - onepassword
 - onesignal
 - open_data_dc
-- opsgenie
 - opuswatch
 - oracle
 - oracle_ebs
