@@ -539,6 +539,47 @@ def test_approval_posted_while_losing_supersession_race_is_dismissed(team, stamp
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_retry_dismisses_orphan_when_superseded_before_the_fresh_status_recheck(
+    team, stamphog_chain: StamphogChain
+) -> None:
+    # A prior attempt posted the approval (id persisted) and crashed before the terminal save; on
+    # the Temporal retry, a same-head re-review supersedes the run between the load and the fresh
+    # status recheck. The stale-approval sweep excludes same-head approvals, so this early return
+    # must retract the orphan itself — and the persisted id must also stop a duplicate approval.
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    head_sha = "sha117a"
+    recorder.register_pr(REPO, 117, _pr_object(117, "devex-dev", head_sha), _pr_files())
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=117, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha=head_sha,
+        status=ReviewRunStatus.REVIEWING,
+        posted_review_id=777,
+        output={"reviewer_raw": fakes.approved_engine_output().splitlines()[-1]},
+    )
+
+    original_parse = activities.parse_reviewer_output
+
+    def _supersede_then_parse(raw: str):
+        ReviewRun.objects.for_team(team.id).filter(id=run.id).update(status=ReviewRunStatus.SUPERSEDED)
+        return original_parse(raw)
+
+    with patch.object(activities, "parse_reviewer_output", side_effect=_supersede_then_parse):
+        result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    assert result == {"verdict": "skipped_superseded"}
+    assert [w for w in recorder.github_writes if w["kind"] == "approve_review"] == []
+    dismissals = [w for w in recorder.github_writes if w["kind"] == "dismiss_review"]
+    assert [d["review_id"] for d in dismissals] == [777]
+    run.refresh_from_db()
+    assert run.approval_dismissed_at is not None
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_bot_eyes_on_a_later_reactions_page_still_counts_as_in_flight(team, stamphog_chain: StamphogChain) -> None:
     # Anyone can react on a public PR, so an author could bury the trusted bot's fresh 👀 past the
     # first page with junk reactions; a first-page-only fetch would treat the bot as absent and let

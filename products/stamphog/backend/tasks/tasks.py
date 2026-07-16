@@ -322,7 +322,14 @@ def _retract_stale_approvals_on_skip(repo_config: StamphogRepoConfig, pr: dict[s
     if pr_number is None:
         return
     head_sha = (pr.get("head") or {}).get("sha") or ""
-    pull_request = PullRequest.objects.for_team(team_id).filter(repo_config=repo_config, pr_number=pr_number).first()
+    # Writer pin: this read gates the dismissal side effect — a lagged reader missing a PR row
+    # committed moments ago would silently skip retracting an approval over unreviewed commits.
+    pull_request = (
+        PullRequest.objects.for_team(team_id)
+        .using(router.db_for_write(PullRequest))
+        .filter(repo_config=repo_config, pr_number=pr_number)
+        .first()
+    )
     if pull_request is None:
         return
     dismissed = dismiss_stale_approvals_for_head(team_id, pull_request, repo_config, head_sha, message=message)

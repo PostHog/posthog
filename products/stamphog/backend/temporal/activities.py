@@ -511,6 +511,11 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         .exists()
     )
     if superseded_now:
+        # Same orphan rule as the guards above: a prior attempt may have posted and persisted the
+        # review id, then crashed before the terminal save; a same-head supersession landing here is
+        # invisible to the sweep (it excludes same-head approvals), so retract before returning.
+        if run.verdict != ReviewVerdict.APPROVED:
+            _dismiss_orphaned_approval(client, run, input.team_id)
         activity.logger.info(f"Skipping verdict for run {run.id}: superseded during posting")
         return {"verdict": "skipped_superseded"}
 
