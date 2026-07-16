@@ -19,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.capsule_cr
     validate_credentials as validate_capsule_crm_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.settings import (
-    CAPSULE_CRM_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -29,7 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CapsuleCRMSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -83,7 +85,7 @@ The token inherits your user's permissions, so make sure your user can see the r
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # An invalid or revoked token surfaces as a requests HTTPError when `_fetch_page` calls
+            # An invalid or revoked token surfaces as a requests HTTPError when the REST client calls
             # `raise_for_status()`. Match the stable status text and base host, not the per-request path.
             "401 Client Error: Unauthorized for url: https://api.capsulecrm.com": "Your Capsule CRM Personal Access Token is invalid or has been revoked. Create a new token in your Capsule account settings, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.capsulecrm.com": "Your Capsule CRM user does not have permission to read this data. Check the user's permissions in Capsule, then reconnect.",
@@ -97,22 +99,9 @@ The token inherits your user's permissions, so make sure your user can see the r
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        def _build_schema(endpoint: str) -> SourceSchema:
-            endpoint_config = CAPSULE_CRM_ENDPOINTS[endpoint]
-            has_incremental = endpoint_config.supports_since and bool(INCREMENTAL_FIELDS.get(endpoint))
-            return SourceSchema(
-                name=endpoint,
-                supports_incremental=has_incremental,
-                supports_append=has_incremental,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=endpoint_config.should_sync_default,
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # Only the `?since`-capable endpoints declare incremental fields in settings, so the
+        # fields-driven default matches the old supports_since check exactly.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: CapsuleCRMSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -134,7 +123,8 @@ The token inherits your user's permissions, so make sure your user can see the r
         return capsule_crm_source(
             access_token=config.access_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
