@@ -270,7 +270,7 @@ class LLMPromptViewSet(
         if prompt is None:
             if label is not None:
                 return Response(
-                    {"detail": f"Prompt '{prompt_name}' has no label '{label}'."},
+                    {"detail": f"Prompt '{prompt_name}' not found or has no label '{label}'."},
                     status=status.HTTP_404_NOT_FOUND,
                 )
             return self._prompt_not_found_response(prompt_name)

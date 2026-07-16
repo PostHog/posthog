@@ -112,6 +112,12 @@ class LLMPromptGetByNameQuerySerializer(LLMPromptFetchQuerySerializer):
         help_text=CONTENT_MODE_HELP,
     )
 
+    def validate_label(self, value: str) -> str:
+        # Fetching also writes to the cache (miss sentinels under caller-controlled keys),
+        # so impossible label names are rejected before any cache touch — and a caller
+        # sending 'Production' gets the naming rules instead of a confusing 404.
+        return validate_prompt_label_name_value(value)
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if attrs.get("version") is not None and attrs.get("label") is not None:
             raise serializers.ValidationError("Use either version or label, not both.")
