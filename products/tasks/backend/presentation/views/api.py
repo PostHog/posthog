@@ -2193,6 +2193,9 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
 
     def _chart_url(self, query: dict | None, asset) -> str | None:
         if query is not None:
+            # The insight scene can't hydrate a DataVisualizationNode — SQL queries open in the SQL editor.
+            if query.get("kind") == "DataVisualizationNode":
+                return absolute_uri(f"/project/{self.team_id}/sql?open_query={quote(json.dumps(query))}")
             return absolute_uri(f"/project/{self.team_id}/insights/new#q={quote(json.dumps(query))}")
         if asset.insight_id and asset.insight:
             return absolute_uri(f"/project/{self.team_id}/insights/{asset.insight.short_id}")
