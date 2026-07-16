@@ -57,7 +57,7 @@ export function DashboardHeader(): JSX.Element | null {
                 }}
                 markdown
                 canEdit={canEditDashboard}
-                isLoading={dashboardLoading}
+                isLoading={dashboardLoading && !dashboard}
                 saveOnBlur
                 renameDebounceMs={0}
                 maxButtonLabel={postHogAIButtonLabelVariant === 'test' ? 'PostHog AI' : undefined}
