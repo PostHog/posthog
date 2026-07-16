@@ -283,7 +283,8 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
         deprecate(propose_certification(team=self.team, user=self.user, table_id=str(second.id)), self.user)
 
         context = self._context()
-        resolved_id = str(context.database.get_table("revenue").table_id)
+        assert context.database is not None
+        resolved_id = str(getattr(context.database.get_table("revenue"), "table_id", None))
         expected = "certified" if resolved_id == str(first.id) else "deprecated"
 
         response = execute_hogql_query(
