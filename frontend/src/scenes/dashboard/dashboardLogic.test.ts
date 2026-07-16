@@ -1081,7 +1081,7 @@ describe('dashboardLogic', () => {
                         'triggerDashboardRefresh',
                         logic.actionCreators.refreshDashboardItems({
                             action: RefreshDashboardItemsAction.Refresh,
-                            forceRefresh: true,
+                            refresh: 'force_blocking',
                         }),
                         // sets the "reloading" status
                         logic.actionCreators.setRefreshStatuses([insight1.short_id, insight2.short_id], false, true),
@@ -1178,7 +1178,7 @@ describe('dashboardLogic', () => {
                 }
 
                 try {
-                    // forceRefresh: true so both tiles enter the refresh loop
+                    // force_blocking ensures both tiles enter the refresh loop
                     const refreshDone = expectLogic(logic, () => {
                         logic.actions.triggerDashboardRefresh()
                     }).toFinishAllListeners()
@@ -1236,7 +1236,7 @@ describe('dashboardLogic', () => {
                 try {
                     ;(api.update as jest.Mock).mockClear()
 
-                    // forceRefresh: true so every insight tile hits getInsightWithRetry (applyFilters/preview can skip fresh tiles)
+                    // force_blocking ensures every insight tile hits getInsightWithRetry (applyFilters/preview can skip fresh tiles)
                     const refreshDone = expectLogic(logic, () => {
                         logic.actions.triggerDashboardRefresh()
                     }).toFinishAllListeners()
@@ -1395,7 +1395,7 @@ describe('dashboardLogic', () => {
                     }).toDispatchActions([
                         logic.actionCreators.refreshDashboardItems({
                             action: RefreshDashboardItemsAction.Refresh,
-                            forceRefresh: false,
+                            refresh: 'blocking',
                         }),
                     ])
                 } finally {
