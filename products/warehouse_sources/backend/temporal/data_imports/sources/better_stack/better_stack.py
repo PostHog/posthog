@@ -122,9 +122,12 @@ def _fetch_page_once(
         retry_after = response.headers.get("Retry-After")
         if retry_after is not None:
             try:
-                time.sleep(min(int(retry_after), MAX_RETRY_AFTER_SECONDS))
+                sleep_seconds = int(retry_after)
             except ValueError:
-                pass
+                # Per RFC 7231, Retry-After may be an HTTP-date instead of a seconds count. We don't
+                # parse the date; fall back to the cap so we still back off rather than hammering.
+                sleep_seconds = MAX_RETRY_AFTER_SECONDS
+            time.sleep(min(sleep_seconds, MAX_RETRY_AFTER_SECONDS))
         raise BetterStackRetryableError(f"Better Stack API rate limited: status=429, url={page_url}")
 
     if response.status_code >= 500:

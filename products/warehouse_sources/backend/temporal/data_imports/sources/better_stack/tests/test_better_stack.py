@@ -117,6 +117,19 @@ class TestFetchPage:
                 pass
         sleep.assert_called_once_with(better_stack.MAX_RETRY_AFTER_SECONDS)
 
+    def test_429_http_date_retry_after_falls_back_to_cap(self) -> None:
+        # RFC 7231 allows Retry-After to be an HTTP-date; we can't int() it, so we still back off.
+        response = MagicMock(status_code=429, headers={"Retry-After": "Wed, 21 Oct 2015 07:28:00 GMT"})
+        session = MagicMock()
+        session.get.return_value = response
+        with mock.patch.object(better_stack.time, "sleep") as sleep:
+            try:
+                _fetch_page_once(session, "https://uptime.betterstack.com/api/v2/monitors", {}, MagicMock())
+                raise AssertionError("expected BetterStackRetryableError")
+            except better_stack.BetterStackRetryableError:
+                pass
+        sleep.assert_called_once_with(better_stack.MAX_RETRY_AFTER_SECONDS)
+
 
 class TestValidatePaginationUrl:
     def test_api_origin_url_is_returned_unchanged(self) -> None:
