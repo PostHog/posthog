@@ -61,10 +61,9 @@ describe('welcomeDialogLogic', () => {
     let logic: ReturnType<typeof welcomeDialogLogic.build>
 
     beforeEach(() => {
-        // The dialog persists dismissal in localStorage and "looked around" in sessionStorage —
-        // clear both so a prior test doesn't carry over and suppress the dialog.
+        // The dialog persists its "dismissed" and "seen" suppression markers in localStorage —
+        // clear it so a prior test doesn't carry over and suppress the dialog.
         window.localStorage.clear()
-        window.sessionStorage.clear()
         useMocks({
             get: {
                 '/api/organizations/@current/welcome/current/': mockPayload,
@@ -128,6 +127,25 @@ describe('welcomeDialogLogic', () => {
             )
         ).toBe('1')
         expect(logic.values.shouldShowDialog).toBe(false)
+    })
+
+    it('does not reopen after being shown once, even across a remount', async () => {
+        userLogic.actions.loadUserSuccess(INVITED_USER)
+        logic = welcomeDialogLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadWelcomeDataSuccess'])
+        expect(logic.values.shouldShowDialog).toBe(true)
+        logic.unmount()
+
+        // Navigating into a non-home scene unmounts the logic; returning remounts it fresh. The
+        // durable "seen" marker must keep it from re-opening and re-fetching (which re-fires
+        // welcome_screen_shown) — the bug this guards against.
+        const remounted = welcomeDialogLogic()
+        remounted.mount()
+        expect(remounted.values.shouldShowDialog).toBe(false)
+        await expectLogic(remounted).toNotHaveDispatchedActions(['loadWelcomeData'])
+        remounted.unmount()
     })
 
     it('closes locally on closeDialog so it does not flash back', async () => {

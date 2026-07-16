@@ -71,20 +71,27 @@ const EMPTY_PAYLOAD: WelcomePayload = {
 
 export type WelcomeCardKind = 'members' | 'activity' | 'dashboards' | 'products' | 'next_steps'
 
-// LocalStorage key used to suppress the dialog on subsequent visits after the user has dismissed it.
-// Scoped per user AND organization so a contractor/agency who works across multiple orgs gets
-// a fresh welcome in each org instead of only ever seeing it once across their lifetime.
+// LocalStorage keys used to suppress the dialog on subsequent visits. Both are scoped per user
+// AND organization so a contractor/agency who works across multiple orgs gets a fresh welcome in
+// each org instead of only ever seeing it once across their lifetime.
+//
+// `dismissed` is set when the user explicitly clicks "Don't show again".
+// `seen` is set as soon as the dialog is shown, so navigating away (which unmounts the logic and
+// its scene) or reloading the page doesn't re-open a dialog the user has already seen. Both live in
+// localStorage — not sessionStorage — so suppression survives reloads and new tabs, not just the
+// current tab's session.
 const LOCAL_DISMISSED_KEY_PREFIX = 'posthog_welcome_dismissed:'
-// SessionStorage key used to suppress the dialog for the remainder of a tab's session after
-// the user clicks "I'll look around" — avoids re-opening on every project-home remount.
-const SESSION_LOOKED_AROUND_KEY = 'posthog_welcome_looked_around'
+const LOCAL_SEEN_KEY_PREFIX = 'posthog_welcome_seen:'
+// Both keys share this suffix pattern; a cross-tab storage event on either prefix should re-run
+// the suppression check in other tabs.
+const SUPPRESSION_KEY_PREFIXES = [LOCAL_DISMISSED_KEY_PREFIX, LOCAL_SEEN_KEY_PREFIX]
 
-function dismissedKey(userUuid: string | undefined, orgId: string | undefined): string | null {
-    return userUuid && orgId ? `${LOCAL_DISMISSED_KEY_PREFIX}${userUuid}:${orgId}` : null
+function scopedKey(prefix: string, userUuid: string | undefined, orgId: string | undefined): string | null {
+    return userUuid && orgId ? `${prefix}${userUuid}:${orgId}` : null
 }
 
-function rememberDismissed(userUuid: string | undefined, orgId: string | undefined): void {
-    const key = dismissedKey(userUuid, orgId)
+function rememberFlag(prefix: string, userUuid: string | undefined, orgId: string | undefined): void {
+    const key = scopedKey(prefix, userUuid, orgId)
     if (typeof window === 'undefined' || !key) {
         return
     }
@@ -95,12 +102,8 @@ function rememberDismissed(userUuid: string | undefined, orgId: string | undefin
     }
 }
 
-export function wasWelcomeDismissed(userUuid: string | undefined, orgId: string | undefined): boolean {
-    return wasDismissed(userUuid, orgId)
-}
-
-function wasDismissed(userUuid: string | undefined, orgId: string | undefined): boolean {
-    const key = dismissedKey(userUuid, orgId)
+function hasFlag(prefix: string, userUuid: string | undefined, orgId: string | undefined): boolean {
+    const key = scopedKey(prefix, userUuid, orgId)
     if (typeof window === 'undefined' || !key) {
         return false
     }
@@ -111,32 +114,36 @@ function wasDismissed(userUuid: string | undefined, orgId: string | undefined): 
     }
 }
 
-function rememberLookedAround(orgId: string | undefined): void {
-    if (typeof window === 'undefined' || !orgId) {
-        return
-    }
-    try {
-        window.sessionStorage.setItem(SESSION_LOOKED_AROUND_KEY, orgId)
-    } catch {
-        // sessionStorage can be unavailable (privacy mode, etc.) — degrade gracefully.
-    }
+function rememberDismissed(userUuid: string | undefined, orgId: string | undefined): void {
+    rememberFlag(LOCAL_DISMISSED_KEY_PREFIX, userUuid, orgId)
 }
 
-function wasLookedAround(orgId: string | undefined): boolean {
-    if (typeof window === 'undefined' || !orgId) {
-        return false
-    }
-    try {
-        return window.sessionStorage.getItem(SESSION_LOOKED_AROUND_KEY) === orgId
-    } catch {
-        return false
-    }
+function rememberSeen(userUuid: string | undefined, orgId: string | undefined): void {
+    rememberFlag(LOCAL_SEEN_KEY_PREFIX, userUuid, orgId)
+}
+
+function wasDismissed(userUuid: string | undefined, orgId: string | undefined): boolean {
+    return hasFlag(LOCAL_DISMISSED_KEY_PREFIX, userUuid, orgId)
+}
+
+function wasSeen(userUuid: string | undefined, orgId: string | undefined): boolean {
+    return hasFlag(LOCAL_SEEN_KEY_PREFIX, userUuid, orgId)
+}
+
+// Pre-mount gate used by the scene wrappers to avoid even mounting the dialog. Deliberately keyed
+// only on the explicit "Don't show again" flag, not "seen": the "seen" marker is written while the
+// dialog is on screen, so gating the mount on it would unmount the dialog mid-view. A seen-but-not-
+// dismissed user still mounts the logic, but `eligibleToShow` keeps it from re-opening.
+export function wasWelcomeDismissed(userUuid: string | undefined, orgId: string | undefined): boolean {
+    return wasDismissed(userUuid, orgId)
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface welcomeDialogLogicValues {
     isProvisionedUser: boolean // userLogic
     user: UserType | null // userLogic
+    dialogOpen: boolean
+    eligibleToShow: boolean
     hasLoadedOnce: boolean
     interactedCards: Record<WelcomeCardKind, boolean>
     inviter: WelcomeInviter | null
@@ -212,12 +219,13 @@ export interface welcomeDialogLogicMeta {
         productsInUse: (welcomeData: WelcomePayload) => string[]
         suggestedNextSteps: (welcomeData: WelcomePayload) => WelcomeSuggestedStep[]
         organizationName: (welcomeData: WelcomePayload, user: UserType | null) => string
-        shouldShowDialog: (
+        eligibleToShow: (
             user: UserType | null,
             isProvisionedUser: boolean,
             locallyClosed: boolean,
             storageTick: number
         ) => boolean
+        shouldShowDialog: (dialogOpen: boolean) => boolean
     }
 }
 
@@ -243,8 +251,8 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         markCardInteracted: (card: WelcomeCardKind) => ({ card }),
         markShown: true,
         setWelcomeDataError: (error: boolean) => ({ error }),
-        // Bumped when another tab writes to localStorage (dismisses) so the current tab's
-        // shouldShowDialog selector re-evaluates without needing a full page navigation.
+        // Bumped when another tab writes a suppression marker to localStorage so the current tab's
+        // eligibleToShow selector re-evaluates without needing a full page navigation.
         acknowledgeStorageChange: true,
     }),
 
@@ -254,6 +262,18 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
             {
                 markShown: () => Date.now(),
                 resetForOrgChange: () => null,
+            },
+        ],
+        // Sticky open-state for the current mount. Driven by markShown (set when we decide to show
+        // the dialog) rather than by the localStorage suppression selector — so persisting the
+        // "seen" marker or a user refetch can't yank the modal closed while the user is reading it.
+        dialogOpen: [
+            false,
+            {
+                markShown: () => true,
+                closeDialog: () => false,
+                dismissWelcome: () => false,
+                resetForOrgChange: () => false,
             },
         ],
         interactedCards: [
@@ -287,7 +307,7 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
                 resetForOrgChange: () => false,
             },
         ],
-        // A monotonically-incrementing counter that shouldShowDialog depends on so cross-tab
+        // A monotonically-incrementing counter that eligibleToShow depends on so cross-tab
         // localStorage changes trigger a re-computation of the selector.
         storageTick: [
             0,
@@ -343,10 +363,11 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
             (data: WelcomePayload, user: null | import('../../types').UserType): string =>
                 data.organization_name || user?.organization?.name || '',
         ],
-        // Open for invitees (not the org creator) and for partner-provisioned accounts (which have no
-        // inviter, so they'd otherwise never see it), when not already dismissed.
-        // `storageTick` is in the dependency list so cross-tab localStorage changes re-run the selector.
-        shouldShowDialog: [
+        // Whether this user is eligible to be *auto-shown* the dialog: an invitee (not the org
+        // creator) or a partner-provisioned account (which has no inviter, so it'd otherwise never
+        // see it), who hasn't already dismissed it or seen it. `storageTick` is in the dependency
+        // list so cross-tab localStorage changes re-run the selector.
+        eligibleToShow: [
             (s) => [s.user, s.isProvisionedUser, s.locallyClosed, s.storageTick],
             (
                 user: null | import('../../types').UserType,
@@ -357,28 +378,25 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
                     return false
                 }
                 const orgId = user.organization?.id
-                if (wasDismissed(user.uuid, orgId)) {
+                if (wasDismissed(user.uuid, orgId) || wasSeen(user.uuid, orgId)) {
                     return false
                 }
-                if (locallyClosed) {
-                    return false
-                }
-                // Also suppress if the user opted to look around earlier in this tab's session.
-                return !wasLookedAround(orgId)
+                return !locallyClosed
             },
         ],
+        // Whether the modal should be rendered right now. Sticky once opened (see the `dialogOpen`
+        // reducer) so it survives the "seen" marker being persisted and user refetches.
+        shouldShowDialog: [(s) => [s.dialogOpen], (dialogOpen): boolean => dialogOpen],
     }),
 
     listeners(({ actions, values }) => ({
         loadWelcomeDataSuccess: ({ welcomeData }) => {
-            if (!values.shouldShowDialog || values.welcomeDataError) {
-                return
-            }
-            if (!welcomeData.organization_name) {
+            // The modal is already open (markShown fired when the user became eligible); only report
+            // the rich "shown" analytics once we actually have content to show.
+            if (!values.dialogOpen || values.welcomeDataError || !welcomeData.organization_name) {
                 // Empty payload = backend error that was caught and returned EMPTY_PAYLOAD.
                 return
             }
-            actions.markShown()
             posthog.capture('welcome_screen_shown', {
                 org_id: values.user?.organization?.id,
                 num_team_members: welcomeData.team_members.length,
@@ -387,9 +405,13 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
                 from_invite_type: welcomeData.inviter ? 'invite' : 'unknown',
             })
         },
-        closeDialog: () => {
-            // Persist "I'll look around" across remounts in the same tab.
-            rememberLookedAround(values.user?.organization?.id)
+        markShown: () => {
+            // Persist durably the moment the dialog is shown. Navigating away unmounts the logic
+            // (the dialog only mounts on home / primary-dashboard scenes), so relying on an explicit
+            // close is what let the modal re-open on every return visit. Recording "seen" up front —
+            // in localStorage, so it also survives reloads and new tabs — means we show it once and
+            // then leave the user alone.
+            rememberSeen(values.user?.uuid, values.user?.organization?.id)
         },
         dismissWelcome: () => {
             const interactedCount = Object.keys(values.interactedCards).length
@@ -402,9 +424,6 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         },
         trackCardClick: ({ card, targetHref }) => {
             actions.markCardInteracted(card)
-            // Clicking an in-app card link counts as engagement — persist the "looked around"
-            // marker so the dialog doesn't re-appear the next time the user lands on home.
-            rememberLookedAround(values.user?.organization?.id)
             posthog.capture('welcome_screen_card_clicked', {
                 card,
                 target_href: targetHref,
@@ -422,23 +441,28 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
                 actions.resetForOrgChange()
             }
         },
-        shouldShowDialog: (shouldShow: boolean) => {
-            if (shouldShow && !values.hasLoadedOnce && !values.welcomeDataLoading) {
+        eligibleToShow: (eligible: boolean) => {
+            if (eligible && !values.hasLoadedOnce && !values.welcomeDataLoading) {
+                // Open the modal (which persists the durable "seen" marker) and fetch its content.
+                // We open up front so the loading spinner / error banner render inside the dialog,
+                // matching the pre-fix behavior — and once opened, eligibleToShow flips false on the
+                // next recompute, so a remount won't re-open it.
+                actions.markShown()
                 actions.loadWelcomeData()
             }
         },
     })),
 
-    // Subscribe to the browser's storage event so that dismissal from another tab propagates
-    // to this one. The event only fires in *other* tabs (not the one that performed the write),
-    // so the acting tab is already in sync via its own reducers.
+    // Subscribe to the browser's storage event so that suppression (dismiss or seen) in another
+    // tab propagates to this one. The event only fires in *other* tabs (not the one that performed
+    // the write), so the acting tab is already in sync via its own reducers.
     events(({ actions, cache }) => ({
         afterMount: () => {
             if (typeof window === 'undefined') {
                 return
             }
             const handler = (event: StorageEvent): void => {
-                if (event.key && event.key.startsWith(LOCAL_DISMISSED_KEY_PREFIX)) {
+                if (event.key && SUPPRESSION_KEY_PREFIXES.some((prefix) => event.key?.startsWith(prefix))) {
                     actions.acknowledgeStorageChange()
                 }
             }
