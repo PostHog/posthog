@@ -262,6 +262,63 @@ class TestLlamaCloudTransport:
             ]
         ]
 
+    def test_get_rows_sheets_jobs_projects_to_documented_fields(self) -> None:
+        # Sheets jobs embed webhook credentials under nested `parameters.webhook_configurations`;
+        # only the documented job metadata reaches the warehouse. Exercises the paginated
+        # projection path (distinct from the bare-array pipelines endpoint).
+        session = FakeSession(
+            [
+                _page(
+                    [
+                        {
+                            "id": "sheet-1",
+                            "created_at": "2026-01-01T00:00:00Z",
+                            "updated_at": "2026-01-02T00:00:00Z",
+                            "project_id": "proj-1",
+                            "user_id": "user-1",
+                            "status": "SUCCESS",
+                            "success": True,
+                            "file_id": "file-1",
+                            "regions": [],
+                            "worksheet_metadata": {},
+                            "errors": [],
+                            "parameters": {
+                                "webhook_configurations": [
+                                    {
+                                        "webhook_signing_secret": "whsec-secret",
+                                        "webhook_headers": {"Authorization": "Bearer x"},
+                                    }
+                                ]
+                            },
+                        }
+                    ],
+                    next_page_token=None,
+                )
+            ]
+        )
+        manager = _make_manager()
+
+        with patch(f"{TRANSPORT_MODULE}.make_tracked_session", return_value=session):
+            batches = list(get_rows("llx-test", "eu", "sheets_jobs", MagicMock(), manager))
+
+        assert batches == [
+            [
+                {
+                    "id": "sheet-1",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-02T00:00:00Z",
+                    "project_id": "proj-1",
+                    "user_id": "user-1",
+                    "status": "SUCCESS",
+                    "success": True,
+                    "file_id": "file-1",
+                    "regions": [],
+                    "worksheet_metadata": {},
+                    "errors": [],
+                }
+            ]
+        ]
+
     @parameterized.expand([(429,), (500,), (503,)])
     def test_fetch_page_raises_retryable_error(self, status_code: int) -> None:
         session = MagicMock()

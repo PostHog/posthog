@@ -121,6 +121,25 @@ LLAMA_CLOUD_ENDPOINTS: dict[str, LlamaCloudEndpointConfig] = {
         partition_key="created_at",
         description=JOB_ENDPOINT_DESCRIPTION,
         default_incremental_lookback_seconds=JOB_STATUS_LOOKBACK_SECONDS,
+        # Sheets jobs embed webhook credentials (signing secrets, auth headers) under nested
+        # `parameters.webhook_configurations`, so import only the documented job metadata
+        # (matches canonical_descriptions) and skip sampling.
+        output_fields=frozenset(
+            {
+                "id",
+                "created_at",
+                "updated_at",
+                "project_id",
+                "user_id",
+                "status",
+                "success",
+                "file_id",
+                "regions",
+                "worksheet_metadata",
+                "errors",
+            }
+        ),
+        capture_http_samples=False,
     ),
     "projects": LlamaCloudEndpointConfig(
         name="projects",
