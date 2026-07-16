@@ -37,6 +37,7 @@ import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
 import updatePathCleaning from './projects/updatePathCleaning'
 // Replay
+import sessionRecordingGet from './replay/sessionRecordingGet'
 import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
 // Skills (deprecation aliases for the llma-skill-* → skill-* rename)
 import { SKILL_DEPRECATED_ALIASES } from './skills/deprecatedAliases'
@@ -95,7 +96,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     [EXECUTE_SQL_TOOL_NAME]: executeSql,
     'read-data-schema': readDataSchema,
 
-    // Replay
+    // Replay (session-recording-get wraps the generated tool to turn a 404 into a
+    // structured `{ exists: false }` result instead of an error)
+    'session-recording-get': sessionRecordingGet,
     'session-recording-summarize': sessionRecordingSummarize,
 
     // Data warehouse (custom handlers for non-standard request shapes)
@@ -126,7 +129,10 @@ export const getToolsFromContext = async (
     // Check org AI consent to gate tools that use LLMs internally (cached in StateManager)
     const aiConsentGiven = await context.stateManager.getAiConsentGiven()
     const effectiveOptions = aiConsentGiven !== undefined ? { ...options, aiConsentGiven } : options
-    const effectiveMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
+    // Hand-written tools in TOOL_MAP take precedence over their generated
+    // counterparts, so a wrapper (e.g. session-recording-get) can override the
+    // codegen handler by registering under the same name.
+    const effectiveMap = { ...GENERATED_TOOL_MAP, ...TOOL_MAP }
     const excludeTools = options?.excludeTools ?? []
     const allowedToolNames = getFilteredToolNames(effectiveOptions).filter((name) => !excludeTools.includes(name))
     const toolBases: ToolBase<ZodObjectAny>[] = []

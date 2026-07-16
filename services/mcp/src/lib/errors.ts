@@ -456,6 +456,10 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         const properties: Record<string, any> = {
             team: 'growth',
             tool: toolName,
+            // Mirror the analytics field the SDK stamps on `$mcp_tool_call` so
+            // `query-mcp-tool-failures` (which scopes `$exception` events by
+            // `properties.$mcp_tool_name`) can attribute this failure to the tool.
+            $mcp_tool_name: toolName,
             is_permission_error: true,
             missing_scope: permissionError.missingScope,
             $exception_fingerprint: `posthog-permission-error:${toolName}:${permissionError.missingScope ?? 'unknown'}`,
@@ -490,6 +494,11 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
     const properties: Record<string, any> = {
         team: 'growth',
         tool: mcpError.tool,
+        // Mirror the analytics field the SDK stamps on `$mcp_tool_call` so
+        // `query-mcp-tool-failures` (which scopes `$exception` events by
+        // `properties.$mcp_tool_name`) can attribute this failure to the tool.
+        // Without this, real 5xx/internal failures never surface in that query.
+        $mcp_tool_name: mcpError.tool,
         is_mcp_tool_error: error instanceof MCPToolError,
         $exception_fingerprint: mcpError.tool,
     }

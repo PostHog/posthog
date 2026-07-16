@@ -22,9 +22,10 @@ function materializeTool(
 }
 
 export function getCliTools(options: CliToolOptions = {}): Tool<ZodObjectAny>[] {
+    // Hand-written tools take precedence over their generated counterparts (see TOOL_MAP).
     const factories: Record<string, () => ToolBase<ZodObjectAny>> = {
-        ...TOOL_MAP,
         ...GENERATED_TOOL_MAP,
+        ...TOOL_MAP,
     }
     const names = getToolsForFeatures({
         aiConsentGiven: options.aiConsentGiven,
