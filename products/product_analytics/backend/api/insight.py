@@ -1202,10 +1202,15 @@ class InsightSerializer(InsightBasicSerializer):
                         allow_raw_results=allow_raw_results,
                     )
                     access_method: DashboardAccessMethod | None = self.context.get("dashboard_access_method")
-                    if access_method is not None and execution_mode not in {
-                        ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                        ExecutionMode.CALCULATE_ASYNC_ALWAYS,
-                    }:
+                    if (
+                        dashboard is not None
+                        and access_method is not None
+                        and execution_mode
+                        not in {
+                            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                            ExecutionMode.CALCULATE_ASYNC_ALWAYS,
+                        }
+                    ):
                         record_dashboard_cache_outcome(
                             access_method,
                             is_cached=insight_result.is_cached,

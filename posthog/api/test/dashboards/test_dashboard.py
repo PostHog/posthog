@@ -492,7 +492,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_retrieve_dashboard(self):
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
 
-        with patch("products.dashboards.backend.api.dashboard.record_dashboard_access") as mock_record_access:
+        with patch("products.dashboards.backend.access.record_dashboard_access") as mock_record_access:
             response_data = self.dashboard_api.get_dashboard(dashboard.pk)
 
         mock_record_access.assert_called_once_with(DashboardAccessMethod.HUMAN)

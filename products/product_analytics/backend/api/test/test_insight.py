@@ -557,9 +557,12 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         valid_url = f"{settings.SITE_URL}/shared/{sharing_config.access_token}"
 
-        with patch(
-            "posthog.caching.calculate_results.calculate_for_query_based_insight"
-        ) as calculate_for_query_based_insight:
+        with (
+            patch(
+                "posthog.caching.calculate_results.calculate_for_query_based_insight"
+            ) as calculate_for_query_based_insight,
+            patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome") as record_outcome,
+        ):
             self.client.get(valid_url)
             calculate_for_query_based_insight.assert_called_once_with(
                 mock.ANY,
@@ -575,6 +578,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 analytics_props=ANY,
                 allow_raw_results=False,
             )
+            record_outcome.assert_not_called()
 
         with patch(
             "posthog.caching.calculate_results.calculate_for_query_based_insight"

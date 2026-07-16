@@ -157,7 +157,7 @@ class TestSharing(APIBaseTest):
             ("embedded", "/embedded/{token}", DashboardAccessMethod.EMBEDDED),
         ]
     )
-    @patch("posthog.api.sharing.record_dashboard_access")
+    @patch("products.dashboards.backend.access.record_dashboard_access")
     @mock_exporter_template
     def test_shared_dashboard_records_access_method(
         self,

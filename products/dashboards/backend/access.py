@@ -1,9 +1,13 @@
 from enum import StrEnum
 
+from django.utils.timezone import now
+
 from prometheus_client import Counter
 from rest_framework.request import Request
 
 from posthog.event_usage import EventSource, get_event_source
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 class DashboardAccessMethod(StrEnum):
@@ -39,6 +43,12 @@ def dashboard_access_method(
 
 def record_dashboard_access(access_method: DashboardAccessMethod) -> None:
     DASHBOARD_ACCESS_COUNTER.labels(access_method=access_method.value).inc()
+
+
+def record_dashboard_view(dashboard: Dashboard, access_method: DashboardAccessMethod) -> None:
+    dashboard.last_accessed_at = now()
+    dashboard.save(update_fields=["last_accessed_at"])
+    record_dashboard_access(access_method)
 
 
 def record_dashboard_cache_outcome(access_method: DashboardAccessMethod, *, is_cached: bool) -> None:
