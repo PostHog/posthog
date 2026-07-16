@@ -2030,6 +2030,26 @@ export namespace Schemas {
       value?: string | string[] | null;
     }
 
+    export type ActivityEventsPropertyFilterType = typeof ActivityEventsPropertyFilterType[keyof typeof ActivityEventsPropertyFilterType];
+
+
+    export const ActivityEventsPropertyFilterType = {
+      Event: 'event',
+      Person: 'person',
+    } as const;
+
+    export interface ActivityEventsPropertyFilter {
+      /**
+         * @minLength 1
+         * @maxLength 400
+         */
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type: ActivityEventsPropertyFilterType;
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
     export type ActivityEventsListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterEntry} | null;
 
     export interface ActivityEventsListWidgetConfig {
@@ -2044,6 +2064,8 @@ export namespace Schemas {
       limit?: number;
       /** Limit the feed to a single event name. Omit or null for all events. */
       eventName?: string | null;
+      /** Event and person property filters, matching Activity > Explore events. */
+      properties?: ActivityEventsPropertyFilter[] | null;
     }
 
     export interface ActivityEventsListWidgetAddRequestOpenApi {
@@ -9549,6 +9571,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `above` - At or above
+     * * `below` - At or below
+     */
+    export type VisionAlertDirectionEnum = typeof VisionAlertDirectionEnum[keyof typeof VisionAlertDirectionEnum];
+
+
+    export const VisionAlertDirectionEnum = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    /**
      * * `1` - 1 day
      * * `3` - 3 days
      * * `7` - 7 days
@@ -9582,8 +9616,13 @@ export namespace Schemas {
        * * `count` - Count of matching observations
        * * `avg_score` - Average score */
       metric?: VisionAlertMetricEnum;
-      /** The alert fires when the metric is at or above this value. Required for on_breach; ignored for every_match. */
+      /** The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match. */
       threshold?: number;
+      /** Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.
+       *
+       * * `above` - At or above
+       * * `below` - At or below */
+      direction?: VisionAlertDirectionEnum;
       /** Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).
        *
        * * `1` - 1 day
@@ -14691,6 +14730,34 @@ export namespace Schemas {
       name?: string;
     }
 
+    export interface CopyFlagsDependencyRequirementsRequest {
+      /** Key of the feature flag to check */
+      feature_flag_key: string;
+      /** Source project ID to copy the flag from */
+      from_project: number;
+      /**
+         * List of target project IDs to check dependency copy eligibility for
+         * @minItems 1
+         * @maxItems 50
+         */
+      target_project_ids: number[];
+    }
+
+    export interface CopyFlagsDependencyRequirementsResponse {
+      /** Whether dependencies can be automatically copied */
+      can_copy_dependencies: boolean;
+      /** Total number of transitive source dependency flags */
+      dependency_count: number;
+      /** Dependency flag keys that would be copied because they are missing from a target project */
+      copied_dependency_keys: string[];
+      /** Dependency flag keys that already have an active same-key flag in every target project */
+      reused_dependency_keys: string[];
+      /** Reasons dependency copying is unavailable or needs user attention */
+      warnings: string[];
+      /** Primary human-readable eligibility result */
+      reason: string;
+    }
+
     export interface CopyFlagsRequest {
       /** Key of the feature flag to copy */
       feature_flag_key: string;
@@ -14698,6 +14765,7 @@ export namespace Schemas {
       from_project: number;
       /**
          * List of target project IDs to copy the flag to
+         * @minItems 1
          * @maxItems 50
          */
       target_project_ids: number[];
@@ -14705,6 +14773,8 @@ export namespace Schemas {
       copy_schedule?: boolean;
       /** Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status */
       disable_copied_flag?: boolean;
+      /** Whether to also copy missing feature flags that this flag depends on */
+      copy_dependencies?: boolean;
     }
 
     export interface CopyFlagsSuccessItem {
@@ -14722,8 +14792,12 @@ export namespace Schemas {
       updated_existing: boolean;
       /** Warnings for flag dependencies that were dropped because no matching active flag exists in the target project */
       flag_dependency_warnings?: string[];
-      /** Warning emitted when the flag was copied but its scheduled changes failed to copy */
+      /** Warning emitted when schedules failed to copy or existing target schedules may affect the copied flag */
       schedule_copy_warning?: string;
+      /** Dependency flag keys that were copied before this flag */
+      copied_dependency_keys?: string[];
+      /** Warnings emitted while copying dependency flags */
+      dependency_copy_warnings?: string[];
     }
 
     export interface CopyFlagsResult {
@@ -17791,6 +17865,13 @@ export namespace Schemas {
      * * `KongKonnect` - KongKonnect
      * * `Kandji` - Kandji
      * * `Automox` - Automox
+     * * `Autumn` - Autumn
+     * * `GetStream` - GetStream
+     * * `Octolens` - Octolens
+     * * `Kajabi` - Kajabi
+     * * `Shopware` - Shopware
+     * * `Dubsado` - Dubsado
+     * * `Campfire` - Campfire
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -18646,6 +18727,13 @@ export namespace Schemas {
       KongKonnect: 'KongKonnect',
       Kandji: 'Kandji',
       Automox: 'Automox',
+      Autumn: 'Autumn',
+      GetStream: 'GetStream',
+      Octolens: 'Octolens',
+      Kajabi: 'Kajabi',
+      Shopware: 'Shopware',
+      Dubsado: 'Dubsado',
+      Campfire: 'Campfire',
     } as const;
 
     /**
@@ -19514,7 +19602,14 @@ export namespace Schemas {
        * * `ConfluentCloud` - ConfluentCloud
        * * `KongKonnect` - KongKonnect
        * * `Kandji` - Kandji
-       * * `Automox` - Automox */
+       * * `Automox` - Automox
+       * * `Autumn` - Autumn
+       * * `GetStream` - GetStream
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -25163,6 +25258,9 @@ export namespace Schemas {
       readonly supports_row_filters?: boolean;
       /** @nullable */
       readonly user_access_level?: string | null;
+      /** @nullable */
+      readonly api_version?: string | null;
+      readonly supported_api_versions?: string[];
     } | null;
 
     /**
@@ -25236,6 +25334,18 @@ export namespace Schemas {
       '7day': '7day',
       '30day': '30day',
     } as const;
+
+    export interface ExternalDataSourceApiVersionDeprecation {
+      /** The deprecated vendor API version this source is pinned to. */
+      version: string;
+      /**
+         * Date the vendor stops serving this version; null if not announced.
+         * @nullable
+         */
+      sunset_at: string | null;
+      /** The source's current default vendor API version — the migration target. */
+      default_version: string;
+    }
 
     export interface ExternalDataSchema {
       readonly id: string;
@@ -25335,6 +25445,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly source: ExternalDataSchemaSource;
+      /**
+         * Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.
+         * @maxLength 128
+         * @nullable
+         */
+      api_version?: string | null;
+      /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
+      readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
     }
 
     export type ExternalDataSourceBulkUpdateSchemaRowFiltersItem = {
@@ -26260,7 +26378,14 @@ export namespace Schemas {
        * * `ConfluentCloud` - ConfluentCloud
        * * `KongKonnect` - KongKonnect
        * * `Kandji` - Kandji
-       * * `Automox` - Automox */
+       * * `Automox` - Automox
+       * * `Autumn` - Autumn
+       * * `GetStream` - GetStream
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -27142,7 +27267,14 @@ export namespace Schemas {
        * * `ConfluentCloud` - ConfluentCloud
        * * `KongKonnect` - KongKonnect
        * * `Kandji` - Kandji
-       * * `Automox` - Automox */
+       * * `Automox` - Automox
+       * * `Autumn` - Autumn
+       * * `GetStream` - GetStream
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -27281,6 +27413,13 @@ export namespace Schemas {
       readonly supports_webhooks: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection: boolean;
+      /**
+         * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
+         * @nullable
+         */
+      readonly api_version: string | null;
+      /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
+      readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
     }
 
     export type ExternalQueryErrorCode = typeof ExternalQueryErrorCode[keyof typeof ExternalQueryErrorCode];
@@ -33068,6 +33207,44 @@ export namespace Schemas {
       created_by: LegalDocumentCreator | null;
       created_at: string;
     }
+
+    /**
+     * * `web` - web
+     * * `posthog-ios` - posthog-ios
+     * * `posthog-android` - posthog-android
+     * * `posthog-java` - posthog-java
+     * * `posthog-server` - posthog-server
+     * * `posthog-node` - posthog-node
+     * * `posthog-python` - posthog-python
+     * * `posthog-php` - posthog-php
+     * * `posthog-ruby` - posthog-ruby
+     * * `posthog-go` - posthog-go
+     * * `posthog-flutter` - posthog-flutter
+     * * `posthog-react-native` - posthog-react-native
+     * * `posthog-kmp` - posthog-kmp
+     * * `posthog-dotnet` - posthog-dotnet
+     * * `posthog-elixir` - posthog-elixir
+     */
+    export type LibEnum = typeof LibEnum[keyof typeof LibEnum];
+
+
+    export const LibEnum = {
+      Web: 'web',
+      PosthogIos: 'posthog-ios',
+      PosthogAndroid: 'posthog-android',
+      PosthogJava: 'posthog-java',
+      PosthogServer: 'posthog-server',
+      PosthogNode: 'posthog-node',
+      PosthogPython: 'posthog-python',
+      PosthogPhp: 'posthog-php',
+      PosthogRuby: 'posthog-ruby',
+      PosthogGo: 'posthog-go',
+      PosthogFlutter: 'posthog-flutter',
+      PosthogReactNative: 'posthog-react-native',
+      PosthogKmp: 'posthog-kmp',
+      PosthogDotnet: 'posthog-dotnet',
+      PosthogElixir: 'posthog-elixir',
+    } as const;
 
     /**
      * * `active` - ACTIVE
@@ -43422,6 +43599,9 @@ export namespace Schemas {
       readonly supports_row_filters?: boolean;
       /** @nullable */
       readonly user_access_level?: string | null;
+      /** @nullable */
+      readonly api_version?: string | null;
+      readonly supported_api_versions?: string[];
     } | null;
 
     export interface PatchedExternalDataSchema {
@@ -43522,6 +43702,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly source?: PatchedExternalDataSchemaSource;
+      /**
+         * Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.
+         * @maxLength 128
+         * @nullable
+         */
+      api_version?: string | null;
+      /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
+      readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null;
     }
 
     export interface PatchedExternalDataSourceBulkUpdateSchemas {
@@ -43587,6 +43775,13 @@ export namespace Schemas {
       readonly supports_webhooks?: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection?: boolean;
+      /**
+         * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
+         * @nullable
+         */
+      readonly api_version?: string | null;
+      /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
+      readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null;
     }
 
     export interface PatchedFeatureFlagPartialUpdateRequestSchema {
@@ -53339,6 +53534,16 @@ export namespace Schemas {
     export interface QuotaResourceLimit {
       /** True when the team is currently over its quota for this resource and limits are in effect. */
       limited: boolean;
+      /**
+         * Units of this resource the organization has used so far this billing period, in the resource's native unit (credits for credit buckets). Null when billing hasn't synced usage for the resource.
+         * @nullable
+         */
+      usage: number | null;
+      /**
+         * The organization's limit for this resource in the same unit. Null when unlimited or unknown.
+         * @nullable
+         */
+      limit: number | null;
     }
 
     /**
@@ -55052,8 +55257,24 @@ export namespace Schemas {
     }
 
     export interface SdkAssessment {
-      /** SDK identifier, e.g. 'web', 'posthog-python', 'posthog-node', 'posthog-ios'. */
-      lib: string;
+      /** SDK identifier, e.g. 'web', 'posthog-python', 'posthog-node', 'posthog-ios'.
+       *
+       * * `web` - web
+       * * `posthog-ios` - posthog-ios
+       * * `posthog-android` - posthog-android
+       * * `posthog-java` - posthog-java
+       * * `posthog-server` - posthog-server
+       * * `posthog-node` - posthog-node
+       * * `posthog-python` - posthog-python
+       * * `posthog-php` - posthog-php
+       * * `posthog-ruby` - posthog-ruby
+       * * `posthog-go` - posthog-go
+       * * `posthog-flutter` - posthog-flutter
+       * * `posthog-react-native` - posthog-react-native
+       * * `posthog-kmp` - posthog-kmp
+       * * `posthog-dotnet` - posthog-dotnet
+       * * `posthog-elixir` - posthog-elixir */
+      lib: LibEnum;
       /** Human-readable SDK name matching the SDK Health UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
       readable_name: string;
       /** Most recent published version of this SDK. */
@@ -55064,6 +55285,8 @@ export namespace Schemas {
       is_outdated: boolean;
       /** True if the primary in-use version is flagged as old by age alone. */
       is_old: boolean;
+      /** True when this SDK must be replaced by a supported successor rather than upgraded in place. */
+      migration_required: boolean;
       /** UI severity badge — 'none' when healthy, 'warning' when outdated, 'danger' when the majority of team SDKs are outdated.
        *
        * * `none` - none
@@ -56906,7 +57129,14 @@ export namespace Schemas {
        * * `ConfluentCloud` - ConfluentCloud
        * * `KongKonnect` - KongKonnect
        * * `Kandji` - Kandji
-       * * `Automox` - Automox */
+       * * `Automox` - Automox
+       * * `Autumn` - Autumn
+       * * `GetStream` - GetStream
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -57801,7 +58031,14 @@ export namespace Schemas {
        * * `ConfluentCloud` - ConfluentCloud
        * * `KongKonnect` - KongKonnect
        * * `Kandji` - Kandji
-       * * `Automox` - Automox */
+       * * `Automox` - Automox
+       * * `Autumn` - Autumn
+       * * `GetStream` - GetStream
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -58688,7 +58925,14 @@ export namespace Schemas {
        * * `ConfluentCloud` - ConfluentCloud
        * * `KongKonnect` - KongKonnect
        * * `Kandji` - Kandji
-       * * `Automox` - Automox */
+       * * `Automox` - Automox
+       * * `Autumn` - Autumn
+       * * `GetStream` - GetStream
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -72553,6 +72797,10 @@ export namespace Schemas {
      * @minLength 1
      */
     distinct_id: string;
+    /**
+     * Optional list of flag keys to scope the response to. When omitted, evaluation reasons are returned for every flag in the project, which can be a very large payload on projects with many flags. Pass the specific flag(s) you are debugging to keep the response small. Accepts either repeated query params (flag_keys=a&flag_keys=b) or a JSON array string (flag_keys=["a","b"]).
+     */
+    flag_keys?: string[];
     /**
      * Groups for feature flag evaluation (JSON object string)
      */

@@ -2092,7 +2092,7 @@ pipeline just built + hardened).
 
 ```text
 reviewhog label on a non-fork PostHog/posthog PR
-  └─ .github/workflows/review-hog.yml   (gates: label==reviewhog, head.repo==base.repo, non-bot, concurrency; drafts allowed)
+  └─ .github/workflows/review-hog.yml   (gates: label==reviewhog by a human, head.repo==base.repo, concurrency; any author)
        └─ one authenticated curl  →  POST /api/review_hog/trigger  {repo, pr_number}   (Authorization: Bearer <secret>)
             └─ endpoint: verify shared secret · validate repo allowlist (forks blocked upstream by the Action
                  + downstream by the fetch activity) · resolve team-2 integration + run user
@@ -2157,11 +2157,16 @@ github-actions[bot] trick), and its Action carries **one** secret (no Anthropic 
    the review is **pinned to the reviewed `head_sha`** via `commit=repo_obj.get_commit(head_sha)`. Fork rejection is
    authoritative in the **fetch activity** (`PRMetadata.is_fork`, non-retryable `ApplicationError` before the report
    row is created).
-4. ✅ **The Action:** `.github/workflows/review-hog.yml` — `on: pull_request [labeled]`,
-   `permissions: {}`, per-PR concurrency, `if:` gates (label + non-fork + non-bot; drafts allowed), one `curl` with the
-   bearer secret. `pull_request` (not `pull_request_target`) ⇒ forks get no secret ⇒ can't trigger.
+4. ✅ **The Action:** `.github/workflows/review-hog.yml` — `on: pull_request_target [labeled]`,
+   `permissions: {}`, per-PR concurrency, `if:` gates (human-applied label + non-fork; any author — unmapped authors
+   resolve via the acting-user fallback), one `curl` with the bearer secret. `pull_request_target` runs the base
+   branch's version of the file (a PR can't edit its own trigger) and fires even on conflicted PRs; it exposes
+   secrets to fork PRs, so the non-fork `if:` gate is the fork barrier — safe because the job never runs PR code.
+   Residual gap: stacked PRs whose base branch predates this file still dispatch nothing (no workflow on the base).
+   A paired `bot-labeler-skip` job (Stamphog's pattern) turns the bot-labeler skip into feedback: it comments why
+   and strips the label so a human can re-add it.
    **2026-07-14 update:** `synchronize` dropped (ADR 0002) — pushes no longer re-trigger; re-review = re-add the
-   label (or mark an already-labeled draft ready).
+   label.
 5. ⏳ **Later (v2):** label lifecycle (strip-on-non-approval / keep-on-error / dismiss-stale-on-push). (`synchronize` /
    `ready_for_review` events are already wired in step 4.) Then **Stage 5b** (iterate-on-same-PR validation).
 

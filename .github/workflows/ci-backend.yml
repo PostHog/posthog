@@ -482,6 +482,12 @@ jobs:
             temporal_files: ${{ steps.classify.outputs.temporal_files }}
             run_poe: ${{ steps.classify.outputs.run_poe }}
             run_temporal: ${{ steps.classify.outputs.run_temporal }}
+            # Telemetry for the capture-test-selection job below.
+            narrowed: ${{ steps.classify.outputs.narrowed }}
+            skip_reason: ${{ steps.classify.outputs.skip_reason }}
+            changed_file_count: ${{ steps.classify.outputs.changed_file_count }}
+            selected_test_count: ${{ steps.classify.outputs.selected_test_count }}
+            full_run_reasons_count: ${{ steps.classify.outputs.full_run_reasons_count }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -539,6 +545,24 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
+                  # Selection telemetry (see the capture-test-selection job). Best-effort
+                  # from the selector JSON when it exists; narrowed=false marks a fallback.
+                  emit_metrics() {
+                      local changed="" selected="" reasons=""
+                      if [[ -s /tmp/selection.json ]]; then
+                          changed=$(jq -r '.changed_file_count // empty' /tmp/selection.json)
+                          selected=$(jq -r '.combined.count // empty' /tmp/selection.json)
+                          reasons=$(jq -r '.ast.full_run_reasons | length' /tmp/selection.json)
+                      fi
+                      {
+                          echo "narrowed=$1"
+                          echo "skip_reason=$2"
+                          echo "changed_file_count=$changed"
+                          echo "selected_test_count=$selected"
+                          echo "full_run_reasons_count=$reasons"
+                      } >> "$GITHUB_OUTPUT"
+                  }
+
                   # Untrusted selection on a draft skips the heavy matrices (the
                   # pre-selection draft behavior); the ready-for-review run is full.
                   fall_back_to_skip() {
@@ -548,16 +572,17 @@ jobs:
                       echo "temporal_files=" >> "$GITHUB_OUTPUT"
                       echo "run_poe=false" >> "$GITHUB_OUTPUT"
                       echo "run_temporal=false" >> "$GITHUB_OUTPUT"
+                      emit_metrics false "$1"
                   }
 
                   if [[ "$FALLBACK_SKIP" == "true" ]]; then
-                      fall_back_to_skip
+                      fall_back_to_skip untrusted
                       exit 0
                   fi
 
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection.json ]]; then
                       echo "::warning::shadow selector did not produce output; draft skips heavy matrices (full run happens on ready for review)"
-                      fall_back_to_skip
+                      fall_back_to_skip selector_error
                       exit 0
                   fi
 
@@ -565,7 +590,7 @@ jobs:
                   if [[ "$full_run_reasons" -gt 0 ]]; then
                       echo "Selector requested a full run; draft defers it to ready for review:"
                       jq -r '.ast.full_run_reasons[]' /tmp/selection.json
-                      fall_back_to_skip
+                      fall_back_to_skip full_run_requested
                       exit 0
                   fi
 
@@ -606,6 +631,7 @@ jobs:
                   echo "temporal_files=${temporal[*]:-}" >> "$GITHUB_OUTPUT"
                   echo "run_poe=$([[ ${#poe[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
                   echo "run_temporal=$([[ ${#temporal[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+                  emit_metrics true ""
 
                   echo "Selected: ${#core[@]} core, ${#poe[@]} POE-eligible, ${#temporal[@]} temporal"
 
@@ -3237,6 +3263,43 @@ jobs:
                   github-token: ${{ steps.telemetry-app-token.outputs.token }}
                   status-job: 'Django Tests Pass'
                   runner: 'depot'
+
+    capture-test-selection:
+        name: Capture test selection
+        needs: [select-tests]
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        # select-tests only runs on internal draft PRs; fire only when it actually
+        # produced a decision. DevEx project only, mirroring monitor-github-rate-limit;
+        # continue-on-error so telemetry never reds CI. Skipped on forks/Dependabot,
+        # which never have the secret (and where select-tests didn't run anyway).
+        if: |
+            always() && github.run_attempt == '1'
+            && github.actor != 'dependabot[bot]'
+            && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+            && needs.select-tests.result == 'success'
+        steps:
+            - name: Capture test selection to DevEx PostHog
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-test-selection'
+                  properties: |
+                      {
+                        "suite": "backend",
+                        "mode": ${{ toJSON(needs.select-tests.outputs.mode) }},
+                        "narrowed": ${{ needs.select-tests.outputs.narrowed || 'false' }},
+                        "skip_reason": ${{ toJSON(needs.select-tests.outputs.skip_reason || '') }},
+                        "changed_file_count": ${{ needs.select-tests.outputs.changed_file_count || 'null' }},
+                        "selected_test_count": ${{ needs.select-tests.outputs.selected_test_count || 'null' }},
+                        "full_run_reasons_count": ${{ needs.select-tests.outputs.full_run_reasons_count || 'null' }},
+                        "event_type": ${{ toJSON(github.event_name) }},
+                        "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
+                        "sha": ${{ toJSON(github.sha) }},
+                        "pr_number": ${{ github.event.pull_request.number || 'null' }},
+                        "run_id": ${{ toJSON(github.run_id) }}
+                      }
 
     report-test-timings:
         name: Report per-test traces
