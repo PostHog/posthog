@@ -31,7 +31,10 @@ describe('aiConsentLogic', () => {
             patch: {
                 '/api/organizations/:id': async ({ request }) => [
                     200,
-                    { ...MOCK_DEFAULT_ORGANIZATION, ...(await request.json()) },
+                    {
+                        ...MOCK_DEFAULT_ORGANIZATION,
+                        ...((await request.json()) as Partial<typeof MOCK_DEFAULT_ORGANIZATION>),
+                    },
                 ],
             },
         })
