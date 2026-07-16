@@ -142,6 +142,16 @@ class TestVisionActionAccessControlInheritance(_VisionActionAPITestCase):
             defaults={"access_level": access_level},
         )
 
+    def _grant_scanner_access(self, user: User, scanner_id: str, access_level: str) -> None:
+        membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="replay_scanner",
+            resource_id=scanner_id,
+            access_level=access_level,
+            organization_member=membership,
+        )
+
     def test_vision_action_inherits_replay_scanner_resource_level(self) -> None:
         # vision_action has no resource-level rule of its own (RESOURCE_INHERITANCE_MAP points it at
         # replay_scanner) — a "none" default on replay_scanner must block vision_action reads too.
@@ -184,3 +194,23 @@ class TestVisionActionAccessControlInheritance(_VisionActionAPITestCase):
         resp = self.client.get(self.actions_url)
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual(resp.json()["results"][0]["user_access_level"], "viewer")
+
+    def test_update_cannot_rebind_action_onto_a_restricted_scanner(self) -> None:
+        # Editor on `self.scanner`, but only viewer on `other_scanner` — enough to read it (so the
+        # serializer's separate readable-scanner-ids check doesn't fire first) but not enough to bind
+        # an action to it.
+        other_scanner = self._create_scanner(name="other-scanner")
+        self._set_replay_scanner_resource_default("none")
+        self._grant_scanner_access(self.other_user, str(self.scanner.id), "editor")
+        self._grant_scanner_access(self.other_user, str(other_scanner.id), "viewer")
+        action = VisionAction.objects.for_team(self.team.id).create(
+            team=self.team, created_by=self.user, name="digest", scanner=self.scanner
+        )
+
+        self.client.force_login(self.other_user)
+        resp = self.client.patch(
+            f"{self.actions_url}{action.id}/", data={"scanner": str(other_scanner.id)}, format="json"
+        )
+        self.assertEqual(resp.status_code, 403, resp.json())
+        action.refresh_from_db()
+        self.assertEqual(action.scanner_id, self.scanner.id)

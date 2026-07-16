@@ -546,6 +546,11 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_update(self, serializer: BaseSerializer) -> None:
         instance = cast(VisionAction, serializer.instance)
+        # A PATCH can rebind `scanner` to a different one; object-check whichever scanner the action
+        # will end up pointing at so an editor of scanner A can't reassign onto a scanner B they lack
+        # access to (e.g. to occupy B's unique digest slot).
+        new_scanner = serializer.validated_data.get("scanner", instance.scanner)
+        self.check_object_permissions(self.request, new_scanner)
         # Snapshot the destination-affecting fields BEFORE save() — DRF mutates `instance` in place, so
         # these must be read pre-save for the change comparison to be meaningful.
         old_delivery = instance.delivery_config
