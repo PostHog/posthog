@@ -1777,7 +1777,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._last_active_time = workflow.now()
 
     @temporalio.workflow.signal
-    async def send_followup_message(self, message: str | None = None, artifact_ids: Optional[list[str]] = None) -> None:
+    async def send_followup_message(
+        self,
+        message: str | None = None,
+        artifact_ids: Optional[list[str]] = None,
+        message_id: Optional[str] = None,
+        actor_user_id: Optional[int] = None,
+        message_context: Optional[dict[str, Any]] = None,
+    ) -> None:
+        # The handler declares the full positional arg list even though only
+        # ``message`` and ``artifact_ids`` are read here. Temporal passes every
+        # positional arg a caller sends to the handler, and a handler that
+        # declares fewer params than were sent raises and fails the workflow
+        # task — so the arity must stay a superset of every caller's. Widening it
+        # here, ahead of any caller that populates the extra fields, lets this
+        # handler roll out to all workers before those callers ship.
         # Log signal arrival so we can correlate it with the adapter's "begin dispatch"
         # log below — gaps between the two point at workflow-loop backpressure.
         context = self._context
