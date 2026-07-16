@@ -80,7 +80,8 @@ describe('tracingOperationSceneLogic', () => {
                         },
                     ],
                 },
-            })
+            }),
+            expect.anything()
         )
     })
 
@@ -91,7 +92,7 @@ describe('tracingOperationSceneLogic', () => {
         expect(logic.values.sampleTraceSpansLoading).toBe(true)
 
         await logic.asyncActions.fetchSampleTrace({ sample: logic.values.currentSample! })
-        expect(getTraceSpy).toHaveBeenLastCalledWith('trace-2', expect.anything())
+        expect(getTraceSpy).toHaveBeenLastCalledWith('trace-2', expect.anything(), expect.anything())
         expect(logic.values.selectedSpanId).toBe('span-2')
     })
 

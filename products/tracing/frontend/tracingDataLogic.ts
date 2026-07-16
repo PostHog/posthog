@@ -53,9 +53,9 @@ export interface VisibleSpanTimeRange {
 
 const DEFAULT_PAGE_SIZE = 100
 export const PREFETCH_SPANS = 20
-const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
+export const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 
-function isUserInitiatedError(error: unknown): boolean {
+export function isUserInitiatedError(error: unknown): boolean {
     const errorStr = String(error).toLowerCase()
     return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
 }
@@ -624,6 +624,9 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             serviceNames:
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
+                            // Match the population the list shows (and the sparkline counts):
+                            // root spans in Traces view, every matching span in Spans view.
+                            rootSpans: values.filters.viewMode === 'traces',
                         },
                         controller.signal
                     )

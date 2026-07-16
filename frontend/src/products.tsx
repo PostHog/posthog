@@ -1258,8 +1258,19 @@ export const productUrls = {
     slackTaskContext: (): string => '/slack-task-context',
     toolbarLaunch: (): string => '/toolbar',
     tracing: (): string => '/tracing',
-    tracingOperation: (serviceName: string, spanName: string): string =>
-        combineUrl('/tracing/operation', { service: serviceName, name: spanName }).url,
+    tracingOperation: (
+        serviceName: string,
+        spanName: string,
+        dateRange?: {
+            date_from?: string | null
+            date_to?: string | null
+        }
+    ): string =>
+        combineUrl('/tracing/operation', {
+            service: serviceName,
+            name: spanName,
+            ...(dateRange ? { dateRange: JSON.stringify(dateRange) } : {}),
+        }).url,
     userInterviews: (): string => '/user_research',
     userInterview: (id: string): string => `/user_research/${id}`,
     userInterviewResponse: (topicId: string, responseId: string): string =>
