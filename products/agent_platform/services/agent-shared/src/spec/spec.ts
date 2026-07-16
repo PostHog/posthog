@@ -1098,7 +1098,59 @@ export const AgentSpecObjectSchema = z.object({
  */
 const ADMISSION_WIRED_TRIGGER_TYPES: readonly Trigger['type'][] = ['slack']
 
+/**
+ * Native tools that READ per-(team, application) memory / tabular state. That
+ * state is shared across ALL of an agent's callers (scoped by team+app, never
+ * per-caller), so on an `authenticated` agent — open to every PostHog user —
+ * one caller could read what another wrote. Write-only `@posthog/table-append`
+ * is deliberately absent: appending doesn't read anyone else's data.
+ */
+const AUTHENTICATED_FORBIDDEN_READ_TOOLS: ReadonlySet<string> = new Set([
+    '@posthog/memory-list',
+    '@posthog/memory-search',
+    '@posthog/memory-read',
+    '@posthog/table-query',
+    '@posthog/table-count',
+    '@posthog/table-membership',
+])
+
 export const AgentSpecSchema = AgentSpecObjectSchema.superRefine((spec, ctx) => {
+    // A posthog `authenticated` audience opens the agent to EVERY PostHog user
+    // (see AuthModeSchema). Such an agent must hold no ambient shared authority
+    // and must not read shared per-(team, application) state — otherwise any
+    // caller could drive its shared credential (confused deputy) or read another
+    // caller's data. These are documented on the audience; enforce them here so
+    // a later revision can't silently violate them. Runs before the
+    // authoritative_provider early-return below so it applies to trigger-auth
+    // agents (which don't set authoritative_provider).
+    const hasAuthenticatedAudience = spec.triggers.some(
+        (t) => 'auth' in t && t.auth?.modes?.some((m) => m.type === 'posthog' && m.audience === 'authenticated')
+    )
+    if (hasAuthenticatedAudience) {
+        if (spec.mcps.some((m) => m.kind === 'agent')) {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['mcps'],
+                message:
+                    'an agent with a posthog "authenticated" audience must not carry a kind:"agent" MCP — its one shared credential would be driven by every caller (confused deputy). Use kind:"principal" (per-caller identity) or remove the MCP.',
+            })
+        }
+        const forbidden = [
+            ...new Set(
+                spec.tools
+                    .filter((t) => t.kind === 'native' && AUTHENTICATED_FORBIDDEN_READ_TOOLS.has(t.id))
+                    .map((t) => t.id)
+            ),
+        ].sort()
+        if (forbidden.length > 0) {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['tools'],
+                message: `an agent with a posthog "authenticated" audience must not read shared per-(team, application) state: remove ${forbidden.join(', ')}. These stores are shared across all callers, so one caller could read another's data. Write-only @posthog/table-append is allowed.`,
+            })
+        }
+    }
+
     // authoritative_provider must reference an identity_providers[] entry that can
     // prove a subject (posthog, or oauth2 with userinfo_url) — else admission
     // either 500s (unknown) or soft-locks (no subject) at runtime.

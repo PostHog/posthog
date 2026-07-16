@@ -1070,4 +1070,63 @@ describe('models.optimize_for', () => {
             AgentSpecSchema.parse({ models: { mode: 'auto', level: 'high', optimize_for: 'latency' } })
         ).toThrow()
     })
+
+    describe('authenticated audience constraints', () => {
+        const authTrigger = {
+            type: 'chat' as const,
+            config: {},
+            auth: { modes: [{ type: 'posthog', audience: 'authenticated' }] },
+        }
+        const agentMcp = {
+            id: 'm',
+            url: 'https://mcp.example.test',
+            default_tool_approval: 'approve' as const,
+            kind: 'agent' as const,
+            connection: 'inst-1',
+        }
+
+        it('rejects a kind:"agent" MCP — shared credential would be a confused deputy', () => {
+            const res = AgentSpecSchema.safeParse({ triggers: [authTrigger], mcps: [agentMcp] })
+            expect(res.success).toBe(false)
+            if (!res.success) {
+                expect(res.error.issues.some((i) => i.path.includes('mcps'))).toBe(true)
+            }
+        })
+
+        it.each(['@posthog/table-query', '@posthog/memory-read', '@posthog/table-membership'])(
+            'rejects the shared-state read tool %s',
+            (id) => {
+                const res = AgentSpecSchema.safeParse({ triggers: [authTrigger], tools: [{ kind: 'native', id }] })
+                expect(res.success).toBe(false)
+                if (!res.success) {
+                    expect(res.error.issues.some((i) => i.path.includes('tools'))).toBe(true)
+                }
+            }
+        )
+
+        it('allows write-only @posthog/table-append (no read-back of other callers)', () => {
+            const res = AgentSpecSchema.safeParse({
+                triggers: [authTrigger],
+                tools: [{ kind: 'native', id: '@posthog/table-append' }],
+            })
+            expect(res.success).toBe(true)
+        })
+
+        it('allows an authenticated agent holding no shared credential and reading no shared state', () => {
+            const res = AgentSpecSchema.safeParse({
+                triggers: [authTrigger],
+                tools: [{ kind: 'native', id: '@posthog/load-skill' }],
+            })
+            expect(res.success).toBe(true)
+        })
+
+        it('does NOT constrain non-authenticated audiences — project may hold a shared MCP and read state', () => {
+            const res = AgentSpecSchema.safeParse({
+                triggers: [{ type: 'chat', config: {}, auth: { modes: [{ type: 'posthog', audience: 'project' }] } }],
+                mcps: [agentMcp],
+                tools: [{ kind: 'native', id: '@posthog/table-query' }],
+            })
+            expect(res.success).toBe(true)
+        })
+    })
 })
