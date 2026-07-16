@@ -212,7 +212,7 @@ class AirtableSourceConfig(config.Config):
 
 @config.config
 class AivenSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -922,7 +922,8 @@ class CodefreshSourceConfig(config.Config):
 
 @config.config
 class CodySourceConfig(config.Config):
-    pass
+    instance_url: str
+    access_token: str
 
 
 @config.config
@@ -1268,6 +1269,11 @@ class DubSourceConfig(config.Config):
 
 
 @config.config
+class DubsadoSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class DwollaSourceConfig(config.Config):
     pass
 
@@ -1489,7 +1495,8 @@ class FirecrawlSourceConfig(config.Config):
 
 @config.config
 class FireworksAISourceConfig(config.Config):
-    pass
+    api_key: str
+    account_id: str
 
 
 @config.config
@@ -1891,7 +1898,8 @@ class HeightSourceConfig(config.Config):
 
 @config.config
 class HeliconeSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -1907,12 +1915,12 @@ class HelpScoutSourceConfig(config.Config):
 
 @config.config
 class HerokuSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
 class HetznerSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1987,7 +1995,7 @@ class HuntrSourceConfig(config.Config):
 class HyperspellSourceConfig(config.Config):
     api_key: str
     region: Literal["us", "eu"] = config.value(default="us")
-    user_id: str | None = None
+    user_ids: str | None = None
 
 
 @config.config
@@ -2040,7 +2048,8 @@ class InforNexusSourceConfig(config.Config):
 
 @config.config
 class InngestSourceConfig(config.Config):
-    pass
+    signing_key: str
+    environment: str | None = None
 
 
 @config.config
@@ -2189,6 +2198,11 @@ class KafkaSourceConfig(config.Config):
 
 
 @config.config
+class KajabiSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class KandjiSourceConfig(config.Config):
     pass
 
@@ -2255,7 +2269,7 @@ class KongKonnectSourceConfig(config.Config):
 
 @config.config
 class KoyebSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2518,7 +2532,9 @@ class MaxioSourceConfig(config.Config):
 
 @config.config
 class Mem0SourceConfig(config.Config):
-    pass
+    api_key: str
+    org_id: str | None = None
+    project_id: str | None = None
 
 
 @config.config
@@ -2773,7 +2789,7 @@ class NoCRMSourceConfig(config.Config):
 
 @config.config
 class NorthflankSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2870,7 +2886,7 @@ class OpenAIAdsSourceConfig(config.Config):
 
 @config.config
 class OpenAISourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3189,7 +3205,8 @@ class PlanhatSourceConfig(config.Config):
 
 @config.config
 class PlatformShSourceConfig(config.Config):
-    pass
+    api_token: str
+    platform: Literal["platform_sh", "upsun"] = config.value(default="platform_sh")
 
 
 @config.config
@@ -3438,7 +3455,8 @@ class ReferralHeroSourceConfig(config.Config):
 
 @config.config
 class RenderSourceConfig(config.Config):
-    pass
+    api_key: str
+    owner_id: str | None = None
 
 
 @config.config
@@ -3504,7 +3522,7 @@ class RipplingSourceConfig(config.Config):
 
 @config.config
 class RoarkSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3761,6 +3779,11 @@ class ShopifySourceConfig(config.Config):
 
 
 @config.config
+class ShopwareSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class ShortcutSourceConfig(config.Config):
     api_token: str
 
@@ -3777,7 +3800,8 @@ class ShutterstockSourceConfig(config.Config):
 
 @config.config
 class SigNozSourceConfig(config.Config):
-    pass
+    host: str
+    api_key: str
 
 
 @config.config
@@ -4648,7 +4672,7 @@ class ZenloopSourceConfig(config.Config):
 
 @config.config
 class ZepSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -4947,6 +4971,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.DROPBOX: DropboxSourceConfig,
         ExternalDataSourceType.DROPBOXSIGN: DropboxSignSourceConfig,
         ExternalDataSourceType.DUB: DubSourceConfig,
+        ExternalDataSourceType.DUBSADO: DubsadoSourceConfig,
         ExternalDataSourceType.DWOLLA: DwollaSourceConfig,
         ExternalDataSourceType.DYNAMICS365: Dynamics365SourceConfig,
         ExternalDataSourceType.DYNAMODB: DynamoDBSourceConfig,
@@ -5117,6 +5142,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.K6CLOUD: K6CloudSourceConfig,
         ExternalDataSourceType.KYVE: KYVESourceConfig,
         ExternalDataSourceType.KAFKA: KafkaSourceConfig,
+        ExternalDataSourceType.KAJABI: KajabiSourceConfig,
         ExternalDataSourceType.KANDJI: KandjiSourceConfig,
         ExternalDataSourceType.KAPAAI: KapaAISourceConfig,
         ExternalDataSourceType.KATANA: KatanaSourceConfig,
@@ -5410,6 +5436,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SHIPPO: ShippoSourceConfig,
         ExternalDataSourceType.SHOPWIRED: ShopWiredSourceConfig,
         ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
+        ExternalDataSourceType.SHOPWARE: ShopwareSourceConfig,
         ExternalDataSourceType.SHORTCUT: ShortcutSourceConfig,
         ExternalDataSourceType.SHORTIO: ShortioSourceConfig,
         ExternalDataSourceType.SHUTTERSTOCK: ShutterstockSourceConfig,
