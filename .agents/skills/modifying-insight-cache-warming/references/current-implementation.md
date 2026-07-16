@@ -22,14 +22,14 @@ products/dashboards/backend/access.py:95:            COALESCE(most_recent_access
 products/dashboards/backend/access.py:97:            COALESCE(most_recent_access -> %s, '{}'::jsonb) || jsonb_build_object(
 products/dashboards/backend/access.py:99:                'cache_miss_count', COALESCE((most_recent_access -> %s ->> 'cache_miss_count')::bigint, 0) + 1
 products/dashboards/backend/access.py:111:    Dashboard.objects.for_team(dashboard.team_id).filter(pk=dashboard.pk).update(most_recent_access=updated_access)
-posthog/api/sharing.py:52:from products.dashboards.backend.access import DashboardAccessMethod, record_dashboard_access
-posthog/api/sharing.py:1061:            record_dashboard_access(resource.dashboard, DashboardAccessMethod.EMBEDDED)
 products/product_analytics/backend/api/insight.py:137:from products.dashboards.backend.access import dashboard_access_method, record_dashboard_cache_outcome
 products/product_analytics/backend/api/insight.py:1187:                        record_dashboard_cache_outcome(
+posthog/api/sharing.py:52:from products.dashboards.backend.access import DashboardAccessMethod, record_dashboard_access
+posthog/api/sharing.py:1061:            record_dashboard_access(resource.dashboard, DashboardAccessMethod.EMBEDDED)
+products/dashboards/backend/models/dashboard.py:62:    most_recent_access = models.JSONField(default=dict, blank=True, null=True)
 products/dashboards/backend/api/dashboard.py:91:from products.dashboards.backend.access import dashboard_access_method, record_dashboard_access
 products/dashboards/backend/api/dashboard.py:2293:        record_dashboard_access(dashboard, dashboard_access_method(request))
 products/dashboards/backend/api/dashboard.py:2336:        record_dashboard_access(dashboard, dashboard_access_method(request))
-products/dashboards/backend/models/dashboard.py:62:    most_recent_access = models.JSONField(default=dict, blank=True, null=True)
 ```
 
 ## Warming policy and metrics

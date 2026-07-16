@@ -8,7 +8,7 @@ description: Guides changes to insight cache warming, dashboard access signals, 
 Refresh this skill's implementation map before reviewing or changing code:
 
 ```bash
-./.agents/skills/modifying-insight-cache-warming/scripts/refresh-reference.sh
+bash .agents/skills/modifying-insight-cache-warming/scripts/refresh-reference.sh
 ```
 
 Then read [references/current-implementation.md](references/current-implementation.md). The refresh step is mandatory: it keeps this skill aligned with the current call sites, constants, metrics, migration state, and tests each time the skill is accessed.
