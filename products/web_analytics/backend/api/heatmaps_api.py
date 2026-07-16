@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime, timedelta
 from json import JSONDecodeError, loads
 from typing import Any, List, Literal, cast  # noqa: UP035
@@ -167,6 +168,29 @@ def parse_fold_summary_row(row: Any) -> dict[str, Any]:
     }
 
 
+def anchor_url_pattern(value: str) -> str:
+    """Anchor (and loosen unescaped `*`) a raw url_pattern the same way the heatmaps ClickHouse
+    query does, so callers matching against it in Python (e.g. permission checks) stay consistent
+    with the anchored regex `match(current_url, {url_pattern})` uses in DEFAULT_QUERY/EVENTS_QUERY."""
+    validated_value = value
+
+    # we insist on the pattern being anchored
+    if not value.startswith("^"):
+        validated_value = f"^{value}"
+    if not value.endswith("$"):
+        validated_value = f"{validated_value}$"
+
+    # KLUDGE: we allow API callers to send something that isn't really `re2` syntax used in match()
+    # KLUDGE: so if it has * but not .* then we expect at least one character to match, so we use .+ instead
+    # KLUDGE: this means we don't support valid regex since we can't support matching aaaaa with a*
+    # KLUDGE: but you could send a+ and it would match aaaaa
+    validated_value = "".join(
+        [f".+" if c == "*" and i > 0 and validated_value[i - 1] != "." else c for i, c in enumerate(validated_value)]
+    )
+
+    return validated_value
+
+
 class HeatmapsRequestSerializer(serializers.Serializer):
     viewport_width_min = serializers.IntegerField(
         required=False,
@@ -291,27 +315,7 @@ class HeatmapsRequestSerializer(serializers.Serializer):
     def validate_url_pattern(self, value: str | None) -> str | None:
         if value is None:
             return None
-
-        validated_value = value
-
-        # we insist on the pattern being anchored
-        if not value.startswith("^"):
-            validated_value = f"^{value}"
-        if not value.endswith("$"):
-            validated_value = f"{validated_value}$"
-
-        # KLUDGE: we allow API callers to send something that isn't really `re2` syntax used in match()
-        # KLUDGE: so if it has * but not .* then we expect at least one character to match, so we use .+ instead
-        # KLUDGE: this means we don't support valid regex since we can't support matching aaaaa with a*
-        # KLUDGE: but you could send a+ and it would match aaaaa
-        validated_value = "".join(
-            [
-                f".+" if c == "*" and i > 0 and validated_value[i - 1] != "." else c
-                for i, c in enumerate(validated_value)
-            ]
-        )
-
-        return validated_value
+        return anchor_url_pattern(value)
 
     def validate(self, values) -> dict:
         url_exact = values.get("url_exact", None)
@@ -459,16 +463,30 @@ class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
         except (ValueError, KeyError):
             return True
 
-        query_url = request.query_params.get("url_exact") or request.query_params.get("url_pattern")
-        if not query_url:
+        url_exact = request.query_params.get("url_exact")
+        url_pattern = None if url_exact else request.query_params.get("url_pattern")
+        if not url_exact and not url_pattern:
             self.message = f"You do not have {required_level} access to this resource."
             return False
 
-        candidates = SavedHeatmap.objects.filter(team=team, deleted=False).filter(
-            Q(data_url=query_url) | (Q(data_url__isnull=True) & Q(url=query_url))
-        )
+        pattern_re = None
+        if url_pattern:
+            try:
+                pattern_re = re.compile(anchor_url_pattern(url_pattern))
+            except re.error:
+                self.message = f"You do not have {required_level} access to this resource."
+                return False
+
+        candidates = SavedHeatmap.objects.filter(team=team, deleted=False)
         for candidate in candidates:
-            if uac.check_access_level_for_object(candidate, required_level=required_level):
+            candidate_url = candidate.data_url or candidate.url
+            # Match the same way the aggregate query does: url_exact ignores a trailing slash
+            # (`trimRight(current_url, '/')`), url_pattern is an anchored regex (`match(...)`).
+            if url_exact:
+                matches = candidate_url.rstrip("/") == url_exact.rstrip("/")
+            else:
+                matches = pattern_re is not None and pattern_re.match(candidate_url) is not None
+            if matches and uac.check_access_level_for_object(candidate, required_level=required_level):
                 return True
 
         self.message = f"You do not have {required_level} access to this resource."

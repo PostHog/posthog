@@ -201,6 +201,17 @@ class TestHeatmapAccessControl(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["user_access_level"], "editor")
 
+    def test_list_response_includes_user_access_level(self):
+        # The list path preloads access controls via a separate batch code path
+        # (UserAccessControlSerializerMixin) from retrieve — assert it independently so a
+        # regression there (e.g. a silent `None`) is caught even if retrieve still passes.
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+        response = self.client.get(self._list_url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result = next(h for h in response.json()["results"] if h["short_id"] == self.heatmap.short_id)
+        self.assertEqual(result["user_access_level"], "editor")
+
 
 @pytest.mark.ee
 class TestHeatmapAggregateQueryAccessControl(ClickhouseTestMixin, APIBaseTest):
@@ -271,14 +282,17 @@ class TestHeatmapAggregateQueryAccessControl(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-    def _query_aggregate(self, url_exact: str):
+    def _query_aggregate(self, url_exact: str | None = None, url_pattern: str | None = None):
         self.client.force_login(self.viewer_user)
-        return self.client.get(
-            f"/api/environments/{self.team.pk}/heatmaps/?type=click&date_from=2023-03-01&url_exact={url_exact}"
-        )
+        params: dict[str, str] = {"type": "click", "date_from": "2023-03-01"}
+        if url_exact is not None:
+            params["url_exact"] = url_exact
+        if url_pattern is not None:
+            params["url_pattern"] = url_pattern
+        return self.client.get(f"/api/environments/{self.team.pk}/heatmaps/", params)
 
     def test_object_grant_does_not_expose_aggregate_data_for_other_urls(self):
-        response = self._query_aggregate("https://example.com/secret-unrelated-page")
+        response = self._query_aggregate(url_exact="https://example.com/secret-unrelated-page")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
 
     def test_object_grant_still_allows_aggregate_data_for_the_authorized_url(self):
@@ -286,8 +300,23 @@ class TestHeatmapAggregateQueryAccessControl(ClickhouseTestMixin, APIBaseTest):
         # (the point of adding object-level grants at all) by blocking the very url the user
         # was granted access to. Row counts depend on the heatmaps ClickHouse table, which is
         # exercised in test_heatmaps_api.py.
-        response = self._query_aggregate("https://example.com/authorized")
+        response = self._query_aggregate(url_exact="https://example.com/authorized")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+    def test_object_grant_allows_query_url_differing_only_by_trailing_slash(self):
+        # The aggregate query itself ignores a trailing slash (`trimRight(current_url, '/')`);
+        # the permission check must normalize the same way or a legitimately-authorized url
+        # gets a spurious 403.
+        response = self._query_aggregate(url_exact="https://example.com/authorized/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+    def test_object_grant_allows_matching_url_pattern(self):
+        response = self._query_aggregate(url_pattern=r"https://example\.com/authorized")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+    def test_object_grant_denies_non_matching_url_pattern(self):
+        response = self._query_aggregate(url_pattern=r"https://example\.com/secret-unrelated-page")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
 
     def test_events_drilldown_does_not_expose_other_urls(self):
         self.client.force_login(self.viewer_user)
