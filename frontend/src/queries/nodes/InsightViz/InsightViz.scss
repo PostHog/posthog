@@ -272,21 +272,6 @@
             min-height: auto;
         }
     }
-
-    // The quill FunnelChart needs a definite parent height to fill; a flex-derived / min-height-only
-    // size doesn't count, so pin min/max/height equal to force one (same reason .TrendsInsight does).
-    &--type-steps-vertical {
-        height: var(--insight-viz-min-height);
-        max-height: var(--insight-viz-min-height);
-
-        .NotebookNode &,
-        .InsightCard &,
-        .ExportedInsight &,
-        .WebAnalyticsDashboard & {
-            height: auto;
-            max-height: none;
-        }
-    }
 }
 
 .funnel-significance-highlight {

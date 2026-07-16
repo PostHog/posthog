@@ -1,6 +1,7 @@
 import './Funnel.scss'
 
 import { useValues } from 'kea'
+import { clsx } from 'clsx'
 
 import { FunnelLayout } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -20,6 +21,9 @@ export function Funnel(props: ChartParams): JSX.Element {
     const { funnelsFilter } = useValues(funnelDataLogic(insightProps))
     const { funnelVizType, layout } = funnelsFilter || {}
 
+    const isStepsVertical =
+        funnelVizType === FunnelVizType.Steps && (layout ?? FunnelLayout.vertical) === FunnelLayout.vertical
+
     let viz: JSX.Element | null = null
     if (funnelVizType == FunnelVizType.Trends) {
         viz = <FunnelLineChart {...props} />
@@ -35,9 +39,23 @@ export function Funnel(props: ChartParams): JSX.Element {
 
     return (
         <div
-            className={`FunnelInsight FunnelInsight--type-${funnelVizType?.toLowerCase()}${
-                funnelVizType === FunnelVizType.Steps ? '-' + (layout ?? FunnelLayout.vertical) : ''
-            }`}
+            className={clsx(
+                'FunnelInsight',
+                `FunnelInsight--type-${funnelVizType?.toLowerCase()}${
+                    funnelVizType === FunnelVizType.Steps ? '-' + (layout ?? FunnelLayout.vertical) : ''
+                }`,
+                // The quill FunnelChart needs a definite parent height to fill; a flex-derived /
+                // min-height-only size doesn't count. Pin the height on the main insight view
+                // (min-height comes from InsightViz.scss), resetting to auto wherever the funnel is
+                // embedded — same reason .TrendsInsight pins one.
+                isStepsVertical && [
+                    'h-[var(--insight-viz-min-height)] max-h-[var(--insight-viz-min-height)]',
+                    '[.NotebookNode_&]:h-auto [.NotebookNode_&]:max-h-none',
+                    '[.InsightCard_&]:h-auto [.InsightCard_&]:max-h-none',
+                    '[.ExportedInsight_&]:h-auto [.ExportedInsight_&]:max-h-none',
+                    '[.WebAnalyticsDashboard_&]:h-auto [.WebAnalyticsDashboard_&]:max-h-none',
+                ]
+            )}
         >
             {viz}
         </div>
