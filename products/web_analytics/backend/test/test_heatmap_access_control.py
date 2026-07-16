@@ -310,12 +310,18 @@ class TestHeatmapAggregateQueryAccessControl(ClickhouseTestMixin, APIBaseTest):
         response = self._query_aggregate(url_exact="https://example.com/authorized/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
-    def test_object_grant_allows_matching_url_pattern(self):
-        response = self._query_aggregate(url_pattern=r"https://example\.com/authorized")
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-
-    def test_object_grant_denies_non_matching_url_pattern(self):
-        response = self._query_aggregate(url_pattern=r"https://example\.com/secret-unrelated-page")
+    @parameterized.expand(
+        [
+            ("matching_pattern", r"https://example\.com/authorized"),
+            ("non_matching_pattern", r"https://example\.com/secret-unrelated-page"),
+        ]
+    )
+    def test_object_grant_never_authorizes_url_pattern_queries(self, _name, url_pattern):
+        # Regression: url_pattern matches every row in the dataset satisfying the pattern, so an
+        # object grant for one SavedHeatmap can't bound what a broad pattern is allowed to read —
+        # url_pattern must always require resource-level access, even when the pattern happens to
+        # match the URL the object grant authorizes.
+        response = self._query_aggregate(url_pattern=url_pattern)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
 
     def test_object_grant_cannot_smuggle_unauthorized_url_via_conflicting_pattern(self):

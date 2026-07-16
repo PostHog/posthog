@@ -6,7 +6,6 @@ from django.core.exceptions import FieldError
 from django.db.models import Q
 from django.http import HttpResponse
 
-import re2
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
@@ -451,10 +450,12 @@ class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
     fallback would let a viewer of ONE saved heatmap read aggregate click/event data for ANY
     url on the site.
 
-    Scope the fallback down: a specific-object grant only satisfies this permission when the
-    request's `url_exact`/`url_pattern` matches a `SavedHeatmap.data_url` (or `url`, its
-    default) that the user has at least the required access level on — the same value the
-    in-app heatmap overlay always queries with (see heatmapDataLogic.ts).
+    Scope the fallback down: a specific-object grant only satisfies this permission for a
+    `url_exact` request that matches a `SavedHeatmap.data_url` (or `url`, its default) the user
+    has at least the required access level on — the same value the in-app heatmap overlay always
+    queries with (see heatmapDataLogic.ts). `url_pattern` requests always require resource-level
+    access: the query matches the pattern against every row in the dataset, so an object grant for
+    one saved heatmap can't bound what a broad pattern is allowed to read.
     """
 
     def has_permission(self, request, view) -> bool:
@@ -481,30 +482,21 @@ class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
         url_exact, url_pattern = resolve_url_filter(
             request.query_params.get("url_exact"), request.query_params.get("url_pattern")
         )
-        if not url_exact and not url_pattern:
+        if not url_exact:
+            # A url_pattern query matches every row whose current_url satisfies the pattern, not
+            # just the granted SavedHeatmap's URL — an object grant can't bound that, so patterns
+            # (and requests with no URL filter at all) require resource-level "heatmap" access.
             self.message = f"You do not have {required_level} access to this resource."
             return False
-
-        pattern_re = None
-        if url_pattern:
-            try:
-                # google-re2, not stdlib `re`: matches ClickHouse's linear-time regex semantics, so a
-                # user-controlled pattern can't trigger catastrophic backtracking on this authz check.
-                pattern_re = re2.compile(anchor_url_pattern(url_pattern))
-            except re2.error:
-                self.message = f"You do not have {required_level} access to this resource."
-                return False
 
         candidates = SavedHeatmap.objects.filter(team=team, deleted=False)
         for candidate in candidates:
             candidate_url = candidate.data_url or candidate.url
             # Match the same way the aggregate query does: url_exact ignores a trailing slash
-            # (`trimRight(current_url, '/')`), url_pattern is an anchored regex (`match(...)`).
-            if url_exact:
-                matches = candidate_url.rstrip("/") == url_exact.rstrip("/")
-            else:
-                matches = pattern_re is not None and pattern_re.match(candidate_url) is not None
-            if matches and uac.check_access_level_for_object(candidate, required_level=required_level):
+            # (`trimRight(current_url, '/')`).
+            if candidate_url.rstrip("/") == url_exact.rstrip("/") and uac.check_access_level_for_object(
+                candidate, required_level=required_level
+            ):
                 return True
 
         self.message = f"You do not have {required_level} access to this resource."
