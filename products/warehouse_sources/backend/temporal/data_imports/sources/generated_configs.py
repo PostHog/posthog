@@ -1669,7 +1669,9 @@ class GitLabSourceConfig(config.Config):
 
 @config.config
 class GiteaSourceConfig(config.Config):
-    pass
+    base_url: str
+    access_token: str
+    repository: str
 
 
 @config.config
