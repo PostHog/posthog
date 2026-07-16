@@ -737,7 +737,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.ticket, s.featureFlags],
             (ticket, featureFlags): SidePanelSceneContext | null =>
-                ticket?.id && featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_DISCUSSIONS]
+                ticket?.id && featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]
                     ? {
                           activity_scope: ActivityScope.TICKET,
                           activity_item_id: `${ticket.id}`,
