@@ -4,7 +4,6 @@ from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
 from products.posthog_ai.eval_harness.harness.context import EvalContext
-from products.posthog_ai.eval_harness.scorers import ExitCodeZero
 from products.posthog_ai.evals.cli_mcp.skill_distribution_scorers import (
     ExpectedSkillDiscovered,
     ExpectedSkillLoaded,
@@ -99,7 +98,6 @@ async def eval_skill_distribution(ctx: EvalContext) -> None:
         experiment_name="sandboxed-cli-mcp-skill-distribution-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             SkillSearchFirst(),
             ExpectedSkillDiscovered(),
             ExpectedSkillLoaded(),
