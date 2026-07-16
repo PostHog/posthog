@@ -340,7 +340,10 @@ export const kindClauseFor = (
 
 /**
  * Optional predicate scoping the list to one parent run (a batch job). Empty when
- * `parentRunId` isn't set, so the flat list is unchanged.
+ * `parentRunId` isn't set, so the flat list is unchanged. Placement depends on the query:
+ * put it in WHERE when it reads the physical `parent_run_id` column, but in HAVING when the
+ * SELECT aliases `parent_run_id` to `argMax(parent_run_id, version)` — there the name
+ * resolves to that aggregate alias, which ClickHouse rejects in WHERE.
  */
 export const parentClauseFor = (props: HogInvocationsLogicProps): ReturnType<typeof hogql.raw> =>
     props.parentRunId ? hogql.raw(`AND parent_run_id = ${escapeHogQLString(props.parentRunId)}`) : hogql.raw('')
@@ -598,10 +601,10 @@ async function fetchRunsPage(
         FROM posthog.hog_invocation_results
         WHERE ${kindClause}
           AND function_id = ${props.id}
-          ${parentClauseFor(props)}
           ${dateClause}
         GROUP BY invocation_id, function_kind
         HAVING argMax(is_deleted, version) = 0
+           ${parentClauseFor(props)}
            ${optionalStatusClause}
            ${optionalErrorKindClause}
            ${buildSearchClause(props, filters)}
