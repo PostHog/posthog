@@ -162,6 +162,17 @@
         line-height: 1.5;
         color: var(--text-primary);
     }
+
+    // The change-user menu trigger sits inline in the "Signed in as …" sentence,
+    // so it reads as the (clickable) email rather than a standalone button.
+    &__user-trigger.LemonButton {
+        display: inline-flex;
+        min-height: auto;
+        padding: 0 0.125rem;
+        font-size: inherit;
+        font-weight: 600;
+        vertical-align: baseline;
+    }
 }
 
 @keyframes ImpersonationNotice__fadeScaleIn {
