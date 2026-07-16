@@ -137,6 +137,7 @@ the row lists both.
 | convex                    | HTTP                        | requests                                                        | ✅                          |
 | copper                    | HTTP                        | requests                                                        | ✅                          |
 | coupa                     | HTTP                        | requests                                                        | ✅                          |
+| crates_io                 | HTTP                        | requests                                                        | ✅                          |
 | crunchbase                | HTTP                        | requests                                                        | ✅                          |
 | culture_amp               | HTTP                        | requests                                                        | ✅                          |
 | cursor                    | HTTP                        | requests                                                        | ✅                          |
@@ -193,6 +194,7 @@ the row lists both.
 | flowlu                    | HTTP                        | requests                                                        | ✅                          |
 | fly_io                    | HTTP                        | requests                                                        | ✅                          |
 | formbricks                | HTTP                        | requests                                                        | ✅                          |
+| frill                     | HTTP                        | requests                                                        | ✅                          |
 | front                     | HTTP                        | requests                                                        | ✅                          |
 | fulcrum                   | HTTP                        | requests                                                        | ✅                          |
 | fullstory                 | HTTP                        | requests                                                        | ✅                          |
@@ -367,6 +369,7 @@ the row lists both.
 | pylon                     | HTTP                        | requests                                                        | ✅                          |
 | pypi                      | HTTP                        | requests                                                        | ✅                          |
 | qualaroo                  | HTTP                        | requests                                                        | ✅                          |
+| qualys_vmdr               | HTTP (XML responses)        | requests                                                        | ✅                          |
 | recurly                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ramp                      | HTTP                        | requests                                                        | ✅                          |
 | rapid7_insightvm          | HTTP                        | requests                                                        | ✅                          |
@@ -600,7 +603,6 @@ doesn't conflict with concurrent PRs.
 - cosmosdb
 - couchbase
 - coveralls
-- crates_io
 - criteo
 - cronitor
 - curve
@@ -652,7 +654,6 @@ doesn't conflict with concurrent PRs.
 - freshbooks
 - freshchat
 - freshservice
-- frill
 - fulcrum
 - gerrit
 - getstream
@@ -823,7 +824,6 @@ doesn't conflict with concurrent PRs.
 - qdrant
 - qonto
 - qualtrics
-- qualys_vmdr
 - quickbooks
 - railway
 - railz
