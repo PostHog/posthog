@@ -1,7 +1,17 @@
+from typing import TYPE_CHECKING, cast
+
+from django.apps import apps
 from django.core.management.base import BaseCommand
 
 from products.early_access_features.backend.models import EarlyAccessFeature
-from products.surveys.backend.models import Survey
+
+if TYPE_CHECKING:
+    from products.surveys.backend.models import Survey
+
+
+def _survey_model() -> "type[Survey]":
+    # Runtime lookup: early_access_features may not import products.surveys directly (tach boundary).
+    return cast("type[Survey]", apps.get_model("surveys", "Survey"))
 
 
 class Command(BaseCommand):
@@ -41,11 +51,14 @@ class Command(BaseCommand):
         if team_id is not None:
             features = features.filter(team_id=team_id)
 
+        Survey = _survey_model()
+
         total_migrated = 0
         for feature in features.iterator():
-            survey = Survey.objects.filter(
-                team=feature.team, linked_flag=feature.feature_flag, type=Survey.SurveyType.API
-            ).first()
+            flag = feature.feature_flag
+            if flag is None:
+                continue
+            survey = Survey.objects.filter(team=feature.team, linked_flag=flag, type=Survey.SurveyType.API).first()
             if survey is None:
                 self.stdout.write(f"'{feature.name}': no linked waitlist survey, skipping")
                 continue
@@ -64,7 +77,7 @@ class Command(BaseCommand):
                 LIMIT {limit}
                 """,
                 placeholders={
-                    "enrollment_key": ast.Constant(value=f"$feature_enrollment/{feature.feature_flag.key}"),
+                    "enrollment_key": ast.Constant(value=f"$feature_enrollment/{flag.key}"),
                     "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
                 },
                 team=feature.team,
@@ -101,7 +114,7 @@ class Command(BaseCommand):
                     properties = {
                         "$survey_id": str(survey.id),
                         "$survey_response": email,
-                        "feature_flag_key": feature.feature_flag.key,
+                        "feature_flag_key": flag.key,
                         "migrated_from_enrollment": True,
                     }
                     if question_id:

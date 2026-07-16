@@ -1,9 +1,11 @@
 import json
+from typing import TYPE_CHECKING, cast
 
 import unittest
 from posthog.test.base import APIBaseTest, BaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import ANY, MagicMock, patch
 
+from django.apps import apps
 from django.core.cache import cache
 from django.test.client import Client
 
@@ -19,6 +21,12 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.models.rbac.access_control import AccessControl
+
+if TYPE_CHECKING:
+    from products.surveys.backend.models import Survey as SurveyModel
+
+# Runtime lookup: early_access_features may not import products.surveys directly (tach boundary).
+Survey = cast("type[SurveyModel]", apps.get_model("surveys", "Survey"))
 
 
 class TestEarlyAccessFeatureSiteAppTemplate(unittest.TestCase):
@@ -1597,8 +1605,6 @@ class TestComingSoonWaitlistSurvey(APIBaseTest):
     def test_ensure_creates_api_survey_linked_to_flag_and_sets_payload(self):
         from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
 
-        from products.surveys.backend.models import Survey
-
         feature = self._concept_feature()
         survey = ensure_waitlist_survey_for_feature(feature)
 
@@ -1615,8 +1621,6 @@ class TestComingSoonWaitlistSurvey(APIBaseTest):
     def test_ensure_is_idempotent(self):
         from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
 
-        from products.surveys.backend.models import Survey
-
         feature = self._concept_feature()
         first = ensure_waitlist_survey_for_feature(feature)
         feature.refresh_from_db()
@@ -1629,8 +1633,6 @@ class TestComingSoonWaitlistSurvey(APIBaseTest):
     def test_ensure_skips_non_concept_features(self):
         from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
 
-        from products.surveys.backend.models import Survey
-
         feature = self._concept_feature(name="Beta thing")
         feature.stage = EarlyAccessFeature.Stage.BETA
         feature.save()
@@ -1640,8 +1642,6 @@ class TestComingSoonWaitlistSurvey(APIBaseTest):
 
     def test_ensure_appends_flag_key_when_waitlist_name_is_taken(self):
         from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
-
-        from products.surveys.backend.models import Survey
 
         Survey.objects.create(
             team=self.team, name="Sloppy joes waitlist", type=Survey.SurveyType.POPOVER, created_by=self.user
@@ -1662,8 +1662,6 @@ class TestComingSoonWaitlistSurvey(APIBaseTest):
         from django.db import IntegrityError
 
         from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
-
-        from products.surveys.backend.models import Survey
 
         feature = self._concept_feature(name="Racy")
         real_create = Survey.objects.create
@@ -1692,8 +1690,6 @@ class TestComingSoonWaitlistSurvey(APIBaseTest):
         # "(flag-key)" suffixed name. Simulate the stale first read and assert the re-check
         # adopts the committed survey instead of creating a duplicate.
         from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
-
-        from products.surveys.backend.models import Survey
 
         feature = self._concept_feature(name="Racy")
         existing = Survey.objects.create(
@@ -1750,8 +1746,6 @@ class TestComingSoonWaitlistSurvey(APIBaseTest):
     def test_task_does_nothing_when_flag_disabled(self, _mock_enabled):
         from posthog.tasks.early_access_feature import create_waitlist_survey_for_concept_feature
 
-        from products.surveys.backend.models import Survey
-
         feature = self._concept_feature(name="Gated off")
         create_waitlist_survey_for_concept_feature(str(feature.id))
 
@@ -1762,8 +1756,6 @@ class TestComingSoonWaitlistSurvey(APIBaseTest):
     @patch("posthog.tasks.early_access_feature.coming_soon_waitlist_surveys_enabled", return_value=True)
     def test_task_creates_survey_when_flag_enabled(self, _mock_enabled):
         from posthog.tasks.early_access_feature import create_waitlist_survey_for_concept_feature
-
-        from products.surveys.backend.models import Survey
 
         feature = self._concept_feature(name="Gated on")
         create_waitlist_survey_for_concept_feature(str(feature.id))
