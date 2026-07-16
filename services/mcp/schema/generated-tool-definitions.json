@@ -7852,6 +7852,171 @@
             "readOnlyHint": false
         }
     },
+    "stamphog-digest-channels-create": {
+        "description": "Route an audience's daily merged-PR digest to a Slack channel. Requires `audience_key`, `slack_integration_id` (must be a Slack integration belonging to this team), and `slack_channel_id`.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "Create stamphog digest channel",
+        "title": "Create stamphog digest channel",
+        "required_scopes": ["stamphog:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-digest-channels-delete": {
+        "description": "Disable a digest channel by id. This keeps the row as a disabled tombstone (so auto-provisioning can't recreate and re-post it) rather than hard-deleting it — equivalent to `stamphog-digest-channels-update` with `enabled: false`.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "Delete stamphog digest channel",
+        "title": "Delete stamphog digest channel",
+        "required_scopes": ["stamphog:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-digest-channels-list": {
+        "description": "List Slack destinations for the daily merged-PR digest in this project. Each channel is keyed by `audience_key` (e.g. a repo or team bucket) and reports how it was resolved (manual, name match, repo policy config) and whether it's currently enabled.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "List stamphog digest channels",
+        "title": "List stamphog digest channels",
+        "required_scopes": ["stamphog:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-digest-runs-list": {
+        "description": "List posted (or attempted) daily digest runs, newest first. Filter by `digest_channel` to see a single channel's history. Each run reports its status, how many merged PRs it summarized, and the Slack message timestamp it posted to. The rendered summary text itself lives only in the Slack post.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "List stamphog digest runs",
+        "title": "List stamphog digest runs",
+        "required_scopes": ["stamphog:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-pull-requests-get": {
+        "description": "Get a single pull request by id, including its repository, title, author, head branch, and merge details.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "Get stamphog pull request",
+        "title": "Get stamphog pull request",
+        "required_scopes": ["stamphog:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-pull-requests-list": {
+        "description": "List pull requests stamphog has seen in this project, newest first. Filter by `pr_number` for a specific PR, or by `merged` (true/false) to separate open work from merged history. Each entry includes the repository, author, head branch, merge state, and diff size (additions/deletions/changed_files) once merged.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "List stamphog pull requests",
+        "title": "List stamphog pull requests",
+        "required_scopes": ["stamphog:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-repo-configs-delete": {
+        "description": "Delete a repo config by id. This removes stamphog's review and digest configuration for the repo entirely — prefer `stamphog-repo-configs-update` with `enabled: false` if you only want to pause review temporarily.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "Delete stamphog repo config",
+        "title": "Delete stamphog repo config",
+        "required_scopes": ["stamphog:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-repo-configs-get": {
+        "description": "Get a single repo config by id. Returns the provider, repository full name, installation id, and the enabled / digest_enabled flags.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "Get stamphog repo config",
+        "title": "Get stamphog repo config",
+        "required_scopes": ["stamphog:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-repo-configs-list": {
+        "description": "List repos stamphog is configured for in this project. Each config controls whether stamphog reviews pull requests for a repo (`enabled`), whether merged PRs feed the daily digest (`digest_enabled`), and which GitHub App installation authorizes the calls. Use this to check whether a repo is already onboarded before creating a new config.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "List stamphog repo configs",
+        "title": "List stamphog repo configs",
+        "required_scopes": ["stamphog:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-review-runs-get": {
+        "description": "Get a single review run by id — the record of one automated review pass over a pull request. Returns the lifecycle `status`, final `verdict`, and an allowlisted `gate_result` (gate_blocked, final_verdict). The raw reviewer transcript, PR payload, and policy contents are deliberately not exposed — they carry repository content a project member without repo access must not read.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "Get stamphog review run",
+        "title": "Get stamphog review run",
+        "required_scopes": ["stamphog:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-review-runs-list": {
+        "description": "List stamphog's automated review runs for pull requests in this project, newest first. Filter by `repository`, `pr_number`, or `status` to find why a specific PR got its verdict. Each run reports its lifecycle `status`, final `verdict`, and the deterministic gate outcome (`gate_result`) computed before the reviewer ran. The raw reviewer output (full reasoning transcript) is omitted from list results — use `stamphog-review-runs-get` for the full detail.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "List stamphog review runs",
+        "title": "List stamphog review runs",
+        "required_scopes": ["stamphog:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
     "subscriptions-create": {
         "description": "Create a recurring subscription. The kind is inferred from which field you populate and returned as the read-only `resource_type`:\n(1) set `insight` — schedule periodic snapshots of one insight (`resource_type: \"insight\"`).\n(2) set `dashboard` and `dashboard_export_insights` (the subset of the dashboard's insights to include, max 6) — schedule periodic snapshots of one dashboard (`resource_type: \"dashboard\"`).\n(3) set `prompt` (≤4000 chars, with no insight or dashboard) — schedule a recurring LLM-generated report (`resource_type: \"ai_prompt\"`). Available on PostHog Cloud (self-hosted production is not eligible) once the organization has approved AI data processing and prompt subscriptions are enabled for it; otherwise create is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.\nDelivery is set by `target_type` — `email` or `slack`.\nThe kind is fixed at create time — a PATCH that would change the populated relation to a different kind is rejected.\nFor insight and dashboard subscriptions you can attach an AI-generated summary to each delivery by setting `summary_enabled: true` (optionally steered by `summary_prompt_guide`). This requires the organization to have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the create is rejected. Prompt subscriptions are themselves AI-generated, so these fields do not apply to them.\nIMPORTANT — when creating an insight (or dashboard) subscription, always ask the user whether to enable the AI-generated summary before creating it. Present it as their choice: they can turn it on (`summary_enabled: true`) or leave it off, and if they turn it on, offer them the option to add a custom prompt to steer the summary (`summary_prompt_guide`). Do not enable the summary on your own without asking. (Prompt subscriptions are themselves AI-generated, so this does not apply to them.)",
         "category": "Subscriptions",
