@@ -48,7 +48,7 @@ locals {
     usage_report_ingest = {
       name    = "Usage reports v2 intake"
       slo     = 99.95 # error budget = 0.05%
-      regions = ["US", "EU"]
+      regions = ["US", "EU", "UNKNOWN"]
     }
     query_service = {
       name    = "Query service"
@@ -266,7 +266,7 @@ resource "posthog_insight" "slo_burn_rate" {
       query = replace(
         replace(
           replace(local.slo_burn_rate_query, "{{OPERATION}}", each.value.operation),
-          "{{REGION}}", each.value.region),
+        "{{REGION}}", each.value.region),
         "{{ERROR_BUDGET}}", tostring((100 - each.value.slo) / 100)
       )
     }
@@ -283,7 +283,7 @@ resource "posthog_insight" "slo_burn_rate" {
       showLegend            = true
       goalLines = [
         { label = "Budget rate", value = 0.30, position = "start" },
-        { label = "100x burn",   value = 2.00, position = "start" }
+        { label = "100x burn", value = 2.00, position = "start" }
       ]
     }
     tableSettings = {
@@ -305,14 +305,14 @@ resource "posthog_insight" "slo_burn_rate" {
 resource "posthog_insight" "slo_duration" {
   for_each = local.slo_operation_regions
 
-  name        = "SLO: Duration - ${each.value.name}${each.value.region_count > 1 ? " — ${each.value.region}" : ""}"
+  name = "SLO: Duration - ${each.value.name}${each.value.region_count > 1 ? " — ${each.value.region}" : ""}"
   query_json = jsonencode({
     kind = "DataVisualizationNode"
     source = {
-      kind  = "HogQLQuery"
+      kind = "HogQLQuery"
       query = replace(
         replace(local.slo_duration_query, "{{OPERATION}}", each.value.operation),
-        "{{REGION}}", each.value.region)
+      "{{REGION}}", each.value.region)
     }
     display = "ActionsAreaGraph"
     chartSettings = {
@@ -345,7 +345,7 @@ resource "posthog_insight" "slo_duration" {
 # Combined 28d success rate (all operations on one chart).
 # ---------------------------------------------------------------------------
 resource "posthog_insight" "slo_success_rate" {
-  name        = "SLO: 28d Success Rate"
+  name = "SLO: 28d Success Rate"
   query_json = jsonencode({
     kind = "DataVisualizationNode"
     source = {
