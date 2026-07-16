@@ -1750,6 +1750,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The numeric identifier of the feature flag that was called.",
             "examples": ["1234"],
         },
+        "$feature_flag_has_experiment": {
+            "label": "Feature flag has experiment",
+            "description": "Whether the feature flag that was called is linked to a live experiment.",
+            "examples": ["true", "false"],
+        },
         "$feature_flag_bootstrapped_response": {
             "label": "Feature flag bootstrapped response",
             "description": "The response value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
