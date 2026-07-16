@@ -402,7 +402,7 @@ export interface BillingAlertEventApi {
     readonly absolute_delta: string | null
     /**
      * @nullable
-     * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+     * @pattern ^-?\d{0,22}(?:\.\d{0,6})?$
      */
     readonly relative_delta_percentage: string | null
     readonly threshold_breached: boolean
