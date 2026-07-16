@@ -26,6 +26,25 @@ test.describe('Dashboards', () => {
         await playwrightSetup.login(page, workspace!)
     })
 
+    test('Can create a new dashboard with an insight', async ({ page }) => {
+        const dashboard = new DashboardPage(page)
+        const dashboardName = randomString('dash-edit')
+        const insightName = randomString('dash-trends')
+
+        await test.step('create a saved Trends insight', async () => {
+            await createSavedTrendsInsight(page, insightName)
+        })
+
+        await test.step('create a dashboard', async () => {
+            await dashboard.createNew(dashboardName)
+        })
+
+        await test.step('add the insight to the dashboard', async () => {
+            await dashboard.addInsightToNewDashboard(insightName)
+            await expect(dashboard.insightCards).toBeVisible()
+        })
+    })
+
     test('Editing an insight updates the dashboard tile', async ({ page }) => {
         const dashboard = new DashboardPage(page)
         const insight = new InsightPage(page)
@@ -68,6 +87,72 @@ test.describe('Dashboards', () => {
             await expect(dashboard.insightCards.first()).toBeVisible()
             const updatedCard = await dashboard.findCardByTitle(updatedName)
             await expect(updatedCard.locator('[data-attr="insight-card-title"]')).toContainText(updatedName)
+        })
+    })
+
+    test('Add insight to new dashboard and view it there', async ({ page }) => {
+        const insight = new InsightPage(page)
+        const dashboard = new DashboardPage(page)
+        const insightName = randomString('add-to-dash')
+
+        await test.step('create and save a Trends insight', async () => {
+            await insight.goToNewTrends()
+            await insight.trends.waitForChart()
+            await insight.editName(insightName)
+            await insight.save()
+            await expect(insight.editButton).toBeVisible()
+        })
+
+        await test.step('add insight to a new dashboard', async () => {
+            await dashboard.addToNewDashboardFromInsightPage()
+        })
+
+        await test.step('verify insight is visible on the new dashboard', async () => {
+            await expect(page).toHaveURL(/\/dashboard\//)
+            const card = dashboard.insightCards.filter({ hasText: insightName })
+            await expect(card).toBeVisible()
+            await expect(card.locator('canvas[role="img"]')).toBeVisible()
+        })
+    })
+
+    test('Can duplicate, rename, and remove dashboard tiles', async ({ page }) => {
+        const dashboard = new DashboardPage(page)
+        const newTileName = randomString('tile-name')
+
+        await test.step('create a dashboard with an insight', async () => {
+            await dashboard.createNew()
+            await dashboard.addInsightToNewDashboard()
+            await expect(dashboard.insightCards).toBeVisible()
+        })
+
+        await test.step('duplicate the tile', async () => {
+            const titleLocator = dashboard.insightCards.first().getByTestId('insight-card-title')
+            await expect(titleLocator).not.toContainText('Loading')
+            const title = await titleLocator.textContent()
+            await dashboard.openFirstTileMenu()
+            await dashboard.selectTileMenuOption('Duplicate')
+
+            const duplicateTile = page.getByText(`${title} (Copy)`)
+            await duplicateTile.scrollIntoViewIfNeeded()
+            await expect(duplicateTile).toBeVisible()
+        })
+
+        await test.step('rename the first tile', async () => {
+            await dashboard.openFirstTileMenu()
+            await dashboard.selectTileMenuOption('Rename')
+
+            const renameModal = page.locator('.LemonModal').filter({ has: page.getByTestId('insight-name') })
+            await renameModal.getByTestId('insight-name').fill(newTileName)
+            await renameModal.getByText('Submit').click()
+
+            await expect(dashboard.insightCards.first().getByText(newTileName)).toBeVisible()
+        })
+
+        await test.step('remove the first tile', async () => {
+            await dashboard.openFirstTileMenu()
+            await dashboard.selectTileMenuOption('Remove from dashboard')
+
+            await expect(dashboard.insightCards.first().getByText(newTileName)).not.toBeVisible()
         })
     })
 
@@ -152,6 +237,97 @@ test.describe('Dashboards', () => {
 
         await test.step('verify the variable button reflects the new value', async () => {
             await expect(dashboard.variableButtons.first()).toContainText('99')
+        })
+    })
+
+    test('Deleting a dashboard navigates to the dashboards list', async ({ page }) => {
+        const dashboard = new DashboardPage(page)
+        const dashboardName = randomString('dash-delete')
+
+        await test.step('create a dashboard', async () => {
+            await dashboard.createNew(dashboardName)
+            await expect(page).toHaveURL(/\/dashboard\/\d+/)
+        })
+
+        await test.step('delete the dashboard', async () => {
+            await dashboard.deleteDashboard()
+        })
+
+        await test.step('verify navigation to dashboards list (not "Not found")', async () => {
+            await expect(page).toHaveURL(/\/dashboard(#panel=[a-z]+)?$/)
+            await expect(page.getByText('Not found')).not.toBeVisible()
+            // Reload so the list is rebuilt from the server, which excludes deleted
+            // dashboards. The in-memory dashboardsModel can keep a stale row visible
+            // (the list selector doesn't filter `deleted`, and an in-flight load can
+            // re-merge it after delayedDeleteDashboard prunes it), so an unscoped or
+            // even table-scoped assertion against live state is racy. Scope to the
+            // table to exclude the "deleted" toast, which also contains the name.
+            await page.reload()
+            await expect(page.getByTestId('dashboards-table')).toBeVisible()
+            await expect(page.getByTestId('dashboards-table').getByText(dashboardName)).not.toBeVisible()
+        })
+    })
+
+    test('Deleting an insight from dashboard redirects back', async ({ page }) => {
+        test.setTimeout(120_000)
+        const dashboard = new DashboardPage(page)
+        const insight = new InsightPage(page)
+        const insightName = randomString('dash-trends')
+
+        await test.step('create a saved Trends insight', async () => {
+            await createSavedTrendsInsight(page, insightName)
+        })
+
+        await test.step('create a dashboard with an insight', async () => {
+            await dashboard.createNew()
+            await dashboard.addInsightToNewDashboard(insightName)
+            await expect(dashboard.insightCards).toBeVisible()
+        })
+
+        await test.step('open the insight from the dashboard', async () => {
+            await dashboard.openFirstTileMenu()
+            await dashboard.selectTileMenuOption('Edit')
+            await expect(page).toHaveURL(/\/insights\/.+\/edit(?:\?|$)/)
+            // Wait for the insight to fully load before interacting with the
+            // side panel — InsightPanelDangerZone only renders the delete
+            // button once the insight data is available in the store.
+            await expect(insight.saveButton).toContainText('No changes')
+        })
+
+        await test.step('open the info panel and click delete', async () => {
+            await insight.openInfoPanel()
+            await insight.clickDeleteInsight()
+            await expect(page.locator('.LemonModal').filter({ hasText: 'Delete insight?' })).toBeVisible()
+        })
+
+        await test.step('cancel the dialog and verify we stay on the insight', async () => {
+            await insight.cancelDeleteDialog()
+            await expect(page).toHaveURL(/edit/)
+        })
+
+        await test.step('click delete again and confirm', async () => {
+            await insight.clickDeleteInsight()
+            await insight.confirmDeleteDialog()
+        })
+
+        await test.step('verify redirect to the dashboard with no insight cards', async () => {
+            await expect(page).toHaveURL(/\/dashboard\//)
+            await expect(dashboard.insightCards).toHaveCount(0)
+        })
+    })
+
+    test('Creating a dashboard from a template populates tiles', async ({ page }) => {
+        const dashboard = new DashboardPage(page)
+
+        await test.step('create a dashboard from a template', async () => {
+            await dashboard.createFromTemplate()
+        })
+
+        await test.step('verify the template dashboard has tiles', async () => {
+            await expect(dashboard.insightCards.first()).toBeVisible({ timeout: 30000 })
+
+            const tileCount = await dashboard.insightCards.count()
+            expect(tileCount).toBeGreaterThan(0)
         })
     })
 })
@@ -274,5 +450,110 @@ test.describe('Dashboard link variable and filter overrides', () => {
         await expect(dashboard.variableButtons.first()).toContainText(String(urlOverride))
         await expect(dashboard.dateFilter).toContainText('Last 7 days')
         await expect(dashboard.overridesBanner).toBeVisible()
+    })
+})
+
+test.describe('Dashboard compact cards and inline editing', () => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ use_current_time: true, skip_onboarding: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.login(page, workspace!)
+    })
+
+    test('Edit mode button enters and exits edit mode', async ({ page }) => {
+        const dashboard = new DashboardPage(page)
+        const insightName = randomString('dash-trends')
+
+        await test.step('create a saved Trends insight', async () => {
+            await createSavedTrendsInsight(page, insightName)
+        })
+
+        await test.step('create a dashboard with an insight', async () => {
+            await dashboard.createNew()
+            await dashboard.addInsightToNewDashboard(insightName)
+            await expect(dashboard.insightCards).toBeVisible()
+        })
+
+        await test.step('enter edit mode via the edit button', async () => {
+            await dashboard.enterEditMode()
+        })
+
+        await test.step('save and exit edit mode', async () => {
+            await dashboard.saveEditMode()
+        })
+    })
+
+    test('Inline editing insight title via compact card popover', async ({ page }) => {
+        const dashboard = new DashboardPage(page)
+        const insightName = randomString('dash-trends')
+        const updatedTitle = randomString('inline-title')
+
+        await test.step('create a saved Trends insight', async () => {
+            await createSavedTrendsInsight(page, insightName)
+        })
+
+        await test.step('create a dashboard with an insight', async () => {
+            await dashboard.createNew()
+            await dashboard.addInsightToNewDashboard(insightName)
+            await expect(dashboard.insightCards).toBeVisible()
+        })
+
+        await test.step('hover over the card to open the popover', async () => {
+            await dashboard.hoverFirstCard()
+            await expect(dashboard.popoverTitleField).toBeVisible()
+        })
+
+        await test.step('edit the title inline', async () => {
+            await dashboard.editPopoverTitle(updatedTitle)
+        })
+
+        await test.step('verify toast and updated title', async () => {
+            await expect(page.getByText('Insight updated')).toBeVisible()
+            await expect(dashboard.insightCards.first().getByTestId('insight-card-title')).toContainText(updatedTitle)
+        })
+
+        await test.step('reload and verify title persisted', async () => {
+            await page.reload({ waitUntil: 'domcontentloaded' })
+            await expect(dashboard.insightCards.first().getByTestId('insight-card-title')).toContainText(updatedTitle)
+        })
+    })
+
+    test('Inline editing insight description via compact card popover', async ({ page }) => {
+        const dashboard = new DashboardPage(page)
+        const insightName = randomString('dash-trends')
+        const description = randomString('inline-desc')
+
+        await test.step('create a saved Trends insight', async () => {
+            await createSavedTrendsInsight(page, insightName)
+        })
+
+        await test.step('create a dashboard with an insight', async () => {
+            await dashboard.createNew()
+            await dashboard.addInsightToNewDashboard(insightName)
+            await expect(dashboard.insightCards).toBeVisible()
+        })
+
+        await test.step('hover over the card to open the popover', async () => {
+            await dashboard.hoverFirstCard()
+            await expect(dashboard.popoverDescriptionField).toBeVisible()
+        })
+
+        await test.step('edit the description inline', async () => {
+            await dashboard.editPopoverDescription(description)
+        })
+
+        await test.step('verify toast', async () => {
+            await expect(page.getByText('Insight updated')).toBeVisible()
+        })
+
+        await test.step('reload and verify description persisted', async () => {
+            await page.reload({ waitUntil: 'domcontentloaded' })
+            await dashboard.hoverFirstCard()
+            await expect(dashboard.tilePopover.getByText(description)).toBeVisible()
+        })
     })
 })

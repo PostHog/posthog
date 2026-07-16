@@ -1,4 +1,5 @@
 import { PersonsPage } from '../../page-models/personsPage'
+import { randomString } from '../../utils'
 import { personWithMultipleIds, personsWithIdentity } from '../../utils/test-data'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
@@ -63,6 +64,76 @@ test.describe('Persons', () => {
         await test.step('switch to cohorts tab and verify empty state', async () => {
             await persons.cohortsTab.click()
             await expect(page.getByText("This person doesn't belong to any cohort")).toBeVisible()
+        })
+    })
+
+    test('Add a new person property', async ({ page }) => {
+        const persons = new PersonsPage(page)
+        const propKey = randomString('test-prop')
+
+        await test.step('go to person properties tab', async () => {
+            await persons.goToList()
+            await persons.clickNthPerson(0)
+            await persons.goToPropertiesTab()
+        })
+
+        await test.step('add a new text property and verify it appears', async () => {
+            await persons.addProperty(propKey, 'test-value-123')
+            const propsTable = persons.detailTable()
+            // Wait for the new row to appear in the table before reading the value
+            await expect(propsTable.row(propKey).tr).toBeVisible()
+            const value = await propsTable.row(propKey).column('value')
+            expect(value).toContain('test-value-123')
+        })
+
+        await test.step('add a property with an empty string value and verify it is not coerced to 0', async () => {
+            const emptyKey = randomString('empty-val')
+            await persons.addProperty(emptyKey, '')
+            const propsTable = persons.detailTable()
+            await expect(propsTable.row(emptyKey).tr).toBeVisible()
+            const value = await propsTable.row(emptyKey).column('value')
+            expect(value).toBe('string')
+        })
+
+        await test.step('add a property with value "0" and verify it shows 0', async () => {
+            const numericKey = randomString('numeric-val')
+            await persons.addProperty(numericKey, '0')
+            const propsTable = persons.detailTable()
+            await expect(propsTable.row(numericKey).tr).toBeVisible()
+            const value = await propsTable.row(numericKey).column('value')
+            expect(value).toContain('0')
+        })
+    })
+
+    test('Delete a person property', async ({ page }) => {
+        const persons = new PersonsPage(page)
+        const propKey = randomString('delete-prop')
+        const { customIdUser } = personsWithIdentity.expected
+
+        await test.step('navigate to a known person and add a property to delete', async () => {
+            await persons.goToList()
+            await persons.searchFor(customIdUser)
+            await persons.clickFirstPerson()
+            await persons.goToPropertiesTab()
+            await persons.addProperty(propKey, 'will-be-deleted')
+        })
+
+        await test.step('delete the property and verify it is gone from the table', async () => {
+            await expect
+                .poll(
+                    async () => {
+                        const resp = await page.request.get(personsApi(customIdUser))
+                        const data = await resp.json()
+                        return data.results[0]?.properties?.[propKey]
+                    },
+                    { timeout: 10_000 }
+                )
+                .toBe('will-be-deleted')
+
+            await persons.deleteProperty(propKey)
+            const propsTable = persons.detailTable()
+            const keys = await propsTable.column('key')
+            expect(keys).not.toContain(propKey)
         })
     })
 

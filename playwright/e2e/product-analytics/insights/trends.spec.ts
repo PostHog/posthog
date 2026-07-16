@@ -1,4 +1,5 @@
 import { InsightPage } from '../../../page-models/insightPage'
+import { randomString } from '../../../utils'
 import { customEventsWithBreakdown, pageviews } from '../../../utils/test-data'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../../utils/workspace-test-base'
 
@@ -19,6 +20,19 @@ test.describe('Trends insights', () => {
     test.beforeEach(async ({ page, playwrightSetup }) => {
         await playwrightSetup.login(page, workspace!)
     })
+
+    // Changing the date range right after entering edit mode can race the editor's
+    // hydration — a late insight load can revert the edit, leaving the save button stuck
+    // on "No changes". Require the dirty state to stick and re-apply if it was reverted.
+    async function selectDateRangeUntilDirty(insight: InsightPage, label: string): Promise<void> {
+        await expect(async () => {
+            await insight.trends.selectDateRange(label)
+            await expect(insight.saveButton).not.toContainText('No changes', { timeout: 2000 })
+            await insight.page.waitForTimeout(300)
+            await expect(insight.saveButton).not.toContainText('No changes', { timeout: 500 })
+            await expect(insight.saveButton).toBeEnabled({ timeout: 500 })
+        }).toPass({ timeout: 30000 })
+    }
 
     test('View default pageview trends and verify daily totals', async ({ page }) => {
         const insight = new InsightPage(page)
@@ -296,6 +310,94 @@ test.describe('Trends insights', () => {
             await insight.goToList()
             await expect(page.locator('table')).toBeVisible()
             await expect(insight.trends.tooltip).toHaveCount(0, { timeout: 3000 })
+        })
+    })
+
+    test('Save an insight, make changes, discard them, and save a copy', async ({ page }) => {
+        test.setTimeout(90_000)
+        const insight = new InsightPage(page)
+        const name = randomString('lifecycle')
+
+        await test.step('create and save an insight', async () => {
+            await insight.goToNewTrends()
+            await insight.trends.waitForChart()
+            await insight.editName(name)
+            await insight.save()
+        })
+
+        await test.step('enter edit mode and verify button states', async () => {
+            await insight.edit()
+            await expect(insight.saveButton).toBeVisible()
+            await expect(insight.saveButton).toBeDisabled()
+            await expect(insight.editButton).not.toBeVisible()
+        })
+
+        await test.step('change date range then discard and verify revert', async () => {
+            await selectDateRangeUntilDirty(insight, 'Last 30 days')
+            await expect(insight.trends.dateRangeButton).toContainText('Last 30 days')
+            await expect(insight.saveButton).toBeEnabled()
+            await insight.discard()
+            await expect(insight.editButton).toBeVisible()
+            await insight.trends.waitForChart()
+            // Handle race where DateFilter state is lost during mode transition remount
+            await expect(insight.trends.dateRangeButton).toContainText('Last 7 days', { timeout: 10_000 })
+        })
+
+        await test.step('edit again, make a change, and save', async () => {
+            await insight.edit()
+            await selectDateRangeUntilDirty(insight, 'Last 14 days')
+            await insight.save()
+            await expect(insight.trends.dateRangeButton).toContainText('Last 14 days')
+        })
+
+        await test.step('switch insight type to Funnels and back, then discard', async () => {
+            await insight.edit()
+            await page.locator('[data-attr="insight-funnels-tab"]').click()
+            await expect(insight.activeTab).toContainText('Funnels')
+            await page.locator('[data-attr="insight-trends-tab"]').click()
+            await expect(insight.activeTab).toContainText('Trends')
+            await insight.trends.waitForChart()
+            await expect(insight.trends.dateRangeButton).toContainText('Last 14 days')
+            await insight.discard()
+        })
+
+        const copyName = randomString('copy')
+        await test.step('save as new and verify URL changes', async () => {
+            const originalUrl = page.url()
+            await insight.edit()
+            await insight.saveAsNew(copyName)
+            expect(page.url()).not.toBe(originalUrl)
+            await expect(insight.topBarName).toContainText(copyName, { timeout: 10000 })
+        })
+
+        await test.step('navigate to list and verify both insights exist', async () => {
+            await insight.goToList()
+            await expect(page.locator('table')).toBeVisible()
+            await expect(page.getByRole('link', { name })).toBeVisible()
+            await expect(page.getByRole('link', { name: copyName })).toBeVisible()
+        })
+    })
+
+    test('Export insight data as CSV and XLSX', async ({ page }) => {
+        const insight = new InsightPage(page)
+        await insight.goToNewTrends()
+        await insight.trends.waitForChart()
+        await insight.trends.waitForDetailsTable()
+
+        await test.step('export as CSV', async () => {
+            await page.getByTestId('export-button').click()
+            const csvDownload = page.waitForEvent('download')
+            await page.getByTestId('export-button-csv').click()
+            const download = await csvDownload
+            expect(download.suggestedFilename()).toMatch(/\.csv$/i)
+        })
+
+        await test.step('export as XLSX', async () => {
+            await page.getByTestId('export-button').click()
+            const xlsxDownload = page.waitForEvent('download')
+            await page.getByTestId('export-button-xlsx').click()
+            const download = await xlsxDownload
+            expect(download.suggestedFilename()).toMatch(/\.xlsx$/i)
         })
     })
 })

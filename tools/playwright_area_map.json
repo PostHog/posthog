@@ -64,6 +64,7 @@
             "playwright/e2e/product-analytics/notebooks.spec.ts",
             "playwright/e2e/shared-notebook-unauthenticated.spec.ts"
         ],
+        "saved-insights": ["playwright/e2e/product-analytics/insights-list.spec.ts"],
         "insights": [
             "playwright/e2e/product-analytics/",
             "playwright/e2e/insight-sharing-password.spec.ts",

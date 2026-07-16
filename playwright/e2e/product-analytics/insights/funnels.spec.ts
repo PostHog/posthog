@@ -1,6 +1,7 @@
 import { InsightShortId, InsightType } from '~/types'
 
 import { InsightPage } from '../../../page-models/insightPage'
+import { randomString } from '../../../utils'
 import { createEvent, daysAgo } from '../../../utils/event-data'
 import { PlaywrightSetupEvent } from '../../../utils/playwright-setup'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../../utils/workspace-test-base'
@@ -79,7 +80,9 @@ test.describe('Funnel insights', () => {
             insights: [
                 { name: 'Seeded Funnel', query: FUNNEL_QUERY },
                 { name: 'Step Order Funnel', query: FUNNEL_QUERY },
+                { name: 'Lifecycle Funnel', query: FUNNEL_QUERY },
             ],
+            dashboards: [{ name: 'Funnel Dashboard', insight_indexes: [0] }],
         })
     })
 
@@ -96,6 +99,21 @@ test.describe('Funnel insights', () => {
         await insight.goToInsight(seededInsightId(insightIndex), { edit: true })
         await insight.funnels.waitForChart()
         return insight
+    }
+
+    // Setting the conversion window right after navigation or entering edit mode can race
+    // the editor's hydration — the edit is occasionally swallowed or reverted by a late
+    // insight load. The page model waits for the insight re-fetch, but a just-received
+    // response can still apply milliseconds after the edit, so require the dirty state to
+    // stick and re-apply if it was reverted.
+    async function setConversionWindowUntilDirty(insight: InsightPage, value: string): Promise<void> {
+        await expect(async () => {
+            await insight.funnels.setConversionWindowInterval(value)
+            await expect(insight.saveButton).not.toContainText('No changes', { timeout: 2000 })
+            await insight.page.waitForTimeout(300)
+            await expect(insight.saveButton).not.toContainText('No changes', { timeout: 500 })
+            await expect(insight.saveButton).toBeEnabled({ timeout: 500 })
+        }).toPass({ timeout: 30000 })
     }
 
     test('Create funnel via UI and verify conversion math and tooltips', async ({ page }) => {
@@ -330,6 +348,95 @@ test.describe('Funnel insights', () => {
             await expect(insight.funnels.stepLegend(0)).toContainText('19')
             await expect(insight.funnels.stepLegend(1)).toContainText('9')
             await expect(insight.funnels.stepLegend(2)).toContainText('4')
+        })
+    })
+
+    test('Save, button states, edit, and cancel lifecycle', async ({ page }) => {
+        const insight = await goToSeededFunnel(page, 2)
+        const funnelName = randomString('funnel-lifecycle')
+
+        // Repeat runs share the workspace, so derive window values from the currently
+        // saved one — hardcoded values would be a no-op edit on the second run.
+        const savedWindow = Number(await insight.funnels.getConversionWindowInterval())
+        const windowA = String(savedWindow >= 300 ? 2 : savedWindow + 1)
+        const windowB = String(savedWindow >= 300 ? 3 : savedWindow + 2)
+
+        await test.step('save button is enabled on unsaved changes', async () => {
+            await setConversionWindowUntilDirty(insight, windowA)
+            await insight.funnels.waitForChart()
+            await expect(insight.saveButton).toBeEnabled()
+            await expect(insight.saveButton).not.toContainText('No changes')
+        })
+
+        await test.step('name and save the insight', async () => {
+            await insight.editName(funnelName)
+            await insight.save()
+            await expect(insight.editButton).toBeVisible()
+        })
+
+        await test.step('click edit — save button shows No changes when clean', async () => {
+            await insight.edit()
+            await expect(insight.saveButton).toContainText('No changes')
+            await expect(insight.saveButton).toBeDisabled()
+        })
+
+        await test.step('make a change — save enables, cancel button appears', async () => {
+            await setConversionWindowUntilDirty(insight, windowB)
+            await insight.funnels.waitForChart()
+
+            await expect(insight.saveButton).toBeEnabled()
+            await expect(insight.saveButton).toContainText('Save')
+            await expect(insight.cancelButton).toBeVisible()
+        })
+
+        await test.step('cancel edit — conversion window reverts to saved value', async () => {
+            await insight.discard()
+            await insight.funnels.waitForChart()
+
+            await insight.edit()
+            await expect(insight.funnels.conversionWindowInput).toHaveValue(windowA)
+        })
+    })
+
+    test('Override/discard lifecycle from dashboard', async ({ page }) => {
+        const insight = new InsightPage(page)
+        const dashboardId = workspace!.created_dashboards![0].id
+
+        await test.step('navigate to insight with filter overrides and verify banner', async () => {
+            await insight.goToInsight(seededInsightId(), {
+                queryParams: { filters_override: { date_from: '-14d' }, dashboard: dashboardId },
+            })
+            await expect(page.getByText('filter/variable overrides')).toBeVisible({ timeout: 20000 })
+            await expect(
+                page
+                    .getByRole('button', { name: 'Discard overrides' })
+                    .or(page.getByRole('link', { name: 'Discard overrides' }))
+            ).toBeVisible()
+        })
+
+        await test.step('discard overrides removes the banner', async () => {
+            await page
+                .getByRole('button', { name: 'Discard overrides' })
+                .or(page.getByRole('link', { name: 'Discard overrides' }))
+                .click()
+            await expect(page.getByText('filter/variable overrides')).not.toBeVisible()
+            await expect(insight.editButton).toBeVisible()
+        })
+
+        await test.step('edit controls work after discard', async () => {
+            await insight.edit()
+            await expect(insight.saveButton).toContainText('No changes')
+
+            await setConversionWindowUntilDirty(insight, '3')
+            await expect(insight.saveButton).toBeEnabled()
+            await expect(insight.saveButton).toContainText('Save')
+        })
+
+        await test.step('cancel restores original state after discard flow', async () => {
+            await insight.discard()
+
+            await insight.edit()
+            await expect(insight.funnels.conversionWindowInput).not.toHaveValue('3')
         })
     })
 })

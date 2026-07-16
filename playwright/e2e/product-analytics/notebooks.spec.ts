@@ -118,4 +118,60 @@ test.describe('Notebooks', () => {
             await expect(step3).toContainText('25')
         })
     })
+
+    test('Remove an insight from a notebook and verify text persists', async ({ page }) => {
+        const notebook = new NotebookPage(page)
+        const notebookName = randomString('nb-remove')
+        const textContent = randomString('some-text')
+
+        await test.step('create a notebook and add a Trend insight', async () => {
+            await notebook.createNew(notebookName)
+            await notebook.addInsightViaSlashCommand('Trend')
+            await expect(notebook.insightNodes).toHaveCount(1)
+        })
+
+        await test.step('remove the insight from the notebook', async () => {
+            await notebook.removeInsightNode()
+            await expect(notebook.insightNodes).toHaveCount(0)
+            // Dismiss any modal/overlay that may remain after node removal
+            await page.keyboard.press('Escape')
+            await expect(page.locator('.ReactModal__Overlay')).toHaveCount(0, { timeout: 5000 })
+        })
+
+        await test.step('type text content in the notebook', async () => {
+            const savePromise = notebook.waitForSave()
+            await notebook.focusNewParagraphAtEnd()
+            await page.keyboard.type(textContent)
+            await expect(notebook.editor).toContainText(textContent)
+            await savePromise
+        })
+
+        await test.step('reload and verify the text persisted', async () => {
+            await page.reload({ waitUntil: 'domcontentloaded' })
+            await expect(notebook.editor).toContainText(textContent, { timeout: 15000 })
+        })
+    })
+
+    test('Delete a notebook from the list', async ({ page }) => {
+        const notebook = new NotebookPage(page)
+        const notebookName = randomString('nb-delete')
+
+        await test.step('create a new notebook', async () => {
+            await notebook.createNew(notebookName)
+            await expect(notebook.titleHeading).toContainText(notebookName)
+        })
+
+        await test.step('navigate to list and verify notebook exists', async () => {
+            await notebook.goToList()
+            await expect(notebook.getNotebookRowByName(notebookName)).toBeVisible()
+        })
+
+        await test.step('delete the notebook via the more menu', async () => {
+            await notebook.deleteFromList(notebookName)
+        })
+
+        await test.step('verify the notebook is gone from the list', async () => {
+            await expect(notebook.getNotebookRowByName(notebookName)).not.toBeVisible()
+        })
+    })
 })
