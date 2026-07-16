@@ -2419,7 +2419,7 @@ first so the latest fixes are loaded.
 
 ---
 
-### ✅ Stage 5c — UI trigger: review any accessible `posthog/*` PR from the Code review scene (BUILT 2026-07-16)
+### ✅ Stage 5c — UI trigger: review any installation-accessible PR from the Code review scene (BUILT 2026-07-16)
 
 > **Status: BUILT 2026-07-16** (same-day decision round with the maintainer, then implemented — see
 > "As built" at the end of this section). Not yet e2e'd against a live non-`posthog/posthog` PR.

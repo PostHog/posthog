@@ -407,8 +407,10 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         startSkillAuthorTask: (kind: ReviewSkillKind) => ({ kind }),
         startSkillAuthorTaskFinished: true,
         setTriggerPrUrl: (prUrl: string) => ({ prUrl }),
-        // Starts a review of the pasted PR URL; the button guards double-submission via `triggeringReview`.
+        // Starts a review of the pasted PR URL. The listener self-guards on `triggeringReview`, so a
+        // repeat dispatch mid-flight (Enter spam, double click) is a no-op regardless of the source.
         submitTriggerReview: true,
+        submitTriggerReviewStarted: true,
         submitTriggerReviewFinished: true,
         // Keeps the recent-reviews poll alive until a just-triggered review's report row appears —
         // without it the poll only arms when some other review is already visibly running.
@@ -632,7 +634,9 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         triggeringReview: [
             false,
             {
-                submitTriggerReview: () => true,
+                // Flipped by the listener (not the submit action itself) so the listener can tell a
+                // first submit from an Enter-spam repeat and drop the repeat before it POSTs.
+                submitTriggerReviewStarted: () => true,
                 submitTriggerReviewFinished: () => false,
             },
         ],
@@ -813,11 +817,16 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             actions.loadReviewDetail(review.id)
         },
         submitTriggerReview: async () => {
-            const prUrl = values.triggerPrUrl.trim()
-            if (!prUrl) {
-                actions.submitTriggerReviewFinished()
+            if (values.triggeringReview) {
+                // A request is already in flight — the disabled button can't stop an Enter keypress
+                // in the input, so the guard lives here, covering every dispatch source.
                 return
             }
+            const prUrl = values.triggerPrUrl.trim()
+            if (!prUrl) {
+                return
+            }
+            actions.submitTriggerReviewStarted()
             try {
                 const response = await reviewHogReviewsTriggerCreate(currentProjectId(), { pr_url: prUrl })
                 actions.setTriggerPrUrl('')

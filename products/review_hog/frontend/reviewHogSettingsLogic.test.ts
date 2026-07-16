@@ -97,6 +97,33 @@ describe('reviewHogSettingsLogic', () => {
         expect(logic.values.awaitingTriggeredReview).toBe(true)
     })
 
+    it('a repeat submit while a request is in flight does not start a second review', async () => {
+        // The disabled button can't stop an Enter keypress in the input, so the listener must drop
+        // repeats itself — without the guard each keypress POSTs another trigger.
+        let triggerCalls = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/review_hog/reviews/trigger/': () => {
+                    triggerCalls++
+                    return [202, { workflow_id: 'wf-1', status: 'started' }]
+                },
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+        logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
+
+        logic.actions.submitTriggerReview()
+        logic.actions.submitTriggerReview()
+        await expectLogic(logic).toDispatchActions(['submitTriggerReviewFinished'])
+
+        expect(triggerCalls).toBe(1)
+    })
+
     it('an already-reviewed PR informs without arming the watch', async () => {
         useMocks({
             post: {
