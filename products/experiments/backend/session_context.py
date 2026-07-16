@@ -374,14 +374,17 @@ def _query_exposure_event_branches(
             },
         )
         assert isinstance(branch, ast.SelectQuery)
+        # The backstop must sit on each branch: HogQL stamps an implicit LIMIT 100 on every
+        # union branch whose limit is unset (`_apply_limit` walks the branches), so a set-level
+        # limit alone would not prevent per-branch truncation. Real branches stay far below
+        # this — each groups by one flag's defined variants.
+        branch.limit = ast.Constant(value=MAX_EXPOSURE_ROWS)
         branches.append(branch)
 
     if not branches:
         return {}
 
     query = ast.SelectSetQuery.create_from_queries(branches, "UNION ALL")
-    # Backstop against HogQL's implicit LIMIT 100 truncating legitimate rows; the branches are
-    # already bounded by each flag's defined variants.
     query.limit = ast.Constant(value=MAX_EXPOSURE_ROWS)
     response = execute_hogql_query(query, team=team, user=user)
 
