@@ -166,6 +166,16 @@ pub enum SinkConfig {
     Kafka(KafkaEmitterConfig),
     Capture(CaptureEmitterConfig),
     NoOp,
+    // Trial run: parse and transform only, writing browsable results to the
+    // worker-configured trial output bucket instead of emitting events. Jobs
+    // with this sink take the trial path in the main loop; the bucket and
+    // prefix come from worker env, never from job config.
+    #[serde(rename = "trial_s3")]
+    TrialS3 {
+        // Stop after this many source records; clamped to the worker's
+        // TRIAL_MAX_RECORD_LIMIT.
+        record_limit: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -329,6 +339,14 @@ impl SinkConfig {
                     // emit to kafka at the same time.
                     KafkaEmitter::new(resolved_config, &model.id.to_string(), context).await?,
                 ))
+            }
+            SinkConfig::TrialS3 { .. } => {
+                // Trial jobs never construct an Emitter: the main loop dispatches
+                // them to TrialJob before Job::new runs. Reaching this arm means
+                // the dispatch check is broken.
+                anyhow::bail!(
+                    "trial_s3 is not an emitter sink; trial jobs must take the trial path"
+                )
             }
             SinkConfig::Capture(capture_config) => {
                 let token = context.get_token_for_team_id(model.team_id).await?;

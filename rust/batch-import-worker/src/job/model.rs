@@ -49,12 +49,17 @@ pub enum JobStatus {
     Completed,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub struct JobState {
     // Parts are sorted, and we iterate through them in order, to let us import
     // from oldest to newest
     pub parts: Vec<PartState>,
+    // Trial-run progress; None for normal imports. Persisted alongside parts so
+    // a trial resumed after backoff or lease loss continues its page numbering
+    // and running summary instead of starting over.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trial: Option<crate::trial::TrialProgress>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -413,7 +418,10 @@ impl TryFrom<(JobRow, &[String], String)> for JobModel {
         let (row, keys, lease_id) = input;
         let state = match row.state {
             Some(s) => serde_json::from_value(s).context("Parsing state")?,
-            None => JobState { parts: vec![] },
+            None => JobState {
+                parts: vec![],
+                trial: None,
+            },
         };
 
         let import_config = serde_json::from_value(row.import_config).context("Parsing config")?;
@@ -513,6 +521,7 @@ mod tests {
                     total_size: None,
                 })
                 .collect(),
+            trial: None,
         }
     }
 
