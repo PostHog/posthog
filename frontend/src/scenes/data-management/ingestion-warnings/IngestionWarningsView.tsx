@@ -38,6 +38,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     set_on_exception: '$set or $set_once is ignored on exception events and should not be sent',
     schema_validation_failed: 'Event rejected due to schema validation failure',
     invalid_heatmap_data: 'Invalid heatmap data',
+    event_uuid_not_v7: 'Event uuid is not a time-ordered UUIDv7',
 }
 
 // Explicit anchor on https://posthog.com/docs/data/ingestion-warnings for each warning type.
@@ -305,6 +306,21 @@ export const WARNING_TYPE_RENDERER = {
                         </li>
                     ))}
                 </ul>
+            </>
+        )
+    },
+    event_uuid_not_v7: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            eventUuid: string
+            event: string
+            distinctId: string
+            lib: string
+        }
+        return (
+            <>
+                Event <strong>{details.event}</strong> from library <code>{details.lib || '(none)'}</code> for
+                distinct_id <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link> was sent
+                with a uuid that is not a time-ordered UUIDv7 (event uuid: <code>{details.eventUuid}</code>)
             </>
         )
     },
