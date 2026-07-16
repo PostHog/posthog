@@ -43,6 +43,12 @@ class KandjiSource(SimpleSource[KandjiSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.KANDJI
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # `subdomain` and `region` determine which host the stored API token is sent to;
+        # retargeting either must force the editor to re-enter the token.
+        return ["subdomain", "region"]
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url": "Your Kandji API token is invalid or expired. Generate a new token in Settings → Access and reconnect.",
@@ -131,6 +137,7 @@ class KandjiSource(SimpleSource[KandjiSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="accuhive",
+                        secret=False,
                     ),
                     SourceFieldSelectConfig(
                         name="region",

@@ -50,6 +50,14 @@ class TestKandjiTransport:
             ("empty_subdomain", "", "us"),
             ("subdomain_with_dot", "accuhive.api.kandji.io", "us"),
             ("subdomain_with_slash", "accuhive/devices", "us"),
+            # URL metacharacters would rewrite the request authority and leak the bearer token
+            # to an attacker-controlled host (e.g. "attacker?" resolves to https://attacker/).
+            ("subdomain_with_query", "attacker?", "us"),
+            ("subdomain_with_fragment", "attacker#", "us"),
+            ("subdomain_with_percent_encoding", "attacker%2eexample%2ecom", "us"),
+            ("subdomain_with_userinfo", "user@attacker", "us"),
+            ("subdomain_with_colon", "attacker:443", "us"),
+            ("subdomain_leading_hyphen", "-accuhive", "us"),
         ]
     )
     def test_build_base_url_rejects_bad_input(self, _name, subdomain, region) -> None:

@@ -74,6 +74,11 @@ class TestKandjiSource:
         # Static endpoint catalog with no I/O — powers the public docs table list.
         assert self.source.lists_tables_without_credentials is True
 
+    def test_connection_host_fields_cover_token_destination(self) -> None:
+        # Dropping either field would let an editor retarget the stored bearer token at a host
+        # they control without re-entering it (the update serializer keys off this list).
+        assert self.source.connection_host_fields == ["subdomain", "region"]
+
     @pytest.mark.parametrize(
         "observed_error",
         [

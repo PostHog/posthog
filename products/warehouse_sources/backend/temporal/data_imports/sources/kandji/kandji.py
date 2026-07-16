@@ -1,3 +1,4 @@
+import re
 from collections.abc import Iterable
 from typing import Any, Optional, cast
 
@@ -33,19 +34,23 @@ REGION_TEMPLATES = {
     "eu": EU_API_HOST_TEMPLATE,
 }
 
+# Kandji subdomains are a single DNS label. Allowlist strictly: any other character (`.`, `/`,
+# `?`, `#`, `@`, `%`, …) could rewrite the URL authority and send the bearer token elsewhere.
+_SUBDOMAIN_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$")
+
 
 def build_base_url(subdomain: str, region: str) -> str:
     """Build the tenant- and region-scoped API base URL (with the `/api/v1` prefix).
 
-    Raises `ValueError` for an unknown region or an empty/malformed subdomain — Kandji subdomains
-    are a single DNS label, so anything with a dot or slash is rejected before it reaches the network.
+    Raises `ValueError` for an unknown region or a subdomain that is not a bare DNS label,
+    so a malformed value is rejected before any request carries the token.
     """
     template = REGION_TEMPLATES.get(region.lower().strip())
     if template is None:
         raise ValueError("Region must be either 'us' or 'eu'.")
 
     clean_subdomain = subdomain.strip()
-    if not clean_subdomain or any(c in clean_subdomain for c in "./ "):
+    if not _SUBDOMAIN_RE.match(clean_subdomain):
         raise ValueError("Subdomain must be the single label from your Kandji API URL (e.g. 'accuhive').")
 
     return template.format(subdomain=clean_subdomain)
