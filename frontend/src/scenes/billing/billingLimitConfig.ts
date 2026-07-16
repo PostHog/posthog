@@ -46,7 +46,7 @@ const BILLING_LIMIT_CONFIG_BY_PRODUCT: Record<string, BillingLimitConfigResolver
                 customLimitUsd > POSTHOG_CODE_BILLING_LIMIT_MAX &&
                 billingLimitNextPeriod !== null &&
                 billingLimitNextPeriod <= POSTHOG_CODE_BILLING_LIMIT_MAX
-                    ? `Current usage is already above the Code billing limit cap, so this period stays at $${customLimitUsd.toLocaleString()}. The $${billingLimitNextPeriod.toLocaleString()} limit starts next period.`
+                    ? `Current usage is already above the Code billing limit cap, so this period's limit stays at $${customLimitUsd.toLocaleString()}. The $${billingLimitNextPeriod.toLocaleString()} limit starts next period.`
                     : null,
         }
     },
