@@ -20,6 +20,7 @@ to read a specific source; otherwise the oldest source's repos are tried first, 
 """
 
 import re
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
 from uuid import UUID
@@ -107,14 +108,15 @@ def resolve_github_tables(
     queryset = _github_sources(team, user_access_control)
     if source_id is not None:
         queryset = queryset.filter(id=_as_source_uuid(source_id))
-    candidates = _repo_candidates(team=team, sources=queryset)
+    # Lazy by default so the common path (no `repo`) stops querying sources on the first usable repo.
+    candidates: Iterable[_RepoCandidate] = _repo_candidates(team=team, sources=queryset)
     if repo:
-        # Stable sort keeps the source-oldest / legacy-repo-first order among equals; the matching
-        # repo(s) just move to the front. Applies even with `source_id` set, so selecting a specific
-        # (source, repo) pair resolves that repo. The non-matching tail still follows as a fallback,
-        # since a bare row's repo can be empty while its data holds the repo.
+        # Materialize and stable-sort: the source-oldest / legacy-repo-first order holds among equals,
+        # and the matching repo(s) move to the front. Applies even with `source_id` set, so selecting a
+        # specific (source, repo) pair resolves that repo. The non-matching tail still follows as a
+        # fallback, since a bare row's repo can be empty while its data holds the repo.
         wanted = repo.casefold()
-        candidates.sort(key=lambda candidate: candidate.repository.casefold() != wanted)
+        candidates = sorted(candidates, key=lambda candidate: candidate.repository.casefold() != wanted)
     for candidate in candidates:
         tables = candidate.tables
         pull_requests = tables.get(PULL_REQUESTS_SCHEMA)
@@ -187,23 +189,23 @@ class _RepoCandidate(NamedTuple):
     tables: dict[str, str]
 
 
-def _repo_candidates(*, team: Team, sources: QuerySet[ExternalDataSource]) -> list[_RepoCandidate]:
+def _repo_candidates(*, team: Team, sources: QuerySet[ExternalDataSource]) -> Iterator[_RepoCandidate]:
     """Every ``(repo, tables)`` a team's GitHub sources expose, in default-resolution order.
 
     Sources keep their oldest-first order (the established connection wins), and within a source
     the legacy/bare repo comes first — so a single-repo source resolves exactly as before — then
     any added repos, sorted, for a deterministic pick. A multi-repo source contributes one entry
-    per repo, so a repo-scoped read can reach a repo that isn't the source's legacy one.
+    per repo, so a repo-scoped read can reach a repo that isn't the source's legacy one. Lazy (one
+    ``ExternalDataSchema`` query per source, on demand) so the default resolve path stops at the
+    first usable repo instead of querying every source up front.
     """
-    candidates: list[_RepoCandidate] = []
     for source in sources:
         display = _source_repository(source)
         legacy_key = display.casefold()
         by_repo = _synced_tables_by_repo(team=team, source=source)
         for repo_key in sorted(by_repo, key=lambda key: (key != legacy_key, key)):
             repository = display if repo_key == legacy_key else repo_key
-            candidates.append(_RepoCandidate(repository=repository, tables=by_repo[repo_key]))
-    return candidates
+            yield _RepoCandidate(repository=repository, tables=by_repo[repo_key])
 
 
 def _github_sources(team: Team, user_access_control: "UserAccessControl | None" = None) -> QuerySet[ExternalDataSource]:
@@ -284,19 +286,6 @@ def _as_source_uuid(source_id: str) -> UUID:
         raise ValueError(f"source_id must be a UUID, got: {source_id!r}") from err
 
 
-def _schema_metadata(schema: ExternalDataSchema) -> dict | None:
-    """The row's persisted ``sync_type_config.schema_metadata`` (repo/endpoint location), or None.
-
-    ``sync_type_config`` is a JSONField that also holds unrelated bookkeeping (xmin cursors), so
-    guard for a non-dict config and a non-dict metadata value before handing it to the resolver.
-    """
-    config = schema.sync_type_config
-    if not isinstance(config, dict):
-        return None
-    metadata = config.get("schema_metadata")
-    return metadata if isinstance(metadata, dict) else None
-
-
 def _synced_tables_by_repo(*, team: Team, source: ExternalDataSource) -> dict[str, dict[str, str]]:
     """Map ``{repository: {endpoint: table name}}`` for a source's actively-synced curated schemas.
 
@@ -315,7 +304,7 @@ def _synced_tables_by_repo(*, team: Team, source: ExternalDataSource) -> dict[st
     )
     by_repo: dict[str, dict[str, str]] = {}
     for schema in schemas:
-        repository, endpoint = github_schema_repo_endpoint(schema.name, _schema_metadata(schema), legacy_repo)
+        repository, endpoint = github_schema_repo_endpoint(schema.schema_metadata, schema.name, legacy_repo)
         if endpoint not in _CURATED_ENDPOINTS:
             continue
         table = schema.table

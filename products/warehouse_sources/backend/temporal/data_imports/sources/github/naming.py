@@ -43,8 +43,8 @@ def split_schema_name(schema_name: str) -> tuple[str | None, str]:
 
 
 def schema_repo_endpoint(
-    schema_name: str,
     schema_metadata: dict[str, Any] | None,
+    schema_name: str,
     legacy_repository: str | None,
 ) -> tuple[str | None, str]:
     """Config-free `(repository | None, endpoint)` for a schema row: metadata first,
@@ -54,6 +54,7 @@ def schema_repo_endpoint(
     names are normalized (stripped, lowercased) since GitHub full names are case-insensitive
     and the repo half of schema names and webhook keys must compare stably. Shared by the
     sync-side resolver here and cross-product readers (engineering_analytics) via the facade.
+    Argument order mirrors `resolve_schema_repo_endpoint` (metadata, name) so they don't diverge.
     """
     metadata = schema_metadata if isinstance(schema_metadata, dict) else {}
     repository = metadata.get(SCHEMA_METADATA_REPOSITORY_KEY)
@@ -76,7 +77,7 @@ def resolve_schema_repo_endpoint(
 ) -> tuple[str, str]:
     """`(repository, endpoint)` for a schema row: metadata first, qualified-name parse second,
     the config's legacy `repository` for bare rows last."""
-    repository, endpoint = schema_repo_endpoint(schema_name, schema_metadata, config.repository)
+    repository, endpoint = schema_repo_endpoint(schema_metadata, schema_name, config.repository)
     if repository is None:
         # Phrase matches get_non_retryable_errors so an unresolvable row fails permanently
         # with the curated message instead of retrying forever.
