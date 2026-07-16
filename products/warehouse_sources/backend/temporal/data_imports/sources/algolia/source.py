@@ -29,7 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AlgoliaSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -118,23 +121,16 @@ The API key needs the ACLs for the data you want to sync:
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        def _build_schema(endpoint: str) -> SourceSchema:
-            return SourceSchema(
-                name=endpoint,
-                # No Algolia endpoint exposes a server-side "updated since" filter, so every table
-                # is full refresh; the cursor/page tokens still make each one resumable.
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=ALGOLIA_ENDPOINTS[endpoint].should_sync_default,
-                description=_ENDPOINT_DESCRIPTIONS.get(endpoint),
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # No Algolia endpoint exposes a server-side "updated since" filter, so every table is
+        # full refresh (no incremental fields); the cursor/page tokens still make each one
+        # resumable.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            descriptions=_ENDPOINT_DESCRIPTIONS,
+            should_sync_default={name: cfg.should_sync_default for name, cfg in ALGOLIA_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self, config: AlgoliaSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -160,7 +156,8 @@ The API key needs the ACLs for the data you want to sync:
             application_id=config.application_id,
             api_key=config.api_key,
             index_name=config.index_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             manager=resumable_source_manager,
         )
 
