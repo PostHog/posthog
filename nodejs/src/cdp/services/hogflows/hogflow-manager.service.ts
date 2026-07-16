@@ -45,6 +45,9 @@ export class HogFlowManagerService {
         const cacheOptions = {
             refreshAgeMs: 2 * 60 * 1000,
             refreshBackgroundAgeMs: 30 * 1000,
+            // Absorb transient Postgres blips inside a single load attempt so failed background
+            // refreshes don't re-fire at caller QPS and hard-cap refreshes don't fail the batch.
+            loaderRetry: { retryIntervalMs: 250, retryJitterMs: 250, maxElapsedMs: 5000 },
         }
 
         this.lazyLoaderByTeam = new LazyLoader({
