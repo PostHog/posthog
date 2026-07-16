@@ -17,6 +17,7 @@ from prometheus_client import Counter, Gauge, Histogram
 
 from posthog.hogql.constants import LimitContext
 
+from posthog import redis
 from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams
 from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_queries
@@ -66,6 +67,7 @@ MAX_WARMING_CANDIDATES_PER_TEAM = 500
 CACHE_MISS_BOOST = 300.0
 CACHE_MISS_BOOST_THRESHOLD = timedelta(days=1)
 DASHBOARD_CANDIDATE_QUERY_CHUNK_SIZE = 100
+STALE_INSIGHT_SCAN_PAGE_SIZE = 2000
 
 ACCESS_METHOD_WEIGHTS = {
     DashboardAccessMethod.HUMAN: 300.0,
@@ -201,6 +203,22 @@ def teams_enabled_for_cache_warming() -> list[int]:
     return enabled_team_ids
 
 
+def _iter_stale_insights(*, team_id: int, current_time: datetime) -> Generator[str]:
+    redis_key = f"{QueryCacheManagerBase._redis_key_prefix()}:{team_id}"
+    redis_client = redis.get_client()
+    offset = 0
+    while page := redis_client.zrevrangebyscore(
+        name=redis_key,
+        max=current_time.timestamp(),
+        min="-inf",
+        start=offset,
+        num=STALE_INSIGHT_SCAN_PAGE_SIZE,
+    ):
+        for raw_identifier in page:
+            yield raw_identifier.decode("utf-8")
+        offset += len(page)
+
+
 def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[tuple[int, Optional[int]]]:
     """
     Rank stale insight and dashboard combinations for the provided team, then keep the
@@ -210,20 +228,6 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
     threshold = current_time - (SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD if shared_only else LAST_VIEWED_THRESHOLD)
 
     QueryCacheManagerBase.clean_up_stale_insights(team_id=team.pk, threshold=threshold)
-
-    # get all insights currently in the cache for the team
-    combos = QueryCacheManagerBase.get_stale_insights(team_id=team.pk)
-
-    STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(len(combos))
-
-    dashboard_pairs: list[tuple[int, int]] = []
-    insight_ids_single: set[int] = set()
-
-    for raw_insight_id, raw_dashboard_id in (combo.split(":") for combo in combos):
-        if raw_dashboard_id:
-            dashboard_pairs.append((int(raw_insight_id), int(raw_dashboard_id)))
-        else:
-            insight_ids_single.add(int(raw_insight_id))
 
     candidate_heap: list[tuple[float, int, WarmingCandidate]] = []
     candidate_sequence = itertools.count()
@@ -238,25 +242,39 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
         elif heap_entry[:2] > candidate_heap[0][:2]:
             heapq.heapreplace(candidate_heap, heap_entry)
 
-    if insight_ids_single:
-        single_insights = team.insight_set.filter(
-            insightviewed__last_viewed_at__gte=threshold,
-            pk__in=insight_ids_single,
-        )
-        if shared_only:
-            single_insights = single_insights.filter(sharingconfiguration__enabled=True)
+    stale_insight_count = 0
+    for combo_batch in itertools.batched(
+        _iter_stale_insights(team_id=team.pk, current_time=current_time),
+        STALE_INSIGHT_SCAN_PAGE_SIZE,
+        strict=False,
+    ):
+        stale_insight_count += len(combo_batch)
+        dashboard_pairs: list[tuple[int, int]] = []
+        insight_ids_single: set[int] = set()
+        for raw_insight_id, raw_dashboard_id in (combo.split(":") for combo in combo_batch):
+            if raw_dashboard_id:
+                dashboard_pairs.append((int(raw_insight_id), int(raw_dashboard_id)))
+            else:
+                insight_ids_single.add(int(raw_insight_id))
 
-        for single_insight_id in single_insights.distinct().values_list("id", flat=True):
-            add_candidate(
-                WarmingCandidate(
-                    insight_id=single_insight_id,
-                    dashboard_id=None,
-                    priority=ACCESS_METHOD_WEIGHTS[DashboardAccessMethod.HUMAN],
-                    access_method=DashboardAccessMethod.HUMAN.value,
-                )
+        if insight_ids_single:
+            single_insights = team.insight_set.filter(
+                insightviewed__last_viewed_at__gte=threshold,
+                pk__in=insight_ids_single,
             )
+            if shared_only:
+                single_insights = single_insights.filter(sharingconfiguration__enabled=True)
 
-    if dashboard_pairs:
+            for single_insight_id in single_insights.distinct().values_list("id", flat=True):
+                add_candidate(
+                    WarmingCandidate(
+                        insight_id=single_insight_id,
+                        dashboard_id=None,
+                        priority=ACCESS_METHOD_WEIGHTS[DashboardAccessMethod.HUMAN],
+                        access_method=DashboardAccessMethod.HUMAN.value,
+                    )
+                )
+
         for dashboard_pair_chunk in itertools.batched(
             dashboard_pairs, DASHBOARD_CANDIDATE_QUERY_CHUNK_SIZE, strict=False
         ):
@@ -295,6 +313,8 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
                         has_cache_miss_boost=has_cache_miss_boost,
                     )
                 )
+
+    STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(stale_insight_count)
 
     selected_candidates = [entry[2] for entry in sorted(candidate_heap, reverse=True)]
     for candidate in selected_candidates:

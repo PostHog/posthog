@@ -1,11 +1,16 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from parameterized import parameterized
 
-from posthog.caching.warming import _dashboard_warming_priority, insights_to_keep_fresh, schedule_warming_for_teams_task
+from posthog.caching.warming import (
+    _dashboard_warming_priority,
+    _iter_stale_insights,
+    insights_to_keep_fresh,
+    schedule_warming_for_teams_task,
+)
 from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -106,13 +111,24 @@ class TestWarming(APIBaseTest):
         assert priority > 0
         assert access_method == "legacy"
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
+    @patch("posthog.caching.warming.STALE_INSIGHT_SCAN_PAGE_SIZE", 2)
+    @patch("posthog.caching.warming.redis.get_client")
+    def test_stale_insights_are_fetched_in_bounded_pages(self, mock_get_redis_client) -> None:
+        current_time = datetime.now(UTC)
+        redis_client = mock_get_redis_client.return_value
+        redis_client.zrevrangebyscore.side_effect = [[b"1:", b"2:"], [b"3:"], []]
+
+        assert list(_iter_stale_insights(team_id=self.team.pk, current_time=current_time)) == ["1:", "2:", "3:"]
+        assert [call.kwargs["start"] for call in redis_client.zrevrangebyscore.call_args_list] == [0, 2, 3]
+        assert all(call.kwargs["num"] == 2 for call in redis_client.zrevrangebyscore.call_args_list)
+
+    @patch("posthog.caching.warming._iter_stale_insights")
     def test_insights_to_keep_fresh_no_stale_insights(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = []
         insights = list(insights_to_keep_fresh(self.team))
         self.assertEqual(insights, [])
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
+    @patch("posthog.caching.warming._iter_stale_insights")
     def test_insights_to_keep_fresh_no_stale_dashboard_insights(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = [
             "2345:",
@@ -123,7 +139,7 @@ class TestWarming(APIBaseTest):
         ]
         self.assertEqual(insights, exptected_results)
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
+    @patch("posthog.caching.warming._iter_stale_insights")
     def test_insights_to_keep_fresh_only_insights_with_dashboards(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = [
             "1234:5678",
@@ -135,7 +151,7 @@ class TestWarming(APIBaseTest):
         ]
         self.assertEqual(insights, expected_results)
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
+    @patch("posthog.caching.warming._iter_stale_insights")
     def test_insights_to_keep_fresh_mixed_valid_and_invalid_combos(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = [
             "1234:5678",
@@ -149,19 +165,19 @@ class TestWarming(APIBaseTest):
         ]
         self.assertEqual(insights, expected_results)
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
+    @patch("posthog.caching.warming._iter_stale_insights")
     def test_insights_to_keep_fresh_insights_not_viewed_recently(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = ["4567:"]
         insights = list(insights_to_keep_fresh(self.team))
         self.assertEqual(insights, [])
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
+    @patch("posthog.caching.warming._iter_stale_insights")
     def test_insights_to_keep_fresh_dashboards_not_accessed_recently(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = ["5678:8901"]
         insights = list(insights_to_keep_fresh(self.team))
         self.assertEqual(insights, [])
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
+    @patch("posthog.caching.warming._iter_stale_insights")
     def test_insights_to_keep_fresh_combination_of_cases(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = [
             "1234:5678",
@@ -176,7 +192,7 @@ class TestWarming(APIBaseTest):
         ]
         self.assertEqual(insights, expected_results)
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
+    @patch("posthog.caching.warming._iter_stale_insights")
     def test_human_views_are_prioritized_over_frequent_api_reads(self, mock_get_stale_insights):
         current_time = datetime.now(UTC)
         human_dashboard = Dashboard.objects.create(
@@ -202,7 +218,7 @@ class TestWarming(APIBaseTest):
         ]
 
     @patch("posthog.caching.warming.MAX_WARMING_CANDIDATES_PER_TEAM", 1)
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
+    @patch("posthog.caching.warming._iter_stale_insights")
     def test_recent_cache_miss_can_move_a_candidate_inside_the_warming_budget(self, mock_get_stale_insights):
         current_time = datetime.now(UTC)
         human_dashboard = Dashboard.objects.create(
@@ -231,25 +247,33 @@ class TestWarming(APIBaseTest):
 
         assert list(insights_to_keep_fresh(self.team)) == [(missed_api_insight.id, missed_api_dashboard.id)]
 
+    @patch("posthog.caching.warming.STALE_INSIGHT_SCAN_PAGE_SIZE", 2)
     @patch("posthog.caching.warming.MAX_WARMING_CANDIDATES_PER_TEAM", 1)
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
-    def test_high_priority_candidate_is_selected_beyond_previous_pool_boundary(self, mock_get_stale_insights) -> None:
+    @patch("posthog.caching.warming._iter_stale_insights")
+    def test_high_priority_candidate_beyond_first_scan_page_is_selected(self, mock_get_stale_insights) -> None:
         current_time = datetime.now(UTC)
-        dashboard = Dashboard.objects.create(
+        api_dashboard = Dashboard.objects.create(
+            team=self.team,
+            most_recent_access={"api": {"timestamp": current_time.isoformat(), "count": 1}},
+        )
+        human_dashboard = Dashboard.objects.create(
             team=self.team,
             most_recent_access={"human": {"timestamp": current_time.isoformat(), "count": 1}},
         )
-        insight = Insight.objects.create(team=self.team)
-        DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        api_insight = Insight.objects.create(team=self.team)
+        human_insight = Insight.objects.create(team=self.team)
+        DashboardTile.objects.create(insight=api_insight, dashboard=api_dashboard)
+        DashboardTile.objects.create(insight=human_insight, dashboard=human_dashboard)
         mock_get_stale_insights.return_value = [
-            *(f"{missing_insight_id}:{missing_insight_id}" for missing_insight_id in range(1, 2001)),
-            f"{insight.id}:{dashboard.id}",
+            f"{api_insight.id}:{api_dashboard.id}",
+            "999999:999999",
+            f"{human_insight.id}:{human_dashboard.id}",
         ]
 
-        assert list(insights_to_keep_fresh(self.team)) == [(insight.id, dashboard.id)]
-        mock_get_stale_insights.assert_called_once_with(team_id=self.team.pk)
+        assert list(insights_to_keep_fresh(self.team)) == [(human_insight.id, human_dashboard.id)]
+        mock_get_stale_insights.assert_called_once_with(team_id=self.team.pk, current_time=ANY)
 
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
+    @patch("posthog.caching.warming._iter_stale_insights")
     def test_shared_only_dashboard_candidates_use_shared_access_threshold(self, mock_get_stale_insights) -> None:
         current_time = datetime.now(UTC)
         dashboard = Dashboard.objects.create(
@@ -265,7 +289,7 @@ class TestWarming(APIBaseTest):
 
     @patch("posthog.caching.warming.DASHBOARD_CANDIDATE_QUERY_CHUNK_SIZE", 1)
     @patch("posthog.caching.warming.CACHE_WARMING_CANDIDATE_COUNTER")
-    @patch("posthog.hogql_queries.query_cache.QueryCacheManagerBase.get_stale_insights")
+    @patch("posthog.caching.warming._iter_stale_insights")
     def test_dashboard_candidates_are_queried_in_chunks_and_metrics_are_aggregated(
         self, mock_get_stale_insights, mock_candidate_counter
     ) -> None:

@@ -1,15 +1,15 @@
 import json
 import logging
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Count, Exists, F, Max, OuterRef, Prefetch, QuerySet, Subquery
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
-from django.utils.dateparse import parse_datetime
 from django.utils.text import slugify
 from django.utils.timezone import now
 
@@ -159,30 +159,37 @@ tracer = trace.get_tracer(__name__)
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
 LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG = "legacy-insight-filters-disabled"
-DASHBOARD_CACHE_MISS_PERSISTENCE_INTERVAL = timedelta(minutes=1)
+DASHBOARD_CACHE_MISS_CLAIM_TTL_SECONDS = 60
 
 
-def _has_recent_dashboard_cache_miss(
+def _claim_dashboard_cache_miss(dashboard: Dashboard, access_method: DashboardAccessMethod) -> bool:
+    cache_key = f"dashboard_cache_miss:{dashboard.team_id}:{dashboard.id}:{access_method.value}"
+    return cache.add(cache_key, True, timeout=DASHBOARD_CACHE_MISS_CLAIM_TTL_SECONDS)
+
+
+def _should_persist_dashboard_cache_miss(
+    request: Request,
     dashboard: Dashboard,
     access_method: DashboardAccessMethod,
+    execution_mode: ExecutionMode,
     *,
-    current_time: datetime,
+    is_cached: bool,
 ) -> bool:
-    if not isinstance(dashboard.most_recent_access, dict):
+    if is_cached or execution_mode in (
+        ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        ExecutionMode.CALCULATE_ASYNC_ALWAYS,
+    ):
         return False
-    access_record = dashboard.most_recent_access.get(access_method.value)
-    if not isinstance(access_record, dict):
+
+    recorded_dashboard_ids = cast(
+        set[int],
+        request.__dict__.setdefault("_cache_warming_miss_dashboard_ids", set()),
+    )
+    if dashboard.id in recorded_dashboard_ids:
         return False
-    raw_cache_miss_at = access_record.get("last_cache_miss_at")
-    if not isinstance(raw_cache_miss_at, str):
-        return False
-    cache_miss_at = parse_datetime(raw_cache_miss_at)
-    if cache_miss_at is None:
-        return False
-    if cache_miss_at.tzinfo is None:
-        cache_miss_at = cache_miss_at.replace(tzinfo=UTC)
-    cache_miss_age = current_time - cache_miss_at
-    return timedelta(0) <= cache_miss_age < DASHBOARD_CACHE_MISS_PERSISTENCE_INTERVAL
+
+    recorded_dashboard_ids.add(dashboard.id)
+    return _claim_dashboard_cache_miss(dashboard, access_method)
 
 
 EXPORT_QUERY_CACHE_MISS = Counter(
@@ -1240,26 +1247,18 @@ class InsightSerializer(InsightBasicSerializer):
                             ExecutionMode.CALCULATE_ASYNC_ALWAYS,
                         }
                     ):
-                        persist_miss = not insight_result.is_cached
-                        if persist_miss:
-                            request = self.context["request"]
-                            recorded_miss_dashboard_ids = cast(
-                                set[int],
-                                request.__dict__.setdefault("_cache_warming_miss_dashboard_ids", set()),
-                            )
-                            persist_miss = dashboard.id not in recorded_miss_dashboard_ids
-                            recorded_miss_dashboard_ids.add(dashboard.id)
-                        if persist_miss:
-                            persist_miss = not _has_recent_dashboard_cache_miss(
-                                dashboard,
-                                access_method,
-                                current_time=now(),
-                            )
+                        request = self.context["request"]
                         record_dashboard_cache_outcome(
                             dashboard,
                             access_method,
                             is_cached=insight_result.is_cached,
-                            persist_miss=persist_miss,
+                            persist_miss=_should_persist_dashboard_cache_miss(
+                                request,
+                                dashboard,
+                                access_method,
+                                execution_mode,
+                                is_cached=insight_result.is_cached,
+                            ),
                         )
                     return insight_result
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
