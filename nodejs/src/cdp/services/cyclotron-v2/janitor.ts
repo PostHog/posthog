@@ -97,8 +97,8 @@ export class CyclotronV2Janitor {
         this.maxTouchCount = config.maxTouchCount ?? 3
         this.cleanupGraceMs = config.cleanupGraceMs ?? 10000
         this.poisonRecoveryEnabled = config.poisonRecoveryEnabled ?? true
-        this.stallBackoffBaseMs = config.stallBackoffBaseMs ?? 1000
-        this.stallBackoffMaxMs = config.stallBackoffMaxMs ?? 30000
+        this.stallBackoffBaseMs = config.stallBackoffBaseMs ?? 30000
+        this.stallBackoffMaxMs = config.stallBackoffMaxMs ?? 600000
 
         if (!this.poisonRecoveryEnabled) {
             logger.warn(
