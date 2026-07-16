@@ -1,8 +1,10 @@
+from collections.abc import Callable
+
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
-from django.db import connection
+from django.db import DatabaseError, connection
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -31,6 +33,15 @@ from ee.models.rbac.access_control import AccessControl
 
 _HOGQL = {"kind": "HogQLQuery", "query": "select count() from events"}
 _COLUMNS = {"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}}
+
+
+def _fail_queries_for_table(table_name: str) -> Callable[..., object]:
+    def wrapper(execute: Callable[..., object], sql: str, params: object, many: bool, context: object) -> object:
+        if table_name in sql:
+            raise DatabaseError(f"Failed to load {table_name}")
+        return execute(sql, params, many, context)
+
+    return wrapper
 
 
 class TestInformationSchemaMetrics(ClickhouseTestMixin, APIBaseTest):
@@ -289,6 +300,74 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
         executed_sql = "\n".join(query["sql"] for query in queries.captured_queries)
         assert RelationshipProposal._meta.db_table not in executed_sql
         assert TableCertification._meta.db_table not in executed_sql
+
+    @parameterized.expand(
+        [
+            (
+                "tables",
+                "SELECT table_name FROM system.information_schema.tables WHERE table_name = 'events'",
+            ),
+            (
+                "relationships",
+                "SELECT source_table, target_table FROM system.information_schema.relationships "
+                "WHERE source_table = 'events'",
+            ),
+        ]
+    )
+    def test_base_projection_does_not_load_catalog_metadata(self, _name: str, query: str) -> None:
+        context = self._context()
+        with CaptureQueriesContext(connection) as queries:
+            execute_hogql_query(query, team=self.team, context=context)
+
+        catalog_tables = {RelationshipProposal._meta.db_table, TableCertification._meta.db_table}
+        catalog_queries = [
+            captured_query["sql"]
+            for captured_query in queries.captured_queries
+            if any(table_name in captured_query["sql"] for table_name in catalog_tables)
+        ]
+        assert catalog_queries == []
+
+    def test_certification_loader_failure_keeps_base_table_row(self) -> None:
+        self._create_warehouse_table("fail_soft_revenue")
+        context = self._context()
+
+        with connection.execute_wrapper(_fail_queries_for_table(TableCertification._meta.db_table)):
+            response = execute_hogql_query(
+                "SELECT table_name, certification FROM system.information_schema.tables "
+                "WHERE table_name = 'fail_soft_revenue'",
+                team=self.team,
+                context=context,
+            )
+
+        assert response.results == [("fail_soft_revenue", None)]
+
+    def test_relationship_loader_failure_keeps_base_relationship_row(self) -> None:
+        source = self._create_warehouse_table("fail_soft_orders")
+        target = self._create_warehouse_table("fail_soft_customers")
+        proposal = propose_relationship(
+            team=self.team,
+            user=self.user,
+            source_table_name=source.name,
+            source_table_key="id",
+            joining_table_name=target.name,
+            joining_table_key="id",
+            field_name="customer",
+            confidence=0.9,
+            reasoning="Reviewed join",
+        )
+        self._accept_relationship(proposal)
+        context = self._context()
+
+        with connection.execute_wrapper(_fail_queries_for_table(RelationshipProposal._meta.db_table)):
+            response = execute_hogql_query(
+                "SELECT source_column, target_table, target_column, confidence, reasoning "
+                "FROM system.information_schema.relationships "
+                "WHERE source_table = 'fail_soft_orders' AND target_table = 'fail_soft_customers'",
+                team=self.team,
+                context=context,
+            )
+
+        assert response.results == [("id", "fail_soft_customers", "id", None, None)]
 
     @parameterized.expand([("proposed", False), ("rejected", True)])
     def test_unaccepted_relationship_is_not_query_discoverable(self, _name: str, rejected: bool) -> None:

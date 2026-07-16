@@ -455,6 +455,8 @@ class _Introspection:
         self.row_counts, self.view_row_counts, self.column_stats = _warehouse_metadata(context.team_id)
         self.table_descriptions = TableDescriptions.load(context.team_id)
         self._collected: Optional[tuple[list[list[Any]], list[list[Any]], list[_CollectedRelationship]]] = None
+        self._data_catalog_enriched_table_rows: Optional[list[list[Any]]] = None
+        self._data_catalog_enriched_relationship_rows: Optional[list[list[Any]]] = None
         # Resolved `SELECT * FROM <table>` scope per table, so expression columns can be typed without
         # re-resolving the table once per expression.
         self._table_scope_cache: dict[str, Optional[ast.SelectQueryType]] = {}
@@ -564,11 +566,15 @@ class _Introspection:
         return table_rows
 
     def data_catalog_enriched_table_rows(self) -> list[list[Any]]:
+        if self._data_catalog_enriched_table_rows is not None:
+            return self._data_catalog_enriched_table_rows
+
         table_rows = self.table_rows()
         certifications = _catalog_certifications(self.context, self.allowed_tables)
         # Key on (table_type, name): a live warehouse table and a view can share a name, and each
         # certification belongs to exactly one of them — so row[3] (table_type) disambiguates.
-        return [[*row, certifications.get((row[3], row[2]))] for row in table_rows]
+        self._data_catalog_enriched_table_rows = [[*row, certifications.get((row[3], row[2]))] for row in table_rows]
+        return self._data_catalog_enriched_table_rows
 
     def column_rows(self) -> list[list[Any]]:
         _, column_rows, _ = self.collect()
@@ -579,6 +585,9 @@ class _Introspection:
         return [relationship.values for relationship in relationship_rows]
 
     def data_catalog_enriched_relationship_rows(self) -> list[list[Any]]:
+        if self._data_catalog_enriched_relationship_rows is not None:
+            return self._data_catalog_enriched_relationship_rows
+
         _, _, relationships = self.collect()
         accepted_relationships = _catalog_accepted_relationships(self.context, self.allowed_tables)
         enriched_rows: list[list[Any]] = []
@@ -589,7 +598,8 @@ class _Introspection:
                 else (None, None)
             )
             enriched_rows.append([*relationship.values, confidence, reasoning])
-        return enriched_rows
+        self._data_catalog_enriched_relationship_rows = enriched_rows
+        return self._data_catalog_enriched_relationship_rows
 
     def _collect_fields(
         self,
@@ -743,6 +753,7 @@ _DATA_CATALOG_ENRICHED_TABLES_COLUMNS: list[tuple[str, str]] = [
     *_TABLES_COLUMNS,
     ("certification", _NULLABLE_STRING),
 ]
+_DATA_CATALOG_TABLE_FIELDS = frozenset({"certification"})
 
 _COLUMNS_COLUMNS: list[tuple[str, str]] = [
     ("table_schema", _STRING),
@@ -772,6 +783,7 @@ _DATA_CATALOG_ENRICHED_RELATIONSHIPS_COLUMNS: list[tuple[str, str]] = [
     ("confidence", _NULLABLE_FLOAT),
     ("reasoning", _NULLABLE_STRING),
 ]
+_DATA_CATALOG_RELATIONSHIP_FIELDS = frozenset({"confidence", "reasoning"})
 
 _RELATIONSHIPS_DESCRIPTION = (
     "Joinable relationships between tables (lazy joins and field traversers); one row per relationship. "
@@ -1008,6 +1020,10 @@ def _string_field(name: str, nullable: bool = False, description: Optional[str] 
     return StringDatabaseField(name=name, nullable=nullable, description=description)
 
 
+def _accesses_any_field(table_to_add: LazyTableToAdd, field_names: frozenset[str]) -> bool:
+    return any(field_chain and field_chain[0] in field_names for field_chain in table_to_add.fields_accessed.values())
+
+
 class InformationSchemaTablesTable(LazyTable):
     description: str = (
         "SQL-standard catalog of every table, view, system table, and data warehouse table visible "
@@ -1048,15 +1064,18 @@ class InformationSchemaTablesTable(LazyTable):
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
         allowed = _pushdown_table_filter(node, "table_name")
         introspection = _introspection(context, allowed)
-        data_catalog_enabled = "certification" in self.fields
+        data_catalog_enrichment_requested = "certification" in self.fields and _accesses_any_field(
+            table_to_add, _DATA_CATALOG_TABLE_FIELDS
+        )
         if introspection is None:
             table_rows = []
-        elif data_catalog_enabled:
+        elif data_catalog_enrichment_requested:
             table_rows = introspection.data_catalog_enriched_table_rows()
         else:
             table_rows = introspection.table_rows()
-        columns = _DATA_CATALOG_ENRICHED_TABLES_COLUMNS if data_catalog_enabled else _TABLES_COLUMNS
-        return _rows_select(context, "tables", columns, table_rows, allowed)
+        columns = _DATA_CATALOG_ENRICHED_TABLES_COLUMNS if data_catalog_enrichment_requested else _TABLES_COLUMNS
+        table_label = "data_catalog_enriched_tables" if data_catalog_enrichment_requested else "tables"
+        return _rows_select(context, table_label, columns, table_rows, allowed)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
         return "information_schema.tables"
@@ -1179,15 +1198,22 @@ class InformationSchemaRelationshipsTable(LazyTable):
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
         allowed = _pushdown_table_filter(node, "source_table")
         introspection = _introspection(context, allowed)
-        data_catalog_enabled = "confidence" in self.fields
+        data_catalog_enrichment_requested = "confidence" in self.fields and _accesses_any_field(
+            table_to_add, _DATA_CATALOG_RELATIONSHIP_FIELDS
+        )
         if introspection is None:
             relationship_rows = []
-        elif data_catalog_enabled:
+        elif data_catalog_enrichment_requested:
             relationship_rows = introspection.data_catalog_enriched_relationship_rows()
         else:
             relationship_rows = introspection.relationship_rows()
-        columns = _DATA_CATALOG_ENRICHED_RELATIONSHIPS_COLUMNS if data_catalog_enabled else _RELATIONSHIPS_COLUMNS
-        return _rows_select(context, "relationships", columns, relationship_rows, allowed)
+        columns = (
+            _DATA_CATALOG_ENRICHED_RELATIONSHIPS_COLUMNS
+            if data_catalog_enrichment_requested
+            else _RELATIONSHIPS_COLUMNS
+        )
+        table_label = "data_catalog_enriched_relationships" if data_catalog_enrichment_requested else "relationships"
+        return _rows_select(context, table_label, columns, relationship_rows, allowed)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
         return "information_schema.relationships"
