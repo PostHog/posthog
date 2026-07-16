@@ -855,6 +855,156 @@ class TestSanitizeForBedrock:
         assert len(result["tools"]) == 1
         assert result["tools"][0]["name"] == "read_data"
 
+    def test_strips_output_config_format_keeps_effort(self) -> None:
+        data: dict[str, Any] = {"model": "m", "output_config": {"effort": "high", "format": {"type": "json_schema"}}}
+        result = self._call(data)
+        assert result["output_config"] == {"effort": "high"}
+
+    def test_drops_output_config_when_only_unsupported_keys(self) -> None:
+        data: dict[str, Any] = {"model": "m", "output_config": {"format": {"type": "json_schema"}}}
+        result = self._call(data)
+        assert "output_config" not in result
+
+    def test_scrubs_server_side_tool_blocks_from_messages(self) -> None:
+        data: dict[str, Any] = {
+            "model": "m",
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "server_tool_use", "id": "srvtoolu_1", "name": "web_search", "input": {"query": "x"}},
+                        {"type": "web_search_tool_result", "tool_use_id": "srvtoolu_1", "content": []},
+                        {"type": "text", "text": "Here is the answer."},
+                    ],
+                }
+            ],
+        }
+        result = self._call(data)
+        assert "tools" not in result
+        assert result["messages"][0]["content"] == [{"type": "text", "text": "Here is the answer."}]
+
+    def test_drops_tool_choice_referencing_stripped_tool(self) -> None:
+        data: dict[str, Any] = {
+            "model": "m",
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+            "tool_choice": {"type": "tool", "name": "web_search"},
+        }
+        result = self._call(data)
+        assert "tool_choice" not in result
+
+
+class TestStripStructuredOutputFormat:
+    """Unit tests for strip_structured_output_format — prunes Bedrock-rejected output_config sub-keys."""
+
+    def _call(self, data: dict[str, Any]) -> None:
+        from llm_gateway.api.anthropic import strip_structured_output_format
+
+        strip_structured_output_format(data, model="test-model", product="test")
+
+    def test_removes_format_keeps_other_keys(self) -> None:
+        data: dict[str, Any] = {"output_config": {"effort": "low", "format": {"type": "json_schema"}}}
+        self._call(data)
+        assert data["output_config"] == {"effort": "low"}
+
+    def test_removes_output_config_when_emptied(self) -> None:
+        data: dict[str, Any] = {"output_config": {"format": {}}}
+        self._call(data)
+        assert "output_config" not in data
+
+    def test_noop_without_unsupported_keys(self) -> None:
+        data: dict[str, Any] = {"output_config": {"effort": "high"}}
+        self._call(data)
+        assert data["output_config"] == {"effort": "high"}
+
+    @pytest.mark.parametrize("output_config", [None, "not-a-dict", 5])
+    def test_noop_when_output_config_absent_or_not_dict(self, output_config: Any) -> None:
+        data: dict[str, Any] = {"model": "m"} if output_config is None else {"output_config": output_config}
+        self._call(data)
+        assert data.get("output_config") == output_config
+
+
+class TestStripServerSideToolUsesFromMessages:
+    """Unit tests for strip_server_side_tool_uses_from_messages — scrubs dangling server-side references."""
+
+    def _call(self, data: dict[str, Any]) -> None:
+        from llm_gateway.api.anthropic import strip_server_side_tool_uses_from_messages
+
+        strip_server_side_tool_uses_from_messages(data, model="test-model", product="test")
+
+    def test_keeps_client_tool_result_blocks(self) -> None:
+        content = [
+            {"type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"},
+            {"type": "text", "text": "done"},
+        ]
+        data: dict[str, Any] = {"messages": [{"role": "user", "content": list(content)}]}
+        self._call(data)
+        assert data["messages"][0]["content"] == content
+
+    @pytest.mark.parametrize(
+        "block",
+        [
+            {"type": "server_tool_use", "name": "web_search", "input": {}},
+            {"type": "web_search_tool_result", "tool_use_id": "srvtoolu_1", "content": []},
+            {"type": "code_execution_tool_result", "tool_use_id": "srvtoolu_2", "content": {}},
+            {"type": "mcp_tool_use", "name": "mcp_thing", "input": {}},
+        ],
+    )
+    def test_strips_server_side_blocks(self, block: dict[str, Any]) -> None:
+        data: dict[str, Any] = {
+            "messages": [{"role": "assistant", "content": [block, {"type": "text", "text": "answer"}]}]
+        }
+        self._call(data)
+        assert data["messages"][0]["content"] == [{"type": "text", "text": "answer"}]
+
+    def test_drops_message_when_content_emptied(self) -> None:
+        data: dict[str, Any] = {
+            "messages": [
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": [{"type": "server_tool_use", "name": "web_search", "input": {}}]},
+            ]
+        }
+        self._call(data)
+        assert data["messages"] == [{"role": "user", "content": "hi"}]
+
+    def test_noop_on_string_content(self) -> None:
+        data: dict[str, Any] = {"messages": [{"role": "user", "content": "just text"}]}
+        self._call(data)
+        assert data["messages"] == [{"role": "user", "content": "just text"}]
+
+
+class TestReconcileToolChoice:
+    """Unit tests for reconcile_tool_choice — drops a tool_choice Bedrock can't satisfy."""
+
+    def _call(self, data: dict[str, Any]) -> None:
+        from llm_gateway.api.anthropic import reconcile_tool_choice
+
+        reconcile_tool_choice(data, model="test-model", product="test")
+
+    def test_drops_tool_choice_naming_absent_tool(self) -> None:
+        data: dict[str, Any] = {"tool_choice": {"type": "tool", "name": "web_search"}, "tools": []}
+        self._call(data)
+        assert "tool_choice" not in data
+
+    def test_keeps_tool_choice_naming_present_tool(self) -> None:
+        data: dict[str, Any] = {
+            "tool_choice": {"type": "tool", "name": "read_data"},
+            "tools": [{"name": "read_data"}],
+        }
+        self._call(data)
+        assert data["tool_choice"] == {"type": "tool", "name": "read_data"}
+
+    def test_drops_any_when_no_tools_remain(self) -> None:
+        data: dict[str, Any] = {"tool_choice": {"type": "any"}}
+        self._call(data)
+        assert "tool_choice" not in data
+
+    @pytest.mark.parametrize("choice_type", ["auto", "none"])
+    def test_keeps_auto_and_none_without_tools(self, choice_type: str) -> None:
+        data: dict[str, Any] = {"tool_choice": {"type": choice_type}}
+        self._call(data)
+        assert data["tool_choice"] == {"type": choice_type}
+
 
 class TestAnthropicCountTokensEndpoint:
     @pytest.fixture
