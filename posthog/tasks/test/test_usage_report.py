@@ -5128,7 +5128,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         # pk doesn't advance the id sequence, so bump it past the max to keep the auto-pk
         # team below from being handed id 2 and colliding.
         analytics_org = Organization.objects.create(name="PostHog Analytics")
-        self.analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self.analytics_team = Team.objects.create(id=2, organization=analytics_org, name="Analytics")
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT setval(pg_get_serial_sequence('posthog_team', 'id'), (SELECT MAX(id) FROM posthog_team))"
