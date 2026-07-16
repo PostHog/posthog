@@ -110,7 +110,13 @@ def _patch_fetch(monkeypatch: Any, pages: dict[str, Any]) -> list[str]:
 def _collect(monkeypatch: Any, manager: _FakeResumableManager, **kwargs: Any) -> list[dict]:
     monkeypatch.setattr(sonarqube, "Batcher", _FakeBatcher)
     rows: list[dict] = []
-    for batch in get_rows(host=_BASE, token="tok", logger=MagicMock(), resumable_source_manager=manager, **kwargs):
+    for batch in get_rows(
+        host=_BASE,
+        token="tok",
+        logger=MagicMock(),
+        resumable_source_manager=manager,  # type: ignore[arg-type]
+        **kwargs,
+    ):
         rows.extend(batch)
     return rows
 

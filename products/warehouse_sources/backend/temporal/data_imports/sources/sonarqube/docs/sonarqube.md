@@ -1,8 +1,3 @@
-<!--
-This is the user-facing source doc. It must be moved to the posthog.com repo at
-contents/docs/cdp/sources/sonarqube.md (it lives here only because this PR has no posthog.com
-checkout). Once there, run `python manage.py audit_source_docs --docs-dir <posthog.com>/contents/docs/cdp/sources`.
--->
 ---
 title: Linking SonarQube as a source
 sidebar: Docs
@@ -12,10 +7,16 @@ sourceId: Sonarqube
 beta: true
 ---
 
-import SourceSetupIntro from "../_snippets/source-setup-intro.mdx"
-import SyncModes from "../_snippets/sync-modes.mdx"
-import TroubleshootingLink from "../_snippets/dw-troubleshooting-link.mdx"
-import AlphaRelease from "../_snippets/alpha-release.mdx"
+<!--
+This is the user-facing source doc. It must be moved to the posthog.com repo at
+contents/docs/cdp/sources/sonarqube.md (it lives here only because this PR has no posthog.com
+checkout). Once there, run `python manage.py audit_source_docs --docs-dir <posthog.com>/contents/docs/cdp/sources`.
+-->
+
+import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
+import SyncModes from "../\_snippets/sync-modes.mdx"
+import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
+import AlphaRelease from "../\_snippets/alpha-release.mdx"
 
 <AlphaRelease />
 
@@ -25,7 +26,7 @@ Sync code-quality data from your self-hosted [SonarQube Server](https://www.sona
 
 - A running SonarQube Server instance reachable from the public internet.
 - A user token generated in SonarQube. The token inherits the permissions of the user who created it, so it can read the projects, issues, and rules that user can see.
-- To sync the **users** table, the token's user needs the *Administer System* permission. All other tables only need normal browse access.
+- To sync the **users** table, the token's user needs the _Administer System_ permission. All other tables only need normal browse access.
 
 ## Adding a data source
 
@@ -52,7 +53,7 @@ You'll need:
 
 ## Troubleshooting
 
-- **The users table fails to sync.** `/api/users/search` requires the *Administer System* permission. Either grant it to the token's user or leave the users table unselected — it's off by default.
+- **The users table fails to sync.** `/api/users/search` requires the _Administer System_ permission. Either grant it to the token's user or leave the users table unselected — it's off by default.
 - **Fewer issues than expected on a large project.** SonarQube caps issue search at 10,000 results per query window. PostHog automatically pages past this by re-windowing on the issue creation date, so all issues are synced; if you still see gaps, check that the token can browse the affected projects.
 
 <TroubleshootingLink />
