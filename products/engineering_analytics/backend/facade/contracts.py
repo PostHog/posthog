@@ -564,19 +564,22 @@ class TeamCIHealthItem:
 
     # Owning team slug (CODEOWNERS handle minus '@PostHog/'), or 'unowned' for unstamped spans.
     owner_team: str
-    # Owned tests meeting the flaky-leaderboard bar in the window (rerun passes OR distinct failed PRs).
+    # Owned tests a commit was seen both failing and passing: the same proof, and the same word,
+    # the test-health queue's `confirmed_flake` uses.
     flaky_test_count: int
     flaky_test_count_prior: int
-    # Signal spans on owned tests with outcome 'failed' or 'error' in the window.
-    failed_count: int
-    failed_count_prior: int
-    # Spans on owned tests that failed first, then passed on an automatic retry.
-    rerun_passed_count: int
-    rerun_passed_count_prior: int
-    # Spans on owned tests that failed while quarantined (xfail): already masked, still flaky.
-    xfailed_count: int
-    xfailed_count_prior: int
-    # Most recent signal span across the team's owned tests, either window.
+    # Owned tests that failed with no such proof and still hit the blast-radius bar. Not flakes.
+    regression_test_count: int
+    regression_test_count_prior: int
+    # Runs (not spans) where an owned test's recorded outcome was failed or error.
+    failed_run_count: int
+    failed_run_count_prior: int
+    same_commit_recovery_run_count: int
+    same_commit_recovery_run_count_prior: int
+    # Runs where an owned test failed while quarantined (xfail): already masked, still failing.
+    quarantined_failed_run_count: int
+    quarantined_failed_run_count_prior: int
+    # Most recent failure, recovery, or xfail run across the team's owned tests, either window.
     last_seen_at: datetime
 
 

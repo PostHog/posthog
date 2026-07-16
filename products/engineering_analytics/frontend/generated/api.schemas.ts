@@ -947,23 +947,27 @@ export interface TeamCIActivityApi {
 export interface TeamCIHealthItemApi {
     /** Owning team slug (the CODEOWNERS handle minus '@PostHog/', e.g. 'team-replay'), or the literal 'unowned' for tests whose spans carry no ownership stamp. */
     owner_team: string
-    /** Owned tests meeting the flaky-leaderboard bar in the window (passed on retry or failed on enough distinct PRs). Compare with flaky_test_count_prior for the delta. */
+    /** Owned tests one commit was seen both failing and passing in the window: the same proof, and the same word, that flaky_tests calls a confirmed_flake. Compare with flaky_test_count_prior for the delta. */
     flaky_test_count: number
     /** Same count over the equal-length window immediately before date_from. */
     flaky_test_count_prior: number
-    /** Signal spans on owned tests with final outcome 'failed' or 'error' in the window. An absolute count, not a rate: fast passing runs are not emitted. */
-    failed_count: number
+    /** Owned tests that failed with no recorded same-commit recovery and still hit the blast-radius bar (a master/main failure, or min_failed_prs distinct PRs). Not flakes: absence of proof, not proof. */
+    regression_test_count: number
     /** Same count over the prior window. */
-    failed_count_prior: number
-    /** Spans on owned tests that failed, then passed on an automatic retry, the strongest flaky signal. Only rerun-enabled CI lanes emit it. */
-    rerun_passed_count: number
+    regression_test_count_prior: number
+    /** CI runs (not spans) where an owned test's recorded outcome was failed or error. An absolute count, not a rate: fast passing runs are not emitted. */
+    failed_run_count: number
     /** Same count over the prior window. */
-    rerun_passed_count_prior: number
-    /** Spans on owned tests that failed while quarantined (xfail): masked in CI but still flaky. */
-    xfailed_count: number
+    failed_run_count_prior: number
+    /** Runs where one commit both failed and passed an owned test: a re-run attempt going green, or an in-job pytest retry. */
+    same_commit_recovery_run_count: number
     /** Same count over the prior window. */
-    xfailed_count_prior: number
-    /** Most recent signal span across the team's owned tests, either window. */
+    same_commit_recovery_run_count_prior: number
+    /** Runs where an owned test failed while quarantined (xfail): masked in CI, still failing. */
+    quarantined_failed_run_count: number
+    /** Same count over the prior window. */
+    quarantined_failed_run_count_prior: number
+    /** Most recent failure, recovery, or xfail run across the team's owned tests, either window. */
     last_seen_at: string
 }
 
@@ -1427,13 +1431,9 @@ export type EngineeringAnalyticsTeamCiHealthParams = {
      */
     limit?: number
     /**
-     * A test counts as flaky once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.
+     * An unrecovered test counts toward regression_test_count once it failed on at least this many distinct pull requests in the window. Minimum 1. Defaults to 3. Does not affect flaky_test_count, which needs proof, not a threshold.
      */
     min_failed_prs?: number
-    /**
-     * A test counts as flaky once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.
-     */
-    min_rerun_passes?: number
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

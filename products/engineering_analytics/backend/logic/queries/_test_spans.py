@@ -1,10 +1,26 @@
-"""The one definition of the per-test CI span scan (domain rules defined once, APOSD).
+"""The one definition of the per-test CI span scan and what it proves (domain rules defined once, APOSD).
 
 Backend CI emits one OTel span per test into the Traces store (span name = reconstructed
 pytest nodeid, ``test.*`` attributes, ``ci.*`` resource attributes; see
-``.github/scripts/report_test_timings.py``). Every query over that signal (the flaky-test
-leaderboard and the per-team rollups) embeds this scan, so the service fence, the signal
-outcomes, the repository scoping, and the ownership fallback cannot drift apart.
+``.github/scripts/report_test_timings.py``). Every query over that signal (the test-health
+queue and the per-team rollups) embeds ``run_evidence()``, so the service fence, the signal
+outcomes, the repository scoping, the ownership fallback, and above all the **grain** cannot
+drift apart. Sharing a predicate string was not enough: each caller still counted its own way,
+and they disagreed.
+
+The grain is the CI run, not the span and not the run attempt:
+
+- A re-run re-uploads only the shards it re-executed, but the reporter emits every artifact it
+  downloads, so an attempt re-reports shards it never ran. Counting spans or attempts multiplies
+  one failure by the number of re-runs.
+- Every attempt of a run tests the same commit, so attempts are repeated trials: a run that both
+  failed and passed a test has proven it nondeterministic, whichever attempt failed first. That is
+  what ``recovered_in_run`` means, and it is the only proof of flakiness this telemetry carries.
+  Backend CI runs pytest without ``--reruns`` on purpose, so a GitHub re-run is where it comes
+  from; ``rerun_passed`` is the same proof from lanes that do enable in-job retries.
+
+Failures with no such recovery prove nothing about determinism, so callers classify them on blast
+radius instead and must never call them flaky.
 """
 
 from datetime import datetime
@@ -23,9 +39,50 @@ CI_SERVICE_NAME = "ci-backend"
 UNOWNED_TEAM = "unowned"
 
 
-def flaky_bar(rerun_count: str, failed_pr_count: str) -> str:
-    """The one flaky-test qualification bar (SPEC §5): enough rerun passes OR enough distinct failed PRs."""
-    return f"{rerun_count} >= {{min_rerun_passes}} OR {failed_pr_count} >= {{min_failed_prs}}"
+_RUN_EVIDENCE = """
+    SELECT
+        nodeid,
+        run_id,
+        argMax(owner_team, trial_at) AS owner_team,
+        anyIf(selector, selector != '') AS selector,
+        anyIf(pr_number, pr_number != '') AS pr_number,
+        anyIf(branch, branch != '') AS branch,
+        max(is_current) AS is_current,
+        max(trial_failed) AS failed_in_run,
+        max(trial_quarantined) AS quarantined_in_run,
+        max(trial_rerun_passed) OR (max(trial_failed) AND max(trial_passed)) AS recovered_in_run,
+        max(trial_at) AS run_at,
+        maxIf(trial_at, trial_failed OR trial_rerun_passed OR trial_quarantined) AS run_signal_at
+    FROM (
+        -- One row per (test, run attempt). An attempt reports every shard, so a test can appear in
+        -- several matrix legs at once; a failure in any leg outweighs a pass in another.
+        SELECT
+            nodeid,
+            run_id,
+            argMax(owner_team, span_timestamp) AS owner_team,
+            anyIf(selector, selector != '') AS selector,
+            anyIf(pr_number, pr_number != '') AS pr_number,
+            anyIf(branch, branch != '') AS branch,
+            max(is_current) AS is_current,
+            max(outcome IN ('failed', 'error')) AS trial_failed,
+            max(outcome = 'rerun_passed') AS trial_rerun_passed,
+            max(outcome = 'xfailed') AS trial_quarantined,
+            max(outcome = 'passed') AND NOT trial_failed AS trial_passed,
+            max(span_timestamp) AS trial_at
+        FROM (__SPAN_SCAN__)
+        GROUP BY nodeid, run_id, attempt
+    )
+    GROUP BY nodeid, run_id
+"""
+
+
+def run_evidence(*, bounded: bool) -> str:
+    """One row per (test, CI run): what that run proves about that test.
+
+    Every consumer groups this, never the raw spans, so all of them count at the same grain and
+    agree on what "flaky" means. See the module docstring for why the run is the grain.
+    """
+    return _RUN_EVIDENCE.replace("__SPAN_SCAN__", span_scan(bounded=bounded, with_run_attempts=True))
 
 
 # Scans [scan_from, date_to?]; `is_current` splits rows at {date_from} so a caller scanning

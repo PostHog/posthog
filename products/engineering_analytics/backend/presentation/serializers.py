@@ -475,28 +475,36 @@ class TeamCIHealthItemSerializer(DataclassSerializer):
                 "or the literal 'unowned' for tests whose spans carry no ownership stamp.",
             },
             "flaky_test_count": {
-                "help_text": "Owned tests meeting the flaky-leaderboard bar in the window (passed on retry "
-                "or failed on enough distinct PRs). Compare with flaky_test_count_prior for the delta.",
+                "help_text": "Owned tests one commit was seen both failing and passing in the window: the same "
+                "proof, and the same word, that flaky_tests calls a confirmed_flake. Compare with "
+                "flaky_test_count_prior for the delta.",
             },
             "flaky_test_count_prior": {
                 "help_text": "Same count over the equal-length window immediately before date_from.",
             },
-            "failed_count": {
-                "help_text": "Signal spans on owned tests with final outcome 'failed' or 'error' in the "
-                "window. An absolute count, not a rate: fast passing runs are not emitted.",
+            "regression_test_count": {
+                "help_text": "Owned tests that failed with no recorded same-commit recovery and still hit the "
+                "blast-radius bar (a master/main failure, or min_failed_prs distinct PRs). Not flakes: absence "
+                "of proof, not proof.",
             },
-            "failed_count_prior": {"help_text": "Same count over the prior window."},
-            "rerun_passed_count": {
-                "help_text": "Spans on owned tests that failed, then passed on an automatic retry, the "
-                "strongest flaky signal. Only rerun-enabled CI lanes emit it.",
+            "regression_test_count_prior": {"help_text": "Same count over the prior window."},
+            "failed_run_count": {
+                "help_text": "CI runs (not spans) where an owned test's recorded outcome was failed or error. "
+                "An absolute count, not a rate: fast passing runs are not emitted.",
             },
-            "rerun_passed_count_prior": {"help_text": "Same count over the prior window."},
-            "xfailed_count": {
-                "help_text": "Spans on owned tests that failed while quarantined (xfail): masked in CI "
-                "but still flaky.",
+            "failed_run_count_prior": {"help_text": "Same count over the prior window."},
+            "same_commit_recovery_run_count": {
+                "help_text": "Runs where one commit both failed and passed an owned test: a re-run attempt going "
+                "green, or an in-job pytest retry.",
             },
-            "xfailed_count_prior": {"help_text": "Same count over the prior window."},
-            "last_seen_at": {"help_text": "Most recent signal span across the team's owned tests, either window."},
+            "same_commit_recovery_run_count_prior": {"help_text": "Same count over the prior window."},
+            "quarantined_failed_run_count": {
+                "help_text": "Runs where an owned test failed while quarantined (xfail): masked in CI, still failing.",
+            },
+            "quarantined_failed_run_count_prior": {"help_text": "Same count over the prior window."},
+            "last_seen_at": {
+                "help_text": "Most recent failure, recovery, or xfail run across the team's owned tests, either window."
+            },
         }
 
 

@@ -25,8 +25,8 @@ tools:
         description: >
             Live CI failures over the last 2 days, grouped into distinct failures (by failing test id + a normalized
             error signature) and classified by how each is behaving right now, most urgent first. Reach for this to
-            answer "what CI failures should I care about right now" — it is the triage counterpart to the flaky-test
-            leaderboard (which ranks week-long unreliability). Each row's state is the verdict: breaking_master (failing
+            answer "what CI failures should I care about right now" — it is the triage counterpart to the test-health
+            queue (which ranks week-long unreliability). Each row's state is the verdict: breaking_master (failing
             on the default branch and that job's latest run is still red — trunk is broken now), novel_burst (first seen
             within a day and already spreading across branches, not on trunk yet), potentially_resolved (hit trunk but
             that job is green again), flaky (sporadic across two or more branches over more than a day), or pr_only
@@ -185,14 +185,18 @@ tools:
         title: Team CI health roster
         description: >
             Per-owning-team rollup of the CI test surfaces each team owns, over a window (date_from default -14d,
-            maximum 30 days): flaky-test count (same qualification bar as the flaky-test leaderboard), failed/error span
-            count, and pass-on-retry count, each with an equal-length previous-window twin (*_prior) for honest deltas.
-            Use this for "which team owns the flakiest surfaces right now" and to route a flaky-test or CI Signal to its
-            owning team. Ownership is stamped on the spans at CI emission time from the repo's ownership map
-            (products/*/product.yaml + CODEOWNERS); spans without a stamp aggregate under the literal team 'unowned' (a
-            nonempty 'unowned' row means ownership gaps, not a real team). Teams are organizational owners of code
-            surfaces, never authors. Read all counts as absolute signal, never rates: fast passing runs are not emitted,
-            so there is no honest denominator.
+            maximum 30 days). It reads the same per-run evidence as engineering-analytics-flaky-tests and means the same
+            thing by flaky: flaky_test_count is owned tests one commit was seen both failing and passing (what a CI
+            re-run proves), regression_test_count is owned tests that failed with no such proof and still hit
+            min_failed_prs distinct PRs or master, and failed_run_count / same_commit_recovery_run_count /
+            quarantined_failed_run_count are run counts. Each has an equal-length previous-window twin (*_prior) for
+            honest deltas. Use this for "which team owns the flakiest surfaces right now" and to route a flaky-test or
+            CI Signal to its owning team. Ownership is stamped on the spans at CI emission time from the repo's
+            ownership map (products/*/product.yaml + CODEOWNERS); spans without a stamp aggregate under the literal team
+            'unowned' (a nonempty 'unowned' row means ownership gaps, not a real team), and a re-stamped test lands
+            under its latest owner only. Teams are organizational owners of code surfaces, never authors. Read all
+            counts as absolute signal, never rates: fast passing runs are not emitted, so there is no honest
+            denominator.
         feature_flag: engineering-analytics
     engineering-analytics-team-merge-trend:
         operation: engineering_analytics_team_merge_trend

@@ -67,28 +67,42 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
             width: 140,
             align: 'right',
             tooltip:
-                'Owned tests meeting the flaky-leaderboard bar in this window (passed on retry, or failed across several distinct PRs), vs the previous window.',
+                'Owned tests one commit was seen both failing and passing in this window, which is what a CI re-run proves, vs the previous window.',
             sorter: (a, b) => a.flakyTestCount - b.flakyTestCount,
             render: (_, row) => <CountWithDelta current={row.flakyTestCount} prior={row.flakyTestCountPrior} />,
         },
         {
-            title: 'Failures',
-            key: 'failedCount',
+            title: 'Regressions',
+            key: 'regressionTestCount',
+            width: 140,
+            align: 'right',
+            tooltip:
+                'Owned tests that failed with no recorded recovery and still hit several PRs or master. Treat as real breaks until a re-run shows the same commit passing.',
+            sorter: (a, b) => a.regressionTestCount - b.regressionTestCount,
+            render: (_, row) => (
+                <CountWithDelta current={row.regressionTestCount} prior={row.regressionTestCountPrior} />
+            ),
+        },
+        {
+            title: 'Failed runs',
+            key: 'failedRunCount',
             width: 130,
             align: 'right',
             tooltip:
-                'Failed or errored runs on owned tests. Absolute counts, not rates: passing runs are mostly not recorded.',
-            sorter: (a, b) => a.failedCount - b.failedCount,
-            render: (_, row) => <CountWithDelta current={row.failedCount} prior={row.failedCountPrior} />,
+                'CI runs where an owned test failed or errored. Absolute counts, not rates: passing runs are mostly not recorded.',
+            sorter: (a, b) => a.failedRunCount - b.failedRunCount,
+            render: (_, row) => <CountWithDelta current={row.failedRunCount} prior={row.failedRunCountPrior} />,
         },
         {
-            title: 'Pass on retry',
-            key: 'rerunPassedCount',
+            title: 'Recoveries',
+            key: 'sameCommitRecoveryRunCount',
             width: 130,
             align: 'right',
-            tooltip: 'Failed, then passed on an automatic retry. The strongest flaky signal.',
-            sorter: (a, b) => a.rerunPassedCount - b.rerunPassedCount,
-            render: (_, row) => <CountWithDelta current={row.rerunPassedCount} prior={row.rerunPassedCountPrior} />,
+            tooltip: 'Runs where one commit both failed and passed an owned test. This is what proves a flake.',
+            sorter: (a, b) => a.sameCommitRecoveryRunCount - b.sameCommitRecoveryRunCount,
+            render: (_, row) => (
+                <CountWithDelta current={row.sameCommitRecoveryRunCount} prior={row.sameCommitRecoveryRunCountPrior} />
+            ),
         },
     ]
 

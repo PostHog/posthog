@@ -104,11 +104,10 @@ _DEFAULT_WORKFLOW_WINDOW = "-24h"
 # unbounded range would materialize an enormous response. A year is plenty for trends.
 _MAX_WINDOW_DAYS = 366
 
-# Flaky-test leaderboard defaults: a week of signal is the triage window, a month the ceiling
+# Test-health queue defaults: a week of signal is the triage window, a month the ceiling
 # (per-test spans are high-volume and the short Traces retention makes older data spotty anyway).
 _DEFAULT_FLAKY_WINDOW = "-7d"
 _MAX_FLAKY_WINDOW_DAYS = 30
-_DEFAULT_FLAKY_MIN_RERUN_PASSES = 1
 _DEFAULT_FLAKY_MIN_FAILED_PRS = 3
 _DEFAULT_FLAKY_LIMIT = 50
 _MAX_FLAKY_LIMIT = 200
@@ -349,19 +348,17 @@ def build_team_ci_health(
     curated: CuratedGitHubSource,
     date_from: str | None = None,
     date_to: str | None = None,
-    min_rerun_passes: int | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
 ) -> TeamCIHealthList:
     parsed_from, parsed_to = _parse_window(
         curated.team, date_from, date_to, default=_DEFAULT_TEAM_WINDOW, max_days=_MAX_FLAKY_WINDOW_DAYS
     )
-    min_rerun_passes = min_rerun_passes if min_rerun_passes is not None else _DEFAULT_FLAKY_MIN_RERUN_PASSES
     min_failed_prs = min_failed_prs if min_failed_prs is not None else _DEFAULT_FLAKY_MIN_FAILED_PRS
-    # Same explicit-positive-bar rule as the flaky leaderboard: a zero threshold would
-    # silently qualify every test with any signal span.
-    if min_rerun_passes < 1 or min_failed_prs < 1:
-        raise ValueError("min_rerun_passes and min_failed_prs must be at least 1")
+    # Same explicit-positive-bar rule as the test-health queue: a zero threshold would
+    # silently qualify every test with any failure.
+    if min_failed_prs < 1:
+        raise ValueError("min_failed_prs must be at least 1")
     limit = limit if limit is not None else _DEFAULT_TEAM_LIMIT
     if not 1 <= limit <= _MAX_TEAM_LIMIT:
         raise ValueError(f"limit must be between 1 and {_MAX_TEAM_LIMIT}")
@@ -369,7 +366,6 @@ def build_team_ci_health(
         curated=curated,
         date_from=parsed_from,
         date_to=parsed_to,
-        min_rerun_passes=min_rerun_passes,
         min_failed_prs=min_failed_prs,
         limit=limit,
     )

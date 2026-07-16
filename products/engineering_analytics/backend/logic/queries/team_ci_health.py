@@ -27,46 +27,56 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._test_spans import (
-    flaky_bar,
+    run_evidence,
     scan_placeholders,
     selector_from_nodeid,
-    span_scan,
 )
 
-# The shared span scan, bounded and scanning [scan_from, date_to] in one pass; `is_current`
+# The shared run evidence, bounded and scanning [scan_from, date_to] in one pass; `is_current`
 # splits the current window from its equal-length prior twin.
-_SPAN_SCAN = span_scan(bounded=True)
+_RUN_EVIDENCE = run_evidence(bounded=True)
 
+# A test lands under one team, resolved by its latest ownership stamp, so a re-stamped test is
+# never counted for two teams at once.
 _ROSTER_SELECT = f"""
     SELECT
         owner_team,
-        countIf({flaky_bar("rerun_current", "failed_prs_current")}) AS flaky_test_count,
-        countIf({flaky_bar("rerun_prior", "failed_prs_prior")}) AS flaky_test_count_prior,
-        sum(failed_current) AS failed_count,
-        sum(failed_prior) AS failed_count_prior,
-        sum(rerun_current) AS rerun_passed_count,
-        sum(rerun_prior) AS rerun_passed_count_prior,
-        sum(xfail_current) AS xfailed_count,
-        sum(xfail_prior) AS xfailed_count_prior,
-        max(last_seen) AS last_seen_at
+        countIf(recovery_runs_current > 0) AS flaky_test_count,
+        countIf(recovery_runs_prior > 0) AS flaky_test_count_prior,
+        countIf(recovery_runs_current = 0 AND blast_radius_current) AS regression_test_count,
+        countIf(recovery_runs_prior = 0 AND blast_radius_prior) AS regression_test_count_prior,
+        sum(failed_runs_current) AS failed_run_count,
+        sum(failed_runs_prior) AS failed_run_count_prior,
+        sum(recovery_runs_current) AS same_commit_recovery_run_count,
+        sum(recovery_runs_prior) AS same_commit_recovery_run_count_prior,
+        sum(xfail_runs_current) AS quarantined_failed_run_count,
+        sum(xfail_runs_prior) AS quarantined_failed_run_count_prior,
+        max(last_signal) AS last_seen_at
     FROM (
         SELECT
-            owner_team,
             nodeid,
-            countIf(outcome = 'rerun_passed' AND is_current) AS rerun_current,
-            countIf(outcome = 'rerun_passed' AND NOT is_current) AS rerun_prior,
-            countIf(outcome IN ('failed', 'error') AND is_current) AS failed_current,
-            countIf(outcome IN ('failed', 'error') AND NOT is_current) AS failed_prior,
-            countIf(outcome = 'xfailed' AND is_current) AS xfail_current,
-            countIf(outcome = 'xfailed' AND NOT is_current) AS xfail_prior,
-            uniqIf(pr_number, outcome IN ('failed', 'error') AND pr_number != '' AND is_current) AS failed_prs_current,
-            uniqIf(pr_number, outcome IN ('failed', 'error') AND pr_number != '' AND NOT is_current) AS failed_prs_prior,
-            max(span_timestamp) AS last_seen
-        FROM ({_SPAN_SCAN})
-        GROUP BY owner_team, nodeid
+            argMax(owner_team, run_at) AS owner_team,
+            countIf(recovered_in_run AND is_current) AS recovery_runs_current,
+            countIf(recovered_in_run AND NOT is_current) AS recovery_runs_prior,
+            countIf(failed_in_run AND is_current) AS failed_runs_current,
+            countIf(failed_in_run AND NOT is_current) AS failed_runs_prior,
+            countIf(quarantined_in_run AND is_current) AS xfail_runs_current,
+            countIf(quarantined_in_run AND NOT is_current) AS xfail_runs_prior,
+            countIf(failed_in_run AND branch IN ('master', 'main') AND is_current) > 0
+                OR uniqIf(pr_number, failed_in_run AND pr_number != '' AND is_current) >= {{min_failed_prs}}
+                AS blast_radius_current,
+            countIf(failed_in_run AND branch IN ('master', 'main') AND NOT is_current) > 0
+                OR uniqIf(pr_number, failed_in_run AND pr_number != '' AND NOT is_current) >= {{min_failed_prs}}
+                AS blast_radius_prior,
+            max(run_signal_at) AS last_signal
+        FROM ({_RUN_EVIDENCE})
+        GROUP BY nodeid
     )
     GROUP BY owner_team
-    ORDER BY (flaky_test_count + failed_count) DESC, (flaky_test_count_prior + failed_count_prior) DESC, owner_team ASC
+    ORDER BY
+        (flaky_test_count + regression_test_count) DESC,
+        (flaky_test_count_prior + regression_test_count_prior) DESC,
+        owner_team ASC
     LIMIT {{limit_plus_one}}
 """
 
@@ -74,10 +84,10 @@ _TEST_SIGNAL_SELECT = f"""
     SELECT
         nodeid,
         anyIf(selector, selector != '') AS selector,
-        countIf(is_current AND outcome != 'xfailed') AS signal_count,
-        countIf(NOT is_current AND outcome != 'xfailed') AS signal_count_prior,
-        max(span_timestamp) AS last_seen_at
-    FROM ({_SPAN_SCAN})
+        countIf(is_current AND (failed_in_run OR recovered_in_run)) AS signal_count,
+        countIf(NOT is_current AND (failed_in_run OR recovered_in_run)) AS signal_count_prior,
+        max(run_signal_at) AS last_seen_at
+    FROM ({_RUN_EVIDENCE})
     WHERE owner_team = {{owner_team}}
     GROUP BY nodeid
     HAVING signal_count > 0 OR signal_count_prior > 0
@@ -102,7 +112,6 @@ def query_team_ci_health(
     curated: CuratedGitHubSource,
     date_from: datetime,
     date_to: datetime | None,
-    min_rerun_passes: int,
     min_failed_prs: int,
     limit: int,
 ) -> TeamCIHealthList:
@@ -112,7 +121,6 @@ def query_team_ci_health(
         return TeamCIHealthList(items=[], truncated=False, limit=limit)
 
     placeholders = _window_placeholders(curated=curated, date_from=date_from, date_to=date_to)
-    placeholders["min_rerun_passes"] = ast.Constant(value=min_rerun_passes)
     placeholders["min_failed_prs"] = ast.Constant(value=min_failed_prs)
     placeholders["limit_plus_one"] = ast.Constant(value=limit + 1)
 
@@ -129,24 +137,28 @@ def query_team_ci_health(
                 owner_team=owner_team,
                 flaky_test_count=flaky_test_count,
                 flaky_test_count_prior=flaky_test_count_prior,
-                failed_count=failed_count,
-                failed_count_prior=failed_count_prior,
-                rerun_passed_count=rerun_passed_count,
-                rerun_passed_count_prior=rerun_passed_count_prior,
-                xfailed_count=xfailed_count,
-                xfailed_count_prior=xfailed_count_prior,
+                regression_test_count=regression_test_count,
+                regression_test_count_prior=regression_test_count_prior,
+                failed_run_count=failed_run_count,
+                failed_run_count_prior=failed_run_count_prior,
+                same_commit_recovery_run_count=same_commit_recovery_run_count,
+                same_commit_recovery_run_count_prior=same_commit_recovery_run_count_prior,
+                quarantined_failed_run_count=quarantined_failed_run_count,
+                quarantined_failed_run_count_prior=quarantined_failed_run_count_prior,
                 last_seen_at=last_seen_at,
             )
             for (
                 owner_team,
                 flaky_test_count,
                 flaky_test_count_prior,
-                failed_count,
-                failed_count_prior,
-                rerun_passed_count,
-                rerun_passed_count_prior,
-                xfailed_count,
-                xfailed_count_prior,
+                regression_test_count,
+                regression_test_count_prior,
+                failed_run_count,
+                failed_run_count_prior,
+                same_commit_recovery_run_count,
+                same_commit_recovery_run_count_prior,
+                quarantined_failed_run_count,
+                quarantined_failed_run_count_prior,
                 last_seen_at,
             ) in rows[:limit]
         ],

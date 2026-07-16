@@ -32,12 +32,16 @@ export const UNOWNED_TEAM = 'unowned'
 
 export interface TeamCIHealthRow {
     ownerTeam: string
+    /** Owned tests one commit was seen both failing and passing: the queue's `confirmed_flake`. */
     flakyTestCount: number
     flakyTestCountPrior: number
-    failedCount: number
-    failedCountPrior: number
-    rerunPassedCount: number
-    rerunPassedCountPrior: number
+    /** Owned tests that failed with no such proof and still hit the blast-radius bar. */
+    regressionTestCount: number
+    regressionTestCountPrior: number
+    failedRunCount: number
+    failedRunCountPrior: number
+    sameCommitRecoveryRunCount: number
+    sameCommitRecoveryRunCountPrior: number
 }
 
 export interface TeamsData {
@@ -73,10 +77,12 @@ export const teamsLogic = kea<teamsLogicType>([
                                 ownerTeam: it.owner_team,
                                 flakyTestCount: it.flaky_test_count,
                                 flakyTestCountPrior: it.flaky_test_count_prior,
-                                failedCount: it.failed_count,
-                                failedCountPrior: it.failed_count_prior,
-                                rerunPassedCount: it.rerun_passed_count,
-                                rerunPassedCountPrior: it.rerun_passed_count_prior,
+                                regressionTestCount: it.regression_test_count,
+                                regressionTestCountPrior: it.regression_test_count_prior,
+                                failedRunCount: it.failed_run_count,
+                                failedRunCountPrior: it.failed_run_count_prior,
+                                sameCommitRecoveryRunCount: it.same_commit_recovery_run_count,
+                                sameCommitRecoveryRunCountPrior: it.same_commit_recovery_run_count_prior,
                             })
                         ),
                         truncated: data.truncated,

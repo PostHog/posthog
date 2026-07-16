@@ -183,7 +183,7 @@ export const EngineeringAnalyticsSourcesParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Per-owning-team rollup of the CI test surfaces each team owns: flaky-test count, failure and pass-on-retry span counts, each with an equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*\/product.yaml + CODEOWNERS); unstamped spans aggregate under the literal team 'unowned'. Teams are organizational owners of code surfaces, never authors. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no same-commit recovery was recorded, not that none exists.
+ * Per-owning-team rollup of the CI test surfaces each team owns, over the same run evidence as flaky_tests and with the same meaning of flaky: flaky_test_count is owned tests a commit was seen both failing and passing, regression_test_count is owned tests that failed with no such proof and still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*\/product.yaml + CODEOWNERS); unstamped spans aggregate under the literal team 'unowned', and a re-stamped test lands under its latest owner only. Teams are organizational owners of code surfaces, never authors. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no same-commit recovery was recorded, not that none exists.
  */
 export const EngineeringAnalyticsTeamCiHealthParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -206,13 +206,7 @@ export const EngineeringAnalyticsTeamCiHealthQueryParams = /* @__PURE__ */ zod.o
         .number()
         .optional()
         .describe(
-            'A test counts as flaky once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.'
-        ),
-    min_rerun_passes: zod
-        .number()
-        .optional()
-        .describe(
-            'A test counts as flaky once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.'
+            'An unrecovered test counts toward regression_test_count once it failed on at least this many distinct pull requests in the window. Minimum 1. Defaults to 3. Does not affect flaky_test_count, which needs proof, not a threshold.'
         ),
     source_id: zod
         .string()

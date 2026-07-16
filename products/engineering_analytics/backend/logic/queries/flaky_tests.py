@@ -1,21 +1,12 @@
-"""HogQL aggregation of per-test CI spans into the active test-health queue.
+"""HogQL aggregation of per-test CI run evidence into the active test-health queue.
 
-Embeds the shared per-test span scan (``_test_spans``, the one definition of the service fence,
-signal outcomes, and repository scoping), grouped at run grain.
+Groups ``_test_spans.run_evidence()`` (the one definition of the grain and of what a run proves)
+by nodeid. A test is a confirmed flake only where that evidence shows a same-commit recovery;
+failures without one prove nothing about determinism, so they qualify on blast radius instead and
+are reported as a suspected regression.
 
-The grain is the CI run, not the span and not the run attempt:
-
-- A re-run re-uploads only the shards it re-executed, but the reporter emits every artifact it
-  downloads, so an attempt re-reports shards it never ran. Counting attempts would multiply one
-  failure by the number of re-runs.
-- Every attempt of a run tests the same commit, so attempts are repeated trials: fail on one,
-  pass on another, and the test is provably nondeterministic. Backend CI runs pytest without
-  ``--reruns`` on purpose, so that is the only flake proof available; ``rerun_passed`` is the
-  same proof from lanes that do enable in-job retries.
-
-Failures without such a recovery are a suspected regression, qualified by blast radius instead.
-Passes are read only to prove a recovery, and the emitter drops sub-threshold passes, so every
-figure is an absolute count.
+Every figure is an absolute count: the emitter drops sub-threshold passes, so there is no
+denominator to divide by.
 
 Reads the ``posthog.trace_spans`` table on the LOGS ClickHouse cluster, not the warehouse.
 """
@@ -33,9 +24,9 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._test_spans import (
+    run_evidence,
     scan_placeholders,
     selector_from_nodeid,
-    span_scan,
 )
 
 _SELECT = """
@@ -53,38 +44,7 @@ _SELECT = """
             same_commit_recovery_run_count > 0, 'confirmed_flake',
             'suspected_regression'
         ) AS classification
-    FROM (
-        -- One row per (test, run).
-        SELECT
-            nodeid,
-            anyIf(selector, selector != '') AS selector,
-            anyIf(pr_number, pr_number != '') AS pr_number,
-            anyIf(branch, branch != '') AS branch,
-            max(trial_failed) AS failed_in_run,
-            max(trial_quarantined) AS quarantined_in_run,
-            -- Order is irrelevant: one commit disagreeing with itself is the proof, whichever
-            -- attempt failed first.
-            max(trial_rerun_passed) OR (max(trial_failed) AND max(trial_passed)) AS recovered_in_run,
-            maxIf(trial_at, trial_failed OR trial_rerun_passed OR trial_quarantined) AS run_signal_at
-        FROM (
-            -- One row per (test, run attempt). An attempt reports every shard, so a test can appear
-            -- in several matrix legs at once; a failure in any leg outweighs a pass in another.
-            SELECT
-                nodeid,
-                run_id,
-                anyIf(selector, selector != '') AS selector,
-                anyIf(pr_number, pr_number != '') AS pr_number,
-                anyIf(branch, branch != '') AS branch,
-                max(outcome IN ('failed', 'error')) AS trial_failed,
-                max(outcome = 'rerun_passed') AS trial_rerun_passed,
-                max(outcome = 'xfailed') AS trial_quarantined,
-                max(outcome = 'passed') AND NOT trial_failed AS trial_passed,
-                max(span_timestamp) AS trial_at
-            FROM (__SPAN_SCAN__)
-            GROUP BY nodeid, run_id, attempt
-        )
-        GROUP BY nodeid, run_id
-    )
+    FROM (__RUN_EVIDENCE__)
     GROUP BY nodeid
     HAVING same_commit_recovery_run_count > 0
         OR quarantined_failed_run_count > 0
@@ -121,7 +81,7 @@ def query_flaky_tests(
     placeholders["limit_plus_one"] = ast.Constant(value=limit + 1)
 
     response = curated.run(
-        _SELECT.replace("__SPAN_SCAN__", span_scan(bounded=date_to is not None, with_run_attempts=True)),
+        _SELECT.replace("__RUN_EVIDENCE__", run_evidence(bounded=date_to is not None)),
         query_type="engineering_analytics.flaky_tests",
         placeholders=placeholders,
         # trace_spans lives on the LOGS ClickHouse cluster, not the warehouse default.

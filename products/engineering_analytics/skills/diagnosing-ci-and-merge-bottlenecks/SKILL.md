@@ -37,13 +37,15 @@ autonomous agents (e.g. PostHog Code) reasoning about their own PRs.
 - **`pr-lifecycle`** — a single PR's timeline: a header plus ordered events — opened, then a CI started/finished
   pair **per workflow run** (many on a multi-workflow repo, interleaved by time), then merged/closed. Answers
   "where is PR N stuck". `metric_quality` is `partial`.
-- **`engineering-analytics-flaky-tests`** — per-test flakiness leaderboard from the per-test CI spans, over a
-  window (`date_from` default `-7d`, max 30 days). A test qualifies by passing on an automatic retry
-  (`rerun_passed_count`, the strongest signal — only rerun-enabled CI lanes emit it) or failing on ≥
-  `min_failed_prs` distinct PRs (`failed_pr_count`, the signal for no-rerun lanes). Answers "which tests are
-  flaky right now" and picks quarantine candidates; `xfailed_count > 0` means already quarantined but still
-  failing. Counts are absolute signal, never rates — passing runs are mostly not emitted, so there is no honest
-  denominator.
+- **`engineering-analytics-flaky-tests`** — the active test-health queue from the per-test CI spans, over a
+  window (`date_from` default `-7d`, max 30 days). Evidence is counted per CI run, never per span or run
+  attempt. `classification` is `confirmed_flake` only where one commit was seen both failing and passing
+  (`same_commit_recovery_run_count > 0`, which a CI re-run is what proves); `quarantined` means failing while
+  masked as xfail; `suspected_regression` means only failures were recorded, which is absence of proof, not
+  proof of a real break. A test qualifies on any recovery, an xfail, any master/main failure, or failures on ≥
+  `min_failed_prs` distinct PRs (`failed_pr_count`). Answers "which tests are flaky right now" and picks
+  quarantine candidates. Counts are absolute signal, never rates — passing runs are mostly not emitted, so there
+  is no honest denominator.
 
 There is no aggregate time-to-merge tool and no "counts" tool — derive those from `pull-requests` (the stuck/failing
 counts, the merge-time percentiles).
