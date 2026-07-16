@@ -16079,11 +16079,6 @@ export namespace Schemas {
       widget?: DashboardPatchWidgetOpenApi;
     }
 
-    export interface DashboardSubscribeNudgeResponse {
-      /** Whether a nudge notification was created. False when one was already sent recently for this user and dashboard, or when in-app notifications are unavailable. */
-      created: boolean;
-    }
-
     /**
      * * `team` - Only team
      * * `organization` - Organization
@@ -65231,18 +65226,6 @@ export namespace Schemas {
       Xs: 'xs',
     } as const;
 
-    export type EnvironmentsDashboardsSubscribeNudgeCreateParams = {
-    format?: EnvironmentsDashboardsSubscribeNudgeCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsSubscribeNudgeCreateFormat = typeof EnvironmentsDashboardsSubscribeNudgeCreateFormat[keyof typeof EnvironmentsDashboardsSubscribeNudgeCreateFormat];
-
-
-    export const EnvironmentsDashboardsSubscribeNudgeCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
     export type EnvironmentsDashboardsUpdateTextTileCreateParams = {
     format?: EnvironmentsDashboardsUpdateTextTileCreateFormat;
     };
@@ -71688,18 +71671,6 @@ export namespace Schemas {
     export const DashboardsStreamTilesRetrieveLayoutSize = {
       Sm: 'sm',
       Xs: 'xs',
-    } as const;
-
-    export type DashboardsSubscribeNudgeCreateParams = {
-    format?: DashboardsSubscribeNudgeCreateFormat;
-    };
-
-    export type DashboardsSubscribeNudgeCreateFormat = typeof DashboardsSubscribeNudgeCreateFormat[keyof typeof DashboardsSubscribeNudgeCreateFormat];
-
-
-    export const DashboardsSubscribeNudgeCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
     } as const;
 
     export type DashboardsUpdateTextTileCreateParams = {

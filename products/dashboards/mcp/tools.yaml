@@ -512,9 +512,6 @@ tools:
     dashboards-stream-tiles-retrieve:
         operation: dashboards_stream_tiles_retrieve
         enabled: false
-    dashboards-subscribe-nudge-create:
-        operation: dashboards_subscribe_nudge_create
-        enabled: false
     dashboards-update:
         operation: dashboards_update
         enabled: false
