@@ -86,15 +86,36 @@ function AccountTextField({
     )
 }
 
+/** Find the value stored under `key` anywhere in a (possibly nested) payload object. The OAuth id a
+ *  picker depends on is usually a top-level field, but some sources nest it under a select group
+ *  (e.g. GitHub's `github_integration_id` lives inside the `auth_method` select), so we look for the
+ *  field wherever it is rather than assuming the top level. */
+function findFieldValue(obj: unknown, key: string): unknown {
+    if (!obj || typeof obj !== 'object') {
+        return undefined
+    }
+    const record = obj as Record<string, unknown>
+    if (key in record) {
+        return record[key]
+    }
+    for (const nested of Object.values(record)) {
+        const found = findFieldValue(nested, key)
+        if (found !== undefined) {
+            return found
+        }
+    }
+    return undefined
+}
+
 function useFormIntegrationId(formLogic: any, formKey: string, integrationField: string): number | undefined {
     const values = useValues(formLogic) as Record<string, any> | null
     if (!values) {
         return undefined
     }
     // Saved job_inputs store the id as a JSONB string; coerce so `integration.id === id` matches.
-    const raw = values[formKey]?.payload?.[integrationField]
+    const raw = findFieldValue(values[formKey]?.payload, integrationField)
     const id = raw === undefined || raw === null || raw === '' ? undefined : Number(raw)
-    return id && Number.isFinite(id) ? id : undefined
+    return id !== undefined && Number.isFinite(id) ? id : undefined
 }
 
 function IntegrationAccountFieldWithDropdown({
@@ -108,7 +129,7 @@ function IntegrationAccountFieldWithDropdown({
     const { accounts, accountsLoading, accountsError } = useValues(
         integrationAccountsLogic({ id: integrationId, sourceType })
     )
-    const { loadAccounts } = useActions(integrationAccountsLogic({ id: integrationId, sourceType }))
+    const { loadAccounts, setSearch } = useActions(integrationAccountsLogic({ id: integrationId, sourceType }))
 
     useEffect(() => {
         loadAccounts()
@@ -159,6 +180,7 @@ function IntegrationAccountFieldWithDropdown({
                             onChange={onChange}
                             suggestions={suggestions}
                             suggestionsLoading={accountsLoading}
+                            onSearchChange={setSearch}
                             searchPlaceholder="Filter accounts…"
                             emptyMessage="No accounts accessible by this integration."
                             loadingMessage="Loading accounts…"

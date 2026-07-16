@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { objectsEqual } from 'lib/utils/objects'
+import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -32,6 +33,7 @@ import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations 
 import { requestObservationRetry } from '../logics/observationRetry'
 import { refreshVisionQuota } from '../logics/visionQuotaLogic'
 import { type UrlSorting, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
+import { clampDurationFilter, durationFilterError } from './durationBounds'
 import type { replayScannerLogicType } from './replayScannerLogicType'
 import { SCANNER_EDITOR_STEPS, scannerEditorSceneLogic, scannerStepUrl } from './scannerEditorSceneLogic'
 import { findScannerTemplate, newScanner } from './scannerTemplates'
@@ -112,6 +114,7 @@ const STATIC_ORDER_KEYS: Record<string, string> = {
     created_at: 'created_at',
     version: 'scanner_version',
     recording_subject: 'recording_subject_email',
+    confidence: 'result_confidence',
 }
 // Only monitor and scorer have a JSONB-backed Result sort key on the server.
 const RESULT_ORDER_KEY_BY_TYPE: Partial<Record<ScannerType, string>> = {
@@ -563,6 +566,18 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 
     selectors({
         isNew: [(_, p) => [p.id], (id: string) => id === 'new'],
+        // A duration filter that can't overlap Vision's scannable window would scan nothing (e.g. active time
+        // > 1h, which the ceiling always skips). Surfaced as a save-blocking reason rather than a form error,
+        // since kea-forms can't attach a scalar error to the object-typed `query` field.
+        durationValidationError: [
+            (s) => [s.scanner],
+            (scanner: ReplayScanner | null): string | null => {
+                const durationFilter = scanner?.query
+                    ? recordingsQueryToUniversalFilters(scanner.query).duration?.[0]
+                    : undefined
+                return durationFilter ? durationFilterError(clampDurationFilter(durationFilter)) : null
+            },
+        ],
         hasUnsavedChanges: [
             (s) => [s.scanner, s.originalScanner],
             (scanner: ReplayScanner | null, original: ReplayScanner | null): boolean => {
@@ -596,6 +611,36 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 verdictFilter.length > 0 ||
                 tagFilter.length > 0 ||
                 subjectFilter.trim().length > 0,
+        ],
+        // Carried into observation detail links so server-computed prev/next neighbors honor the table's filters + sort.
+        observationDetailLinkParams: [
+            (s) => [
+                s.observationStatusFilter,
+                s.observationTriggeredByFilter,
+                s.observationVerdictFilter,
+                s.observationTagFilter,
+                s.observationSubjectFilter,
+                s.observationsSort,
+                s.scanner,
+            ],
+            (
+                observationStatusFilter: ObservationStatusValue[],
+                observationTriggeredByFilter: ObservationTriggeredByValue[],
+                observationVerdictFilter: ObservationVerdictValue[],
+                observationTagFilter: string[],
+                observationSubjectFilter: string,
+                observationsSort: ObservationsSorting | null,
+                scanner: ReplayScanner | null
+            ): Record<string, string> =>
+                buildObservationListParams({
+                    observationStatusFilter,
+                    observationTriggeredByFilter,
+                    observationVerdictFilter,
+                    observationTagFilter,
+                    observationSubjectFilter,
+                    observationsSort,
+                    scanner,
+                }) as Record<string, string>,
         ],
         availableTags: [
             (s) => [s.observationStatsApi],

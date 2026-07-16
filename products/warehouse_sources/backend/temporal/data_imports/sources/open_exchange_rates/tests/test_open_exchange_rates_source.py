@@ -38,8 +38,6 @@ class TestOpenExchangeRatesSource:
         assert config.label == "Open Exchange Rates"
         assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Kept behind the unreleased flag until the source has been exercised end to end.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/open-exchange-rates"
         assert [f.name for f in config.fields] == ["app_id", "base_currency", "start_date"]
 

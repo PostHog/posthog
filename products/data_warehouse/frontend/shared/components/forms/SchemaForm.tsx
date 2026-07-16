@@ -98,6 +98,12 @@ export default function SchemaForm(): JSX.Element {
     const showRows = databaseSchema.some((schema) => schema.rows != null)
     const hasManySchemas = databaseSchema.length > 10
 
+    // Shown when the schema fetch returned zero tables. That can be transient — some sources
+    // are still listing their tables just after connecting — or a credentials/permissions
+    // problem, so point at both instead of dead-ending on "No tables found".
+    const noTablesMessage =
+        'No tables found. If you just connected, the source may still be listing its tables, so go back a step and try again. Otherwise, check the source credentials, permissions, and configuration.'
+
     const warehouseColumns = [
         {
             width: 0,
@@ -526,7 +532,7 @@ export default function SchemaForm(): JSX.Element {
                                 />
                             </div>
                         ) : (
-                            <div className="border rounded px-4 py-8 text-center text-muted-alt">No tables found</div>
+                            <div className="border rounded px-4 py-8 text-center text-muted-alt">{noTablesMessage}</div>
                         )
                     ) : groupedDatabaseSchema.length > 1 ? (
                         <div className="border rounded bg-bg-light">
@@ -575,7 +581,7 @@ export default function SchemaForm(): JSX.Element {
                         </div>
                     ) : (
                         <LemonTable
-                            emptyState={schemaNameFilter ? `No tables match "${schemaNameFilter}"` : 'No schemas found'}
+                            emptyState={schemaNameFilter ? `No tables match "${schemaNameFilter}"` : noTablesMessage}
                             dataSource={filteredDatabaseSchema}
                             pagination={{ pageSize: 100, hideOnSinglePage: true }}
                             columns={[

@@ -14,30 +14,6 @@ RESOURCE_TO_REVENUECAT_EVENT_TYPE: dict[str, str] = {
     EVENT_RESOURCE_NAME: "*",
 }
 
-# Every documented RevenueCat webhook event type. Used when auto-registering the
-# webhook integration so we subscribe to all known events the customer might care
-# about. List is from:
-# https://www.revenuecat.com/docs/integrations/webhooks/event-types-and-fields
-REVENUECAT_WEBHOOK_EVENT_TYPES: tuple[str, ...] = (
-    "TEST",
-    "INITIAL_PURCHASE",
-    "RENEWAL",
-    "CANCELLATION",
-    "UNCANCELLATION",
-    "NON_RENEWING_PURCHASE",
-    "SUBSCRIPTION_PAUSED",
-    "EXPIRATION",
-    "BILLING_ISSUE",
-    "PRODUCT_CHANGE",
-    "TRANSFER",
-    "SUBSCRIPTION_EXTENDED",
-    "TEMPORARY_ENTITLEMENT_GRANT",
-    "REFUND_REVERSED",
-    "INVOICE_ISSUANCE",
-    "VIRTUAL_CURRENCY_TRANSACTION",
-    "EXPERIMENT_ENROLLMENT",
-)
-
 REVENUECAT_API_BASE_URL = "https://api.revenuecat.com/v2"
 
 # Default name applied when auto-creating the webhook integration in RevenueCat.

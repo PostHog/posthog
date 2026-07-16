@@ -121,9 +121,12 @@ tools:
             the copy SHARES that existing flag (its variants are reused) rather than creating a new one. A shared flag
             means lifecycle operations on either experiment (shipping a variant, pausing) affect both. To avoid this,
             pass a feature_flag_key that does not already exist in the target project. If an existing target flag is
-            reused, it must have at least 2 variants including one with key "control", otherwise the call returns 400
-            ("Feature flag must have at least 2 variants (control and at least one test variant)" or "Feature flag must
-            have a variant with key 'control'").
+            reused, it must be multivariate with 2 to 20 variants, otherwise the call returns 400 ("Feature flag must
+            have at least 2 variants (a baseline and at least one test variant)" or "Feature flag must have at most 20
+            variants"). No specific variant key is required — the analysis baseline defaults to the variant keyed
+            "control" when present, else the first variant. Exception: copying a web experiment requires the reused
+            target flag to have a variant keyed "control", otherwise the call returns 400 ("Web experiments require a
+            variant with key 'control'").
 
 
             Returns 400 if the source experiment uses legacy metrics ("Copying is not supported for experiments using
@@ -211,12 +214,12 @@ tools:
                     to a pre-existing flag: the experiment links to that flag as-is and explicit config is rejected.
 
 
-                    HARD REQUIREMENT — when you provide variants, exactly one variant's `key` must be the literal string
-                    `control` (lowercase, no variations). It is the baseline used for analysis and the experiment
-                    runtime treats it specially. If the user describes variants as "A/B", "old/new",
-                    "original/redesign", or any other natural-language pair, map the baseline to `key: "control"` — not
-                    "A", "Control", "old", "original", or "baseline". Other variants can use any key (`test`,
-                    `variant_a`, etc.).
+                    No specific variant key is required. The analysis baseline defaults to the variant keyed `control`
+                    (lowercase) when present, else the first variant; override with stats_config.baseline_variant_key.
+                    Convention: when the user describes variants as "A/B", "old/new", "original/redesign", or any other
+                    natural-language pair without naming explicit keys, key the baseline `control` and keep their
+                    wording in the variant `name`. When the user asks for specific keys, use them as-is and put the
+                    baseline first.
         ui_app: experiment
         response:
             include:
@@ -492,9 +495,9 @@ tools:
             user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
-            Launch a draft experiment. Validates the feature flag has at least 2 multivariate variants with "control" as
-            the first variant. Activates the feature flag (sets active=true), sets start_date to the current server
-            time, recomputes metric fingerprints, and transitions status from draft to running.
+            Launch a draft experiment. Validates the feature flag is multivariate with 2 to 20 variants. Activates the
+            feature flag (sets active=true), sets start_date to the current server time, recomputes metric fingerprints,
+            and transitions status from draft to running.
 
 
             Returns 400 if the experiment has already been launched ("Experiment has already been launched.") or if the
@@ -990,8 +993,9 @@ tools:
                 description: >
                     Variant split, rollout scope, payloads, and experience continuity for the linked feature flag, in
                     the flag's own filters shape. This is the canonical input for flag config. Set
-                    filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100,
-                    exactly one key must be the literal string 'control') to change the variant split. Set
+                    filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100;
+                    the analysis baseline defaults to the variant keyed 'control' when present, else the first variant —
+                    except web experiments, which must keep a variant keyed 'control') to change the variant split. Set
                     filters.groups to a single group [{"properties": [], "rollout_percentage": N}] (0-100) to change the
                     overall rollout. Config this object omits is preserved from the flag's current state. On a running
                     experiment this requires update_feature_flag_params=true (see rule 1: warn the user first).
@@ -1049,6 +1053,9 @@ tools:
         enabled: false
     experiments-recalculate-timeseries:
         operation: experiments_recalculate_timeseries_create
+        enabled: false
+    experiments-session-context-retrieve:
+        operation: experiments_session_context_retrieve
         enabled: false
     experiments-unfreeze-exposure-create:
         operation: experiments_unfreeze_exposure_create

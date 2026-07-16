@@ -3,6 +3,7 @@ import { RRule } from 'rrule'
 import { IconLetter } from '@posthog/icons'
 import { LemonSelectOption, LemonSelectOptionLeaf, LemonSelectOptions } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
@@ -15,6 +16,12 @@ export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
 export interface SubscriptionBaseProps {
     dashboardId?: number
     insightShortId?: InsightShortId
+}
+
+export type SubscriptionsLogicProps = SubscriptionBaseProps
+
+export function formatNextDeliveryDate(date: string | Date): string {
+    return dayjs(date).format('ddd, MMM D [at] HH:mm')
 }
 
 export const urlForSubscriptions = ({ dashboardId, insightShortId }: SubscriptionBaseProps): string => {

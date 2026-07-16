@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -87,10 +87,14 @@ function captureTracingResults(count: number, queryType: 'spans' | 'aggregation'
 
 export interface TracingDataLogicProps {
     id: string
+    // Run the first query on mount. Embedded viewers set this; the /tracing scene leaves it
+    // off because its first query is driven by urlToAction (which may first restore filters
+    // from the URL). Mirrors the LogsViewer `autoLoad` prop.
+    autoLoad?: boolean
 }
 
 export const tracingDataLogic = kea<tracingDataLogicType>([
-    props({ id: TRACING_SCENE_VIEWER_ID } as TracingDataLogicProps),
+    props({ id: TRACING_SCENE_VIEWER_ID, autoLoad: false } as TracingDataLogicProps),
     key((props) => props.id),
     path((key) => ['products', 'tracing', 'frontend', 'tracingDataLogic', key]),
 
@@ -109,9 +113,26 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 'timeComparison',
             ],
         ],
+        actions: [
+            tracingFiltersLogic({ id }),
+            [
+                'setDateRange',
+                'setServiceNames',
+                'setFilterGroup',
+                'setSort',
+                'setViewMode',
+                'setComparison',
+                'updateComparisonWindows',
+                'setFilters',
+            ],
+        ],
     })),
 
     actions({
+        // Analytics + re-query on a user filter interaction. Dispatched by the filter-action
+        // listeners below; the scene logic additionally listens to this to sync the URL.
+        // Mirrors the logs viewer's handleQueryChange.
+        handleFilterChange: (filterType: string, extraProps?: Record<string, unknown>) => ({ filterType, extraProps }),
         runQuery: true,
         fetchNextPage: true,
         loadMoreTraceSpans: true,
@@ -754,6 +775,28 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        handleFilterChange: ({ filterType, extraProps }) => {
+            posthog.capture('tracing filter changed', { filter_type: filterType, ...extraProps })
+            actions.runQuery()
+        },
+        setDateRange: () => actions.handleFilterChange('date_range'),
+        setServiceNames: () => actions.handleFilterChange('service_names'),
+        setFilterGroup: () => actions.handleFilterChange('filter_group'),
+        setSort: ({ orderBy, orderDirection }) =>
+            actions.handleFilterChange('sort', { column: orderBy, direction: orderDirection }),
+        setViewMode: ({ viewMode }) => actions.handleFilterChange('view_mode', { mode: viewMode }),
+        setComparison: ({ comparison }) =>
+            actions.handleFilterChange('comparison', {
+                enabled: comparison !== null,
+                mode: comparison?.mode ?? null,
+                preset: comparison?.mode === 'time' ? comparison.preset : null,
+            }),
+        // Bulk restores (URL params, saved views) re-query without an interaction capture.
+        setFilters: () => actions.runQuery(),
+        // Overlay drags only refetch the aggregation — the sparkline canvas range stays fixed
+        // while the user moves windows around within it. The compare-flame refetch (viewer UI
+        // state) lives in tracingViewerLogic.
+        updateComparisonWindows: () => actions.fetchAggregation(),
         runQuery: () => {
             actions.clearSpans()
             // The time sparkline is always fetched — it keeps the chart warm when the user flips back
@@ -862,4 +905,10 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             }
         },
     })),
+
+    afterMount(({ actions, props: logicProps, values }) => {
+        if (logicProps.autoLoad && !values.hasRunQuery) {
+            actions.runQuery()
+        }
+    }),
 ])

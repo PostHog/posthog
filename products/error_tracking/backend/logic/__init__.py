@@ -449,16 +449,19 @@ def create_release(
 ) -> ErrorTrackingRelease:
     release_id = UUIDT()
     resolved_hash_id = hash_id or str(release_id)
-    if release_hash_exists(team_id, resolved_hash_id):
-        raise ErrorTrackingReleaseHashInUseError(resolved_hash_id)
-    return ErrorTrackingRelease.objects.create(
-        id=release_id,
+    release, created = ErrorTrackingRelease.objects.get_or_create(
         team_id=team_id,
         hash_id=resolved_hash_id,
-        metadata=metadata,
-        project=str(project),
-        version=str(version),
+        defaults={
+            "id": release_id,
+            "metadata": metadata,
+            "project": str(project),
+            "version": str(version),
+        },
     )
+    if not created:
+        raise ErrorTrackingReleaseHashInUseError(resolved_hash_id)
+    return release
 
 
 def update_release(

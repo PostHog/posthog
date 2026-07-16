@@ -161,6 +161,46 @@ describe('loginLogic', () => {
         })
     })
 
+    describe('code-based verification', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        const originalVendor = window.navigator.vendor
+
+        beforeEach(() => {
+            setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/login/precheck': () => [200, { saml_available: false }],
+                    '/api/login': () => [401, { code: 'code_based_verification_required', detail: 'user@example.com' }],
+                    '/api/login/code-based-verification': () => [200, { success: true }],
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            setVendor(originalVendor)
+            jest.clearAllMocks()
+        })
+
+        it('enters code-entry mode when login requires a code, and exits on demand', async () => {
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+            logic.actions.submitLogin()
+            await expectLogic(logic).toDispatchActions(['setCodeVerificationRequired', 'submitLoginFailure'])
+
+            expect(logic.values.codeVerificationRequired).toBe(true)
+            expect(logic.values.generalError?.code).toBe('code_based_verification_sent')
+
+            logic.actions.exitCodeVerification()
+            expect(logic.values.codeVerificationRequired).toBe(false)
+            expect(logic.values.generalError).toBe(null)
+        })
+    })
+
     describe('precheck dedupe', () => {
         let logic: ReturnType<typeof loginLogic.build>
         let precheckHandler: jest.Mock

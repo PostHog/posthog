@@ -1190,19 +1190,24 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         }
                     }
 
+                    const imports = selectedProducts
+                        .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
+                        .map((i) => ({
+                            ...i,
+                            protocol: 'custom-products://',
+                        }))
+
                     return convertFileSystemEntryToTreeDataItem({
                         root: 'custom-products://',
-                        imports: selectedProducts
-                            .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
-                            .map((i) => ({
-                                ...i,
-                                protocol: 'custom-products://',
-                            })),
+                        imports,
                         checkedItems: {},
                         folderStates,
                         users,
                         foldersFirst: false,
                         searchTerm,
+                        // With only a few tools pinned, category headers add more noise than structure —
+                        // list them in sequence instead.
+                        disableCategories: imports.length < 5,
                         disabledReason: (item) => getProductAccessDisabledReason(item as FileSystemImport),
                     })
                 }

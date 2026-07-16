@@ -135,8 +135,10 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
     # regardless of the query's own shape (set queries, its own LIMIT, etc.).
     # The inner query is validated HogQL (parsed above) and the wrapper is re-parsed as HogQL
     # downstream, so there is no raw-SQL injection; limit/offset are int()-cast.
+    # The newline before the closing paren keeps a trailing line comment (`-- …`) in the
+    # user's query from swallowing the wrapper.
     # nosemgrep: semgrep.rules.security.hogql-fstring-audit
-    wrapped = f"select * from ({data['query']}) limit {int(data['limit'])} offset {int(data['offset'])}"
+    wrapped = f"select * from ({data['query']}\n) limit {int(data['limit'])} offset {int(data['offset'])}"
 
     try:
         with tags_context(product=Product.NOTEBOOKS, feature=Feature.QUERY, team_id=team.id):

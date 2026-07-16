@@ -227,6 +227,18 @@ class SandboxBase(ABC):
     @abstractmethod
     def write_file(self, path: str, payload: bytes) -> ExecutionResult: ...
 
+    def stop_agent_server(self) -> ExecutionResult:
+        """Stop the agent server gracefully so it can flush terminal events."""
+        return self.execute(
+            "pkill -TERM -f '[a]gent-server' 2>/dev/null || true; "
+            "for _ in $(seq 1 80); do "
+            "pgrep -f '[a]gent-server' >/dev/null || exit 0; "
+            "sleep 0.5; "
+            "done; "
+            "exit 1",
+            timeout_seconds=45,
+        )
+
     def agent_server_supports_auto_publish(self) -> bool:
         """Sandboxes restored from old snapshots can carry an agent-server that rejects unknown
         CLI options, so probe the installed binary before passing --autoPublish; unsupported
@@ -302,6 +314,7 @@ class SandboxBase(ABC):
         reasoning_effort: str | None = None,
         initial_permission_mode: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
+        relayed_mcp_servers: list[str] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
@@ -467,6 +480,19 @@ def _get_modal_docker_sandbox_class() -> SandboxClass:
     return ModalDockerSandbox
 
 
+def _get_modal_evals_sandbox_class() -> SandboxClass:
+    """Modal sandbox isolated from both production and local development apps."""
+    if not (settings.DEBUG or settings.TEST):
+        raise RuntimeError("MODAL_EVALS sandbox is for evals only and requires DEBUG=1 or TEST=1.")
+    from .modal_sandbox import ModalSandbox
+
+    class ModalEvalsSandbox(ModalSandbox):
+        DEFAULT_APP_NAME = "posthog-sandbox-evals"
+        NOTEBOOK_APP_NAME = "posthog-sandbox-evals"
+
+    return ModalEvalsSandbox
+
+
 def get_sandbox_class() -> SandboxClass:
     provider = getattr(settings, "SANDBOX_PROVIDER", None)
 
@@ -475,6 +501,9 @@ def get_sandbox_class() -> SandboxClass:
 
     if provider and provider.upper() == "MODAL_DOCKER":
         return _get_modal_docker_sandbox_class()
+
+    if provider and provider.upper() == "MODAL_EVALS":
+        return _get_modal_evals_sandbox_class()
 
     # Default to Modal everywhere
     from .modal_sandbox import ModalSandbox
@@ -489,6 +518,8 @@ def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
         return ModalSandbox
     if backend in ("modal_docker", "MODAL_DOCKER"):
         return _get_modal_docker_sandbox_class()
+    if backend in ("modal_evals", "MODAL_EVALS"):
+        return _get_modal_evals_sandbox_class()
     if backend == "docker":
         return _get_docker_sandbox_class()
     raise RuntimeError(f"Unsupported sandbox backend: {backend}")
@@ -501,7 +532,7 @@ else:
 
     def __getattr__(name: str) -> object:
         # Resolve `Sandbox` lazily. Computing it at import time calls get_sandbox_class(),
-        # which for the docker / modal_docker providers imports a sibling module
+        # which for the docker / local Modal providers imports a sibling module
         # (docker_sandbox / modal_sandbox). When that sibling is the first of the pair to be
         # imported (e.g. test_docker_sandbox.py imports docker_sandbox, which imports this
         # module), the eager call reaches back into the still-initializing sibling and fails

@@ -11,6 +11,8 @@
  */
 
 import type { Credential } from './credential-broker'
+import type { StoredCredential } from './identity-credential-store'
+import type { LinkState } from './identity-link-state-store'
 
 export interface IdentityInitiateInput {
     /** The principal being linked, resolved to an AgentUser id. */
@@ -47,6 +49,32 @@ export interface IdentityResolveInput {
     scopes: string[]
 }
 
+/**
+ * Result of the OAuth code exchange WITHOUT persistence. `complete()` (per-asker
+ * linking) persists under `state.agentUserId`; admission persists under the
+ * canonical identity it derives from `subject` and writes a transport binding.
+ * One code path for the crypto (consume + token + deriveSubject), two persistence
+ * policies on top.
+ */
+export interface IdentityExchangeResult {
+    /** The consumed single-use link-state (carries team/app/agentUser/redirect). */
+    state: LinkState
+    /** The fetched access/refresh token, not yet stored. */
+    stored: StoredCredential
+    /** The proven external subject, if this provider establishes identity. */
+    subject?: string
+    /** Effective granted scopes (from the token response, else the requested set). */
+    scopes: string[]
+}
+
+/** Per-request identity proof carried by a transport (e.g. an HTTP bearer the
+ *  authoritative provider can introspect inline). No OAuth round-trip needed. */
+export interface BearerVerification {
+    subject: string
+    stored: StoredCredential
+    scopes: string[]
+}
+
 export interface IdentityProvider {
     readonly id: string
     /** Broker key tools/MCPs resolve ('posthog_api', 'github', 'dogs', …). Also
@@ -60,11 +88,17 @@ export interface IdentityProvider {
      *  seam, `resolve()` throws `agent_binding_not_implemented` until it lands. */
     readonly binding: 'principal' | 'agent'
     initiate(input: IdentityInitiateInput): Promise<IdentityInitiateResult>
+    /** Exchange the OAuth code but do NOT persist. Used by both `complete()` and
+     *  the admission engine, which apply different persistence policies. */
+    exchange(input: IdentityCompleteInput): Promise<IdentityExchangeResult>
     complete(input: IdentityCompleteInput): Promise<IdentityCompleteResult>
     /** Usable credential for a linked principal, refreshed if stale; null if unlinked. */
     resolve(input: IdentityResolveInput): Promise<Credential | null>
     /** Hosts the resolved bearer may be sent to (SSRF guard). Empty = none allowed. */
     allowedHosts(): string[]
+    /** Optional: verify a per-request bearer the transport already carries (HTTP),
+     *  proving identity inline without an OAuth round-trip. Undefined = unsupported. */
+    verifyBearer?(token: string): Promise<BearerVerification | null>
 }
 
 export interface IdentityProviderRegistry {

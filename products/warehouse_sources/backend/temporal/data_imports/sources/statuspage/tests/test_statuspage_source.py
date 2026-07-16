@@ -31,7 +31,6 @@ class TestStatuspageSource:
         assert config.label == "Statuspage"
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
 
     def test_source_config_has_secret_api_key_field(self):
         fields = self.source.get_source_config.fields

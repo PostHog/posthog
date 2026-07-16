@@ -10,7 +10,10 @@ import { HogFlowAction } from '../types'
 import type { hogFunctionStepLogicType } from './hogFunctionStepLogicType'
 
 export type StepFunctionNode = Node<
-    Extract<HogFlowAction, { type: 'function' } | { type: 'function_email' } | { type: 'function_sms' }>
+    Extract<
+        HogFlowAction,
+        { type: 'function' } | { type: 'function_email' } | { type: 'function_sms' } | { type: 'function_push' }
+    >
 >
 
 export interface HogFunctionStepLogicProps {

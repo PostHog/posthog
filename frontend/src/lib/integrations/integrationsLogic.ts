@@ -8,9 +8,9 @@ import api, { ApiError, getCookie } from 'lib/api'
 import { globalSetupLogic } from 'lib/components/ProductSetup'
 import { describeGithubSetupError, GITHUB_INSTALL_PENDING_MESSAGE } from 'lib/integrations/githubSetupErrors'
 import { describeOAuthCallbackError } from 'lib/integrations/oauthCallbackErrors'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { isKeyOf } from 'lib/utils/guards'
 import { fromParamsGivenUrl } from 'lib/utils/url'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -131,7 +131,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         integrations: [
             null as IntegrationType[] | null,
             {
@@ -176,6 +176,25 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         return [...(values.integrations ?? []), responseWithIcon]
                     } catch (e) {
                         lemonToast.error('Failed to upload Google Cloud key.')
+                        throw e
+                    }
+                },
+            },
+        ],
+        linkedGithubInstallation: [
+            null as IntegrationType | null,
+            {
+                // Reuse a GitHub App installation already connected to another project in the same
+                // org. A GitHub App installs once per org, so a second project can't reinstall; this
+                // links the existing install without the fragile GitHub setup redirect roundtrip.
+                linkExistingGithubInstallation: async () => {
+                    try {
+                        const integration = await api.integrations.githubLinkExisting({})
+                        lemonToast.success('Linked the existing GitHub installation to this project.')
+                        actions.loadIntegrations()
+                        return integration
+                    } catch (e) {
+                        toastApiError(e)
                         throw e
                     }
                 },

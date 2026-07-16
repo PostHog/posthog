@@ -240,7 +240,7 @@ Proven shapes: a daily LLM-analytics digest (latency / errors / clusters / cost 
 - **Budget discipline is load-bearing.** The digest has a fixed section structure and a hard run budget, so query economically: one combined SQL returning several sections' numbers beats one query per section, and a shallow digest that posts beats a thorough one that times out.
   Name the budget and the query cap near the top of the body.
 - **Write for the forward.** Compose the report `summary` Slack-ready — a TL;DR line plus 1–3 quantified lines per section, source ids cited inline — because the common delivery is a CDP destination forwarding the emitted report verbatim to a Slack channel.
-  Route it to its known owner via `suggested_reviewers` (resolve once via `signals-scout-members-list`, cache as `reviewer:<domain>:owner`), and default `actionability` to `requires_human_input` — never `not_actionable`, which suppresses the report, and the digest _is_ the product.
+  Route it to its known owner via `suggested_reviewers` (resolve once via `scout-members-list`, cache as `reviewer:<domain>:owner`), and default `actionability` to `requires_human_input` — never `not_actionable`, which suppresses the report, and the digest _is_ the product.
 - **Seam with the anomaly sibling:** a digest does not own per-anomaly findings.
   Run it alongside the surface's anomaly/specialist scout — the specialist files urgent per-entity reports on its own dedupe keys; the digest owns the morning synthesis.
 

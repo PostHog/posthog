@@ -85,7 +85,6 @@ You can find your client ID and secret in the [Phyllo developer dashboard](https
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

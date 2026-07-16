@@ -614,6 +614,7 @@ class TestGetTaskProcessingContextActivity:
                     run_id="run-id",
                     origin_product="user_created",
                     allowed_domains=None,
+                    custom_image_available=True,
                 )
                 is expected
             )
@@ -643,7 +644,15 @@ class TestGetTaskProcessingContextActivity:
                 is False
             )
 
-    def test_modal_vm_sandbox_state_override_skips_flag_check(self):
+    @pytest.mark.parametrize(
+        "origin_product, custom_image_available, expected",
+        [
+            ("image_builder", False, True),
+            ("user_created", False, False),
+            ("user_created", True, True),
+        ],
+    )
+    def test_modal_vm_sandbox_state_override_skips_flag_check(self, origin_product, custom_image_available, expected):
         with patch(
             VM_FLAG_PAYLOAD_TARGET,
             return_value=None,
@@ -653,11 +662,12 @@ class TestGetTaskProcessingContextActivity:
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
-                    origin_product="user_created",
+                    origin_product=origin_product,
                     allowed_domains=None,
+                    custom_image_available=custom_image_available,
                     state={"use_modal_vm_sandbox": True},
                 )
-                is True
+                is expected
             )
 
         payload_mock.assert_not_called()
@@ -700,17 +710,20 @@ class TestGetTaskProcessingContextActivity:
         payload_mock.assert_not_called()
 
     @pytest.mark.parametrize(
-        "origin_product, payload, expected",
+        "origin_product, payload, custom_image_available, expected",
         [
-            ("user_created", None, False),
-            ("signals_scout", None, False),
-            ("signals_scout", {"origin_products": ["signals_scout"]}, True),
-            ("signals_scout", ["signals_scout", "user_created"], True),
-            ("user_created", {"origin_products": ["signals_scout"]}, False),
-            ("user_created", '{"origin_products": ["user_created"]}', True),
+            ("user_created", None, True, False),
+            ("signals_scout", None, False, False),
+            ("signals_scout", {"origin_products": ["signals_scout"]}, False, False),
+            ("signals_scout", ["signals_scout", "user_created"], False, False),
+            ("signals_scout", {"origin_products": ["signals_scout"]}, True, True),
+            ("image_builder", {"origin_products": ["image_builder"]}, False, True),
+            ("user_created", {"origin_products": ["signals_scout"]}, True, False),
+            ("user_created", '{"origin_products": ["user_created"]}', False, False),
+            ("user_created", '{"origin_products": ["user_created"]}', True, True),
         ],
     )
-    def test_modal_vm_sandbox_origin_product_gating(self, origin_product, payload, expected):
+    def test_modal_vm_sandbox_origin_product_gating(self, origin_product, payload, custom_image_available, expected):
         with patch(
             VM_FLAG_PAYLOAD_TARGET,
             return_value=payload,
@@ -722,6 +735,7 @@ class TestGetTaskProcessingContextActivity:
                     run_id="run-id",
                     origin_product=origin_product,
                     allowed_domains=None,
+                    custom_image_available=custom_image_available,
                 )
                 is expected
             )

@@ -15,7 +15,7 @@ compatibility: >
   (vendor docs + github.com reachable), and PostHog MCP scopes: read-only,
   signal_scout_internal:write for scratchpad, and signal_scout_report:write for
   emit-report/edit-report (this scout authors reports directly via the report channel). Assumes the
-  signals-scout MCP family (scratchpad-search, scratchpad-remember, scratchpad-forget, runs-list,
+  scout MCP family (scratchpad-search, scratchpad-remember, scratchpad-forget, runs-list,
   emit-report, edit-report, members-list) plus inbox-reports-list / -retrieve. Needs a repository
   checkout — uses one if the harness provides it, otherwise shallow-clones the project's repository
   when it is public.
@@ -36,8 +36,8 @@ API < v22.0), endpoint sunsets (Google moving `uploadClickConversions` to a diff
 to read vendor changelogs, so these break customer-facing integrations with zero warning. Your job
 is to find the deadline before the breakage.
 
-You author reports directly via the report channel (`signals-scout-emit-report` /
-`signals-scout-edit-report`): you've done the research and can cite the vendor page, so you own each
+You author reports directly via the report channel (`scout-emit-report` /
+`scout-edit-report`): you've done the research and can cite the vendor page, so you own each
 report 1:1 end-to-end rather than firing weak signals for a pipeline to cluster. The bar is
 correspondingly high — file a report only for a deprecation you can quote verbatim from a
 vendor-published page and would stand behind as a standalone inbox item a human will act on. A
@@ -60,7 +60,7 @@ Internalize the two discriminators:
 Code changes slowly, so this scout's runs are cheap on most days: the fleet's daily default
 cadence is plenty, and the close-out short-circuits when the integration surfaces haven't changed.
 
-- `signals-scout-scratchpad-search` for `last-scan:api-deprecations`. If the recorded HEAD sha
+- `scout-scratchpad-search` for `last-scan:api-deprecations`. If the recorded HEAD sha
   matches the repository's current HEAD (`git ls-remote <repo-url> HEAD` — no clone needed), and
   the entry is fresher than 7 days, close out empty.
 - If HEAD moved but the entry is fresher than 7 days: check whether any **integration-surface
@@ -76,7 +76,7 @@ cadence is plenty, and the close-out short-circuits when the integration surface
 
 ## Orient
 
-- `signals-scout-scratchpad-search` (`text=api-dep`) — every memory kind is keyed
+- `scout-scratchpad-search` (`text=api-dep`) — every memory kind is keyed
   `<host>:<endpoint>`, so a suppression only ever covers the one endpoint it names. `report:`
   entries point at an open inbox report for that endpoint (hold its `report_id` — edit, don't
   re-author), `addressed:` entries are deprecations whose code fix already merged (don't refile),
@@ -87,7 +87,7 @@ cadence is plenty, and the close-out short-circuits when the integration surface
   reports already in the inbox. A deprecation you've reported before is an **edit**, not a fresh
   report; your own report-channel reports persist their backing signals under
   `source_product=signals_scout`, so don't filter by another source product.
-- `signals-scout-runs-list` (last 14d) — what prior runs of this scout filed or ruled out.
+- `scout-runs-list` (last 14d) — what prior runs of this scout filed or ruled out.
 - Get the code. Prefer a checkout the harness already placed under the working directory's
   `repos/` tree. Otherwise resolve which repository to scan: a `config:api-dep:repo` scratchpad
   entry takes precedence (operators set this per team via scratchpad — the parameter mechanism
@@ -183,14 +183,14 @@ status mapping, non-idempotency caveats); these are the api-deprecation-specific
   reliable path — it holds the `report_id`, so `inbox-reports-retrieve` it directly; with no
   pointer, `inbox-reports-list` by the vendor host or endpoint (never a broad word like
   "deprecation"). A deprecation with a live report and no material change is a **skip**.
-- **Edit** (`signals-scout-edit-report`) when a still-live report already covers the same
+- **Edit** (`scout-edit-report`) when a still-live report already covers the same
   host+endpoint deprecation — the deadline drawing nearer (severity escalating `P1`→`P0`), the
   vendor publishing a firmer date, or a version bump you flagged still not merged. `append_note` the
   refreshed cutoff, severity, and call-site status. This is the default when a match exists — one
   deprecation is one report across its life, not one per run. `edit-report` can't change status, so
   if the matched report is `resolved` / `suppressed` / `failed`, author a fresh report instead and
   repoint the `report:` key.
-- **Author** (`signals-scout-emit-report`) only when nothing live covers it — one report per cited
+- **Author** (`scout-emit-report`) only when nothing live covers it — one report per cited
   deprecation. A report-worthy finding names the **host + endpoint**, the **pinned version**, the
   **call site `file:line`** and what the code sends, the **vendor page URL + the verbatim quote**,
   the **cutoff date and severity**, whether the fix is **mechanical or structural** (and what
@@ -206,7 +206,7 @@ status mapping, non-idempotency caveats); these are the api-deprecation-specific
     stops a pointless repo-selection sandbox from spawning).
   - **`priority` + `priority_explanation`** from the severity above (`P0`–`P3`); the explanation
     states the cutoff date and blast radius.
-  - **`suggested_reviewers`** via `signals-scout-members-list` (objects — a `{github_login}` or
+  - **`suggested_reviewers`** via `scout-members-list` (objects — a `{github_login}` or
     `{user_uuid}`, not bare strings; cache under `reviewer:api-dep:<area>`); left empty the report
     reaches no one.
   - After authoring, write the `report:api-dep:<host>:<endpoint>` pointer with the `report_id` so
@@ -257,13 +257,13 @@ must not stop future runs from researching a genuine API call site on the same h
 
 ## MCP tools
 
-- `signals-scout-emit-report` / `signals-scout-edit-report` — author a report 1:1 / edit an
+- `scout-emit-report` / `scout-edit-report` — author a report 1:1 / edit an
   existing one. This scout is on the report channel; there is no `emit_signal` path.
 - `inbox-reports-list` / `inbox-reports-retrieve` — the reports already in the inbox; check before
   authoring so you edit instead of duplicating (`ordering=-updated_at`).
-- `signals-scout-members-list` — this project's members with their resolved `github_login`, to route
+- `scout-members-list` — this project's members with their resolved `github_login`, to route
   `suggested_reviewers` (wrap as a `{github_login}` object, or pass the member's `{user_uuid}`).
-- `signals-scout-scratchpad-search` / `-remember` / `-forget`, `signals-scout-runs-list` /
+- `scout-scratchpad-search` / `-remember` / `-forget`, `scout-runs-list` /
   `-runs-retrieve` — orientation, dedupe, and durable memory.
 - Shell for the clone, `rg`, and reading call sites; web fetch for the vendor documentation.
 

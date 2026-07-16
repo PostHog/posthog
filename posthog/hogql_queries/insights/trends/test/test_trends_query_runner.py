@@ -658,6 +658,19 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(DRFValidationError):
             TrendsQueryRunner(team=self.team, query=query).calculate()
 
+    def test_exclude_incomplete_periods_drops_current_bucket(self):
+        self._create_test_events()
+
+        with freeze_time("2020-01-15T12:00:00Z"):
+            query = TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                dateRange=DateRange(date_from="-7d", excludeIncompletePeriods=True),
+                interval=IntervalType.DAY,
+            )
+            response = TrendsQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertEqual("2020-01-14", response.results[0]["days"][-1])
+
     def test_trends_days(self):
         self._create_test_events()
 
@@ -806,6 +819,27 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(4, response.results[1]["count"])
         self.assertEqual("Formula (A-B)", response.results[1]["label"])
         self.assertEqual([1, 0, 0, 2, -2, 0, 2, -1, 1, 0, 1], response.results[1]["data"])
+
+    def test_ratio_formula_total_is_ratio_of_sums(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            self.default_date_from,
+            self.default_date_to,
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(formulas=["A/B"]),
+        )
+
+        self.assertEqual(1, len(response.results))
+        # Per-interval line stays as the daily ratio (division by zero renders as 0).
+        self.assertEqual(
+            [0, 0, 1, 3, 1 / 3, 0, 0, 0, 0, 0, 0],
+            response.results[0]["data"],
+        )
+        # The total is the ratio of the summed series (sum(A)/sum(B) = 10/6), not the sum of the
+        # daily ratios (which would be 1 + 3 + 1/3 = 4.333 and nonsensically overshoot the ratio).
+        self.assertAlmostEqual(10 / 6, response.results[0]["count"])
 
     def test_formula_with_compare(self):
         self._create_test_events()
@@ -1541,25 +1575,27 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response.results.sort(key=lambda r: r["count"])
 
-        assert response.results[0]["label"] == "Formula (A+B)"
+        # The total is the formula applied to each series' summed values, so the constant in
+        # `B+1` counts once, not once per interval: sum(B) + 1, not sum(B_i + 1).
+        assert response.results[0]["label"] == "Formula (B+1)"
         assert response.results[0]["breakdown_value"] == cohort1.pk
-        assert response.results[0]["count"] == 9
-        assert response.results[0]["data"] == [0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 1, 0]
+        assert response.results[0]["count"] == 4
+        assert response.results[0]["data"] == [1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
 
         assert response.results[1]["label"] == "Formula (B+1)"
-        assert response.results[1]["breakdown_value"] == cohort1.pk
-        assert response.results[1]["count"] == 15
-        assert response.results[1]["data"] == [1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
+        assert response.results[1]["breakdown_value"] == "all"
+        assert response.results[1]["count"] == 7
+        assert response.results[1]["data"] == [1, 1, 2, 2, 4, 1, 1, 2, 1, 1, 1, 1]
 
         assert response.results[2]["label"] == "Formula (A+B)"
-        assert response.results[2]["breakdown_value"] == "all"
-        assert response.results[2]["count"] == 16
-        assert response.results[2]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
+        assert response.results[2]["breakdown_value"] == cohort1.pk
+        assert response.results[2]["count"] == 9
+        assert response.results[2]["data"] == [0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 1, 0]
 
-        assert response.results[3]["label"] == "Formula (B+1)"
+        assert response.results[3]["label"] == "Formula (A+B)"
         assert response.results[3]["breakdown_value"] == "all"
-        assert response.results[3]["count"] == 18
-        assert response.results[3]["data"] == [1, 1, 2, 2, 4, 1, 1, 2, 1, 1, 1, 1]
+        assert response.results[3]["count"] == 16
+        assert response.results[3]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
 
         # action needs to be unset to display custom label
         assert response.results[0]["action"] is None

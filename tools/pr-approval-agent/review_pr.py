@@ -448,11 +448,24 @@ class Pipeline:
         summary of who has actually vouched for the current head.
         """
         pr = self.pr
+        # Exclude the author's own reviews: an author commenting on or replying
+        # within their own PR records a COMMENTED review at head, which would
+        # otherwise surface as "<author> reviewed the current head." Self-review
+        # is never independent assurance, so it must not read as a vouch — to the
+        # human in the review body or to the LLM in the trusted prompt block.
         head_approvals = sorted(
-            {r["user"] for r in pr.reviews if r.get("is_current_head") and r.get("state") == "APPROVED"}
+            {
+                r["user"]
+                for r in pr.reviews
+                if r.get("is_current_head") and r.get("state") == "APPROVED" and r["user"] != pr.author
+            }
         )
         head_commented_users = sorted(
-            {r["user"] for r in pr.reviews if r.get("is_current_head") and r.get("state") == "COMMENTED"}
+            {
+                r["user"]
+                for r in pr.reviews
+                if r.get("is_current_head") and r.get("state") == "COMMENTED" and r["user"] != pr.author
+            }
         )
         # Count unresolved conversations, not flattened comments: replies inherit
         # the thread's resolution state, so a single 4-reply thread must read as
@@ -563,7 +576,8 @@ class Pipeline:
     def _summarize_ownership(self) -> str:
         """Build ownership context for the LLM (not a hard gate)."""
         ownership = self.classification["ownership"]
-        if ownership["team_count"] == 0:
+        individuals = ownership.get("individuals", [])
+        if ownership["team_count"] == 0 and not individuals:
             self.classification["ownership_summary"] = "no owned paths touched"
             return self.classification["ownership_summary"]
 
@@ -575,10 +589,17 @@ class Pipeline:
             if check_team_membership(author, team_slug):
                 author_teams.append(team_raw)
 
-        parts = [f"touches {', '.join(teams)}"]
+        parts = []
+        if teams:
+            parts.append(f"touches {', '.join(teams)}")
+        if individuals:
+            # Individuals never enter the membership check — the author simply
+            # is or isn't one of them.
+            suffix = f" (author {author} is one of them)" if f"@{author}" in individuals else ""
+            parts.append(f"individually owned by {', '.join(individuals)}{suffix}")
         if author_teams:
             parts.append(f"author {author} is on {', '.join(author_teams)}")
-        else:
+        elif teams:
             parts.append(f"author {author} is not on any owning team")
         if ownership["cross_team"]:
             parts.append("cross-team change")

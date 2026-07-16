@@ -5,6 +5,7 @@ import pyarrow as pa
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
     _make_webhook_dedupe_transformer,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
 
 _JOB_VERSION_KEYS = ["completed_at", "started_at", "created_at"]
 _JOB_FIELDS: dict[str, pa.DataType] = {
@@ -103,3 +104,21 @@ def test_returns_table_unchanged_when_version_columns_absent() -> None:
     table = pa.table({"id": [1, 1], "status": ["queued", "in_progress"]})
     out = _make_webhook_dedupe_transformer("id", _JOB_VERSION_KEYS)(table)
     assert out.num_rows == 2
+
+
+def test_reviews_config_collapses_events_sharing_an_id() -> None:
+    # A review emits submitted then edited/dismissed events sharing an id; without version_keys on
+    # the reviews config the transformer is never built and the delta merge multi-matches the batch.
+    # submitted_at is constant across those events, so the tie keeps the later arrival.
+    version_keys = GITHUB_ENDPOINTS["reviews"].version_keys
+    assert version_keys is not None
+    table = pa.table(
+        {
+            "id": [900, 900],
+            "state": ["APPROVED", "DISMISSED"],
+            "submitted_at": ["2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"],
+        }
+    )
+    out = _make_webhook_dedupe_transformer("id", version_keys)(table)
+    assert out.num_rows == 1
+    assert out.column("state")[0].as_py() == "DISMISSED"

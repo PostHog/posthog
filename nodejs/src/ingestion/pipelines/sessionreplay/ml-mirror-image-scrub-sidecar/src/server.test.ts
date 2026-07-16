@@ -1,6 +1,7 @@
 import { once } from 'node:events'
 import type { AddressInfo } from 'node:net'
 
+import { blurOnly } from './blur.ts'
 import { startServer } from './server.ts'
 
 const PNG = Buffer.from(
@@ -14,7 +15,9 @@ describe('image-scrub sidecar server', () => {
     let servers: ReturnType<typeof startServer>
 
     beforeAll(async () => {
-        servers = startServer(0, 0, 4, 1024)
+        // The model-free blur keeps this suite about the HTTP plumbing; the ML scrub path is
+        // exercised by the image build's smoke test and the dev eval harness.
+        servers = startServer(0, 0, 4, 1024, blurOnly)
         await Promise.all([once(servers.scrub, 'listening'), once(servers.metrics, 'listening')])
         base = `http://127.0.0.1:${(servers.scrub.address() as AddressInfo).port}`
         metricsBase = `http://127.0.0.1:${(servers.metrics.address() as AddressInfo).port}`

@@ -26,6 +26,7 @@ import {
 } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
+import { getFlagVariants } from './utils'
 
 export const EXPERIMENTS_PER_PAGE = 100
 
@@ -87,7 +88,7 @@ export function isSingleVariantShipped(experiment: Experiment): boolean {
         Array.isArray(filters.groups?.[0]?.properties) &&
         filters.groups?.[0]?.properties?.length === 0 &&
         filters.groups?.[0]?.rollout_percentage === 100 &&
-        (filters.multivariate?.variants?.some(({ rollout_percentage }) => rollout_percentage === 100) || false)
+        getFlagVariants(experiment.feature_flag).some(({ rollout_percentage }) => rollout_percentage === 100)
     )
 }
 
@@ -96,9 +97,8 @@ export function getShippedVariantKey(experiment: Experiment): string | null {
         return null
     }
     return (
-        experiment.feature_flag?.filters.multivariate?.variants?.find(
-            ({ rollout_percentage }) => rollout_percentage === 100
-        )?.key || null
+        getFlagVariants(experiment.feature_flag).find(({ rollout_percentage }) => rollout_percentage === 100)?.key ||
+        null
     )
 }
 

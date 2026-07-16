@@ -27,6 +27,7 @@ import {
     PgIdentityCredentialStore,
     PgIdentityLinkStateStore,
     PgIdentityStore,
+    PgTransportBindingStore,
     PgApprovalStore,
     PgRevisionStore,
     PgSessionQueue,
@@ -144,6 +145,7 @@ async function main(): Promise<void> {
         // rebuilds the provider from the app's spec + decrypted env, and persists.
         identityCredentials: new PgIdentityCredentialStore(agentDb, { encryptionSaltKeys: config.encryptionSaltKeys }),
         identityLinks: new PgIdentityLinkStateStore(agentDb),
+        transportBindings: new PgTransportBindingStore(agentDb),
         envEncryption: encryption,
         posthogApiBaseUrl: config.posthogApiBaseUrl,
         http,

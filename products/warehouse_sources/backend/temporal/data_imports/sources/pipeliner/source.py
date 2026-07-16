@@ -102,7 +102,6 @@ To connect, create an API application in Pipeliner under **Administration → Un
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

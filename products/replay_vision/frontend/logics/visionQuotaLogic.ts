@@ -1,6 +1,7 @@
-import { actions, afterMount, kea, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { environmentVisionQuotaRetrieve } from '../generated/api'
@@ -9,6 +10,10 @@ import type { visionQuotaLogicType } from './visionQuotaLogicType'
 
 export const visionQuotaLogic = kea<visionQuotaLogicType>([
     path(['products', 'replay_vision', 'frontend', 'logics', 'visionQuotaLogic']),
+
+    connect(() => ({
+        actions: [billingLogic, ['loadBilling']],
+    })),
 
     actions({
         // Declared here so the action stays zero-arg despite the loader's `breakpoint` parameter.
@@ -53,6 +58,8 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadQuota()
+        // billingLogic doesn't self-load; the ingestion banner needs billing on cold navigation.
+        actions.loadBilling()
     }),
 ])
 

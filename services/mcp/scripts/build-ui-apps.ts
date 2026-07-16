@@ -21,12 +21,17 @@ import { discoverApps, MCP_ROOT_DIR, ROOT_DIR } from './utils'
 // Where to store the built files
 const OUT_DIR = resolve(MCP_ROOT_DIR, 'public/ui-apps')
 
-// Load environment variables from .dev.vars (Cloudflare convention)
-const devVarsPath = resolve(MCP_ROOT_DIR, '.dev.vars')
-if (existsSync(devVarsPath)) {
-    const output = dotenvConfig({ path: devVarsPath })
+// Load environment variables from .env (see .env.example)
+const dotEnvPath = resolve(MCP_ROOT_DIR, '.env')
+if (existsSync(dotEnvPath)) {
+    const output = dotenvConfig({ path: dotEnvPath })
     const loadedKeys = Object.keys(output.parsed || {})
-    console.info('📝 Loaded environment from .dev.vars', loadedKeys)
+    console.info('📝 Loaded environment from .env', loadedKeys)
+} else if (existsSync(resolve(MCP_ROOT_DIR, '.dev.vars'))) {
+    console.warn(
+        '⚠️ Support for `.dev.vars` was removed - move your local config to `.env` (see .env.example). ' +
+            'Building with fallback values (no analytics token).'
+    )
 }
 
 function buildAppAsync(appName: string): Promise<void> {

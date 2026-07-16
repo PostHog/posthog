@@ -115,6 +115,96 @@ class TestFacadeReadsAndMappers(TestCase):
         other_user = User.objects.create(email="other@test.com", distinct_id="other")
         self.assertFalse(facade.is_task_controllable_by_user(task.id, other_user.id))
 
+    def _make_wizard_run(self, task: Task, status: TaskRun.Status, **kwargs) -> TaskRun:
+        # A genuine server-started wizard run carries the markers create_wizard_cloud_run stamps:
+        # a cloud environment and the (caller-unsettable) wizard_config state key.
+        kwargs.setdefault("environment", TaskRun.Environment.CLOUD)
+        kwargs.setdefault("state", {"wizard_config": {}})
+        return TaskRun.objects.create(
+            task=task,
+            team=task.team,
+            status=status,
+            **kwargs,
+        )
+
+    def test_get_active_wizard_cloud_run_returns_latest_onboarding_run(self):
+        task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        self._make_wizard_run(task, TaskRun.Status.QUEUED)
+        latest = self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS)
+
+        run = facade.get_active_wizard_cloud_run(self.team.id)
+        assert run is not None
+        self.assertIsInstance(run, contracts.WizardCloudRunDTO)
+        self.assertEqual(run.task_id, task.id)
+        self.assertEqual(run.run_id, latest.id)
+        self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS.value)
+
+    def test_get_active_wizard_cloud_run_ignores_non_onboarding_tasks(self):
+        task = self._make_task(origin_product=Task.OriginProduct.USER_CREATED)
+        self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS)
+        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id))
+
+    def test_get_active_wizard_cloud_run_ignores_user_created_run_without_wizard_markers(self):
+        # A project member could create an onboarding task and bootstrap a cloud run through the
+        # normal task APIs, but they can't set the protected wizard_config marker — so such a
+        # planted run must never be surfaced to a provisioned teammate as the active wizard run.
+        task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.CLOUD
+        )
+        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id))
+
+        genuine = self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS)
+        run = facade.get_active_wizard_cloud_run(self.team.id)
+        assert run is not None
+        self.assertEqual(run.run_id, genuine.id)
+
+    def test_get_active_wizard_cloud_run_ignores_local_run(self):
+        task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.LOCAL)
+        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id))
+
+    def test_get_active_wizard_cloud_run_surfaces_recently_completed_run(self):
+        task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        run = self._make_wizard_run(task, TaskRun.Status.COMPLETED)
+        handle = facade.get_active_wizard_cloud_run(self.team.id)
+        assert handle is not None
+        self.assertEqual(handle.run_id, run.id)
+
+    def test_get_active_wizard_cloud_run_drops_stale_completed_run(self):
+        task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        run = self._make_wizard_run(task, TaskRun.Status.COMPLETED)
+        # auto_now fields can't be set on create — force them past the freshness window.
+        stale = django_timezone.now() - timedelta(days=2)
+        TaskRun.objects.filter(id=run.id).update(created_at=stale, updated_at=stale)
+        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id))
+
+    def test_get_active_wizard_cloud_run_is_team_scoped(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS)
+        self.assertIsNone(facade.get_active_wizard_cloud_run(other_team.id))
+
+    def test_get_active_wizard_cloud_run_surfaces_older_active_run_behind_newer_stale_task(self):
+        # The newest onboarding task's run is stale, but an older task still has a live run:
+        # keying off task-recency alone would return nothing and hide the active run.
+        older_task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        active = self._make_wizard_run(older_task, TaskRun.Status.IN_PROGRESS)
+        newer_task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        stale_run = self._make_wizard_run(newer_task, TaskRun.Status.COMPLETED)
+        now = django_timezone.now()
+        TaskRun.objects.filter(id=active.id).update(
+            created_at=now - timedelta(days=3), updated_at=now - timedelta(days=3)
+        )
+        TaskRun.objects.filter(id=stale_run.id).update(
+            created_at=now - timedelta(days=2), updated_at=now - timedelta(days=2)
+        )
+
+        handle = facade.get_active_wizard_cloud_run(self.team.id)
+        assert handle is not None
+        self.assertEqual(handle.task_id, older_task.id)
+        self.assertEqual(handle.run_id, active.id)
+
     def test_count_in_progress_runs_for_github_integration_scopes_to_live_runs_of_that_integration(self):
         integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
         other_integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
@@ -216,15 +306,24 @@ class TestFacadeReadsAndMappers(TestCase):
 
         stale_ids = facade.get_stale_queued_task_run_ids(older_than=timedelta(hours=24), limit=100)
         self.assertIn(stale.id, stale_ids)
-        # The unrestricted sweep (24h killer) still reaps abandoned local runs.
+        # Unfiltered, the query returns stale runs of every environment.
         self.assertIn(stale_local.id, stale_ids)
         self.assertNotIn(fresh.id, stale_ids)
 
-        # The dispatch reconciler must never see local (desktop-driven) runs — re-dispatching
-        # one starts a cloud workflow that hijacks and eventually fails the live local session.
-        cloud_ids = facade.get_stale_queued_task_run_ids(older_than=timedelta(hours=24), limit=100, cloud_only=True)
+        # The dispatch reconciler and the 24h fail sweep must never see local (desktop-driven)
+        # runs — re-dispatching one starts a cloud workflow that hijacks the live local session,
+        # and failing one turns an idle desktop session into a bogus failure.
+        cloud_ids = facade.get_stale_queued_task_run_ids(
+            older_than=timedelta(hours=24), limit=100, environment=TaskRun.Environment.CLOUD
+        )
         self.assertIn(stale.id, cloud_ids)
         self.assertNotIn(stale_local.id, cloud_ids)
+
+        local_ids = facade.get_stale_queued_task_run_ids(
+            older_than=timedelta(hours=24), limit=100, environment=TaskRun.Environment.LOCAL
+        )
+        self.assertIn(stale_local.id, local_ids)
+        self.assertNotIn(stale.id, local_ids)
 
         with patch("products.tasks.backend.push_dispatcher.notify_task_run_failed"):
             self.assertTrue(facade.fail_task_run(stale.id, "boom"))
@@ -233,6 +332,29 @@ class TestFacadeReadsAndMappers(TestCase):
         stale.refresh_from_db()
         self.assertEqual(stale.status, TaskRun.Status.FAILED.value)
         self.assertEqual(stale.error_message, "boom")
+
+    def test_complete_idle_local_task_run_skips_run_handed_off_to_cloud(self):
+        task = self._make_task()
+        idle_local = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.QUEUED, environment=TaskRun.Environment.LOCAL
+        )
+        # Between the janitor's candidate scan and the finalize call, a user can resume the run
+        # into cloud (environment flips to CLOUD, workflow dispatched) — completing it then
+        # would kill a just-started cloud run.
+        handed_off = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.QUEUED, environment=TaskRun.Environment.CLOUD
+        )
+
+        with patch("products.tasks.backend.push_dispatcher.notify_task_run_completed") as mock_notify:
+            self.assertTrue(facade.complete_idle_local_task_run(idle_local.id))
+            self.assertFalse(facade.complete_idle_local_task_run(handed_off.id))
+
+        idle_local.refresh_from_db()
+        self.assertEqual(idle_local.status, TaskRun.Status.COMPLETED.value)
+        self.assertIsNone(idle_local.error_message)
+        mock_notify.assert_not_called()
+        handed_off.refresh_from_db()
+        self.assertEqual(handed_off.status, TaskRun.Status.QUEUED.value)
 
     @parameterized.expand(
         [

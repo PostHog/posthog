@@ -5,15 +5,14 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import type { DashboardAddTileType } from 'scenes/dashboard/dashboardAddTileTypes'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
-import { recordWebAnalyticsInteraction } from 'scenes/web-analytics/achievements/recordInteraction'
 
 import {
     Breakdown,
@@ -75,8 +74,6 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
-import { InteractionKindEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
-
 import type { eventUsageLogicType } from './eventUsageLogicType'
 
 export enum DashboardEventSource {
@@ -101,7 +98,7 @@ export enum DashboardEventSource {
     DashboardVariableOverride = 'dashboard_variable_override',
 }
 
-export type DashboardFilterChangeType = 'date' | 'properties' | 'breakdown' | 'variable' | 'quick_filters'
+export type DashboardFilterChangeType = 'date' | 'properties' | 'breakdown' | 'variable'
 
 export enum InsightEventSource {
     LongPress = 'long_press',
@@ -430,6 +427,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPropertyGroupFilterRemoved: true,
         reportPropertyGroupFilterDuplicated: true,
         reportInsightDateRangeChanged: (queryKind: string | undefined) => ({ queryKind }),
+        reportInsightDatePickerOpened: (queryKind: string | undefined) => ({ queryKind }),
+        reportInsightDragToZoomed: (queryKind: string | undefined) => ({ queryKind }),
         reportInsightBreakdownChanged: (queryKind: string | undefined) => ({ queryKind }),
         reportInsightCompareChanged: (queryKind: string | undefined) => ({ queryKind }),
         reportChangeOuterPropertyGroupFiltersType: (type: FilterLogicalOperator, groupsLength: number) => ({
@@ -896,6 +895,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
         reportFeatureFlagCopySuccess: true,
         reportFeatureFlagCopyFailure: (error) => ({ error }),
+        reportFeatureFlagBulkCopy: (flagCount: number, projectCount: number, failedCount: number) => ({
+            flagCount,
+            projectCount,
+            failedCount,
+        }),
         reportFeatureFlagScheduleSuccess: true,
         reportFeatureFlagScheduleFailure: (error) => ({ error }),
         reportInviteMembersButtonClicked: true,
@@ -1938,6 +1942,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInsightDateRangeChanged: ({ queryKind }) => {
             posthog.capture('insight date range changed', { query_kind: queryKind })
         },
+        reportInsightDatePickerOpened: ({ queryKind }) => {
+            posthog.capture('insight date picker opened', { query_kind: queryKind })
+        },
+        reportInsightDragToZoomed: ({ queryKind }) => {
+            posthog.capture('insight drag to zoomed', { query_kind: queryKind })
+        },
         reportInsightBreakdownChanged: ({ queryKind }) => {
             posthog.capture('insight breakdown changed', { query_kind: queryKind })
         },
@@ -2044,6 +2054,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportFeatureFlagCopyFailure: ({ error }) => {
             posthog.capture('feature flag copy failure', { error })
+        },
+        reportFeatureFlagBulkCopy: ({ flagCount, projectCount, failedCount }) => {
+            posthog.capture('feature flags bulk copied', {
+                flag_count: flagCount,
+                project_count: projectCount,
+                failed_count: failedCount,
+            })
         },
         reportFeatureFlagScheduleSuccess: () => {
             posthog.capture('feature flag scheduled')
@@ -2504,19 +2521,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportWebAnalyticsFilterApplied: ({ props }) => {
             posthog.capture('web analytics filter applied', props)
-            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsFilterRemoved: ({ props }) => {
             posthog.capture('web analytics filter removed', props)
-            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsDateRangeChanged: ({ props }) => {
             posthog.capture('web analytics date range changed', props)
-            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsCompareToggled: ({ props }) => {
             posthog.capture('web analytics compare toggled', props)
-            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsConversionGoalSet: ({ props }) => {
             posthog.capture('web analytics conversion goal set', props)
@@ -2535,7 +2548,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportWebAnalyticsPathCleaningToggled: ({ props }) => {
             posthog.capture('web analytics path cleaning toggled', props)
-            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         // Customer Analytics
         reportCustomerAnalyticsDashboardBusinessModeChanged: async ({ business_mode }) => {

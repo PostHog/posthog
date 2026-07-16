@@ -1,7 +1,7 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 
 import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 // eslint-disable-next-line import/no-cycle
 import { userLogic } from 'scenes/userLogic'
 

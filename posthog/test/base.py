@@ -77,7 +77,7 @@ from posthog.clickhouse.query_log_archive import (
     WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
-from posthog.helpers.two_factor_session import email_mfa_token_generator
+from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Organization, Team, User
@@ -451,13 +451,6 @@ def clean_varying_query_parts(query, replace_all_numbers):
     query = re.sub(
         r"ee_license\"\.\"valid_until\" >= '\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d.\d{6}\+\d\d:\d\d'::timestamptz",
         '"ee_license"."valid_until">=\'LICENSE-TIMESTAMP\'::timestamptz"',
-        query,
-    )
-
-    # insight cache key varies with team id
-    query = re.sub(
-        r"WHERE \(\"posthog_insightcachingstate\".\"cache_key\" = 'cache_\w{32}'",
-        """WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_THE_CACHE_KEY'""",
         query,
     )
 
@@ -1067,13 +1060,13 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
         )
         return key_value
 
-    def complete_email_mfa(self, email: str, user: Optional[Any] = None):
+    def complete_code_based_verification(self, email: str, user: Optional[Any] = None):
         if user is None:
             user = User.objects.get(email=email)
 
-        token = email_mfa_token_generator.make_token(user)
+        token = code_based_verification_token_generator.make_token(user)
 
-        response = self.client.post("/api/login/email-mfa/", {"email": email, "token": token})
+        response = self.client.post("/api/login/code-based-verification/", {"email": email, "token": token})
 
         return response
 
