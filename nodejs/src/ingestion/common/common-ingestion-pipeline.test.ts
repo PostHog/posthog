@@ -14,7 +14,7 @@ import { dlq, drop, isDropResult, isOkResult, ok, redirect } from '~/ingestion/f
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { createTestTeam } from '~/tests/helpers/team'
-import { EventHeaders } from '~/types'
+import { EventHeaders, IncomingEvent, Team } from '~/types'
 
 import { CommonIngestionPipelineConfig, newCommonIngestionPipeline } from './common-ingestion-pipeline'
 
@@ -489,5 +489,45 @@ describe('CommonIngestionPipelineBuilder', () => {
         expect(log.filter((line) => line.startsWith('G:user-a'))).toEqual(['G:user-a:e0', 'G:user-a:e1'])
         expect(log.filter((line) => line.startsWith('G:user-b'))).toEqual(['G:user-b:e2', 'G:user-b:e3'])
         expect(log[log.length - 1]).toBe('gathered:4')
+    })
+
+    describe('compile-time type safety', () => {
+        // These assertions run at typecheck time, not at test time: each
+        // misuse sits under @ts-expect-error, so if a builder refactor loosens
+        // the stage constraints and a misuse starts compiling, tsc fails with
+        // an unused-directive error.
+        it('rejects stage misuse at compile time', () => {
+            const teamDependentStep = (input: { message: Message; headers: EventHeaders; team: Team }) =>
+                Promise.resolve(ok(input))
+            const bodyDependentStep = (input: { message: Message; headers: EventHeaders; event: IncomingEvent }) =>
+                Promise.resolve(ok(input))
+
+            const preTeam = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config).parseHeaders()
+
+            // @ts-expect-error team-dependent steps must not typecheck before .resolveTeam()
+            preTeam.pipe(teamDependentStep)
+
+            // @ts-expect-error body-dependent steps must not typecheck before .parseMessage()
+            preTeam.pipe(bodyDependentStep)
+
+            // @ts-expect-error .resolveTeam() requires the parsed body from .parseMessage()
+            preTeam.resolveTeam()
+
+            const teamStage = preTeam.parseMessage().resolveTeam()
+
+            // @ts-expect-error redirect outputs not declared in ROut must not typecheck
+            teamStage.pipe(function undeclaredRedirectStep(_input: MessageOnly) {
+                return Promise.resolve(redirect('nope', 'undeclared_output'))
+            })
+
+            const narrowed = teamStage.pipe(function narrowStep(input) {
+                return Promise.resolve(ok({ teamId: input.team.id }))
+            })
+
+            // @ts-expect-error steps must accept the previous step's output type
+            narrowed.pipe(teamDependentStep)
+
+            expect(narrowed).toBeDefined()
+        })
     })
 })
