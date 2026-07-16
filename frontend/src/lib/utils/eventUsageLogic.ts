@@ -3062,6 +3062,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 last_refreshed: lastRefreshed?.toString(),
                 refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
                 action: action,
+                refresh_type: refresh,
                 force_refresh: refresh === 'force_blocking',
                 refresh_duration_ms: insightsRefreshedInfo.refreshDurationMs,
                 total_tile_count: insightsRefreshedInfo.totalTileCount,
