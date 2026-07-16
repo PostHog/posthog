@@ -197,6 +197,9 @@ const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
         if (params.row_filters !== undefined) {
             body['row_filters'] = params.row_filters
         }
+        if (params.api_version !== undefined) {
+            body['api_version'] = params.api_version
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/incremental_fields/`,
@@ -281,6 +284,9 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         if (params.row_filters !== undefined) {
             body['row_filters'] = params.row_filters
         }
+        if (params.api_version !== undefined) {
+            body['api_version'] = params.api_version
+        }
         const result = await context.api.request<Schemas.ExternalDataSchema>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/`,
@@ -333,6 +339,9 @@ const externalDataSchemasReload = (): ToolBase<typeof ExternalDataSchemasReloadS
         if (params.row_filters !== undefined) {
             body['row_filters'] = params.row_filters
         }
+        if (params.api_version !== undefined) {
+            body['api_version'] = params.api_version
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/reload/`,
@@ -384,6 +393,9 @@ const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncS
         }
         if (params.row_filters !== undefined) {
             body['row_filters'] = params.row_filters
+        }
+        if (params.api_version !== undefined) {
+            body['api_version'] = params.api_version
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -463,7 +475,7 @@ const ExternalDataSourcesCreateSchema = ExternalDataSourcesCreateBody.extend({
 
 const externalDataSourcesCreate = (): ToolBase<
     typeof ExternalDataSourcesCreateSchema,
-    Schemas.ExternalDataSourceCreate
+    Schemas.ExternalDataSourceCreateResponse
 > => ({
     name: 'external-data-sources-create',
     schema: ExternalDataSourcesCreateSchema,
@@ -489,7 +501,7 @@ const externalDataSourcesCreate = (): ToolBase<
             body['direct_query_enabled'] = params.direct_query_enabled
         }
         body['created_via'] = 'mcp'
-        const result = await context.api.request<Schemas.ExternalDataSourceCreate>({
+        const result = await context.api.request<Schemas.ExternalDataSourceCreateResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/`,
             body,
