@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class JudgeMeReviewsSource(ResumableSource[JudgeMeReviewsSourceConfig, JudgeMeReviewsResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://judge.me/api/docs"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -78,7 +79,6 @@ You can find your private API token under **Settings → Integrations → Judge.
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

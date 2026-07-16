@@ -59,6 +59,12 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
 
     if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]:
         task_run.completed_at = timezone.now()
+    elif (
+        input.status == TaskRun.Status.CANCELLED
+        and task_run.environment == TaskRun.Environment.CLOUD
+        and not task_run.completed_at
+    ):
+        task_run.completed_at = timezone.now()
 
     task_run.save(update_fields=["status", "error_message", "completed_at", "updated_at"])
     task_run.publish_stream_state_event()
@@ -98,11 +104,13 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
         state = task_run.state if isinstance(task_run.state, dict) else {}
         usage = state.get("token_usage")
         if isinstance(usage, dict):
+            adapter = state.get("runtime_adapter")
             record_run_token_usage(
                 usage,
                 origin_product=task_run.task.origin_product,
                 run_environment=task_run.environment,
                 rtk_enabled=task_run.effective_rtk(),
+                runtime_adapter=adapter if isinstance(adapter, str) else None,
                 status=input.status,
             )
     except Exception:

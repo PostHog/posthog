@@ -54,9 +54,7 @@ class TestSourceConfig:
         config = BigMailerSource().get_source_config
         assert config.name == SchemaExternalDataSourceType.BIG_MAILER
         assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
-        # shipped as a hidden alpha: unreleasedSource keeps it out of the catalog until it's validated
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/bigmailer"
 
     def test_single_password_api_key_field(self) -> None:

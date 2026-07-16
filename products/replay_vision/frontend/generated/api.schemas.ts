@@ -20,12 +20,14 @@ export const TriggerTypeEnumApi = {
 
 /**
  * * `group_summary` - Group summary
+ * * `alert` - Alert
  * * `per_observation` - Per observation
  */
 export type VisionActionModeEnumApi = (typeof VisionActionModeEnumApi)[keyof typeof VisionActionModeEnumApi]
 
 export const VisionActionModeEnumApi = {
     GroupSummary: 'group_summary',
+    Alert: 'alert',
     PerObservation: 'per_observation',
 } as const
 
@@ -78,6 +80,89 @@ export interface SynthesisConfigApi {
      * @maxLength 500
      */
     prompt_guide?: string
+}
+
+/**
+ * * `every_match` - Every new match
+ * * `on_breach` - When a threshold is crossed
+ */
+export type AlertConfigFrequencyEnumApi = (typeof AlertConfigFrequencyEnumApi)[keyof typeof AlertConfigFrequencyEnumApi]
+
+export const AlertConfigFrequencyEnumApi = {
+    EveryMatch: 'every_match',
+    OnBreach: 'on_breach',
+} as const
+
+/**
+ * * `count` - Count of matching observations
+ * * `avg_score` - Average score
+ */
+export type VisionAlertMetricEnumApi = (typeof VisionAlertMetricEnumApi)[keyof typeof VisionAlertMetricEnumApi]
+
+export const VisionAlertMetricEnumApi = {
+    Count: 'count',
+    AvgScore: 'avg_score',
+} as const
+
+/**
+ * * `above` - At or above
+ * * `below` - At or below
+ */
+export type VisionAlertDirectionEnumApi = (typeof VisionAlertDirectionEnumApi)[keyof typeof VisionAlertDirectionEnumApi]
+
+export const VisionAlertDirectionEnumApi = {
+    Above: 'above',
+    Below: 'below',
+} as const
+
+/**
+ * * `1` - 1 day
+ * * `3` - 3 days
+ * * `7` - 7 days
+ * * `14` - 14 days
+ * * `30` - 30 days
+ */
+export type WindowDaysEnumApi = (typeof WindowDaysEnumApi)[keyof typeof WindowDaysEnumApi]
+
+export const WindowDaysEnumApi = {
+    Number1: 1,
+    Number3: 3,
+    Number7: 7,
+    Number14: 14,
+    Number30: 30,
+} as const
+
+/**
+ * The alert condition for mode='alert', applied after `selection` targeting. 'every_match'
+ * notifies about each new match since the previous check; 'on_breach' compares a metric to a
+ * threshold over a rolling window and notifies on the transition into breach.
+ */
+export interface AlertConfigApi {
+    /** 'every_match' notifies about every new matching observation (batched per check); 'on_breach' notifies once when the threshold condition starts holding. Defaults to 'on_breach'.
+     *
+     * * `every_match` - Every new match
+     * * `on_breach` - When a threshold is crossed */
+    frequency?: AlertConfigFrequencyEnumApi
+    /** What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.
+     *
+     * * `count` - Count of matching observations
+     * * `avg_score` - Average score */
+    metric?: VisionAlertMetricEnumApi
+    /** The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match. */
+    threshold?: number
+    /** Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.
+     *
+     * * `above` - At or above
+     * * `below` - At or below */
+    direction?: VisionAlertDirectionEnumApi
+    /** Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).
+     *
+     * * `1` - 1 day
+     * * `3` - 3 days
+     * * `7` - 7 days
+     * * `14` - 14 days
+     * * `30` - 30 days */
+    window_days?: WindowDaysEnumApi
 }
 
 /**
@@ -179,6 +264,7 @@ export interface VisionActionApi {
     /** What the action produces. MVP supports 'group_summary' only.
      *
      * * `group_summary` - Group summary
+     * * `alert` - Alert
      * * `per_observation` - Per observation */
     mode?: VisionActionModeEnumApi
     /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
@@ -187,6 +273,8 @@ export interface VisionActionApi {
     selection?: SelectionApi
     /** Synthesis options for the group summary, e.g. {prompt_guide}. */
     synthesis_config?: SynthesisConfigApi
+    /** Alert condition; required when mode is 'alert', ignored otherwise. */
+    alert_config?: AlertConfigApi
     /** List of delivery destinations the synthesized summary is sent to. */
     delivery_config?: DeliveryTargetApi[]
     /**
@@ -240,6 +328,7 @@ export interface PatchedVisionActionApi {
     /** What the action produces. MVP supports 'group_summary' only.
      *
      * * `group_summary` - Group summary
+     * * `alert` - Alert
      * * `per_observation` - Per observation */
     mode?: VisionActionModeEnumApi
     /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
@@ -248,6 +337,8 @@ export interface PatchedVisionActionApi {
     selection?: SelectionApi
     /** Synthesis options for the group summary, e.g. {prompt_guide}. */
     synthesis_config?: SynthesisConfigApi
+    /** Alert condition; required when mode is 'alert', ignored otherwise. */
+    alert_config?: AlertConfigApi
     /** List of delivery destinations the synthesized summary is sent to. */
     delivery_config?: DeliveryTargetApi[]
     /**
@@ -1296,7 +1387,7 @@ export type VisionObservationsRetrieveParams = {
      */
     order_by?: string
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string
     /**
@@ -1374,7 +1465,7 @@ export type VisionScannersObservationsListParams = {
      */
     order_by?: string
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string
     /**
@@ -1409,7 +1500,7 @@ export type VisionScannersObservationsRetrieveParams = {
      */
     order_by?: string
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string
     /**
@@ -1444,7 +1535,7 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      */
     recent_days?: number
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string
     /**

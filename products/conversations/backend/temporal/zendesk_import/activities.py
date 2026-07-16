@@ -21,8 +21,10 @@ with workflow.unsafe.imports_passed_through():
     from django.utils.dateparse import parse_datetime
     from django.utils.html import strip_tags
 
-    from posthog.models import Team
+    from posthog.models import Tag, Team
     from posthog.models.comment import Comment
+    from posthog.models.tag import tagify
+    from posthog.models.tagged_item import TaggedItem
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
 
@@ -284,6 +286,8 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
     ticket_comments_map: list[tuple[int, list[Comment], int, int]] = []
     # Maps index in tickets_to_create → index in ticket_data
     ticket_create_to_data_idx: list[int] = []
+    # (index in tickets_to_create, normalized tag names) — resolved to Tag rows in Phase 3
+    ticket_tags_map: list[tuple[int, list[str]]] = []
 
     for idx, (zendesk_ticket, comments) in enumerate(ticket_data):
         zendesk_id = int(zendesk_ticket["id"])
@@ -332,6 +336,11 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
             create_idx = len(tickets_to_create)
             tickets_to_create.append(ticket)
             ticket_create_to_data_idx.append(idx)
+
+            # Zendesk tags are plain strings on the ticket payload; PostHog tags are per-team
+            # Tag rows, so normalize the same way the live tagging API does (tagify).
+            zendesk_tags = {tagify(_strip_nul(str(t)))[:255] for t in (zendesk_ticket.get("tags") or [])}
+            ticket_tags_map.append((create_idx, sorted(t for t in zendesk_tags if t)))
 
             comments_to_create: list[Comment] = []
             customer_message_count = 0
@@ -423,6 +432,12 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
     if not tickets_to_create:
         return ImportBatchOutput(imported=0, skipped=skipped, failed=failed)
 
+    # Resolve Tag rows before the ticket transaction to keep its lock window narrow.
+    # get_or_create matches the live tagging path (set_tags_on_object); a Tag row left
+    # behind by a failed batch is harmless — it's reused on retry.
+    all_tag_names = {name for _, names in ticket_tags_map for name in names}
+    tags_by_name = {name: Tag.objects.get_or_create(name=name, team_id=team.id)[0] for name in all_tag_names}
+
     # Phase 3: Persist tickets + comments in a single transaction (no network I/O).
     # Ticket numbers are assigned under the same lock that guards bulk_create, so
     # concurrent batch activities can't collide on unique_ticket_number_per_team.
@@ -454,6 +469,17 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
                 ticket_ts_updates.append(ticket_obj)
         if ticket_ts_updates:
             Ticket.objects.bulk_update(ticket_ts_updates, ["created_at", "updated_at"])
+
+        # Link tags now that tickets have IDs. bulk_create skips TaggedItem.save()/full_clean()
+        # on purpose — the same no-signals rule as the ticket/comment writes here.
+        tagged_items_to_create = [
+            TaggedItem(tag=tags_by_name[name], ticket=created_tickets[idx])
+            for idx, names in ticket_tags_map
+            if idx < len(created_tickets)
+            for name in names
+        ]
+        if tagged_items_to_create:
+            TaggedItem.objects.bulk_create(tagged_items_to_create, ignore_conflicts=True)
 
         # Set item_id on comments now that tickets have IDs, then bulk_create
         all_comments: list[Comment] = []

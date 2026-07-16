@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class GitBookSource(ResumableSource[GitBookSourceConfig, GitBookResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://gitbook.com/docs/developers/gitbook-api/api-reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -68,7 +69,6 @@ You can create a personal access token under **Account settings → Developer** 
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

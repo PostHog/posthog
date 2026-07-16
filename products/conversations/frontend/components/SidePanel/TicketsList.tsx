@@ -59,7 +59,7 @@ export function TicketsList(): JSX.Element {
             {tickets.length === 0 ? (
                 <div className="text-center text-muted-alt py-8">
                     <p>No tickets yet.</p>
-                    <p className="text-sm">Create a new ticket to get help from our team.</p>
+                    <p className="text-sm">Create a new ticket to get help from our support engineers.</p>
                 </div>
             ) : (
                 <div className="flex flex-col gap-1 mt-2">

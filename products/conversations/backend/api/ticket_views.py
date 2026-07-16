@@ -53,6 +53,7 @@ class TicketViewViewSet(
     mixins.CreateModelMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
@@ -60,6 +61,8 @@ class TicketViewViewSet(
     queryset = TicketView.objects.all().order_by("-created_at")
     serializer_class = TicketViewSerializer
     lookup_field = "short_id"
+    # PATCH only: full PUT would reset omitted fields (filters defaults to {}), clearing saved criteria
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def safely_get_queryset(self, queryset: Any) -> Any:
         queryset = queryset.filter(team_id=self.team_id)
@@ -82,6 +85,9 @@ class TicketViewViewSet(
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         self._track("ticket view created", serializer.save())
+
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        self._track("ticket view updated", serializer.save())
 
     def perform_destroy(self, instance: TicketView) -> None:
         self._track("ticket view deleted", instance)

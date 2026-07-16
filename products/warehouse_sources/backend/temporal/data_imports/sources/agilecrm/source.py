@@ -32,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AgileCRMSource(ResumableSource[AgileCRMSourceConfig, AgileCRMResumeConfig]):
+    api_docs_url = "https://github.com/agilecrm/rest-api"
+
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
     # surface in the public docs without credentials.
     lists_tables_without_credentials = True
@@ -60,7 +62,6 @@ Your domain is the subdomain of your Agile CRM URL — for `https://acme.agilecr
 """,
             iconPath="/static/services/agilecrm.png",
             docsUrl="https://posthog.com/docs/cdp/sources/agilecrm",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

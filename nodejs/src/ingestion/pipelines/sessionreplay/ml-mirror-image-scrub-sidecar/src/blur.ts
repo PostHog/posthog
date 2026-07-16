@@ -10,7 +10,14 @@ const DOWNSAMPLE_RATIO = 0.12
 const BLUR_SIGMA = 2.34
 const MAX_LONG_SIDE = 96
 // Cap decoded pixels: compressed bytes expand many-fold in libvips, so this guards RSS, not input size.
-const LIMIT_INPUT_PIXELS = 50_000_000
+// Every sharp() decode of raw request bytes (here and in the ML path's src-image.ts) must pass this.
+export const LIMIT_INPUT_PIXELS = 50_000_000
+
+// 1x1 transparent PNG: the output substituted for an image the NSFW/gore gate rejects (see advancedScrub).
+export const BLANK_PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    'base64'
+)
 
 export class UndecodableImageError extends Error {}
 

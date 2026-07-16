@@ -1412,7 +1412,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         cls.insight = Insight.objects.create(
             team=cls.team,
             name="Test Insight",
-            query={"kind": "TrendsQuery", "series": [{"event": "$pageview"}]},
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
         )
         cls.sharing_config = SharingConfiguration.objects.create(
             team=cls.team,

@@ -15,6 +15,7 @@ from posthog.temporal.ai.slack_app.posthog_code_slack_interactivity import (
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
 from posthog.temporal.ai.slack_app.posthog_slack_inbox_onboarding import PostHogSlackInboxOnboardingWorkflow
+from posthog.temporal.ai.slack_app.slack_app_mention import SlackAppMentionWorkflow
 
 from .llm_traces_summaries.summarize_traces import (
     SummarizeLLMTracesInputs,
@@ -35,6 +36,7 @@ from .sync_vectors import (
 # workflows.
 POSTHOG_CODE_SLACK_WORKFLOWS = [
     PostHogCodeSlackMentionWorkflow,
+    SlackAppMentionWorkflow,
     PostHogCodeSlackMentionCommandWorkflow,
     PostHogCodeSlackTerminateTaskWorkflow,
     PostHogSlackInboxOnboardingWorkflow,

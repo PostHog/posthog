@@ -38,6 +38,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConfig], ValidateDatabaseHostMixin):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://plausible.io/docs/stats-api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.PLAUSIBLE
@@ -65,7 +69,6 @@ Works with Plausible Cloud and self-hosted instances. Create an API key under **
             iconPath="/static/services/plausible.png",
             docsUrl="https://posthog.com/docs/cdp/sources/plausible",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

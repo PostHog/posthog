@@ -118,6 +118,11 @@ def test_create_batch_export_with_interval_schedule(
     assert args["aws_secret_access_key"] == "secret"
     assert args["use_virtual_style_addressing"]
 
+    # Temporal UI metadata should be set on the schedule's action
+    assert schedule.schedule.action.static_summary is not None
+    decoded_summary = async_to_sync(encryption_codec.decode)([schedule.schedule.action.static_summary])
+    assert json.loads(decoded_summary[0].data) == "Batch export events every hour to S3Compatible"
+
 
 @pytest.mark.parametrize(
     "interval,timezone,offset_day,offset_hour,expected_interval_offset",
@@ -366,6 +371,11 @@ def test_cannot_create_a_batch_export_for_another_organization(client: HttpClien
             "Databricks",
             Integration.IntegrationKind.DATABRICKS,
             {"http_path": "p", "catalog": "c", "schema": "s", "table_name": "t"},
+        ),
+        (
+            "Snowflake",
+            Integration.IntegrationKind.SNOWFLAKE,
+            {"database": "d", "warehouse": "w", "schema": "s"},
         ),
     ],
 )

@@ -27,10 +27,10 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
@@ -370,13 +370,14 @@ export function SharingModalContent({
                                                     )}
                                                 </LemonField>
 
-                                                {isInsightVizNode(insight?.query) && insightShortId && (
-                                                    // These options are only valid for `InsightVizNode`s, and they rely on `insightVizDataLogic`
-                                                    <>
-                                                        <LegendCheckbox insightShortId={insightShortId} />
-                                                        <DetailedResultsCheckbox insightShortId={insightShortId} />
-                                                    </>
-                                                )}
+                                                {isInsightVizNode(insight?.query) &&
+                                                    insightShortId && (
+                                                        // These options are only valid for `InsightVizNode`s, and they rely on `insightVizDataLogic`
+                                                        <>
+                                                            <LegendCheckbox insightShortId={insightShortId} />
+                                                            <DetailedResultsCheckbox insightShortId={insightShortId} />
+                                                        </>
+                                                    )}
 
                                                 {recordingId && (
                                                     <LemonField name="showInspector">

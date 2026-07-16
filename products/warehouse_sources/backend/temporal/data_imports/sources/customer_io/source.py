@@ -84,6 +84,10 @@ class CustomerIOSource(
     SimpleSource[CustomerIOSourceConfig],
     WebhookSource[CustomerIOSourceConfig],
 ):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://docs.customer.io/api/app/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -276,7 +280,7 @@ class CustomerIOSource(
 
     def _webhook_source_response(self, inputs: SourceInputs) -> SourceResponse:
         webhook_source_manager = self.get_webhook_source_manager(inputs)
-        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(True)
+        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=True)
 
         def items() -> Iterable[Any] | AsyncIterable[Any]:
             if webhook_enabled:
@@ -293,6 +297,7 @@ class CustomerIOSource(
             partition_mode="datetime",
             partition_format="week",
             partition_keys=["timestamp"],
+            webhook_only=True,
         )
 
     def _api_source_response(self, config: CustomerIOSourceConfig, inputs: SourceInputs) -> SourceResponse:

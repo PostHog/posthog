@@ -1,6 +1,6 @@
 import { urls } from 'scenes/urls'
 
-import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
+import type { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModel'
 import { PropertyDefinition } from '~/types'
 
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'

@@ -3,11 +3,10 @@ import './LemonColorGlyph.scss'
 import { useValues } from 'kea'
 
 import { DataColorToken } from 'lib/colors'
+import { dataThemeLogic } from 'lib/logic/dataThemeLogic'
+import { themeLogic } from 'lib/logic/themeLogic'
 import { RGBToRGBA, hexToRGBA, lightenDarkenColor } from 'lib/utils/colors'
 import { cn } from 'lib/utils/css-classes'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { LemonButtonWithoutSideActionProps } from '../LemonButton'
 

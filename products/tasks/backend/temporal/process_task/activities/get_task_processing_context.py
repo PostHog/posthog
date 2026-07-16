@@ -12,6 +12,7 @@ from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
+    CONTINUE_AS_NEW_FEATURE_FLAG,
     MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
@@ -93,6 +94,9 @@ class TaskProcessingContext:
     # The kill-switch flag wins over everything; otherwise a per-run state override
     # (the user's toggle) applies. Captured at workflow start so it's stable across retries.
     rtk_enabled: bool = True
+    # Captured at workflow start so the continue_as_new trigger is deterministic across replay.
+    continue_as_new_enabled: bool = False
+    continue_as_new_history_threshold: int = 0
 
     @property
     def mode(self) -> str:
@@ -195,6 +199,10 @@ class TaskProcessingContext:
             return self._branch
         value = (self.state or {}).get("branch")
         return value if isinstance(value, str) else None
+
+    @branch.setter
+    def branch(self, value: str | None) -> None:
+        self._branch = value
 
     def to_log_context(self) -> dict:
         """Return a dict suitable for structured logging."""
@@ -348,11 +356,20 @@ def _is_modal_vm_sandbox_enabled(
     run_id: str,
     origin_product: str | None,
     allowed_domains: list[str] | None,
+    custom_image_available: bool = False,
     state: dict | None = None,
 ) -> bool:
     if allowed_domains is not None:
         log_with_activity_context(
             "modal_vm_sandbox_skipped_restricted_egress",
+            run_id=run_id,
+            use_modal_vm_sandbox=False,
+        )
+        return False
+
+    if origin_product != Task.OriginProduct.IMAGE_BUILDER and not custom_image_available:
+        log_with_activity_context(
+            "modal_vm_sandbox_skipped_without_custom_image",
             run_id=run_id,
             use_modal_vm_sandbox=False,
         )
@@ -373,13 +390,15 @@ def _is_modal_vm_sandbox_enabled(
         log_with_activity_context("modal_vm_sandbox_flag_check_failed", run_id=run_id, error=str(e))
         return False
 
-    result = origin_product in allowed_origins
+    origin_allowed = origin_product in allowed_origins
+    result = origin_allowed
     log_with_activity_context(
         "modal_vm_sandbox_flag_checked",
         run_id=run_id,
         flag_enabled=bool(allowed_origins),
         origin_product=origin_product,
         allowed_origin_products=sorted(allowed_origins),
+        custom_image_available=custom_image_available,
         use_modal_vm_sandbox=result,
     )
     return result
@@ -506,6 +525,36 @@ def _is_modal_directory_resume_snapshots_enabled(
         run_id=run_id,
         use_modal_directory_resume_snapshots=enabled,
     )
+    return enabled
+
+
+def _is_continue_as_new_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    # The env setting force-enables (local E2E / emergency on); otherwise the org-level flag
+    # decides, so it can be toggled without a deploy. Captured at workflow start, so the
+    # continue_as_new trigger stays deterministic across replay. Fails closed.
+    if settings.TASKS_CONTINUE_AS_NEW_ENABLED:
+        return True
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                CONTINUE_AS_NEW_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("continue_as_new_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context("continue_as_new_flag_checked", run_id=run_id, continue_as_new_enabled=enabled)
     return enabled
 
 
@@ -666,6 +715,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         origin_product=task.origin_product,
         allowed_domains=allowed_domains,
+        custom_image_available=environment_custom_image_name is not None,
         state=state,
     )
     emit_agent_log(
@@ -792,4 +842,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         agent_proxy_keep_stream_open=agent_proxy_keep_stream_open,
         custom_image_name=custom_image_name,
         rtk_enabled=rtk_enabled,
+        continue_as_new_enabled=_is_continue_as_new_enabled(
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+        ),
+        continue_as_new_history_threshold=settings.TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD,
     )

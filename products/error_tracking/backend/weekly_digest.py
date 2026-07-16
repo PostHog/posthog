@@ -33,36 +33,57 @@ def get_org_ids_with_exceptions() -> list[str]:
     return org_ids
 
 
-def get_exception_summary_for_team(team: Team) -> dict:
-    """Get filtered exception counts, ingestion failures, and prev week count for a single team."""
+def _query_daily_rows(team: Team) -> list:
+    """Per-day counts over 14 days. Explicit LIMIT: HogQL appends LIMIT 100 to unlimited selects.
+
+    Missing ``$exception_issue_id`` = ingestion failure. Query errors propagate so the task retries
+    instead of mistaking a failure for "no activity".
+    """
     from posthog.hogql.query import execute_hogql_query
 
-    tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:exception_summary")
+    tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:daily_rows")
 
-    try:
-        response = execute_hogql_query(
-            query="""
-                SELECT
-                    countIf(timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY) as exception_count,
-                    countIf(timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY AND issue_id IS NULL) as ingestion_failure_count,
-                    countIf(timestamp < toStartOfDay(now()) - INTERVAL 7 DAY) as prev_exception_count
-                FROM events
-                WHERE event = '$exception'
-                AND timestamp >= toStartOfDay(now()) - INTERVAL 14 DAY
-                AND timestamp < toStartOfDay(now())
-                AND {filters}
-            """,
-            team=team,
-            filters=HogQLFilters(filterTestAccounts=True),
-        )
-    except Exception:
-        logger.exception(f"Failed to query exception summary for team {team.pk}")
+    response = execute_hogql_query(
+        query="""
+            SELECT
+                toDate(timestamp) AS day,
+                count() AS day_count,
+                countIf(isNull(properties.$exception_issue_id)) AS failure_count
+            FROM events
+            WHERE event = '$exception'
+            AND timestamp >= toStartOfDay(now()) - INTERVAL 14 DAY
+            AND timestamp < toStartOfDay(now())
+            AND {filters}
+            GROUP BY day
+            ORDER BY day ASC
+            LIMIT 14
+        """,
+        team=team,
+        filters=HogQLFilters(filterTestAccounts=True),
+    )
+    return response.results or []
+
+
+def get_exception_summary_for_team(team: Team, daily_rows: list | None = None) -> dict:
+    """Exception counts, ingestion failures, and previous-week count. This week = 1-7 days ago, previous = 8-14."""
+    if daily_rows is None:
+        daily_rows = _query_daily_rows(team)
+    if not daily_rows:
         return {}
 
-    if not response.results or not response.results[0]:
-        return {}
+    # ClickHouse returns team-timezone dates, so bucket against the team-local today, not UTC
+    today = timezone.now().astimezone(team.timezone_info).date()
+    exception_count = 0
+    ingestion_failure_count = 0
+    prev_exception_count = 0
+    for day, day_count, failure_count in daily_rows:
+        days_ago = (today - day).days
+        if 1 <= days_ago <= 7:
+            exception_count += day_count
+            ingestion_failure_count += failure_count
+        elif 8 <= days_ago <= 14:
+            prev_exception_count += day_count
 
-    exception_count, ingestion_failure_count, prev_exception_count = response.results[0]
     return {
         "exception_count": exception_count,
         "ingestion_failure_count": ingestion_failure_count,
@@ -107,7 +128,11 @@ def auto_select_project_for_user(user: Any, org_id: int, team_exception_counts: 
 
 
 def get_exception_counts(team_ids: list[int] | None = None) -> list:
-    """Teams with at least one exception in the last 7 days, used for digest routing."""
+    """Per-team exception counts over the last 7 days: ``(team_id, count)`` rows.
+
+    Used both for digest routing (which teams have any exceptions) and to pick a first-time user's
+    busiest project without needing a per-team build.
+    """
     from posthog.clickhouse.client import sync_execute
     from posthog.clickhouse.workload import Workload
 
@@ -121,12 +146,13 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
 
     # nosemgrep: clickhouse-fstring-param-audit (team_filter is built from trusted code, not user input)
     query = f"""
-    SELECT DISTINCT team_id
+    SELECT team_id, count() AS exception_count
     FROM events
     WHERE event = '$exception'
     AND timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY
     AND timestamp < toStartOfDay(now())
     {team_filter}
+    GROUP BY team_id
     """
 
     # Cross-team scan for a weekly batch job — keep it off the online cluster.
@@ -144,26 +170,24 @@ def get_crash_free_sessions(team: Team) -> dict:
 
     tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:crash_free_sessions")
 
-    try:
-        response = execute_hogql_query(
-            query="""
-                SELECT
-                    uniqIf($session_id, timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY) as total_sessions,
-                    uniqIf($session_id, event = '$exception' AND timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY) as crash_sessions,
-                    uniqIf($session_id, timestamp < toStartOfDay(now()) - INTERVAL 7 DAY) as prev_total_sessions,
-                    uniqIf($session_id, event = '$exception' AND timestamp < toStartOfDay(now()) - INTERVAL 7 DAY) as prev_crash_sessions
-                FROM events
-                WHERE timestamp >= toStartOfDay(now()) - INTERVAL 14 DAY
-                AND timestamp < toStartOfDay(now())
-                AND notEmpty($session_id)
-                AND {filters}
-            """,
-            team=team,
-            filters=HogQLFilters(filterTestAccounts=True),
-        )
-    except Exception:
-        logger.exception(f"Failed to query crash free sessions for team {team.pk}")
-        return {}
+    # A ClickHouse failure propagates (task fails and retries) rather than being swallowed into an
+    # empty result. A successful query with no sessions still returns {} below.
+    response = execute_hogql_query(
+        query="""
+            SELECT
+                uniqIf($session_id, timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY) as total_sessions,
+                uniqIf($session_id, event = '$exception' AND timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY) as crash_sessions,
+                uniqIf($session_id, timestamp < toStartOfDay(now()) - INTERVAL 7 DAY) as prev_total_sessions,
+                uniqIf($session_id, event = '$exception' AND timestamp < toStartOfDay(now()) - INTERVAL 7 DAY) as prev_crash_sessions
+            FROM events
+            WHERE timestamp >= toStartOfDay(now()) - INTERVAL 14 DAY
+            AND timestamp < toStartOfDay(now())
+            AND notEmpty($session_id)
+            AND {filters}
+        """,
+        team=team,
+        filters=HogQLFilters(filterTestAccounts=True),
+    )
 
     if not response.results or not response.results[0]:
         return {}
@@ -194,41 +218,22 @@ def get_crash_free_sessions(team: Team) -> dict:
     return result
 
 
-def get_daily_exception_counts(team: Team) -> list[dict]:
-    """Get exception counts per day for the last 7 days"""
-    from posthog.hogql.query import execute_hogql_query
+def get_daily_exception_counts(team: Team, daily_rows: list | None = None) -> list[dict]:
+    """Exception counts per day for the last 7 days, as sparkline-ready bars."""
+    if daily_rows is None:
+        daily_rows = _query_daily_rows(team)
 
-    tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:daily_exception_counts")
+    # ClickHouse returns team-timezone dates, so bucket against the team-local today, not UTC
+    today = timezone.now().astimezone(team.timezone_info).date()
+    counts_by_day: dict[datetime.date, int] = {}
+    for day, day_count, _failure_count in daily_rows:
+        if 1 <= (today - day).days <= 7:
+            counts_by_day[day] = day_count
 
-    try:
-        response = execute_hogql_query(
-            query="""
-            SELECT
-                toDate(timestamp) as day,
-                count() as day_count
-            FROM events
-            WHERE event = '$exception'
-            AND timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY
-            AND timestamp < toStartOfDay(now())
-            AND {filters}
-            GROUP BY day
-            ORDER BY day ASC
-            """,
-            team=team,
-            filters=HogQLFilters(filterTestAccounts=True),
-        )
-    except Exception:
-        logger.exception(f"Failed to query daily exception counts for team {team.pk}")
-        return []
-
-    results = response.results or []
-    counts_by_day = {row[0].isoformat(): row[1] for row in results}
-
-    today = timezone.now().date()
-    daily_counts = []
+    daily_counts: list[dict[str, Any]] = []
     for i in range(7, 0, -1):
         day = today - datetime.timedelta(days=i)
-        count = counts_by_day.get(day.isoformat(), 0)
+        count = counts_by_day.get(day, 0)
         daily_counts.append({"day": day.strftime("%a"), "count": count})
 
     max_count = max((d["count"] for d in daily_counts), default=0)
@@ -240,110 +245,77 @@ def get_daily_exception_counts(team: Team) -> list[dict]:
     return daily_counts
 
 
-def get_top_issues_for_team(team: Team) -> list[dict]:
-    """Query top 5 issues by occurrence count for the last 7 days with sparkline data"""
+def _query_issue_rows(team: Team) -> list:
+    """Ranked ``(issue_id, occurrence_count, daily_counts, is_new)`` rows for the last 7 days.
+
+    ``LIMIT 5 BY is_new`` (≤10 rows) feeds both the top-issues and new-issues sections: the overall
+    top 5 is always a subset of the per-group union. ``issue_id_v2`` and ``issue_first_seen`` come
+    from the fingerprint issue state table, so merged issues are attributed and dated like the error
+    tracking UI. Newness is computed in-query — embedding issue ids would make the rendered SQL grow
+    with issue cardinality (ClickHouse caps query text at 1 MiB).
+    """
     from posthog.hogql.query import execute_hogql_query
 
-    from products.error_tracking.backend.models import ErrorTrackingIssue
+    tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:issue_rows")
 
-    tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:top_issues")
-
-    try:
-        response = execute_hogql_query(
-            query="""
+    response = execute_hogql_query(
+        query="""
+            SELECT
+                issue_id,
+                sum(day_count) AS occurrence_count,
+                arrayMap(x -> tupleElement(x, 2), arraySort(x -> tupleElement(x, 1), groupArray(tuple(day, day_count)))) AS daily_counts,
+                if(min(first_seen) >= toStartOfDay(now()) - INTERVAL 7 DAY, 1, 0) AS is_new
+            FROM (
                 SELECT
-                    issue_id,
-                    sum(day_count) as occurrence_count,
-                    groupArray(day_count) as daily_counts
-                FROM (
-                    SELECT issue_id, toDate(timestamp) as day, count(*) as day_count
-                    FROM events
-                    WHERE event = '$exception'
-                    AND timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY
-                    AND timestamp < toStartOfDay(now())
-                    AND issue_id IS NOT NULL
-                    AND {filters}
-                    GROUP BY issue_id, day
-                    ORDER BY day ASC
-                )
-                GROUP BY issue_id
-                ORDER BY occurrence_count DESC
-                LIMIT 5
-            """,
-            team=team,
-            filters=HogQLFilters(filterTestAccounts=True),
-        )
-    except Exception:
-        logger.exception(f"Failed to query top issues for team {team.pk}")
-        return []
-
-    if not response.results:
-        return []
-
-    issue_ids = [row[0] for row in response.results if row[0]]
-    issues_by_id = {str(issue.id): issue for issue in ErrorTrackingIssue.objects.filter(team=team, id__in=issue_ids)}
-
-    return _build_issues_list(response.results, issues_by_id, team)
-
-
-def get_new_issues_for_team(team: Team) -> list[dict]:
-    """Query top 5 issues first seen in the last 7 days ranked by occurrence count with sparkline data"""
-    from posthog.hogql import ast
-    from posthog.hogql.query import execute_hogql_query
-
-    from products.error_tracking.backend.models import ErrorTrackingIssue
-
-    tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:new_issues")
-
-    week_ago = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - datetime.timedelta(days=7)
-    new_issue_objects = list(
-        ErrorTrackingIssue.objects.filter(team=team, created_at__gte=week_ago).values_list("id", flat=True)
+                    issue_id_v2 AS issue_id,
+                    toDate(timestamp) AS day,
+                    count() AS day_count,
+                    min(issue_first_seen) AS first_seen
+                FROM events
+                WHERE event = '$exception'
+                AND timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY
+                AND timestamp < toStartOfDay(now())
+                AND isNotNull(issue_id_v2)
+                AND {filters}
+                GROUP BY issue_id, day
+            )
+            GROUP BY issue_id
+            ORDER BY occurrence_count DESC
+            LIMIT 5 BY is_new
+            LIMIT 10
+        """,
+        team=team,
+        filters=HogQLFilters(filterTestAccounts=True),
     )
+    return response.results or []
 
-    if not new_issue_objects:
+
+def _issues_payload(issue_rows: list, team: Team) -> list[dict]:
+    """Top 5 of the given ranked rows, hydrated with issue names from Postgres."""
+    from products.error_tracking.backend.models import ErrorTrackingIssue
+
+    ranked = sorted(issue_rows, key=lambda row: row[1], reverse=True)[:5]
+    if not ranked:
         return []
 
-    new_issue_ids = [str(i) for i in new_issue_objects]
+    ranked = [(issue_id, occurrence_count, daily_counts) for issue_id, occurrence_count, daily_counts, _ in ranked]
+    issue_ids = [row[0] for row in ranked]
+    issues_by_id = {str(issue.id): issue for issue in ErrorTrackingIssue.objects.filter(team=team, id__in=issue_ids)}
+    return _build_issues_list(ranked, issues_by_id, team)
 
-    try:
-        response = execute_hogql_query(
-            query="""
-                SELECT
-                    issue_id,
-                    sum(day_count) as occurrence_count,
-                    groupArray(day_count) as daily_counts
-                FROM (
-                    SELECT issue_id, toDate(timestamp) as day, count(*) as day_count
-                    FROM events
-                    WHERE event = '$exception'
-                    AND timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY
-                    AND timestamp < toStartOfDay(now())
-                    AND issue_id IN {issue_ids}
-                    AND {filters}
-                    GROUP BY issue_id, day
-                    ORDER BY day ASC
-                )
-                GROUP BY issue_id
-                ORDER BY occurrence_count DESC
-                LIMIT 5
-            """,
-            team=team,
-            placeholders={"issue_ids": ast.Constant(value=new_issue_ids)},
-            filters=HogQLFilters(filterTestAccounts=True),
-        )
-    except Exception:
-        logger.exception(f"Failed to query new issues for team {team.pk}")
-        return []
 
-    if not response.results:
-        return []
+def get_top_issues_for_team(team: Team, issue_rows: list | None = None) -> list[dict]:
+    """Top 5 issues by occurrence count for the last 7 days with sparkline data."""
+    if issue_rows is None:
+        issue_rows = _query_issue_rows(team)
+    return _issues_payload(issue_rows, team)
 
-    result_issue_ids = [row[0] for row in response.results if row[0]]
-    issues_by_id = {
-        str(issue.id): issue for issue in ErrorTrackingIssue.objects.filter(team=team, id__in=result_issue_ids)
-    }
 
-    return _build_issues_list(response.results, issues_by_id, team)
+def get_new_issues_for_team(team: Team, issue_rows: list | None = None) -> list[dict]:
+    """Top 5 issues first seen in the last 7 days ranked by occurrence count with sparkline data."""
+    if issue_rows is None:
+        issue_rows = _query_issue_rows(team)
+    return _issues_payload([row for row in issue_rows if row[3]], team)
 
 
 def _build_issues_list(results: list, issues_by_id: dict, team: Team) -> list[dict]:
@@ -422,9 +394,13 @@ def build_team_digest_data(team: Team) -> dict[str, Any] | None:
     # import the helper at call time so this module doesn't pull the task graph.
     from posthog.tasks.email_utils import compute_week_over_week_change  # noqa: PLC0415
 
-    counts = get_exception_summary_for_team(team)
+    # Two bounded ClickHouse passes + crash-free: three queries per team instead of five.
+    daily_rows = _query_daily_rows(team)
+    counts = get_exception_summary_for_team(team, daily_rows)
     if not counts or counts["exception_count"] == 0:
         return None
+
+    issue_rows = _query_issue_rows(team)
 
     return {
         "team": team,
@@ -433,9 +409,9 @@ def build_team_digest_data(team: Team) -> dict[str, Any] | None:
             counts["exception_count"], counts["prev_exception_count"], higher_is_better=False
         ),
         "ingestion_failure_count": counts["ingestion_failure_count"],
-        "top_issues": get_top_issues_for_team(team),
-        "new_issues": get_new_issues_for_team(team),
-        "daily_counts": get_daily_exception_counts(team),
+        "top_issues": get_top_issues_for_team(team, issue_rows),
+        "new_issues": get_new_issues_for_team(team, issue_rows),
+        "daily_counts": get_daily_exception_counts(team, daily_rows),
         "crash_free": get_crash_free_sessions(team),
         "source_maps_recommendation": get_source_maps_recommendation_for_team(team),
         "error_tracking_url": f"{settings.SITE_URL}/project/{team.pk}/error_tracking?utm_source=error_tracking_weekly_digest",

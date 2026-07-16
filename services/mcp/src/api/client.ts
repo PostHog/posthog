@@ -695,6 +695,21 @@ export class ApiClient {
                     return { success: false, error: error as Error }
                 }
             },
+
+            updatePathCleaningFilters: async ({
+                projectId,
+                filters,
+            }: {
+                projectId: string
+                filters: Array<{ alias: string; regex: string; order: number }>
+            }): Promise<Result<Schemas.ProjectBackwardCompat>> => {
+                // path_cleaning_filters is a whole-list field on the project — the caller is
+                // responsible for having merged the desired rules into `filters` first.
+                return this.fetchJson<Schemas.ProjectBackwardCompat>(`${this.baseUrl}/api/projects/${projectId}/`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ path_cleaning_filters: filters }),
+                })
+            },
         }
     }
 

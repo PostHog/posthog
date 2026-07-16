@@ -140,16 +140,14 @@ describe('Tool Filtering - Tools Allowlist', () => {
             expect(withEmptyTools).toEqual(allTools)
         })
 
-        it('should return only specified tools (plus always_available tools when enabled)', () => {
+        it('should return only specified tools (plus always_available tools)', () => {
             const tools = getToolsForFeatures({
                 tools: ['dashboard-get', 'dashboard-create'],
-                featureFlags: { 'mcp-feedback-tool': true },
             })
             expect(tools).toContain('dashboard-get')
             expect(tools).toContain('dashboard-create')
 
-            // always_available tools are included alongside the allowlist regardless of order
-            // (when their gating feature flag is enabled).
+            // always_available tools are included alongside the allowlist regardless of order.
             const alwaysAvailableTools = collectAlwaysAvailableToolNames()
             expect(tools).toContain('agent-feedback')
 
@@ -163,7 +161,6 @@ describe('Tool Filtering - Tools Allowlist', () => {
         it('should return only always_available tools for nonexistent tool names', () => {
             const tools = getToolsForFeatures({
                 tools: ['nonexistent-tool'],
-                featureFlags: { 'mcp-feedback-tool': true },
             })
             const alwaysAvailableTools = collectAlwaysAvailableToolNames()
 
@@ -175,19 +172,15 @@ describe('Tool Filtering - Tools Allowlist', () => {
         it('should always include agent-feedback even when feature filter matches no tools', () => {
             const tools = getToolsForFeatures({
                 features: ['nonexistent-feature'],
-                featureFlags: { 'mcp-feedback-tool': true },
             })
             expect(tools).toContain('agent-feedback')
         })
 
-        it('should hide agent-feedback when its gating feature flag is off', () => {
-            // Flag explicitly off — tool is hidden even though it's always_available.
-            const toolsWithFlagOff = getToolsForFeatures({ featureFlags: { 'mcp-feedback-tool': false } })
-            expect(toolsWithFlagOff).not.toContain('agent-feedback')
-
-            // No flags evaluated at all — also hidden (default behavior is `enable`).
-            const toolsWithoutFlags = getToolsForFeatures({})
-            expect(toolsWithoutFlags).not.toContain('agent-feedback')
+        it('should include agent-feedback regardless of feature flags', () => {
+            // agent-feedback is always_available and no longer flag-gated — it is
+            // present whether or not any feature flags are evaluated.
+            expect(getToolsForFeatures({})).toContain('agent-feedback')
+            expect(getToolsForFeatures({ featureFlags: {} })).toContain('agent-feedback')
         })
 
         it('should union with features (OR) when both are provided', () => {
@@ -327,7 +320,7 @@ describe('Tool Filtering - API Scopes', () => {
 
     it('should return only tools with no required scopes when user has no matching scopes', async () => {
         const context = createMockContext(['some:unknown'])
-        const tools = await getToolsFromContext(context, { featureFlags: { 'mcp-feedback-tool': true } })
+        const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
 
         // Only tools with no required scopes (or that bypass scope checks) should be available.
@@ -338,7 +331,7 @@ describe('Tool Filtering - API Scopes', () => {
 
     it('should return only tools with no required scopes when user has empty scopes', async () => {
         const context = createMockContext([])
-        const tools = await getToolsFromContext(context, { featureFlags: { 'mcp-feedback-tool': true } })
+        const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
 
         expect(toolNames).toContain('debug-mcp-ui-apps')
@@ -734,7 +727,6 @@ describe('Tool Filtering - Feature Flags', () => {
 
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const flags = getRequiredFeatureFlags()
-        // Includes the gating flag for agent-feedback alongside the other gated tools.
         expect(flags).toEqual(
             expect.arrayContaining([
                 'agent-platform',
@@ -743,7 +735,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'replay-video-based-summarization',
                 'tracing',
                 'visual-review',
-                'mcp-feedback-tool',
                 'user-interviews',
                 'customer-analytics-csp',
                 'notebooks-collaboration',
@@ -758,6 +749,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'metrics',
                 'endpoints-ai-materialization-fix',
                 'engineering-analytics',
+                'stamphog',
             ])
         )
         expect(flags).toHaveLength(21)
