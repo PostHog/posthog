@@ -61,7 +61,9 @@ export function TracingLatencyHeatmap({ data, loading, displayTimezone }: Tracin
     )
 
     return (
-        <div className="relative h-full w-full">
+        // Flex column: the quill chart shell sizes itself with flex-1 and collapses to zero
+        // height in a plain block container.
+        <div className="relative h-full w-full flex flex-col">
             {data.cells.length > 0 ? (
                 <Heatmap
                     xLabels={data.timeBuckets}
