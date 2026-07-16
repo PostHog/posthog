@@ -131,6 +131,7 @@ import {
     runWithLimit,
     shouldSharedDashboardAutoForceForStaleTime,
     shouldSnapshotUrlAtEditModeEntry,
+    type DashboardInsightRefreshMode,
 } from './dashboardUtils'
 import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
@@ -172,13 +173,6 @@ export enum RefreshDashboardItemsAction {
     /** Refresh to apply temporary filters and variables. */
     Preview = 'preview',
 }
-
-/**
- * Dashboard insight modes that return a completed result:
- * - `blocking` returns recent cached results, otherwise calculates synchronously.
- * - `force_blocking` always calculates synchronously, even when cached results are available.
- */
-export type DashboardInsightRefreshMode = Extract<RefreshType, 'blocking' | 'force_blocking'>
 
 // to stop kea typegen getting confused
 export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layouts'>
