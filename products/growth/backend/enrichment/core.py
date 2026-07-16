@@ -50,6 +50,7 @@ async def enrich_organization(
     pha_client: Client,
     is_recheck: bool = False,
     role_at_organization: Optional[str] = None,
+    distinct_id: Optional[str] = None,
 ) -> Optional[EnrichmentFields]:
     """Look up enrichment for a domain, archive the raw response, and persist the live stores.
 
@@ -84,5 +85,6 @@ async def enrich_organization(
         fields=lookup.fields,
         pha_client=pha_client,
         icp_score=icp_score,
+        distinct_id=distinct_id,
     )
     return lookup.fields

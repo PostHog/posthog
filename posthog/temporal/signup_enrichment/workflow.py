@@ -101,6 +101,7 @@ async def enrich_signup_organization_activity(
             pha_client=pha_client,
             is_recheck=is_recheck,
             role_at_organization=inputs.role_at_organization,
+            distinct_id=inputs.distinct_id,
         )
         filled = fields.to_dict() if fields else {}
         matched = fields is not None

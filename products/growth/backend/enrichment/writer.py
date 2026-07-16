@@ -43,6 +43,7 @@ def write_organization_enrichment(
     fields: EnrichmentFields,
     pha_client: Client,
     icp_score: Optional[int] = None,
+    distinct_id: Optional[str] = None,
 ) -> None:
     """Persist enrichment to Postgres and project it onto the organization group.
 
@@ -51,10 +52,12 @@ def write_organization_enrichment(
     - ClickHouse: project `enrichment_*` group properties via group_identify.
 
     The score rides along on both stores when the caller computed one, version-stamped so a
-    later formula revision is distinguishable. `icp_score` is the key Clay also writes: during
-    the overlap the two agree, and per-key merge makes last-write-wins safe either way.
+    later formula revision is distinguishable. It is also set on the signer's person profile:
+    that is where Clay writes its score, and the live consumers (the ICP-threshold cohorts and
+    their dashboards) read the person property — without this write they freeze when Clay stops.
+    The org group property is the new canonical surface consumers migrate to.
 
-    No-op when there are no set fields, so a Harmonic miss leaves both stores untouched.
+    No-op when there are no set fields, so a Harmonic miss leaves the stores untouched.
     """
     values = fields.to_dict()
     if not values:
@@ -74,6 +77,12 @@ def write_organization_enrichment(
         str(organization_id),
         properties=properties,
     )
+
+    if icp_score is not None and distinct_id:
+        pha_client.set(
+            distinct_id=distinct_id,
+            properties={"icp_score": icp_score, "icp_score_version": SCORE_VERSION},
+        )
 
 
 def archive_provider_fetch(*, organization_id: str, provider: str, payload: dict[str, Any], is_recheck: bool) -> None:

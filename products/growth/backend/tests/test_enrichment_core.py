@@ -28,6 +28,7 @@ class TestEnrichmentCore(BaseTest):
         role_at_organization=None,
         clay=None,
         pha_client=None,
+        distinct_id=None,
     ):
         with patch(
             "products.growth.backend.enrichment.core.read_clay_bridge_inputs",
@@ -40,6 +41,7 @@ class TestEnrichmentCore(BaseTest):
                 pha_client=pha_client or MagicMock(),
                 is_recheck=is_recheck,
                 role_at_organization=role_at_organization,
+                distinct_id=distinct_id,
             )
 
     def test_archives_raw_payload_and_writes_live_stores_on_match(self):
@@ -82,6 +84,7 @@ class TestEnrichmentCore(BaseTest):
             role_at_organization="Founder",
             clay=ClayBridgeInputs(est_revenue=25_000_000, company_type="private"),
             pha_client=pha_client,
+            distinct_id="signer-distinct-id",
         )
 
         record = OrganizationEnrichment.objects.get(organization=self.organization)
@@ -90,6 +93,20 @@ class TestEnrichmentCore(BaseTest):
         properties = pha_client.group_identify.call_args.kwargs["properties"]
         assert properties["icp_score"] == 21
         assert properties["icp_score_version"] == "clay-parity-1"
+        # The person write is what the live ICP-threshold cohorts read; losing it silently
+        # freezes them the day Clay stops writing.
+        assert pha_client.set.call_args.kwargs == {
+            "distinct_id": "signer-distinct-id",
+            "properties": {"icp_score": 21, "icp_score_version": "clay-parity-1"},
+        }
+
+    def test_no_person_write_without_a_distinct_id(self):
+        pha_client = MagicMock()
+        fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
+        self._enrich(ProviderLookup(fields=fields, raw_payload={"n": 1}), pha_client=pha_client)
+
+        pha_client.group_identify.assert_called_once()
+        pha_client.set.assert_not_called()
 
     def test_org_clay_never_processed_scores_on_the_fields_we_have(self):
         fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
