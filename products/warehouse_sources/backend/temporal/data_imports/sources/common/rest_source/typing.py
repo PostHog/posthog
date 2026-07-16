@@ -242,6 +242,10 @@ class ResourceBase(TypedDict, total=False):
 class EndpointResourceBase(ResourceBase, total=False):
     endpoint: Optional[str | Endpoint]
     include_from_parent: Optional[list[str]]
+    # Per-item transform applied after ``data_selector`` and before type coercion, for reshaping
+    # a row the selector can't express (e.g. flattening JSON:API ``attributes`` into the row root).
+    # Wired through to ``Resource.add_map``; must be dict -> dict (1:1).
+    data_map: Optional[Callable[[dict[str, Any]], dict[str, Any]]]
 
 
 class EndpointResource(EndpointResourceBase, total=False):
