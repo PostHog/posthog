@@ -24,7 +24,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "cpuCount": "Number of virtual CPUs allocated to the sandbox.",
             "memoryMB": "Memory allocated to the sandbox, in MiB.",
             "diskSizeMB": "Disk size allocated to the sandbox, in MiB.",
-            "metadata": "Arbitrary key/value metadata attached to the sandbox.",
+            # `metadata` is deliberately not synced — it can hold user-stored secrets. See `SENSITIVE_FIELDS`.
             "state": "State of the sandbox (running or paused).",
             "envdVersion": "Version of the envd daemon running in the sandbox.",
         },

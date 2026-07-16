@@ -19,6 +19,17 @@ E2B_BASE_URL = "https://api.e2b.app"
 E2B_PAGE_LIMIT = 100
 NEXT_TOKEN_HEADER = "X-Next-Token"
 
+# E2B lets users stash arbitrary key/value data on a sandbox, and its own docs suggest keeping secrets
+# (API keys, tokens) there. Writing it to the warehouse table would let anyone with table read access
+# read credentials they can't see in the protected source config, so we drop it before ingesting.
+SENSITIVE_FIELDS = ("metadata",)
+
+
+def _scrub(item: Any) -> Any:
+    if not isinstance(item, dict):
+        return item
+    return {key: value for key, value in item.items() if key not in SENSITIVE_FIELDS}
+
 
 class E2BRetryableError(Exception):
     pass
@@ -125,7 +136,7 @@ def get_rows(
         page_token = response.headers.get(NEXT_TOKEN_HEADER) or None
 
         for item in items:
-            batcher.batch(item)
+            batcher.batch(_scrub(item))
             if batcher.should_yield():
                 yield batcher.get_table()
                 # Save AFTER yielding so a crash re-yields the last page rather than skipping it;

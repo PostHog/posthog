@@ -102,6 +102,13 @@ class TestPagination:
             )
         assert make_session.call_args.kwargs == {"redact_values": ("e2b_secret",), "allow_redirects": False}
 
+    def test_drops_sensitive_metadata_before_ingesting(self, monkeypatch: Any) -> None:
+        # E2B lets users stash secrets in sandbox metadata; writing it to the table would leak them to
+        # anyone with table read access, so it must be stripped before batching. Other fields survive.
+        pages = [_response([{"sandboxID": "a", "metadata": {"API_KEY": "sk-secret"}, "state": "running"}])]
+        rows, _ = _collect(_FakeResumableManager(), monkeypatch, pages)
+        assert rows == [{"sandboxID": "a", "state": "running"}]
+
     def test_saves_next_page_cursor_after_yielding_a_batch(self, monkeypatch: Any) -> None:
         # Save-after-yield with the NEXT page's token is what makes resume re-yield (not skip) the last
         # batch on a crash. A full 2000-row page forces the batcher to flush mid-loop.
