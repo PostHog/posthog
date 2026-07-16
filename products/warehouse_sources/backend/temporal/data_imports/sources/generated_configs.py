@@ -2291,7 +2291,8 @@ class KoyebSourceConfig(config.Config):
 
 @config.config
 class KubecostSourceConfig(config.Config):
-    pass
+    host: str
+    api_key: str | None = None
 
 
 @config.config

@@ -259,6 +259,7 @@ the row lists both.
 | klaviyo                   | HTTP                        | requests                                                        | ✅                          |
 | koyeb                     | HTTP                        | requests                                                        | ✅                          |
 | kong_konnect              | HTTP                        | requests                                                        | ✅                          |
+| kubecost                  | HTTP                        | requests                                                        | ✅                          |
 | lago                      | HTTP                        | requests                                                        | ✅                          |
 | lambda_labs               | HTTP                        | requests                                                        | ✅                          |
 | langfuse                  | HTTP                        | requests                                                        | ✅                          |
@@ -722,7 +723,6 @@ doesn't conflict with concurrent PRs.
 - klaus
 - knock
 - koyeb
-- kubecost
 - kyve
 - lacework
 - lambda_labs
