@@ -557,9 +557,10 @@ class TestLivingArtifacts(TestCase):
             current_version=1,
         )
 
-        delivered = deliver_pending_slack_file_artifacts(self.task_run, initial_comment="done")
+        delivery = deliver_pending_slack_file_artifacts(self.task_run)
 
-        self.assertEqual(delivered, 0)
+        self.assertFalse(delivery.answer_posted)
+        self.assertEqual(delivery.delivered_count, 0)
         mock_integration_for_mapping.assert_not_called()
         artifact.refresh_from_db()
         self.assertEqual(artifact.versions[0]["delivery_status"], "pending")

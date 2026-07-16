@@ -2165,6 +2165,8 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         if png is None:
             error = asset.exception or "Chart render failed"
             return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
+        # Persisted on the artifact so Slack delivery can attach an "Open in PostHog" button.
+        url = self._chart_url(query, asset)
         artifact, error = tasks_facade.create_task_run_living_artifact(
             self._run_id(),
             task_id,
@@ -2175,6 +2177,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 "adapter": TaskArtifactAdapter.SLACK_FILE,
                 "content_type": "image/png",
                 "content_bytes": png,
+                "metadata": {"posthog_url": url} if url else None,
             },
         )
         if artifact is None and error is None:
@@ -2182,7 +2185,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         if error is not None:
             return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
         serializer = TaskRunLivingArtifactChartResponseSerializer(
-            {"artifact": artifact, "export_asset_id": asset.id, "url": self._chart_url(query, asset)}
+            {"artifact": artifact, "export_asset_id": asset.id, "url": url}
         )
         return Response(serializer.data)
 

@@ -7347,6 +7347,7 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         self.assertEqual(data["export_asset_id"], 321)
         self.assertIn("/insights/new#q=", data["url"])
         self.assertEqual(mock_create.call_args.kwargs["artifact"]["content_bytes"], b"png-bytes")
+        self.assertEqual(mock_create.call_args.kwargs["artifact"]["metadata"], {"posthog_url": data["url"]})
 
     @patch("products.tasks.backend.presentation.views.api.render_png_export")
     def test_invalid_query_fails_before_render(self, mock_render):

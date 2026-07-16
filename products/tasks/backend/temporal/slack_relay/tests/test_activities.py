@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.test import TestCase
 
 from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
@@ -212,6 +213,58 @@ class TestRelaySlackMessage(TestCase):
         assert "<https://example.com/report.pdf|user_activity_report.pdf>" in posted
         mock_presign.assert_called_once_with("tasks/artifacts/report.pdf")
 
+    def _create_pending_slack_file_artifact(
+        self, *, name: str, filename: str, content_type: str, metadata: dict | None = None
+    ) -> tuple[TaskArtifact, str]:
+        storage_path = f"tasks/artifacts/team_{self.team.id}/task_{self.task.id}/run_{self.task_run.id}/{filename}"
+        location = {
+            "kind": "slack_file",
+            "integration_id": self.integration.id,
+            "channel": "C123",
+            "thread_ts": "1111.1",
+            "content_type": content_type,
+            "storage_path": storage_path,
+            "delivery_status": "pending",
+        }
+        artifact = TaskArtifact.objects.for_team(self.team.id).create(
+            team=self.team,
+            task=self.task,
+            task_run=self.task_run,
+            created_by=self.user,
+            name=name,
+            artifact_type=TaskArtifact.ArtifactType.FILE,
+            adapter=TaskArtifact.Adapter.SLACK_FILE,
+            status=TaskArtifact.Status.ACTIVE,
+            location=location,
+            metadata={"delivery_status": "pending", **(metadata or {})},
+            versions=[
+                {
+                    "version": 1,
+                    "run_id": str(self.task_run.id),
+                    "adapter": TaskArtifact.Adapter.SLACK_FILE,
+                    "location": location,
+                    "content_type": content_type,
+                    "size": 14,
+                    "delivery_status": "pending",
+                }
+            ],
+            current_version=1,
+        )
+        return artifact, storage_path
+
+    @staticmethod
+    def _mock_slack_upload(mock_integration_for_mapping, *, file_id: str = "F123", title: str = "report.xlsx"):
+        slack = unittest.mock.MagicMock()
+        slack.api_call.side_effect = [
+            {"upload_url": "https://files.slack.test/upload", "file_id": file_id},
+            {"files": [{"id": file_id, "title": title, "permalink": f"https://slack.test/files/{file_id}"}]},
+        ]
+        slack_integration = unittest.mock.MagicMock()
+        slack_integration.client = slack
+        slack_integration.missing_scopes.return_value = set()
+        mock_integration_for_mapping.return_value = slack_integration
+        return slack
+
     @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
     @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
@@ -219,7 +272,7 @@ class TestRelaySlackMessage(TestCase):
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
-    def test_pending_slack_file_upload_uses_final_message(
+    def test_pending_slack_file_upload_posts_text_then_file(
         self,
         mock_delete_progress,
         mock_post,
@@ -229,49 +282,12 @@ class TestRelaySlackMessage(TestCase):
         mock_requests_post,
         _mock_flag,
     ):
-        storage_path = f"tasks/artifacts/team_{self.team.id}/task_{self.task.id}/run_{self.task_run.id}/report.v1.xlsx"
-        location = {
-            "kind": "slack_file",
-            "integration_id": self.integration.id,
-            "channel": "C123",
-            "thread_ts": "1111.1",
-            "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "storage_path": storage_path,
-            "delivery_status": "pending",
-        }
-        artifact = TaskArtifact.objects.for_team(self.team.id).create(
-            team=self.team,
-            task=self.task,
-            task_run=self.task_run,
-            created_by=self.user,
+        artifact, storage_path = self._create_pending_slack_file_artifact(
             name="report.xlsx",
-            artifact_type=TaskArtifact.ArtifactType.SPREADSHEET,
-            adapter=TaskArtifact.Adapter.SLACK_FILE,
-            status=TaskArtifact.Status.ACTIVE,
-            location=location,
-            metadata={"delivery_status": "pending"},
-            versions=[
-                {
-                    "version": 1,
-                    "run_id": str(self.task_run.id),
-                    "adapter": TaskArtifact.Adapter.SLACK_FILE,
-                    "location": location,
-                    "content_type": location["content_type"],
-                    "size": 14,
-                    "delivery_status": "pending",
-                }
-            ],
-            current_version=1,
+            filename="report.v1.xlsx",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-        slack = unittest.mock.MagicMock()
-        slack.api_call.side_effect = [
-            {"upload_url": "https://files.slack.test/upload", "file_id": "F123"},
-            {"files": [{"id": "F123", "title": "report.xlsx", "permalink": "https://slack.test/files/F123"}]},
-        ]
-        slack_integration = unittest.mock.MagicMock()
-        slack_integration.client = slack
-        slack_integration.missing_scopes.return_value = set()
-        mock_integration_for_mapping.return_value = slack_integration
+        slack = self._mock_slack_upload(mock_integration_for_mapping)
         mock_read_bytes.return_value = b"workbook bytes"
 
         relay_slack_message(
@@ -283,14 +299,14 @@ class TestRelaySlackMessage(TestCase):
         )
 
         mock_delete_progress.assert_called_once()
-        mock_post.assert_not_called()
+        mock_post.assert_called_once()
+        self.assertIn("<@U123> Done. report.xlsx is attached.", mock_post.call_args.args[0])
         mock_read_bytes.assert_called_once_with(storage_path, missing_ok=True)
         self.assertEqual(mock_requests_post.call_args.kwargs["data"], b"workbook bytes")
         complete_payload = slack.api_call.call_args_list[1].kwargs["data"]
         self.assertEqual(complete_payload["channel_id"], "C123")
         self.assertEqual(complete_payload["thread_ts"], "1111.1")
-        self.assertIn("<@U123> Done. report.xlsx is attached.", complete_payload["initial_comment"])
-        self.assertNotIn("no file was attached to Slack", complete_payload["initial_comment"])
+        self.assertNotIn("initial_comment", complete_payload)
 
         artifact.refresh_from_db()
         self.assertEqual(artifact.location["delivery_status"], "delivered")
@@ -298,6 +314,69 @@ class TestRelaySlackMessage(TestCase):
         self.assertEqual(artifact.metadata["slack_file_permalink"], "https://slack.test/files/F123")
         self.assertEqual(artifact.versions[0]["delivery_status"], "delivered")
         self.assertEqual(artifact.versions[0]["slack_file_id"], "F123")
+
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
+    @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_chart_composes_single_message_with_answer_image_and_button(
+        self,
+        _mock_delete_progress,
+        mock_post,
+        _mock_update,
+        mock_integration_for_mapping,
+        mock_read_bytes,
+        _mock_requests_post,
+        _mock_flag,
+    ):
+        chart_url = "https://us.posthog.com/project/1/insights/abc123"
+        self._create_pending_slack_file_artifact(
+            name="Signups by week",
+            filename="signups.v1.png",
+            content_type="image/png",
+            metadata={"posthog_url": chart_url},
+        )
+        slack = self._mock_slack_upload(mock_integration_for_mapping, title="Signups by week")
+        # Slack rejects block references to a file it hasn't finished processing; the first
+        # attempt failing exercises the retry.
+        slack.chat_postMessage.side_effect = [
+            SlackApiError("invalid_blocks", {"ok": False, "error": "invalid_blocks"}),
+            {"ok": True, "ts": "1111.2"},
+        ]
+        mock_read_bytes.return_value = b"png bytes"
+
+        with patch("products.tasks.backend.logic.services.living_artifacts.time.sleep") as mock_sleep:
+            relay_slack_message(
+                RelaySlackMessageInput(
+                    run_id=str(self.task_run.id),
+                    relay_id="relay-with-chart",
+                    text="Here's the trend.",
+                )
+            )
+        mock_sleep.assert_called_once()
+
+        # Image uploads must not share into the channel — the composed chat message
+        # carries the image, keeping thread order deterministic.
+        complete_payload = slack.api_call.call_args_list[1].kwargs["data"]
+        self.assertNotIn("channel_id", complete_payload)
+        self.assertEqual(slack.chat_postMessage.call_count, 2)
+        composed_call = slack.chat_postMessage.call_args
+        self.assertEqual(composed_call.kwargs["channel"], "C123")
+        self.assertEqual(composed_call.kwargs["thread_ts"], "1111.1")
+        answer_block, header_block, image_block, actions_block = composed_call.kwargs["blocks"]
+        self.assertEqual(answer_block["text"]["text"], "<@U123> Here's the trend.")
+        self.assertEqual(header_block["text"]["text"], "*Signups by week*")
+        self.assertEqual(image_block["type"], "image")
+        self.assertEqual(image_block["slack_file"], {"id": "F123"})
+        button = actions_block["elements"][0]
+        self.assertEqual(button["url"], chart_url)
+        self.assertEqual(button["text"]["text"], "Open in PostHog")
+
+        # The composed message carries the answer text — nothing posted via the handler.
+        mock_post.assert_not_called()
 
 
 class TestMarkdownToSlackMrkdwn(unittest.TestCase):
