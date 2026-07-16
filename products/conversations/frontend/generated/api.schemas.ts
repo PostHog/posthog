@@ -613,6 +613,7 @@ export const TicketStatusEnumApi = {
  * * `low` - Low
  * * `medium` - Medium
  * * `high` - High
+ * * `critical` - Critical
  */
 export type TicketPriorityEnumApi = (typeof TicketPriorityEnumApi)[keyof typeof TicketPriorityEnumApi]
 
@@ -620,6 +621,7 @@ export const TicketPriorityEnumApi = {
     Low: 'low',
     Medium: 'medium',
     High: 'high',
+    Critical: 'critical',
 } as const
 
 /**
@@ -676,11 +678,12 @@ export interface TicketApi {
      * * `on_hold` - On hold
      * * `resolved` - Resolved */
     status?: TicketStatusEnumApi
-    /** Ticket priority: low, medium, or high. Null if unset.
+    /** Ticket priority: low, medium, high, or critical. Null if unset.
      *
      * * `low` - Low
      * * `medium` - Medium
-     * * `high` - High */
+     * * `high` - High
+     * * `critical` - Critical */
     priority?: TicketPriorityEnumApi | BlankEnumApi | null
     readonly assignee: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
@@ -768,11 +771,12 @@ export interface PatchedTicketApi {
      * * `on_hold` - On hold
      * * `resolved` - Resolved */
     status?: TicketStatusEnumApi
-    /** Ticket priority: low, medium, or high. Null if unset.
+    /** Ticket priority: low, medium, high, or critical. Null if unset.
      *
      * * `low` - Low
      * * `medium` - Medium
-     * * `high` - High */
+     * * `high` - High
+     * * `critical` - Critical */
     priority?: TicketPriorityEnumApi | BlankEnumApi | null
     readonly assignee?: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
@@ -1191,7 +1195,7 @@ export type ConversationsTicketsListParams = {
      */
     order_by?: string
     /**
-     * Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`.
+     * Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`, `critical`.
      */
     priority?: string
     /**

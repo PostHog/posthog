@@ -43,7 +43,7 @@ tools:
         title: List support tickets
         description: >
             List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved),
-            priority (low, medium, high), channel_source (widget, email, slack), assignee, date range, and search.
+            priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, date range, and search.
             Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including
             status, priority, message counts, and timestamps.
         response:
@@ -143,8 +143,8 @@ tools:
         title: Update support ticket
         description: >
             Update a support ticket. Can change status (new, open, pending, on_hold, resolved), priority (low, medium,
-            high), assignee, SLA deadline, escalation reason, and tags. Assignee should be an object with type ('user'
-            or 'role') and id, or null to unassign.
+            high, critical), assignee, SLA deadline, escalation reason, and tags. Assignee should be an object with
+            type ('user' or 'role') and id, or null to unassign.
         exclude_params:
             - anonymous_traits
             - ai_resolved

@@ -40881,6 +40881,7 @@ export namespace Schemas {
      * * `low` - Low
      * * `medium` - Medium
      * * `high` - High
+     * * `critical` - Critical
      */
     export type TicketPriorityEnum = typeof TicketPriorityEnum[keyof typeof TicketPriorityEnum];
 
@@ -40889,6 +40890,7 @@ export namespace Schemas {
       Low: 'low',
       Medium: 'medium',
       High: 'high',
+      Critical: 'critical',
     } as const;
 
     /**
@@ -40945,11 +40947,12 @@ export namespace Schemas {
        * * `on_hold` - On hold
        * * `resolved` - Resolved */
       status?: TicketStatusEnum;
-      /** Ticket priority: low, medium, or high. Null if unset.
+      /** Ticket priority: low, medium, high, or critical. Null if unset.
        *
        * * `low` - Low
        * * `medium` - Medium
-       * * `high` - High */
+       * * `high` - High
+       * * `critical` - Critical */
       priority?: TicketPriorityEnum | BlankEnum | null;
       readonly assignee: TicketAssignment;
       /** Customer-provided traits such as name and email */
@@ -48669,11 +48672,12 @@ export namespace Schemas {
        * * `on_hold` - On hold
        * * `resolved` - Resolved */
       status?: TicketStatusEnum;
-      /** Ticket priority: low, medium, or high. Null if unset.
+      /** Ticket priority: low, medium, high, or critical. Null if unset.
        *
        * * `low` - Low
        * * `medium` - Medium
-       * * `high` - High */
+       * * `high` - High
+       * * `critical` - Critical */
       priority?: TicketPriorityEnum | BlankEnum | null;
       readonly assignee?: TicketAssignment;
       /** Customer-provided traits such as name and email */
@@ -71362,7 +71366,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`.
+     * Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`, `critical`.
      */
     priority?: string;
     /**
