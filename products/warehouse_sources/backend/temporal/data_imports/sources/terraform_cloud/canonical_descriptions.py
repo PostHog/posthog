@@ -4,7 +4,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "organizations": {
-        "description": "HCP Terraform organizations the API token can access. An organization is a shared space for teams to collaborate on workspaces.",
+        "description": "The configured HCP Terraform organization. An organization is a shared space for teams to collaborate on workspaces.",
         "docs_url": "https://developer.hashicorp.com/terraform/cloud-docs/api-docs/organizations",
         "columns": {
             "id": "Unique identifier of the organization — its name.",

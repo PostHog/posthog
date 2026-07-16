@@ -114,18 +114,28 @@ class TestTopLevelEndpoints:
         responses = [
             _response(
                 _page(
-                    [{"id": "org-a", "type": "organizations", "attributes": {"name": "a"}}],
-                    "/api/v2/organizations?page%5Bnumber%5D=2",
+                    [{"id": "team-a", "type": "teams", "attributes": {"name": "a"}}],
+                    "/api/v2/organizations/acme/teams?page%5Bnumber%5D=2",
                 )
             ),
-            _response(_page([{"id": "org-b", "type": "organizations", "attributes": {"name": "b"}}])),
+            _response(_page([{"id": "team-b", "type": "teams", "attributes": {"name": "b"}}])),
         ]
-        batches, session, _ = _run_endpoint("organizations", responses)
-        assert [row["id"] for batch in batches for row in batch] == ["org-a", "org-b"]
+        batches, session, _ = _run_endpoint("teams", responses)
+        assert [row["id"] for batch in batches for row in batch] == ["team-a", "team-b"]
         assert session.get.call_count == 2
         assert (
-            session.get.call_args_list[1].args[0] == "https://app.terraform.io/api/v2/organizations?page%5Bnumber%5D=2"
+            session.get.call_args_list[1].args[0]
+            == "https://app.terraform.io/api/v2/organizations/acme/teams?page%5Bnumber%5D=2"
         )
+
+    def test_organizations_scoped_to_configured_org(self) -> None:
+        # `/organizations` (no id) would return every org the token can access, leaking other
+        # orgs' names, admin emails, and plan/SSO metadata. The endpoint must target only the
+        # configured org and normalize its single-resource response to one row.
+        responses = [_response({"data": {"id": "acme", "type": "organizations", "attributes": {"name": "acme"}}})]
+        batches, session, _ = _run_endpoint("organizations", responses)
+        assert session.get.call_args_list[0].args[0] == f"{BASE}/organizations/acme?page%5Bsize%5D=100"
+        assert [row["id"] for batch in batches for row in batch] == ["acme"]
 
     def test_saves_resume_state_only_while_pages_remain(self) -> None:
         next_url = f"{BASE}/organizations/acme/projects?page%5Bnumber%5D=2"

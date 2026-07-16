@@ -122,6 +122,15 @@ def _flatten_item(item: dict[str, Any], drop_fields: tuple[str, ...] = ()) -> di
     return row
 
 
+def _data_items(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """JSON:API `data` is a list for collection endpoints but a single resource object for
+    individual-resource endpoints (e.g. the configured organization); normalize both to a list."""
+    payload = data.get("data")
+    if isinstance(payload, dict):
+        return [payload]
+    return payload or []
+
+
 def _next_url(data: dict[str, Any]) -> str | None:
     """Resolve the JSON:API `links.next` pagination URL, tolerating both the absolute URLs the
     API returns today and spec-allowed relative ones."""
@@ -179,7 +188,7 @@ def _iter_workspaces(
     url: str | None = _build_url(f"/organizations/{quote(organization, safe='')}/workspaces", {"page[size]": PAGE_SIZE})
     while url:
         data = _fetch_json(session, url, logger)
-        yield from data.get("data") or []
+        yield from _data_items(data)
         url = _next_url(data)
 
 
@@ -200,7 +209,7 @@ def _get_top_level_rows(
 
     while url:
         data = _fetch_json(session, url, logger)
-        rows = [_flatten_item(item, config.drop_fields) for item in data.get("data") or []]
+        rows = [_flatten_item(item, config.drop_fields) for item in _data_items(data)]
         next_url = _next_url(data)
         if rows:
             yield rows
@@ -266,7 +275,7 @@ def _get_fan_out_rows(
             while url:
                 data = _fetch_json(session, url, logger)
                 rows = []
-                for item in data.get("data") or []:
+                for item in _data_items(data):
                     row = _flatten_item(item, config.drop_fields)
                     row["workspace_id"] = workspace_id
                     row["workspace_name"] = workspace_name

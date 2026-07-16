@@ -48,9 +48,11 @@ class TerraformCloudEndpointConfig:
 TERRAFORM_CLOUD_ENDPOINTS: dict[str, TerraformCloudEndpointConfig] = {
     "organizations": TerraformCloudEndpointConfig(
         name="organizations",
-        # Every organization the token can access, not just the configured one — an
-        # organization's `id` is its name, so this is a tiny list.
-        path="/organizations",
+        # Scoped to the configured organization only. `/organizations` (no id) returns every
+        # organization the token can access, leaking other orgs' names, admin emails, and
+        # plan/SSO metadata to anyone who can query this table. The single-resource response is
+        # normalized to a one-row list downstream.
+        path="/organizations/{organization}",
     ),
     "projects": TerraformCloudEndpointConfig(
         name="projects",
