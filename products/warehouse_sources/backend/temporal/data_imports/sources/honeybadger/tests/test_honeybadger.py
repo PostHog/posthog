@@ -28,6 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadge
 WATERMARK_TS = 1_700_000_000
 WATERMARK = datetime.fromtimestamp(WATERMARK_TS, tz=UTC)
 
+# tenacity exposes the undecorated function via `__wrapped__`, so status classification can be
+# tested without paying the retry waits; it's not part of the wrapped callable's type.
+_fetch_page_once = _fetch_page.__wrapped__  # type: ignore[attr-defined]
+
 
 def _response(payload: Any = None, status: int = 200, headers: dict[str, str] | None = None) -> MagicMock:
     response = MagicMock()
@@ -38,7 +42,7 @@ def _response(payload: Any = None, status: int = 200, headers: dict[str, str] | 
     response.text = json.dumps(payload) if payload is not None else ""
     if status >= 400:
         response.raise_for_status.side_effect = requests.HTTPError(
-            f"{status} Client Error: error for url: {HONEYBADGER_BASE_URL}"
+            f"{status} Client Error: error for url: {HONEYBADGER_BASE_URL}", response=response
         )
     else:
         response.raise_for_status.side_effect = None
@@ -128,14 +132,14 @@ class TestHoneybadger:
         session = MagicMock()
         session.get.return_value = _response(None, status=status)
         with pytest.raises(HoneybadgerRetryableError):
-            _fetch_page.__wrapped__(session, f"{HONEYBADGER_BASE_URL}/projects", MagicMock())
+            _fetch_page_once(session, f"{HONEYBADGER_BASE_URL}/projects", MagicMock())
 
     @pytest.mark.parametrize("status", [401, 403, 404])
     def test_fetch_page_raises_http_error_on_permanent_statuses(self, status: int) -> None:
         session = MagicMock()
         session.get.return_value = _response(None, status=status)
         with pytest.raises(requests.HTTPError):
-            _fetch_page.__wrapped__(session, f"{HONEYBADGER_BASE_URL}/projects", MagicMock())
+            _fetch_page_once(session, f"{HONEYBADGER_BASE_URL}/projects", MagicMock())
 
     @pytest.mark.parametrize(
         ("reset_offset", "expected_sleep"),
@@ -162,13 +166,13 @@ class TestHoneybadger:
             ) as mock_sleep,
         ):
             with pytest.raises(HoneybadgerRetryableError):
-                _fetch_page.__wrapped__(session, f"{HONEYBADGER_BASE_URL}/projects", MagicMock())
+                _fetch_page_once(session, f"{HONEYBADGER_BASE_URL}/projects", MagicMock())
         mock_sleep.assert_called_once_with(expected_sleep)
 
     def test_fetch_page_retries_transient_error_then_succeeds(self) -> None:
         session = MagicMock()
         session.get.side_effect = [_response(None, status=500), _response({"results": [{"id": 1}]})]
-        result = _fetch_page.retry_with(wait=wait_none())(session, f"{HONEYBADGER_BASE_URL}/projects", MagicMock())
+        result = _fetch_page.retry_with(wait=wait_none())(session, f"{HONEYBADGER_BASE_URL}/projects", MagicMock())  # type: ignore[attr-defined]
         assert result == {"results": [{"id": 1}]}
         assert session.get.call_count == 2
 
@@ -177,7 +181,7 @@ class TestHoneybadger:
         session = MagicMock()
         session.get.return_value = _response(None, status=403)
         with pytest.raises(requests.HTTPError):
-            _fetch_page.retry_with(wait=wait_none())(session, f"{HONEYBADGER_BASE_URL}/projects", MagicMock())
+            _fetch_page.retry_with(wait=wait_none())(session, f"{HONEYBADGER_BASE_URL}/projects", MagicMock())  # type: ignore[attr-defined]
         assert session.get.call_count == 1
 
     @pytest.mark.parametrize(
@@ -194,7 +198,7 @@ class TestHoneybadger:
         # session — the request is refused before it is sent.
         session = MagicMock()
         with pytest.raises(ValueError, match="Refusing to fetch"):
-            _fetch_page.__wrapped__(session, url, MagicMock())
+            _fetch_page_once(session, url, MagicMock())
         session.get.assert_not_called()
 
     @pytest.mark.parametrize(("status", "expected"), [(200, True), (403, False)])
