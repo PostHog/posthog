@@ -455,8 +455,11 @@ describe('CommonIngestionPipelineBuilder', () => {
         ])
     })
 
-    it('preserves within-group ordering under concurrentlyPerGroup and re-collects with gather', async () => {
+    it('runs groups concurrently with sequential multi-step subpipelines within each group', async () => {
         const log: string[] = []
+        let releaseFirstA!: () => void
+        const firstAGate = new Promise<void>((resolve) => (releaseFirstA = resolve))
+
         const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
             .parseHeaders()
             .parseMessage()
@@ -465,10 +468,24 @@ describe('CommonIngestionPipelineBuilder', () => {
                 (value) => value.event.distinct_id,
                 (group) =>
                     group.sequentially((element) =>
-                        element.pipe(function perGroupStep(input) {
-                            log.push(`G:${input.event.distinct_id}:${input.event.event}`)
-                            return Promise.resolve(ok(input))
-                        })
+                        element
+                            .pipe(async function stepOne(input) {
+                                // Group a's first event waits for group b to make progress:
+                                // if groups ran sequentially instead of concurrently, this
+                                // would deadlock and the test would fail by timeout.
+                                if (input.event.distinct_id === 'user-a' && input.event.event === 'e0') {
+                                    await firstAGate
+                                }
+                                log.push(`one:${input.event.distinct_id}:${input.event.event}`)
+                                return ok(input)
+                            })
+                            .pipe(function stepTwo(input) {
+                                if (input.event.distinct_id === 'user-b') {
+                                    releaseFirstA()
+                                }
+                                log.push(`two:${input.event.distinct_id}:${input.event.event}`)
+                                return Promise.resolve(ok(input))
+                            })
                     )
             )
             .gather()
@@ -486,9 +503,105 @@ describe('CommonIngestionPipelineBuilder', () => {
         ])
 
         expect(okValues(batches)).toHaveLength(4)
-        expect(log.filter((line) => line.startsWith('G:user-a'))).toEqual(['G:user-a:e0', 'G:user-a:e1'])
-        expect(log.filter((line) => line.startsWith('G:user-b'))).toEqual(['G:user-b:e2', 'G:user-b:e3'])
+        // Within each group, every element runs through both steps before the next element.
+        expect(log.filter((line) => line.includes(':user-a:'))).toEqual([
+            'one:user-a:e0',
+            'two:user-a:e0',
+            'one:user-a:e1',
+            'two:user-a:e1',
+        ])
+        expect(log.filter((line) => line.includes(':user-b:'))).toEqual([
+            'one:user-b:e2',
+            'two:user-b:e2',
+            'one:user-b:e3',
+            'two:user-b:e3',
+        ])
+        // Group b completed its first element while group a was still gated.
+        expect(log.indexOf('two:user-b:e2')).toBeLessThan(log.indexOf('one:user-a:e0'))
         expect(log[log.length - 1]).toBe('gathered:4')
+    })
+
+    it('applies compose subpipelines with their own sequential and chunk stages', async () => {
+        const log: string[] = []
+        const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
+            .parseHeaders()
+            .parseMessage()
+            .resolveTeam()
+            .pipe(teamLogStep(log, 'A'))
+            .compose((builder) =>
+                builder
+                    .sequentially((element) => element.pipe(teamLogStep(log, 'X')).pipe(teamLogStep(log, 'Y')))
+                    .pipeChunk(teamLogChunkStep(log, 'C'))
+            )
+            .pipe(teamLogStep(log, 'D'))
+            .build()
+
+        await runPipeline(pipeline, [createMessage('user-0'), createMessage('user-1')])
+
+        expect(log).toEqual([
+            'A:user-0',
+            'A:user-1',
+            'X:user-0',
+            'Y:user-0',
+            'X:user-1',
+            'Y:user-1',
+            'C:[user-0,user-1]',
+            'D:user-0',
+            'D:user-1',
+        ])
+    })
+
+    it('applies the resolveTeam wrap decorator around team resolution', async () => {
+        const wrapObserved: string[] = []
+        const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
+            .parseHeaders()
+            .parseMessage()
+            .resolveTeam({
+                wrap: (step) => async (input) => {
+                    const result = await step(input)
+                    wrapObserved.push(
+                        isOkResult(result) ? `ok:${result.value.team.id}` : `miss:${input.headers.distinct_id}`
+                    )
+                    return result
+                },
+            })
+            .build()
+
+        const batches = await runPipeline(pipeline, [
+            createMessage('user-0'),
+            createMessage('user-1', 'test_event', 'unknown-token'),
+        ])
+
+        expect(wrapObserved).toEqual(['ok:42', 'miss:user-1'])
+        const elements = batches.flatMap((batch) => batch.elements)
+        expect(isOkResult(elements[0].result)).toBe(true)
+        expect(isDropResult(elements[1].result)).toBe(true)
+    })
+
+    it('passes retry options through to chunk steps', async () => {
+        let attempts = 0
+        const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
+            .parseHeaders()
+            .parseMessage()
+            .resolveTeam()
+            .pipeChunk(
+                function flakyChunkStep(values) {
+                    attempts++
+                    if (attempts === 1) {
+                        const transient = new Error('transient failure') as Error & { isRetriable: boolean }
+                        transient.isRetriable = true
+                        throw transient
+                    }
+                    return Promise.resolve(values.map((value) => ok(value)))
+                },
+                { retry: { tries: 2, sleepMs: 1, name: 'flaky_chunk' } }
+            )
+            .build()
+
+        const batches = await runPipeline(pipeline, [createMessage('user-0')])
+
+        expect(attempts).toBe(2)
+        expect(okValues(batches)).toHaveLength(1)
     })
 
     describe('compile-time type safety', () => {
