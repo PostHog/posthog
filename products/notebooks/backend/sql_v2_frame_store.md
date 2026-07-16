@@ -305,21 +305,39 @@ statements. Issue classes, by zone:
 - **The parameter channel must survive.** `param_hogql_val_N` server-side binding works for INSERT SELECT
   unchanged; an implementation that inlines values client-side reintroduces classic injection for every
   user literal.
-- **Privilege amplification is the deepest issue and is not about splicing.** An INSERT is a write statement
-  even into a table function, so `readonly = 2` is off the table: the notebooks user needs `readonly = 0`
-  plus the S3 source (or named-collection usage) grant. From then on any unrelated bug — a future printer
-  escaping flaw — escalates from "read within team scope" to "write query results wherever the grant
-  reaches". The splice can be perfect and this amplification stands; it is a property of the user.
+- **Privilege amplification is the deepest issue and is not about splicing — but it is narrower than it
+  first looks, because `readonly` and GRANTs are independent layers.** An INSERT is a write statement even
+  into a table function, so `readonly = 2` is off the table: the writer identity needs `readonly = 0`.
+  That does NOT mean it can write ClickHouse: `INSERT` privileges are per-table and `s3()` is gated by its
+  own source grant, so the right shape is `readonly = 0` with a grant set of SELECT on the HogQL-reachable
+  tables, `GRANT S3 ON *.*`, `CREATE TEMPORARY TABLE`, and **zero** INSERT/ALTER/CREATE/DROP/TRUNCATE on
+  any database or table — a user that physically cannot mutate CH state yet can run
+  `INSERT INTO FUNCTION s3`. The `readonly` downgrade then costs only defense-in-depth redundancy, not
+  authorization. What grants cannot close: `GRANT S3` is source-level, not resource-level — no per-user
+  "only this bucket" exists, and a holder can call `s3('https://anywhere/...', key, secret)` with **inline
+  attacker credentials**, bypassing our IAM entirely. That residual exfiltration channel is fenced
+  server-side, not per-user: `remote_url_allow_hosts` pinned to our storage endpoints (verify it covers
+  `s3()` on our CH version), plus confining the write-capable identity to the one materialize code path
+  while everything else notebook-shaped stays on a read-only user. With allowlist + minimal grants, the
+  blast radius of a hypothetical printer bug shrinks from "exfiltrate anywhere" to "write malformed objects
+  into our own lifecycle-TTL'd frames prefix" — integrity, not confidentiality. One tempting dead end,
+  preempted: an admin-created `ENGINE = S3` table (plain table-scoped INSERT grant, no S3 source grant, no
+  URL in SQL at all) fails on schema — engine tables are fixed-schema and every frame carries its own
+  arbitrary column set, which is exactly why `INSERT INTO FUNCTION s3` (per-statement schema inference) is
+  the only shape that fits.
 
 The playbook, if/when built: keep the URL out of the statement via a named collection pinned to bucket +
 `notebooks/frames/` prefix (only a charset-validated **and** escaped `filename` override in SQL — validation
 as policy, escaping as defense in depth; also keeps credentials out of `system.query_log` and error text);
 build the INSERT wrapper as a printer-level construct rather than post-hoc string surgery, with a shape-matrix
 test (plain / WITH / UNION / settings-suffix) asserting the output parses as exactly one INSERT; preserve
-server-side param binding; scope the CH role's write access to the notebooks prefix, write-only. Verdict: the
-splice is a contained engineering problem with a known playbook and its own security review; the standing
-write capability on a user that executes user-authored query logic is the part that is permanent — mitigable
-by scoping, never eliminable — and must be consciously accepted.
+server-side param binding; give the writer identity the minimal-grant shape above (`readonly = 0`, no
+table-write grants, S3 source grant) confined to the materialize path; pin `remote_url_allow_hosts` to our
+storage endpoints; scope the CH-side credentials write-only to the notebooks prefix. Verdict: the splice is a
+contained engineering problem with a known playbook and its own security review, and the table-mutation half
+of the amplification is fully closable through grants; what is permanent is the S3-egress capability itself —
+containable to our-own-bucket blast radius via the host allowlist, never eliminable — and that residual is
+what must be consciously accepted.
 
 **Phase 3 — reuse and convergence.**
 Serve repeat materializations of an unchanged upstream query straight from the existing object
