@@ -6,7 +6,6 @@ export const POSTHOG_CODE_USAGE_PRODUCT_KEY = 'posthog_code_usage'
 export const POSTHOG_CODE_BILLING_LIMIT_MAX: number = 3000
 
 export type BillingLimitConfig = {
-    limitKey: string
     max: number
     help: string | null
     removalDisabledReason: string | null
@@ -21,7 +20,7 @@ type BillingLimitConfigContext = {
     billingLimitNextPeriod: number | null
 }
 
-const DEFAULT_BILLING_LIMIT_CONFIG: Omit<BillingLimitConfig, 'limitKey'> = {
+const DEFAULT_BILLING_LIMIT_CONFIG: BillingLimitConfig = {
     max: MAX_BILLING_LIMIT,
     help: null,
     removalDisabledReason: null,
@@ -38,7 +37,6 @@ const BILLING_LIMIT_CONFIG_BY_PRODUCT: Record<string, BillingLimitConfigResolver
         }
 
         return {
-            limitKey: POSTHOG_CODE_USAGE_PRODUCT_KEY,
             max: POSTHOG_CODE_BILLING_LIMIT_MAX,
             help: 'Code billing limits can be set from $0 to $3,000 per month.',
             removalDisabledReason: "Code billing limits can't be removed. Set the limit to $0 instead.",
@@ -55,11 +53,9 @@ const BILLING_LIMIT_CONFIG_BY_PRODUCT: Record<string, BillingLimitConfigResolver
 }
 
 export const getBillingLimitConfig = (context: BillingLimitConfigContext): BillingLimitConfig => {
-    const productConfigKey = context.product.usage_key ?? context.product.type
-    const productConfig = BILLING_LIMIT_CONFIG_BY_PRODUCT[productConfigKey]?.(context)
+    const productConfig = BILLING_LIMIT_CONFIG_BY_PRODUCT[context.product.type]?.(context)
 
     return {
-        limitKey: context.product.type,
         ...DEFAULT_BILLING_LIMIT_CONFIG,
         ...productConfig,
     }

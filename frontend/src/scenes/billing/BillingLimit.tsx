@@ -164,7 +164,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                 loading={removingBillingLimitNextPeriod}
                                 tooltip="Remove billing limit for next period"
                                 disabledReason={billingLimitConfig.removalDisabledReason}
-                                onClick={() => removeBillingLimitNextPeriod(billingLimitConfig.limitKey)}
+                                onClick={() => removeBillingLimitNextPeriod(product.type)}
                                 data-attr={`remove-billing-limit-next-period-${product.type}`}
                             >
                                 Remove limit for next period
