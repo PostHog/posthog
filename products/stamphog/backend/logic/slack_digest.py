@@ -90,10 +90,14 @@ def post_digest(team_id: int, digest_channel: DigestChannel, summary: DigestSumm
     if integration is None:
         raise DigestSlackError(f"No slack integration {digest_channel.slack_integration_id} for team {team_id}")
 
+    # No unfurls: the summary text is LLM output over untrusted PR content, so a prompt-injected
+    # URL must not make Slack's unfurler fetch an attacker's server from inside the workspace.
     response = SlackIntegration(integration).client.chat_postMessage(
         channel=digest_channel.slack_channel_id,
         blocks=_build_blocks(summary),
         text=_build_fallback_text(summary),
+        unfurl_links=False,
+        unfurl_media=False,
     )
     ts = response.get("ts")
     return str(ts) if ts else None

@@ -565,17 +565,33 @@ def test_installation_repos_added_creates_disabled_rows_and_skips_existing(team,
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_installation_removal_tombstones_rows(team, repo_config, payload_kwargs, expect_disabled):
     # Removed repos and a full uninstall tombstone the configs (disabled, rows and history kept);
-    # other installation actions are acked and ignored.
+    # other installation actions are acked and ignored. In-flight runs must be superseded too —
+    # workflows never re-check `enabled`, so a run already in the sandbox would otherwise still
+    # post a verdict for a repo that left the installation. Terminal runs are history, kept as-is.
     with team_scope(team.id):
         repo_config.digest_enabled = True
         repo_config.save()
+        pull_request = PullRequest.objects.create(
+            team_id=team.id, repo_config=repo_config, pr_number=7, audience_key=""
+        )
+        in_flight = ReviewRun.objects.create(
+            team_id=team.id, pull_request=pull_request, head_sha="sha-1", status=ReviewRunStatus.REVIEWING
+        )
+        terminal = ReviewRun.objects.create(
+            team_id=team.id, pull_request=pull_request, head_sha="sha-0", status=ReviewRunStatus.COMPLETED
+        )
 
     process_installation_event(_installation_payload(**payload_kwargs), f"delivery-inst-{payload_kwargs['action']}")
 
     with team_scope(team.id):
         repo_config.refresh_from_db()
+        in_flight.refresh_from_db()
+        terminal.refresh_from_db()
     assert repo_config.enabled is not expect_disabled
     assert repo_config.digest_enabled is not expect_disabled
+    expected_in_flight = ReviewRunStatus.SUPERSEDED if expect_disabled else ReviewRunStatus.REVIEWING
+    assert in_flight.status == expected_in_flight
+    assert terminal.status == ReviewRunStatus.COMPLETED
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
