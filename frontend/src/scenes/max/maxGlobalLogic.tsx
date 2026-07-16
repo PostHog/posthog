@@ -149,6 +149,10 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
 
                 loadConversation: async (conversationId: string) => {
                     const response = await api.conversations.get(conversationId)
+                    if (!response) {
+                        // The endpoint can return an empty body; a null in the history crashes consumers
+                        return values.conversationHistory
+                    }
                     const itemIndex = values.conversationHistory.findIndex((c) => c.id === conversationId)
 
                     if (itemIndex !== -1) {

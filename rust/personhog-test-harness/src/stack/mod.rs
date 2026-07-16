@@ -17,13 +17,20 @@ use process::ServiceProcess;
 /// dev stack (gRPC 50051-50054, metrics 9100-9105) without collisions.
 /// Routers occupy base..base+3 and leaders start at base+6, which caps the
 /// router count at 4.
-const REPLICA_GRPC_PORT: u16 = 51051;
-const ROUTER_GRPC_BASE_PORT: u16 = 51054;
-const LEADER_GRPC_BASE_PORT: u16 = 51060;
-const REPLICA_METRICS_PORT: u16 = 51151;
-const WRITER_METRICS_PORT: u16 = 51153;
-const ROUTER_METRICS_BASE_PORT: u16 = 51154;
-const LEADER_METRICS_BASE_PORT: u16 = 51160;
+///
+/// The range must stay below 32768: Linux allocates the local port of
+/// every outbound connection from the ephemeral range (default
+/// 32768-60999), so a fixed listen port inside it loses a lottery against
+/// whichever process's Kafka/PG/etcd connection grabbed the port first —
+/// during bring-up, every service opens outbound sockets in the same
+/// instant the listeners bind.
+const REPLICA_GRPC_PORT: u16 = 24051;
+const ROUTER_GRPC_BASE_PORT: u16 = 24054;
+const LEADER_GRPC_BASE_PORT: u16 = 24060;
+const REPLICA_METRICS_PORT: u16 = 24151;
+const WRITER_METRICS_PORT: u16 = 24153;
+const ROUTER_METRICS_BASE_PORT: u16 = 24154;
+const LEADER_METRICS_BASE_PORT: u16 = 24160;
 const MAX_ROUTERS: u32 = 4;
 
 const ETCD_PREFIX: &str = "/personhog-test-harness/";

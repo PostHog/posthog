@@ -10,7 +10,7 @@ Two distinct skill families live in this directory:
    agent how to write, edit, and adapt scouts (per-team via the skills store, or canonically
    in this directory), and `exploring-scouts/` is its read-only counterpart —
    teaching a caller how to observe and make sense of what a project's scouts are doing and
-   how they're performing (the `signals-scout-config-list` / `-runs-list` / `-runs-retrieve`
+   how they're performing (the `scout-config-list` / `-runs-list` / `-runs-retrieve`
    / `-scratchpad-search` / `-project-profile-get` tools, run anatomy, and health
    assessment). They are not part of the automated agent path — humans (and human-driven
    agents) reach for them on demand.
@@ -290,15 +290,15 @@ every 24 hours) and a `last_run_at` stamp. Every tick the coordinator:
 2. Auto-registers a config for any `signals-scout-*` skill missing one
    (`scout_harness/config_registry.register_missing_configs`) — on an enrolled team,
    authoring a skill is enough to get a scout. To register (and tune) one immediately
-   instead, use the `signals-scout-config-create` endpoint.
+   instead, use the `scout-config-create` endpoint.
 3. Dispatches every enabled scout whose schedule is due (`last_run_at is None`, or
    `now - last_run_at >= run_interval_minutes`), most-overdue first, capped at
    `MAX_RUNS_PER_TICK` per tick. Each due scout becomes one `RunSignalsScoutWorkflow`
    child run; `last_run_at` is advanced for everything dispatched.
 
 Pausing a scout is `enabled=False` on its config; slowing it is a larger
-`run_interval_minutes`. Both are tunable via the `signals-scout-config-update` MCP
-tool, and settable at creation time via `signals-scout-config-create` (an upsert that
+`run_interval_minutes`. Both are tunable via the `scout-config-update` MCP
+tool, and settable at creation time via `scout-config-create` (an upsert that
 registers the config immediately instead of waiting for the tick). See
 `scout_coordinator._collect_planned_runs` for the exact due-check.
 
@@ -330,7 +330,7 @@ and column wrapping only adds diff noise.
 The generalist (`signals-scout-general`) is **report-only** — it authors `SignalReport`s
 directly and does not `emit_signal`. The **report-channel contract** (when to author a fresh
 report vs. edit an existing one, the field schema, the safety × actionability status mapping,
-reviewer routing via `signals-scout-members-list`, and the non-idempotency + pipeline-rewrite
+reviewer routing via `scout-members-list`, and the non-idempotency + pipeline-rewrite
 caveats) lives in the **harness prompt** (`scout_harness/prompt.py`), which forks on the scout's
 channel and injects it into every report-channel scout — so it is **not** duplicated as a
 per-scout reference. The generalist keeps one bundled reference:

@@ -8,6 +8,12 @@ CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 # To edit, visit: ${SITE_URL}/admin/posthog/instancesetting/
 
 CONSTANCE_CONFIG = {
+    "WAREHOUSE_PERSON_PROPERTY_SET_RATE_PER_SEC": (
+        5000,
+        "Global max rate (events/sec) at which the warehouse person-property consumer sends $set "
+        "events to capture. Throttles the shared ingestion person-write path; ops can retune live.",
+        int,
+    ),
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS": (
         3,
         "Number of weeks recording performance events will be kept before removing them (for all projects). Storing performance events for a shorter timeframe can help reduce Clickhouse disk usage.",

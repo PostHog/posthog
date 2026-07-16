@@ -10,10 +10,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     BranchPRMatchApi,
+    BrokenTestsResultApi,
     CICardSummaryApi,
     CIFailureLogsApi,
     CurrentBranchHealthApi,
     EngineeringAnalyticsAuthorWorkflowCostsParams,
+    EngineeringAnalyticsBrokenTestsParams,
     EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsCiFailureLogsParams,
     EngineeringAnalyticsCurrentBranchHealthParams,
@@ -83,6 +85,39 @@ export const engineeringAnalyticsAuthorWorkflowCosts = async (
     options?: RequestInit
 ): Promise<WorkflowCostApi[]> => {
     return apiMutator<WorkflowCostApi[]>(getEngineeringAnalyticsAuthorWorkflowCostsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsBrokenTestsUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsBrokenTestsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/broken_tests/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/broken_tests/`
+}
+
+/**
+ * The broken-tests triage panel: live CI failures over the last 2 days grouped into distinct failures (by test id + normalized error signature) and classified by how each is behaving right now — breaking trunk, a new failure spreading across branches, probably-resolved, flaky, or one PR's own problem — ranked with the most urgent first. Also returns breaking_master_jobs, the default-branch jobs whose latest run is red. Reach for this to answer 'what CI failures should I care about right now'; expand a row's latest_run_id via run_failure_logs for the failing lines. Fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the breaking/resolved distinction needs the job-level source synced — without it those failures fall through to flaky/pr_only rather than being misreported.
+ */
+export const engineeringAnalyticsBrokenTests = async (
+    projectId: string,
+    params?: EngineeringAnalyticsBrokenTestsParams,
+    options?: RequestInit
+): Promise<BrokenTestsResultApi> => {
+    return apiMutator<BrokenTestsResultApi>(getEngineeringAnalyticsBrokenTestsUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

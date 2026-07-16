@@ -11,6 +11,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from django.conf import settings
 from django.db.models import Avg, FloatField
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast
@@ -23,6 +24,7 @@ from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.vision_action import (
+    AlertDirection,
     AlertFrequency,
     AlertMetric,
     VisionActionRun,
@@ -149,10 +151,13 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
     else:
         metric_value = float(matched_count)
 
-    # No measurable data (e.g. avg over an empty window) can't breach anything — including a
-    # "count lt N" condition, which zero observations WOULD satisfy; count is always measurable (0).
-    # The only condition shape is "metric at or above threshold" — see AlertConfigSerializer.
-    if metric_value is None or metric_value < threshold:
+    # The condition is "metric at or above/below the threshold" (inclusive, per direction — see
+    # AlertConfigSerializer). No measurable data (avg over an empty window) can't breach in either
+    # direction; count is always measurable (0), so a below-direction count alert DOES fire on a
+    # quiet window — that's its "went quiet" meaning.
+    below = alert_config.get("direction") == AlertDirection.BELOW
+    breached = metric_value is not None and (metric_value <= threshold if below else metric_value >= threshold)
+    if not breached:
         return EvaluateAlertResult(
             status=AlertStatus.NOT_BREACHED, observation_count=matched_count, metric_value=metric_value
         )
@@ -196,17 +201,25 @@ def _persist_fired(
     observations_qs: Any,
     team: Any,
 ) -> EvaluateAlertResult:
-    markdown = strip_external_links_markdown(
-        _alert_markdown(action, alert_config, metric_value, matched_count, observations_qs)
-    )
-    observation_ids = [
-        str(observation_id)
-        for observation_id in observations_qs.order_by("-created_at", "-id").values_list("id", flat=True)[
+    # One fetch feeds both the message and the persisted ids, so the `[obs N]` labels in the example
+    # lines always agree with `observation_ids` order (which the run serializer numbers `index` by and
+    # both the Slack pass and the in-app view resolve into observation links).
+    rows = list(
+        observations_qs.order_by("-created_at", "-id").values_list("id", "scanner_result", "created_at")[
             :MAX_OBSERVATIONS
         ]
-    ]
+    )
+    observation_ids = [str(observation_id) for observation_id, _, _ in rows]
+    markdown = strip_external_links_markdown(_alert_markdown(action, alert_config, metric_value, matched_count, rows))
+    # Links are added AFTER the strip pass (like the Slack citation links) so the URLs aren't defanged
+    # on instances whose SITE_URL isn't a posthog.com host (self-hosted, dev).
+    run_url = _run_url(team.id, str(action.id), str(run.pk))
+    markdown = _linkify_header(markdown, action, run_url)
+    if matched_count > EXAMPLE_LINES:
+        # More matches than the message lists as examples — point at the run page, which shows every
+        # match this alert included (capped at MAX_OBSERVATIONS).
+        markdown += f"\n\n[See all {matched_count:,} matches]({run_url})"
     run.synthesized_markdown = markdown
-    # Alert messages carry no `[obs N]` citations, so the ids only feed the (no-op) citation pass.
     run.output = {"slack": _markdown_to_slack(markdown, team_id=team.id, observation_ids=observation_ids)}
     run.observation_count = matched_count
     run.observation_ids = observation_ids
@@ -219,19 +232,45 @@ def _format_number(value: float) -> str:
     return str(int(value)) if float(value).is_integer() else f"{value:.2f}"
 
 
+def _run_url(team_id: int, action_id: str, run_id: str) -> str:
+    return f"{settings.SITE_URL}/project/{team_id}/replay-vision/actions/{action_id}/runs/{run_id}"
+
+
+def _scanner_display_name(action: Any) -> str:
+    # Scanner name is free text; strip markdown/mrkdwn control chars so it can't garble the bold
+    # header, plus link syntax chars so it can't break out of the header link's label.
+    raw_name = action.scanner.name if action.scanner_id else ""
+    return re.sub(r"\s+", " ", re.sub(r"[*_`#\[\]()]", "", raw_name)).strip() or "your scanner"
+
+
+def _linkify_header(markdown: str, action: Any, run_url: str) -> str:
+    """Wrap the header's scanner name in a link to this alert's run page — the alert's own message
+    plus every matching observation (and breadcrumbs back to the scanner). A name the strip pass
+    rewrote (e.g. it contained a bare URL, now a code span) won't match the expected header — leave
+    it unlinked rather than guess."""
+    if not action.scanner_id:
+        return markdown
+    name = _scanner_display_name(action)
+    prefix = f"**Alert: {name}**"
+    if not markdown.startswith(prefix):
+        return markdown
+    return f"**Alert: [{name}]({run_url})**" + markdown[len(prefix) :]
+
+
 def _alert_markdown(
     action: Any,
     alert_config: dict[str, Any],
     metric_value: float,
     matched_count: int,
-    observations_qs: Any,
+    rows: list[tuple[Any, Any, datetime]],
 ) -> str:
     """Deterministic alert report: what fired, the measured value vs the threshold, and a few example
     observation outcomes (verdict/score/tags via `describe_output` — outcomes only, no
-    recording-derived prose, so nothing here needs an LLM or invites prompt injection)."""
-    # Scanner name is free text; strip markdown/mrkdwn control chars so it can't garble the bold header.
-    raw_name = action.scanner.name if action.scanner_id else ""
-    scanner_name = re.sub(r"\s+", " ", re.sub(r"[*_`#]", "", raw_name)).strip() or "your scanner"
+    recording-derived prose, so nothing here needs an LLM or invites prompt injection). Example lines
+    carry `[obs N]` citation markers — N is the observation's 1-based position in `rows`
+    (= `observation_ids` order) — which the Slack pass and the in-app view resolve into links to each
+    observation."""
+    scanner_name = _scanner_display_name(action)
 
     noun = "observation" if matched_count == 1 else "observations"
     if alert_config.get("frequency", AlertFrequency.ON_BREACH) == AlertFrequency.EVERY_MATCH:
@@ -244,23 +283,22 @@ def _alert_markdown(
         window_days = alert_config.get("window_days", DEFAULT_ALERT_WINDOW_DAYS)
         metric_label = "average score" if metric == AlertMetric.AVG_SCORE else "matching observations"
         window_label = "24 hours" if window_days == 1 else f"{window_days} days"
+        bound = "at or below" if alert_config.get("direction") == AlertDirection.BELOW else "at or above"
         lines = [
             f"**Alert: {scanner_name}** — {metric_label} over the last {window_label} was "
-            f"{_format_number(metric_value)}, at or above the threshold of {_format_number(threshold)}.",
+            f"{_format_number(metric_value)}, {bound} the threshold of {_format_number(threshold)}.",
             "",
             f"{matched_count} {noun} matched in this window.",
         ]
 
     examples: list[str] = []
-    for scanner_result, created_at in observations_qs.order_by("-created_at", "-id").values_list(
-        "scanner_result", "created_at"
-    )[:EXAMPLE_LINES]:
+    for position, (_, scanner_result, created_at) in enumerate(rows[:EXAMPLE_LINES], start=1):
         output = scanner_result.get("model_output") if isinstance(scanner_result, dict) else None
         if not isinstance(output, dict):
             continue
         descriptor = describe_output(output)
         if descriptor:
-            examples.append(f"- ({created_at:%Y-%m-%d}) {descriptor}")
+            examples.append(f"- ({created_at:%Y-%m-%d}) {descriptor} [obs {position}]")
     if examples:
         lines.extend(["", "Most recent matches:", *examples])
 
