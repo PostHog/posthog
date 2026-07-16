@@ -96,36 +96,62 @@ class TestDownloadAttachmentSizeCap:
     def test_content_length_precheck_aborts_before_reading_body(self) -> None:
         client = self._client()
         resp = _FakeStreamResponse(headers={"Content-Length": "11"}, chunks=[b"x" * 11])
-        client._session = MagicMock()
-        client._session.get.return_value = resp
+        client._download_session = MagicMock()
+        client._download_session.get.return_value = resp
 
-        with pytest.raises(PlainAttachmentTooLargeError):
-            client.download_attachment("att_1", max_bytes=10)
+        with patch(f"{M}.validate_url_and_pin_ips", return_value=(True, None, set())):
+            with pytest.raises(PlainAttachmentTooLargeError):
+                client.download_attachment("att_1", max_bytes=10)
         assert resp.consumed_chunks == 0
 
     def test_streaming_aborts_when_lying_content_length(self) -> None:
         client = self._client()
         resp = _FakeStreamResponse(headers={}, chunks=[b"x" * 8, b"x" * 8])
-        client._session = MagicMock()
-        client._session.get.return_value = resp
+        client._download_session = MagicMock()
+        client._download_session.get.return_value = resp
 
-        with pytest.raises(PlainAttachmentTooLargeError):
-            client.download_attachment("att_1", max_bytes=10)
+        with patch(f"{M}.validate_url_and_pin_ips", return_value=(True, None, set())):
+            with pytest.raises(PlainAttachmentTooLargeError):
+                client.download_attachment("att_1", max_bytes=10)
 
     def test_returns_bytes_within_cap(self) -> None:
         client = self._client()
         resp = _FakeStreamResponse(headers={"Content-Length": "6"}, chunks=[b"abc", b"def"])
-        client._session = MagicMock()
-        client._session.get.return_value = resp
+        client._download_session = MagicMock()
+        client._download_session.get.return_value = resp
 
-        assert client.download_attachment("att_1", max_bytes=10) == b"abcdef"
+        with patch(f"{M}.validate_url_and_pin_ips", return_value=(True, None, set())):
+            assert client.download_attachment("att_1", max_bytes=10) == b"abcdef"
 
     def test_refuses_non_https_download_url(self) -> None:
         client = PlainImportClient(PlainCredentials(api_key="key", region="uk"))
         client.create_attachment_download_url = MagicMock(  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
             return_value="http://cdn.example.com/file"
         )
-        client._session = MagicMock()
+        client._download_session = MagicMock()
         with pytest.raises(ValueError, match="non-https"):
             client.download_attachment("att_1", max_bytes=10)
-        client._session.get.assert_not_called()
+        client._download_session.get.assert_not_called()
+
+    def test_refuses_url_blocked_by_ssrf_policy(self) -> None:
+        client = self._client()
+        client._download_session = MagicMock()
+        with patch(
+            f"{M}.validate_url_and_pin_ips", return_value=(False, "Disallowed target IP: 169.254.169.254", set())
+        ):
+            with pytest.raises(ValueError, match="SSRF policy"):
+                client.download_attachment("att_1", max_bytes=10)
+        client._download_session.get.assert_not_called()
+
+    def test_follows_validated_redirect(self) -> None:
+        client = self._client()
+        redirect = _FakeStreamResponse(headers={"Location": "https://cdn2.example.com/file"})
+        redirect.status_code = 302
+        final = _FakeStreamResponse(headers={"Content-Length": "3"}, chunks=[b"abc"])
+        client._download_session = MagicMock()
+        client._download_session.get.side_effect = [redirect, final]
+
+        with patch(f"{M}.validate_url_and_pin_ips", return_value=(True, None, set())) as mock_validate:
+            assert client.download_attachment("att_1", max_bytes=10) == b"abc"
+        # Both the original and the redirect target must be revalidated.
+        assert mock_validate.call_count == 2

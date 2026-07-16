@@ -223,21 +223,24 @@ class TestPlainImportJobUpdates(BaseTest):
         self.assertEqual(self.job.status, PlainImportJob.Status.COMPLETED)
         self.assertIsNotNone(self.job.finished_at)
 
-    def test_update_job_progress_increments_counters(self) -> None:
-        _update_job_progress_sync(
-            UpdateJobProgressInput(
-                job_id=str(self.job.id),
-                processed_delta=2,
-                imported_delta=1,
-                skipped_delta=1,
-                failed_delta=0,
-                total_delta=5,
-                export_cursor="cursor-1",
-            )
+    def test_update_job_progress_sets_absolute_counters_idempotently(self) -> None:
+        payload = UpdateJobProgressInput(
+            job_id=str(self.job.id),
+            processed=2,
+            imported=1,
+            skipped=1,
+            failed=0,
+            total=5,
+            export_cursor="cursor-1",
         )
+        _update_job_progress_sync(payload)
+        # Reapplying the identical payload (e.g. an activity retry after the commit but before
+        # completion is acknowledged) must not double-count — counters are absolute, not additive.
+        _update_job_progress_sync(payload)
         self.job.refresh_from_db()
         self.assertEqual(self.job.processed_tickets, 2)
         self.assertEqual(self.job.imported_tickets, 1)
         self.assertEqual(self.job.skipped_tickets, 1)
+        self.assertEqual(self.job.failed_tickets, 0)
         self.assertEqual(self.job.total_tickets, 5)
         self.assertEqual(self.job.export_cursor, "cursor-1")

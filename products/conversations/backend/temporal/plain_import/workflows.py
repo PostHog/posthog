@@ -14,10 +14,12 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 with workflow.unsafe.imports_passed_through():
     from products.conversations.backend.models.plain_import_job import PlainImportJob
     from products.conversations.backend.temporal.plain_import.activities import (
+        AwaitBatchInput,
         EnumerateThreadsInput,
         ImportBatchInput,
         UpdateJobProgressInput,
         UpdateJobStatusInput,
+        plain_import_await_batch_activity,
         plain_import_batch_activity,
         plain_import_enumerate_threads_activity,
         plain_import_update_job_progress_activity,
@@ -50,6 +52,8 @@ class PlainImportCoordinatorInput:
     imported_offset: int = 0
     skipped_offset: int = 0
     failed_offset: int = 0
+    processed_offset: int = 0
+    total_offset: int = 0
 
 
 @dataclass
@@ -92,8 +96,21 @@ class PlainImportCoordinatorWorkflow:
                 task_queue=task_queue,
             )
         except WorkflowAlreadyStartedError:
+            # A child with this id already exists — a still-running or already-completed prior
+            # attempt (e.g. after a coordinator restart). Returning zeros here would advance the
+            # cursor past a batch whose outcome was never counted, silently dropping it from both
+            # the import totals and progress. Wait for the existing execution and roll up its real
+            # counts instead (a workflow can't await a child it didn't start this run, so this
+            # goes through an activity that attaches by workflow id).
             workflow.logger.info("plain_import_batch_already_running", extra={"child_id": child_id})
-            return PlainImportCoordinatorOutput(imported=0, skipped=0, failed=0)
+            result = await workflow.execute_activity(
+                plain_import_await_batch_activity,
+                AwaitBatchInput(child_id=child_id, thread_count=len(wf_input.thread_ids)),
+                start_to_close_timeout=timedelta(minutes=45),
+                heartbeat_timeout=timedelta(minutes=2),
+                retry_policy=RETRY_POLICY,
+            )
+            return PlainImportCoordinatorOutput(imported=result.imported, skipped=result.skipped, failed=result.failed)
 
     @workflow.run
     async def run(self, input: PlainImportCoordinatorInput) -> PlainImportCoordinatorOutput:
@@ -108,6 +125,8 @@ class PlainImportCoordinatorWorkflow:
         total_imported = input.imported_offset
         total_skipped = input.skipped_offset
         total_failed = input.failed_offset
+        total_processed = input.processed_offset
+        total_discovered = input.total_offset
         cursor = input.cursor
         pages_processed = input.pages_processed
         selected = 0
@@ -136,11 +155,12 @@ class PlainImportCoordinatorWorkflow:
                 page.thread_ids = thread_ids
 
                 if page.thread_ids:
+                    total_discovered += len(page.thread_ids)
                     await workflow.execute_activity(
                         plain_import_update_job_progress_activity,
                         UpdateJobProgressInput(
                             job_id=input.job_id,
-                            total_delta=len(page.thread_ids),
+                            total=total_discovered,
                             export_cursor=cursor,
                         ),
                         start_to_close_timeout=timedelta(minutes=2),
@@ -178,15 +198,16 @@ class PlainImportCoordinatorWorkflow:
                     total_imported += window_imported
                     total_skipped += window_skipped
                     total_failed += window_failed
+                    total_processed += window_processed
 
                     await workflow.execute_activity(
                         plain_import_update_job_progress_activity,
                         UpdateJobProgressInput(
                             job_id=input.job_id,
-                            processed_delta=window_processed,
-                            imported_delta=window_imported,
-                            skipped_delta=window_skipped,
-                            failed_delta=window_failed,
+                            processed=total_processed,
+                            imported=total_imported,
+                            skipped=total_skipped,
+                            failed=total_failed,
                             export_cursor=cursor,
                         ),
                         start_to_close_timeout=timedelta(minutes=2),
@@ -211,6 +232,8 @@ class PlainImportCoordinatorWorkflow:
                             imported_offset=total_imported,
                             skipped_offset=total_skipped,
                             failed_offset=total_failed,
+                            processed_offset=total_processed,
+                            total_offset=total_discovered,
                         )
                     )
 

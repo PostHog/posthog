@@ -19,6 +19,7 @@ from products.conversations.backend.temporal.pipeline import (
     support_validate_activity,
 )
 from products.conversations.backend.temporal.plain_import.activities import (
+    plain_import_await_batch_activity,
     plain_import_batch_activity,
     plain_import_enumerate_threads_activity,
     plain_import_update_job_progress_activity,
@@ -67,6 +68,7 @@ ACTIVITIES = [
     zendesk_import_update_job_progress_activity,
     plain_import_enumerate_threads_activity,
     plain_import_batch_activity,
+    plain_import_await_batch_activity,
     plain_import_update_job_status_activity,
     plain_import_update_job_progress_activity,
 ]

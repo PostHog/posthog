@@ -22,6 +22,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.models.tag import tagify
     from posthog.models.tagged_item import TaggedItem
     from posthog.sync import database_sync_to_async
+    from posthog.temporal.common.client import async_connect
     from posthog.temporal.common.heartbeat import Heartbeater
 
     from products.conversations.backend.models import EmailChannel, PlainImportJob, Ticket
@@ -80,6 +81,12 @@ class ImportBatchOutput:
 
 
 @dataclass
+class AwaitBatchInput:
+    child_id: str
+    thread_count: int
+
+
+@dataclass
 class UpdateJobStatusInput:
     job_id: str
     status: str
@@ -88,12 +95,17 @@ class UpdateJobStatusInput:
 
 @dataclass
 class UpdateJobProgressInput:
+    # Absolute cumulative counts, not deltas. The coordinator owns these counters and tracks running
+    # totals (carried across continue-as-new via the *_offset inputs), so it can write the absolute
+    # value each time. This makes the write idempotent: a Temporal activity retry that lands after
+    # the DB commit but before completion is acknowledged just re-sets the same value instead of
+    # re-adding a delta and inflating the totals. None means "leave this counter untouched".
     job_id: str
-    processed_delta: int = 0
-    imported_delta: int = 0
-    skipped_delta: int = 0
-    failed_delta: int = 0
-    total_delta: int = 0
+    processed: int | None = None
+    imported: int | None = None
+    skipped: int | None = None
+    failed: int | None = None
+    total: int | None = None
     export_cursor: str | None = None
 
 
@@ -289,16 +301,13 @@ def _import_thread_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
                 anonymous_traits=anonymous_traits,
                 plain_thread_id=plain_id,
             )
-            create_idx = len(tickets_to_create)
-            tickets_to_create.append(ticket)
-            ticket_create_to_data_idx.append(idx)
 
             plain_tags = {
                 tagify(_strip_nul(str((label.get("labelType") or {}).get("name") or "")))[:255]
                 for label in (plain_thread.get("labels") or [])
                 if isinstance(label, dict)
             }
-            ticket_tags_map.append((create_idx, sorted(t for t in plain_tags if t)))
+            tag_names = sorted(t for t in plain_tags if t)
 
             comments_to_create: list[Comment] = []
             customer_message_count = 0
@@ -356,6 +365,15 @@ def _import_thread_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
                 comment_obj._plain_created_at = comment_created_at  # type: ignore[attr-defined]
                 comments_to_create.append(comment_obj)
 
+            # Enqueue the ticket, its tags and its comments together only after every label,
+            # timeline entry and attachment for this thread processed without error. Appending
+            # the ticket earlier meant a mid-thread exception (e.g. a media upload failure) left a
+            # partial, comment-less ticket that phase 3 still persisted — and a retry then skipped
+            # it by plain_thread_id, permanently dropping its comments and tags.
+            create_idx = len(tickets_to_create)
+            tickets_to_create.append(ticket)
+            ticket_create_to_data_idx.append(idx)
+            ticket_tags_map.append((create_idx, tag_names))
             ticket_comments_map.append((create_idx, comments_to_create, customer_message_count, agent_reply_count))
         except Exception as exc:
             failed += 1
@@ -466,6 +484,33 @@ async def plain_import_batch_activity(input: ImportBatchInput) -> ImportBatchOut
         return await database_sync_to_async(_import_thread_batch_sync, thread_sensitive=False)(input)
 
 
+@activity.defn
+async def plain_import_await_batch_activity(input: AwaitBatchInput) -> ImportBatchOutput:
+    """Attach to an already-existing batch child workflow and return its real counts.
+
+    Reached when the coordinator tries to (re)start a batch child whose id already exists — a
+    still-running or already-completed prior attempt. Returning zeros there would let the
+    coordinator advance its cursor past a batch whose outcome was never counted; instead we wait
+    for the existing execution (workflows can't await a child they didn't start this run) and roll
+    up its actual totals. Idempotent: a retry just re-attaches by workflow id. If the existing
+    execution failed, count the whole batch as failed so the job reflects it rather than silently
+    dropping the threads.
+    """
+    async with Heartbeater():
+        client = await async_connect()
+        handle = client.get_workflow_handle(input.child_id)
+        try:
+            result: Any = await handle.result()
+        except Exception:
+            activity.logger.warning("plain_import_await_batch_failed", extra={"child_id": input.child_id})
+            return ImportBatchOutput(imported=0, skipped=0, failed=input.thread_count)
+    return ImportBatchOutput(
+        imported=int(result["imported"]),
+        skipped=int(result["skipped"]),
+        failed=int(result["failed"]),
+    )
+
+
 def _update_job_status_sync(input: UpdateJobStatusInput) -> None:
     job = PlainImportJob.objects.unscoped().get(id=input.job_id)
     update_fields = ["status", "updated_at"]
@@ -483,16 +528,21 @@ def _update_job_status_sync(input: UpdateJobStatusInput) -> None:
 
 
 def _update_job_progress_sync(input: UpdateJobProgressInput) -> None:
-    updates: dict[str, Any] = {
-        "processed_tickets": F("processed_tickets") + input.processed_delta,
-        "imported_tickets": F("imported_tickets") + input.imported_delta,
-        "skipped_tickets": F("skipped_tickets") + input.skipped_delta,
-        "failed_tickets": F("failed_tickets") + input.failed_delta,
-        "total_tickets": F("total_tickets") + input.total_delta,
-    }
+    updates: dict[str, Any] = {}
+    if input.processed is not None:
+        updates["processed_tickets"] = input.processed
+    if input.imported is not None:
+        updates["imported_tickets"] = input.imported
+    if input.skipped is not None:
+        updates["skipped_tickets"] = input.skipped
+    if input.failed is not None:
+        updates["failed_tickets"] = input.failed
+    if input.total is not None:
+        updates["total_tickets"] = input.total
     if input.export_cursor is not None:
         updates["export_cursor"] = input.export_cursor
-    PlainImportJob.objects.unscoped().filter(id=input.job_id).update(**updates)
+    if updates:
+        PlainImportJob.objects.unscoped().filter(id=input.job_id).update(**updates)
 
 
 @activity.defn

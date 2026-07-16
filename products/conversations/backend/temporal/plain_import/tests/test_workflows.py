@@ -37,6 +37,11 @@ async def _fake_enumerate(input: EnumerateThreadsInput) -> EnumerateThreadsOutpu
     )
 
 
+@activity.defn(name="plain_import_enumerate_threads_activity")
+async def _fake_enumerate_single(input: EnumerateThreadsInput) -> EnumerateThreadsOutput:
+    return EnumerateThreadsOutput(thread_ids=["only"], next_cursor=None, end_of_stream=True)
+
+
 @activity.defn(name="plain_import_update_job_progress_activity")
 async def _fake_progress(input: UpdateJobProgressInput) -> None:
     return None
@@ -77,3 +82,59 @@ class TestPlainImportCoordinatorContinueAsNew:
                 )
 
         assert result.imported == TOTAL_PAGES
+
+
+class TestPlainImportCoordinatorAwaitsExistingBatch:
+    @pytest.mark.asyncio
+    async def test_existing_child_counts_roll_up_instead_of_zero(self) -> None:
+        # Regression: if a batch child id already exists (a still-running or completed prior
+        # attempt), the coordinator must wait for that execution and roll up its real counts rather
+        # than returning zeros — otherwise the cursor advances past a batch that was never counted.
+        from unittest.mock import AsyncMock, patch
+
+        from temporalio.testing import WorkflowEnvironment
+        from temporalio.worker import Worker
+
+        from products.conversations.backend.temporal.plain_import import activities as plain_activities
+        from products.conversations.backend.temporal.plain_import.activities import plain_import_await_batch_activity
+
+        task_queue = settings.VIDEO_EXPORT_TASK_QUEUE
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            # The await activity connects via async_connect(); point it at the test server.
+            with patch.object(plain_activities, "async_connect", new=AsyncMock(return_value=env.client)):
+                async with Worker(
+                    env.client,
+                    task_queue=task_queue,
+                    workflows=[PlainImportCoordinatorWorkflow, _StubBatchWorkflow],
+                    activities=[
+                        _fake_enumerate_single,
+                        _fake_progress,
+                        _fake_status,
+                        plain_import_await_batch_activity,
+                    ],
+                ):
+                    # Pre-start and complete the exact child id the coordinator targets for page 1,
+                    # window 0 — so its execute_child_workflow raises WorkflowAlreadyStartedError.
+                    existing = await env.client.start_workflow(
+                        _StubBatchWorkflow.run,
+                        PlainImportBatchWorkflowInput(
+                            job_id="job-await",
+                            team_id=1,
+                            thread_ids=["a", "b", "c", "d", "e", "f", "g"],
+                        ),
+                        id="plain-import-batch-job-await-1-0",
+                        task_queue=task_queue,
+                    )
+                    assert (await existing.result()).imported == 7
+
+                    result = await env.client.execute_workflow(
+                        PlainImportCoordinatorWorkflow.run,
+                        PlainImportCoordinatorInput(job_id="job-await", team_id=1, task_queue=task_queue),
+                        id="test-plain-import-await",
+                        task_queue=task_queue,
+                    )
+
+        # The enumerated page collides with the pre-existing child; its real count (7) rolls up via
+        # the await activity instead of being dropped to zero (or recounted as the 1 enumerated id).
+        assert result.imported == 7
