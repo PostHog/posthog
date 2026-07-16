@@ -25,7 +25,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BunnySourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -94,31 +97,21 @@ You can find your account API key under **Account Settings → API** in the [bun
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — bunny.net's list endpoints expose no server-side
         # timestamp filter, so there is no incremental cursor to advance.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, {}, names)
 
     def validate_credentials(
         self, config: BunnySourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         # The account API key is account-wide, so a single probe validates access to every schema;
         # there is no per-endpoint scope to check.
-        status, message = check_access(config.access_key)
-        if status == 200:
+        ok, status = check_access(config.access_key)
+        if ok:
             return True, None
         if status in (401, 403):
             return False, "Invalid bunny.net account API key"
-        return False, message or "Could not validate bunny.net account API key"
+        if status is None:
+            return False, "Could not connect to bunny.net"
+        return False, f"bunny.net returned HTTP {status}"
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[BunnyResumeConfig]:
         return ResumableSourceManager[BunnyResumeConfig](inputs, BunnyResumeConfig)
@@ -135,6 +128,7 @@ You can find your account API key under **Account Settings → API** in the [bun
         return bunny_source(
             access_key=config.access_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
