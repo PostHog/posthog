@@ -3837,6 +3837,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         resetInterval: () => {
             if (values.autoRefresh.enabled) {
+                const refresh = values.placement === DashboardPlacement.Public ? 'force_blocking' : 'blocking'
                 // Refresh right now after enabling if we haven't refreshed recently
                 if (
                     !values.itemsLoading &&
@@ -3845,14 +3846,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 ) {
                     actions.refreshDashboardItems({
                         action: RefreshDashboardItemsAction.Refresh,
-                        refresh: 'blocking',
+                        refresh,
                     })
                 }
                 cache.disposables.add(() => {
                     const intervalId = window.setInterval(() => {
                         actions.refreshDashboardItems({
                             action: RefreshDashboardItemsAction.Refresh,
-                            refresh: 'blocking',
+                            refresh,
                         })
                     }, values.autoRefresh.interval * 1000)
                     return () => clearInterval(intervalId)
