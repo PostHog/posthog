@@ -247,7 +247,7 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('- analytics:')
             expect(result).toContain('- visualizations:')
             expect(result).toContain('- feedback:')
-            expect(result).toContain('learn posthog:<skill> [path]')
+            expect(result).toContain('(posthog|project):<skill> [path]')
             expect(result).toContain('SCHEMA DRILL-DOWN RULE')
             expect(result).toContain('**Data discovery:**')
             expect(result).toContain('**CORRECT usage pattern:**')
