@@ -4,10 +4,12 @@ from posthog.schema import ExperimentEventExposureConfig, MultipleVariantHandlin
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import property_to_expr
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
-from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
+from products.experiments.backend.hogql_queries.base_query_utils import (
+    coerce_property_to_bool_expr,
+    event_or_action_to_filter,
+)
 from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
 from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentQueryContext
 
@@ -179,7 +181,8 @@ class ExposureQueryBuilder:
         ):
             return ast.And(
                 exprs=[
-                    property_to_expr(property, self.context.team) for property in self.context.team.test_account_filters
+                    coerce_property_to_bool_expr(property, self.context.team)
+                    for property in self.context.team.test_account_filters
                 ]
             )
         return ast.Constant(value=True)

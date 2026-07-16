@@ -28,6 +28,7 @@ from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.trends.aggregation_operations import ALLOWED_SESSION_MATH_PROPERTIES
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
+from posthog.types import AnyPropertyFilter
 
 from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries.hogql_aggregation_utils import (
@@ -168,6 +169,28 @@ def get_metric_value(
     return get_source_value_expr(actual_source)
 
 
+def coerce_property_to_bool_expr(property: Union[dict, AnyPropertyFilter], team: Team) -> ast.Expr:
+    """``property_to_expr`` for a filter that must slot into an ``and()``/``or()`` chain.
+
+    A ``hogql``-type property filter is emitted verbatim by ``property_to_expr``, so a filter
+    whose expression is non-boolean (e.g. a bare ``String`` field) makes ClickHouse reject the
+    surrounding boolean function with ``Illegal type (String) of N argument of function and``.
+    Wrap those in ``toBool`` so a misconfigured or String-typed filter can't take down the whole
+    query. Every other filter type already resolves to a boolean comparison, so we leave it
+    untouched to keep the SQL and its index optimizations unchanged.
+    """
+    expr = property_to_expr(property, team)
+
+    if isinstance(property, dict):
+        property_type = property.get("type")
+    else:
+        property_type = getattr(property, "type", None)
+
+    if property_type == "hogql":
+        return ast.Call(name="toBool", args=[expr])
+    return expr
+
+
 def event_or_action_to_filter(
     team: Team, entity_node: Union[EventsNode, ActionsNode, ExperimentEventExposureConfig]
 ) -> ast.Expr:
@@ -194,7 +217,9 @@ def event_or_action_to_filter(
             )
 
     if entity_node.properties:
-        event_properties = ast.And(exprs=[property_to_expr(property, team) for property in entity_node.properties])
+        event_properties = ast.And(
+            exprs=[coerce_property_to_bool_expr(property, team) for property in entity_node.properties]
+        )
         event_filter = ast.And(exprs=[event_filter, event_properties])
 
     return event_filter
