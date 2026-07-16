@@ -21,12 +21,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 AUTOMOX_BASE_URL = "https://console.automox.com/api"
 REQUEST_TIMEOUT_SECONDS = 60
 
-# Credential-bearing field names stripped from every row before it lands in the warehouse. Automox
-# organization records embed an `access_key` (the agent-enrollment secret for that org), and user
-# records embed it again under each `orgs[]` entry — a teammate with warehouse query access could
-# otherwise read the key and enroll an attacker-controlled device. Stripping by name at any depth
-# covers both the top-level and nested shapes.
-CREDENTIAL_FIELD_NAMES = frozenset({"access_key"})
+# Credential-bearing field names stripped from every row before it lands in the warehouse, at any
+# depth. `access_key` is the org agent-enrollment secret (embedded on organization records and again
+# under each user's `orgs[]` entry) — a teammate with warehouse query access could otherwise read it
+# and enroll an attacker-controlled device. `intercom_hmac` is an Intercom identity-verification
+# token on user records; paired with the user's ID and email it lets someone impersonate that user
+# to Intercom.
+CREDENTIAL_FIELD_NAMES = frozenset({"access_key", "intercom_hmac"})
 
 # Stable prefixes for the auth-failure messages matched by `get_non_retryable_errors` — retrying
 # can never fix a bad key or a misconfigured organization, so syncs stop instead of looping.
@@ -73,6 +74,25 @@ def _strip_credentials(value: Any) -> Any:
     if isinstance(value, list):
         return [_strip_credentials(item) for item in value]
     return value
+
+
+def _scope_row_to_org(row: dict[str, Any], org_id: int | None, field_map: dict[str, str]) -> dict[str, Any]:
+    """Drop nested list entries tagged to organizations other than the resolved one.
+
+    The `o` query param scopes which users are *listed*, but each user row still carries its full
+    org memberships and org-tagged roles — metadata for organizations the source owner never
+    selected. `field_map` maps a nested list field to the key on each entry carrying the org id.
+    """
+    if org_id is None or not field_map:
+        return row
+    scoped = dict(row)
+    for field_name, org_key in field_map.items():
+        value = scoped.get(field_name)
+        if isinstance(value, list):
+            scoped[field_name] = [
+                item for item in value if isinstance(item, dict) and str(item.get(org_key)) == str(org_id)
+            ]
+    return scoped
 
 
 def _build_url(path: str, params: dict[str, Any]) -> str:
@@ -267,6 +287,8 @@ def get_rows(
             rows = [row for row in rows if org_id is not None and str(row.get("id")) == str(org_id)]
 
         rows = [_strip_credentials(row) for row in rows]
+        if config.org_scoped_list_fields:
+            rows = [_scope_row_to_org(row, org_id, config.org_scoped_list_fields) for row in rows]
         if rows:
             yield rows
 

@@ -372,15 +372,38 @@ class TestGetRows:
 
     def test_credential_fields_are_stripped_from_rows(self, monkeypatch: Any) -> None:
         # Automox embeds an org enrollment `access_key` at the top level and again under nested
-        # `orgs[]` entries; neither may reach the warehouse, at any depth.
+        # `orgs[]` entries, plus an `intercom_hmac` identity token on user rows; none may reach the
+        # warehouse, at any depth.
         manager = _FakeResumableManager()
         user_row = {
             "id": 7,
             "access_key": "org-enrollment-secret",
+            "intercom_hmac": "identity-token",
             "orgs": [{"id": 123, "access_key": "nested-secret", "name": "Org A"}],
         }
         rows, _ = self._collect("users", manager, monkeypatch, [[user_row]])
         assert rows == [{"id": 7, "orgs": [{"id": 123, "name": "Org A"}]}]
+
+    def test_user_rows_are_scoped_to_configured_org(self, monkeypatch: Any) -> None:
+        # The `o` param scopes which users are listed, but each row still carries the user's full org
+        # memberships and org-tagged roles — data for organizations the source never selected.
+        manager = _FakeResumableManager()
+        user_row = {
+            "id": 7,
+            "orgs": [{"id": 123, "name": "Org A"}, {"id": 456, "name": "Org B"}],
+            "rbac_roles": [
+                {"name": "Admin", "organization_id": 123},
+                {"name": "Viewer", "organization_id": 456},
+            ],
+        }
+        rows, _ = self._collect("users", manager, monkeypatch, [[user_row]], organization_id="123")
+        assert rows == [
+            {
+                "id": 7,
+                "orgs": [{"id": 123, "name": "Org A"}],
+                "rbac_roles": [{"name": "Admin", "organization_id": 123}],
+            }
+        ]
 
     def test_missing_org_uuid_raises_for_policy_runs(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()

@@ -50,6 +50,11 @@ class AutomoxEndpointConfig:
     # organization the API key can access, so without this the table would expose metadata for
     # organizations the source owner never selected.
     restrict_to_org: bool = False
+    # Nested list fields to trim to the resolved organization, mapping the field name to the key on
+    # each entry carrying the org id. The `o` param scopes which rows are listed, but per-row
+    # membership metadata (a user's `orgs[]`, their org-tagged `rbac_roles[]`) still carries other
+    # organizations the source owner never selected.
+    org_scoped_list_fields: dict[str, str] = field(default_factory=dict)
 
 
 AUTOMOX_ENDPOINTS: dict[str, AutomoxEndpointConfig] = {
@@ -119,6 +124,9 @@ AUTOMOX_ENDPOINTS: dict[str, AutomoxEndpointConfig] = {
     "users": AutomoxEndpointConfig(
         path="/users",
         needs_org_id_param=True,
+        # User records embed the user's full org memberships and org-tagged roles regardless of the
+        # `o` scope, so trim both to the organization this source syncs.
+        org_scoped_list_fields={"orgs": "id", "rbac_roles": "organization_id"},
     ),
 }
 
