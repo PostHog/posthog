@@ -115,8 +115,9 @@ class TestStacks:
 class TestFlattenUpdate:
     def test_flattens_info_injects_stack_coordinates_and_drops_deployment(self) -> None:
         # The nested `info` carries the analytics payload (kind/result/times); the raw deployment
-        # state snapshot can be enormous and must not reach the warehouse row. The injected stack
-        # coordinates are what make the composite primary key unique table-wide.
+        # state snapshot can be enormous and must not reach the warehouse row, and `environment` can
+        # hold credentials so it must be dropped too. The injected stack coordinates are what make
+        # the composite primary key unique table-wide.
         item = {
             "updateID": "u-1",
             "version": 3,
@@ -131,6 +132,8 @@ class TestFlattenUpdate:
                 "result": "succeeded",
                 "resourceChanges": {"create": 2},
                 "deployment": {"huge": "snapshot"},
+                # Env vars supplied to the update — can carry cloud creds / PULUMI_CONFIG_PASSPHRASE.
+                "environment": {"AWS_SECRET_ACCESS_KEY": "shh", "PULUMI_CONFIG_PASSPHRASE": "shh"},
             },
         }
         row = _flatten_update(item, "my-org", "proj", "dev")

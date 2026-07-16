@@ -205,6 +205,9 @@ def _flatten_update(item: dict[str, Any], org: str, project: str, stack: str) ->
         merged = dict(info)
         # The raw deployment state snapshot can be enormous and is not list-level data.
         merged.pop("deployment", None)
+        # `environment` records the env vars supplied to the update — it can hold cloud credentials,
+        # CI tokens, or PULUMI_CONFIG_PASSPHRASE, so it must never land in a queryable warehouse row.
+        merged.pop("environment", None)
         merged.update(row)
         row = merged
     # `requestedByToken` is the access token that requested the update — a live credential that
