@@ -24,7 +24,11 @@ import type { Layout } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
-import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
+import {
+    canEditDashboard,
+    isWidgetConfigValidationError,
+    updateDashboardWidgetTile,
+} from '@posthog/products-dashboards/frontend/utils'
 import {
     DASHBOARD_WIDGET_CATALOG,
     getDashboardWidgetCatalogEntry,
@@ -44,7 +48,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
-import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
@@ -86,8 +89,6 @@ import {
     RefreshType,
 } from '~/queries/schema/schema-general'
 import {
-    AccessControlLevel,
-    AccessControlResourceType,
     ActivityScope,
     AnyPropertyFilter,
     Breadcrumb,
@@ -1443,7 +1444,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         cache.dashboardChangesPersisted = true
                         return getQueryBasedDashboard(updatedDashboard)
                     } catch (e) {
-                        lemonToast.error('Could not update dashboard: ' + String(e))
+                        lemonToast.error(
+                            e instanceof ApiError ? (e.detail ?? e.message) : 'Could not update dashboard: ' + String(e)
+                        )
                         return values.dashboard
                     }
                 },
@@ -2673,13 +2676,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         canEditDashboard: [
             (s) => [s.dashboard],
             (dashboard: DashboardType<QueryBasedInsightModel> | null) => {
-                return dashboard?.user_access_level
-                    ? accessLevelSatisfied(
-                          AccessControlResourceType.Dashboard,
-                          dashboard.user_access_level,
-                          AccessControlLevel.Editor
-                      )
-                    : false
+                return dashboard ? canEditDashboard(dashboard) : false
             },
         ],
         /** Save-as-project-template from dashboard scene: editor on dashboard and payload has tiles. Staff use the same modal, with an optional JSON editor entry inside. */

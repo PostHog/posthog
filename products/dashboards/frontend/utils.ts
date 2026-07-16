@@ -1,10 +1,46 @@
-import type { DashboardTile, QueryBasedInsightModel } from '~/types'
+import { DashboardPrivilegeLevel } from 'lib/constants'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    type DashboardBasicType,
+    type DashboardTile,
+    type QueryBasedInsightModel,
+} from '~/types'
 
 import { dashboardsPartialUpdate } from './generated/api'
 import type { PatchedPatchedDashboardOpenApiApi } from './generated/api.schemas'
 import { parseDashboardWidgetConfigApiError } from './widgets/registry'
 
 export type WidgetFieldErrors = Record<string, string | undefined>
+
+/**
+ * Whether the current user can edit a dashboard, mirroring the backend's write-path enforcement.
+ *
+ * The backend requires BOTH the RBAC access level (AccessControlPermission -> `user_access_level`) and the
+ * legacy collaboration restriction (CanEditDashboard -> `effective_privilege_level`) to pass. Gating the edit
+ * UI on RBAC alone opened editors the API then rejected on save, so users lost unsaved work on legacy-restricted
+ * dashboards. Checking both here keeps the UI honest about what the API will accept.
+ */
+export function canEditDashboard(
+    dashboard: Pick<DashboardBasicType, 'user_access_level' | 'effective_privilege_level'>
+): boolean {
+    const rbacAllowsEditing = dashboard.user_access_level
+        ? accessLevelSatisfied(
+              AccessControlResourceType.Dashboard,
+              dashboard.user_access_level,
+              AccessControlLevel.Editor
+          )
+        : false
+
+    // A missing effective_privilege_level (e.g. an older/partial payload) must not silently add a restriction,
+    // so treat it as CanEdit and let RBAC be the deciding factor in that case.
+    const legacyAllowsEditing =
+        (dashboard.effective_privilege_level ?? DashboardPrivilegeLevel.CanEdit) >= DashboardPrivilegeLevel.CanEdit
+
+    return rbacAllowsEditing && legacyAllowsEditing
+}
 
 export class WidgetConfigValidationError extends Error {
     fieldErrors: WidgetFieldErrors
