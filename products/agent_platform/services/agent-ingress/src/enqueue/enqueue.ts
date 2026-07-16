@@ -71,8 +71,9 @@ export interface EnqueueInput {
      *
      * If a session with this key already exists, this call no-ops and
      * returns `{ kind: 'created', isResume: false }` with the original
-     * session id. The principal + seed message of the duplicate request
-     * are discarded — same shape Stripe's idempotency contract follows.
+     * session id. The principal, seed message, and session preparation of
+     * the duplicate request are discarded — same shape Stripe's idempotency
+     * contract follows.
      */
     idempotencyKey?: string
     /**
@@ -192,7 +193,6 @@ async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Pro
             if (denied) {
                 return denied
             }
-            await input.prepareSession?.(existing.id)
             return { kind: 'created', sessionId: existing.id, isResume: false }
         }
     }
@@ -253,7 +253,6 @@ async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Pro
                 if (denied) {
                     return denied
                 }
-                await input.prepareSession?.(existing.id)
                 return { kind: 'created', sessionId: existing.id, isResume: false }
             }
         }

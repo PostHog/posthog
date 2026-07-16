@@ -364,6 +364,7 @@ describe('enqueueOrResume', () => {
                     seed: { role: 'user', content: 'first', timestamp: 1 },
                 }
             )
+            const prepareSession = vi.fn(async () => ({ rollback: async (): Promise<void> => undefined }))
             const second = await enqueueOrResume(
                 { queue },
                 {
@@ -373,11 +374,13 @@ describe('enqueueOrResume', () => {
                     idempotencyKey: 'k1',
                     // Deliberately different seed to prove it's discarded.
                     seed: { role: 'user', content: 'second', timestamp: 2 },
+                    prepareSession,
                 }
             )
             expect(second.sessionId).toBe(first.sessionId)
             expect(second.kind).toBe('created')
             expect(second.isResume).toBe(false)
+            expect(prepareSession).not.toHaveBeenCalled()
             // The first call's seed is preserved; the duplicate's seed is dropped.
             const session = await queue.get(first.sessionId)
             expect(session!.conversation).toHaveLength(1)
