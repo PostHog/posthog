@@ -953,9 +953,11 @@ describe('sessionRecordingPlayerLogic', () => {
                     matchType: 'uuid',
                     matchedEvents: listOfMatchingEvents,
                 },
+                skipToFirstMatchingEvent: true,
             })
             logic.mount()
             await expectLogic(logic).toMatchValues({
+                skipToFirstMatchingEvent: true,
                 logicProps: expect.objectContaining({
                     matchingEventsMatchType: {
                         matchType: 'uuid',

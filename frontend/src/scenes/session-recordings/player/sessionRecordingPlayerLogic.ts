@@ -145,6 +145,7 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     pinned?: boolean
     setPinned?: (pinned: boolean) => void
     playNextRecording?: (automatic: boolean) => void
+    skipToFirstMatchingEvent?: boolean
 }
 
 const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
@@ -653,7 +654,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             config,
         }),
     }),
-    reducers(() => ({
+    reducers(({ props }) => ({
         // used in visual regression testing to make sure the player is paused
         pauseForced: [
             false as boolean,
@@ -662,7 +663,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         skipToFirstMatchingEvent: [
-            false,
+            props.skipToFirstMatchingEvent ?? false,
             {
                 setSkipToFirstMatchingEvent: (_, { skipToFirstMatchingEvent }) => skipToFirstMatchingEvent,
             },

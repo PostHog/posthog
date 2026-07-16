@@ -369,7 +369,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             sessionRecordingEventUsageLogic,
             ['reportRecordingInspectorItemExpanded'],
             sessionRecordingDataCoordinatorLogic(props),
-            ['loadFullEventData', 'setTrackedWindow', 'registerWindowId', 'loadEventsSuccess'],
+            [
+                'loadFullEventData',
+                'setTrackedWindow',
+                'registerWindowId',
+                'loadEventsSuccess',
+                'loadRecordingMetaSuccess',
+            ],
             sessionRecordingPlayerLogic(props),
             ['seekToTime', 'setSkippingToMatchingEvent'],
             playerInspectorLogsLogic(props),
@@ -428,6 +434,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     actions(() => ({
         setItemExpanded: (index: number, expanded: boolean) => ({ index, expanded }),
         setSyncScrollPaused: (paused: boolean) => ({ paused }),
+        trySkipToFirstMatchingEvent: true,
+        markSkippedToFirstMatchingEvent: true,
     })),
     reducers(() => ({
         expandedItems: [
@@ -449,8 +457,15 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 setItemExpanded: () => true,
             },
         ],
+        hasSkippedToFirstMatchingEvent: [
+            false,
+            {
+                loadMatchingEvents: () => false,
+                markSkippedToFirstMatchingEvent: () => true,
+            },
+        ],
     })),
-    loaders(({ actions, values, props }) => ({
+    loaders(({ props }) => ({
         matchingEvents: [
             [] as MatchedRecordingEvent[] | null,
             {
@@ -461,31 +476,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         return null
                     }
 
-                    const skipToEarliestEvent = (matchingEvents: MatchedRecordingEvent[]): void => {
-                        if (values.skipToFirstMatchingEvent && matchingEvents.length > 0) {
-                            const earliestMatchingEvent = matchingEvents.reduce((previous, current) =>
-                                previous.timestamp < current.timestamp ? previous : current
-                            )
-                            const { timeInRecording } = timeRelativeToStart(earliestMatchingEvent, values.start)
-                            const seekTime = ceilMsToClosestSecond(timeInRecording) - 1000
-
-                            // Only show the "skipping to matching event" overlay if we're actually skipping (> 1 second from start)
-                            if (seekTime > 1000) {
-                                actions.setSkippingToMatchingEvent(true)
-                                setTimeout(() => {
-                                    actions.setSkippingToMatchingEvent(false)
-                                }, 1500)
-                            }
-
-                            actions.seekToTime(seekTime)
-                        }
-                    }
-
                     if (matchType === 'uuid') {
                         if (!matchingEventsMatchType?.matchedEvents) {
                             console.error('UUID matching events type must include its array of matched events')
                         }
-                        skipToEarliestEvent(matchingEventsMatchType.matchedEvents)
                         return matchingEventsMatchType.matchedEvents
                     }
 
@@ -500,7 +494,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
 
                     const response = await api.recordings.getMatchingEvents(toParams(params))
-                    skipToEarliestEvent(response.results)
                     return response.results
                 },
             },
@@ -1534,7 +1527,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             (allItemsByItemType): boolean => allItemsByItemType['events']?.length > 0,
         ],
     })),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         setItemExpanded: ({ index, expanded }) => {
             if (expanded) {
                 const group = values.displayGroups[index]
@@ -1561,6 +1554,39 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 actions.markLogsInitialLoadRequested()
                 actions.loadLogs()
             }
+        },
+        loadMatchingEventsSuccess: () => {
+            actions.trySkipToFirstMatchingEvent()
+        },
+        loadRecordingMetaSuccess: () => {
+            actions.trySkipToFirstMatchingEvent()
+        },
+        trySkipToFirstMatchingEvent: () => {
+            if (
+                !values.skipToFirstMatchingEvent ||
+                values.hasSkippedToFirstMatchingEvent ||
+                !values.start ||
+                !values.matchingEvents?.length
+            ) {
+                return
+            }
+
+            const earliestMatchingEvent = values.matchingEvents.reduce((previous, current) =>
+                previous.timestamp < current.timestamp ? previous : current
+            )
+            const { timeInRecording } = timeRelativeToStart(earliestMatchingEvent, values.start)
+            const seekTime = Math.max(0, ceilMsToClosestSecond(timeInRecording) - 1000)
+
+            actions.markSkippedToFirstMatchingEvent()
+            if (seekTime > 1000) {
+                actions.setSkippingToMatchingEvent(true)
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => actions.setSkippingToMatchingEvent(false), 1500)
+                    return () => clearTimeout(timerId)
+                }, 'skippingToMatchingEvent')
+            }
+
+            actions.seekToTime(seekTime)
         },
     })),
     events(({ actions }) => ({
