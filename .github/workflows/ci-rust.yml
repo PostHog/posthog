@@ -135,6 +135,7 @@ jobs:
                       "common-profiler": 51,
                       "common-s3": 31,
                       "cohort-core": 45,
+                      "cohort-seeder": 60,
                       "cyclotron-core": 17,
                       "cyclotron-janitor": 139,
                       "cyclotron-node": 31,
@@ -444,7 +445,11 @@ jobs:
                       if [ "$pkg" = "property-defs-rs" ]; then
                           extra_args="--test-threads=4"
                       fi
-                      run_nextest "$pkg" -p "$pkg" $extra_args
+                      if [ "$pkg" = "cohort-seeder" ] && [ -f cohort-seeder/Cargo.toml ] && grep -q '^pg-test-support[[:space:]]*=' cohort-seeder/Cargo.toml; then
+                          DATABASE_URL='postgres://posthog:posthog@localhost:5432/test_posthog' run_nextest "$pkg" -p "$pkg" --features pg-test-support $extra_args
+                      else
+                          run_nextest "$pkg" -p "$pkg" $extra_args
+                      fi
                       # nextest skips doctests; run them only for packages with a lib target
                       # (`cargo test --doc` errors on bin-only packages).
                       if cargo metadata --no-deps --format-version 1 | jq -e --arg p "$pkg" '[.packages[] | select(.name == $p) | .targets[] | select(.kind | index("lib"))] | length > 0' >/dev/null; then
