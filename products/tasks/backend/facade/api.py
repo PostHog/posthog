@@ -191,7 +191,6 @@ __all__ = [
     "relay_task_run_message",
     "reset_code_workflow_bindings",
     "resolve_slack_thread_context",
-    "respond_to_permission_request",
     "resume_task_run_in_cloud",
     "run_task",
     "run_task_automation_now",
@@ -202,7 +201,6 @@ __all__ = [
     "set_task_run_output",
     "set_task_title",
     "signal_report_queryset",
-    "signal_task_run_permission_response",
     "signal_task_run_user_message",
     "signal_workflow_completion",
     "soft_delete_task",
@@ -2552,47 +2550,6 @@ def signal_task_run_user_message(
         signal_task_followup_message(run.workflow_id, content, artifact_ids)
     except Exception:
         logger.exception("Failed to signal follow-up message for task run %s", run.id)
-        return False
-    return True
-
-
-def signal_task_run_permission_response(
-    run_id: str | UUID,
-    task_id: str | UUID,
-    team_id: int,
-    *,
-    request_id: str,
-    option_id: str,
-    actor_user_id: int,
-    actor_slack_user_id: str | None = None,
-    is_denial: bool = False,
-    denial_message: str | None = None,
-    broker_reason: str | None = None,
-) -> bool | None:
-    """Queue an agent permission response signal on the run's workflow.
-
-    Returns ``True`` on success, ``False`` if signalling failed, ``None`` if the run isn't found.
-    """
-    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
-        signal_task_permission_response,
-    )
-
-    run = _get_visible_run(run_id, task_id, team_id)
-    if run is None:
-        return None
-    try:
-        signal_task_permission_response(
-            run.workflow_id,
-            request_id=request_id,
-            option_id=option_id,
-            actor_user_id=actor_user_id,
-            actor_slack_user_id=actor_slack_user_id,
-            is_denial=is_denial,
-            denial_message=denial_message,
-            broker_reason=broker_reason,
-        )
-    except Exception:
-        logger.exception("Failed to signal permission response for task run %s", run.id)
         return False
     return True
 
@@ -5273,33 +5230,3 @@ def post_turn_complete_thread_update(
         )
     except Exception:
         logger.exception("Failed to post turn-complete thread update", extra={"task_id": str(task_id)})
-
-
-def respond_to_permission_request(
-    run_id: str | UUID,
-    task_id: str | UUID,
-    team_id: int,
-    *,
-    request_id: str,
-    option_id: str,
-) -> contracts.PermissionResponseResult:
-    """Deliver a human permission decision (from an origin surface like a Slack approval
-    card) to a run's sandbox agent, authenticated as the task creator."""
-    from products.tasks.backend.logic.services.permission_broker import (  # noqa: PLC0415 — keep sandbox deps off the api import path
-        send_permission_response,
-    )
-
-    run = (
-        TaskRun.objects.select_related("task", "task__created_by")
-        .filter(id=run_id, task_id=task_id, team_id=team_id)
-        .first()
-    )
-    if run is None:
-        return contracts.PermissionResponseResult(outcome="not_found")
-    if run.is_terminal:
-        return contracts.PermissionResponseResult(outcome="terminal", run_status=run.status)
-
-    result = send_permission_response(run, request_id=request_id, option_id=option_id)
-    if not result.success:
-        return contracts.PermissionResponseResult(outcome="failed", status_code=result.status_code, error=result.error)
-    return contracts.PermissionResponseResult(outcome="sent")

@@ -768,38 +768,17 @@ def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
 
 
 def _broker_permission_request(task_run: TaskRunModel, permission_request: dict) -> None:
-    """Answer a sandbox permission request from the run's permission mode, or escalate to a human.
-
-    A broker failure falls through to the prompt path so a broker bug degrades to
-    human approval instead of a stalled agent.
-    """
+    """Auto-allow a Slack-origin run's sandbox permission request (see permission_broker)."""
     try:
-        # The relay holds `task_run` from its start, but the permission mode can be
-        # changed mid-run from the Slack card — re-read state per request so a mode
-        # downgrade stops auto-approving immediately. A failed refresh falls through
-        # to the human prompt rather than answering from stale state. The
-        # close_old_connections guard mirrors event_ingest: this thread's pooled
+        # The close_old_connections guard mirrors event_ingest: this thread's pooled
         # connection is never health-checked by Django (gated off in tests, where
         # it would close the test transaction's connection).
         if not settings.TEST:
             close_old_connections()
-        task_run.refresh_from_db(fields=["state"])
-        if try_auto_respond_permission_request(task_run, permission_request):
-            return
+        try_auto_respond_permission_request(task_run, permission_request)
     except Exception:
         logger.warning(
             "relay_sandbox_events_permission_broker_failed",
-            run_id=str(task_run.id),
-            exc_info=True,
-        )
-
-    try:
-        from products.slack_app.backend.services.agent_permissions import post_slack_permission_request_for_task_run
-
-        post_slack_permission_request_for_task_run(task_run, permission_request)
-    except Exception:
-        logger.warning(
-            "relay_sandbox_events_slack_permission_prompt_failed",
             run_id=str(task_run.id),
             exc_info=True,
         )
