@@ -1774,6 +1774,7 @@ mod tests {
             &flag_match,
             Some(&property_values),
             None,
+            None,
             chrono_tz::Tz::UTC,
         );
 
@@ -1846,6 +1847,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&property_values),
+            None,
             None,
             chrono_tz::Tz::UTC,
         );
