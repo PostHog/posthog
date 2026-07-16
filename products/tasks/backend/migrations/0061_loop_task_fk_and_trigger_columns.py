@@ -63,7 +63,7 @@ class Migration(migrations.Migration):
             name="repository",
             field=models.CharField(blank=True, max_length=512, null=True),
         ),
-        migrations.AddIndex(
+        SafeAddIndexConcurrently(
             model_name="looptrigger",
             index=models.Index(
                 fields=["github_integration_id", "repository"],

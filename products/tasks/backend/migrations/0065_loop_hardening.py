@@ -57,10 +57,6 @@ class Migration(migrations.Migration):
                 to="tasks.looptrigger",
             ),
         ),
-        migrations.AddIndex(
-            model_name="loopfire",
-            index=models.Index(fields=["loop", "created_at"], name="task_loop_fire_loop_ct_idx"),
-        ),
         migrations.AddConstraint(
             model_name="loopfire",
             constraint=models.UniqueConstraint(
