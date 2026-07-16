@@ -48,6 +48,10 @@ class TestSourceConfig:
         assert fields["organization_id"].required is False
         assert fields["organization_id"].secret is False
 
+    def test_connection_host_fields_force_secret_reentry_on_org_change(self) -> None:
+        # Changing organization_id retargets the stored API key, so it must count as a host field.
+        assert AutomoxSource().connection_host_fields == ["organization_id"]
+
 
 class TestGetSchemas:
     def test_only_server_side_filtered_endpoints_are_incremental(self) -> None:

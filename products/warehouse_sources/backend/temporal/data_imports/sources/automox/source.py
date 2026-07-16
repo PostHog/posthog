@@ -44,6 +44,12 @@ class AutomoxSource(ResumableSource[AutomoxSourceConfig, AutomoxResumeConfig]):
         return ExternalDataSourceType.AUTOMOX
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # The stored API key syncs whichever `organization_id` is configured, so changing it
+        # retargets the saved credential at a different organization — force secret re-entry.
+        return ["organization_id"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.AUTOMOX,
