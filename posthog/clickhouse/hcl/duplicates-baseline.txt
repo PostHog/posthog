@@ -66,6 +66,8 @@ posthog.trace_span_to_resource_attributes
 posthog.trace_span_to_span_attributes
 posthog.trace_spans
 posthog.trace_spans_distributed
+posthog.trace_spans_kafka_metrics
+posthog.trace_spans_to_kafka_metrics_mv
 posthog.web_bot_definition
 posthog.web_bot_definition_dict
 posthog.web_bounces_dimensional_preaggregated

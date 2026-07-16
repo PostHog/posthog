@@ -33,6 +33,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://marketstack.com/documentation"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
