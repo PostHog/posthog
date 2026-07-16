@@ -50,7 +50,11 @@ def _resource_usage(summary: dict[str, Any]) -> float | None:
     """
     if not summary:
         return None
-    return (summary.get("usage") or 0) + (summary.get("todays_usage") or 0)
+    usage = summary.get("usage")
+    todays_usage = summary.get("todays_usage")
+    if usage is None and todays_usage is None:
+        return None
+    return (usage or 0) + (todays_usage or 0)
 
 
 class QuotaLimitsResponseSerializer(serializers.Serializer):
