@@ -120,7 +120,9 @@ export interface tracingOperationSceneLogicActions {
         operationStats: AggregatedSpanRow | null
         payload?: void
     }
-    loadCurrentSampleTrace: (_: void) => void
+    loadCurrentSampleTrace: () => {
+        value: true
+    }
     selectSpan: (spanId: string | null) => {
         spanId: string | null
     }
