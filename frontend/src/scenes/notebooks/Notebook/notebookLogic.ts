@@ -353,7 +353,7 @@ export interface notebookLogicActions {
     } // commentsLogic
     setItemContext: (
         context: Record<string, any> | null,
-        callback?: ((event: { sent: boolean }) => void) | undefined
+        callback?: (event: { sent: boolean }) => void
     ) => {
         callback: ((event: { sent: boolean }) => void) | undefined
         context: Record<string, any> | null
@@ -363,7 +363,7 @@ export interface notebookLogicActions {
     } // notebooksModel
     openSidePanel: (
         tab: SidePanelTab,
-        options?: string | undefined
+        options?: string
     ) => {
         options: string | undefined
         tab: SidePanelTab
