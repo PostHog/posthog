@@ -29,7 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CodefreshSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -101,24 +104,15 @@ Only the US SaaS host (`g.codefresh.io`) is supported. EU and self-hosted/on-pre
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        def _build_schema(endpoint: str) -> SourceSchema:
-            endpoint_config = CODEFRESH_ENDPOINTS[endpoint]
-            return SourceSchema(
-                name=endpoint,
-                # Codefresh exposes no server-side updated-since filter on any list endpoint, so
-                # every table is full refresh only — an "incremental" sync would re-page the whole
-                # resource anyway.
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=endpoint_config.should_sync_default,
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # Codefresh exposes no server-side updated-since filter on any list endpoint, so every
+        # table is full refresh only (INCREMENTAL_FIELDS is empty per endpoint) — an "incremental"
+        # sync would re-page the whole resource anyway.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            should_sync_default={name: cfg.should_sync_default for name, cfg in CODEFRESH_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self, config: CodefreshSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -140,6 +134,7 @@ Only the US SaaS host (`g.codefresh.io`) is supported. EU and self-hosted/on-pre
         return codefresh_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
