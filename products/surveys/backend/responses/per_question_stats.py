@@ -125,11 +125,19 @@ def fetch_per_question_stats(
         # "Other" without exposing the text itself. Reading the text requires the responses
         # endpoint, which requires `query:read`. Translated answers map back to their base
         # choice so they aggregate with it rather than being redacted into "<other>".
+        # NOTE: the grouped query above uses the 2-arg `getSurveyResponse`, which extracts a
+        # scalar string. Multiple-choice answers are stored as JSON arrays, so they resolve to
+        # '' and are filtered out by the `length(...) > 0` predicate before reaching here — i.e.
+        # only single_choice answers currently produce choice rows. `multiple_choice` is kept in
+        # the condition so the translation normalization applies automatically if/when this query
+        # is extended to array-extract multi-choice answers (as the frontend already does).
         choice_map: dict[str, str] | None = None
         if question_type in ("single_choice", "multiple_choice"):
             choices = q.get("choices") or []
             # Seed translations first, then base choices, so a translation that reuses another
-            # base-choice string can't remap that base choice to a different option.
+            # base-choice string can't remap that base choice to a different option. The tie-break
+            # is lossy (a colliding translated pick is attributed to the base option) but it never
+            # misattributes base-language answers.
             choice_map = dict(q.get("choice_translations") or {})
             choice_map.update({choice: choice for choice in choices})
 

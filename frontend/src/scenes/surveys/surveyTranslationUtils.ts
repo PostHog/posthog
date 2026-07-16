@@ -5,6 +5,10 @@ import { NewSurvey } from './constants'
 // Respondents are shown choices in their own language and submit the translated text, so a
 // translated choice has to map back to its base-language choice (matched by position) to be
 // recognised as a predefined answer rather than a free-text "Other" response.
+//
+// Keep in sync with the backend twin `_choice_translation_map` in
+// products/surveys/backend/responses/fetch_rows.py — both must agree on the positional mapping
+// and the base-choice-wins seeding order.
 export function buildChoiceTranslationMap(question: MultipleSurveyQuestion): Map<string, string> {
     const baseChoices = question.choices ?? []
     const map = new Map<string, string>()
@@ -19,7 +23,9 @@ export function buildChoiceTranslationMap(question: MultipleSurveyQuestion): Map
     }
 
     // Seed base choices last so they take precedence: a translation that reuses another
-    // base-choice string must not remap that base choice to a different option.
+    // base-choice string must not remap that base choice to a different option. The tradeoff is
+    // lossy — a translated pick that collides with a different base choice is attributed to that
+    // base option — but it's the safe default (base-language data is never misattributed).
     baseChoices.forEach((choice) => map.set(choice, choice))
 
     return map

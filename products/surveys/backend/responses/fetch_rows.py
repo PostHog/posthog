@@ -39,7 +39,13 @@ class SurveyResponseRow:
 
 
 def _choice_translation_map(question: dict[str, Any]) -> dict[str, str]:
-    """Map each translated choice back to its base-language choice, matched by position."""
+    """Map each translated choice back to its base-language choice, matched by position.
+
+    Returns translations only — base choices are intentionally NOT seeded here; the consumer
+    (``per_question_stats``) folds them in last so base choices win on collision. Keep in sync
+    with the frontend twin ``buildChoiceTranslationMap`` in
+    ``frontend/src/scenes/surveys/surveyTranslationUtils.ts``.
+    """
     base_choices = question.get("choices")
     if not isinstance(base_choices, list):
         return {}
