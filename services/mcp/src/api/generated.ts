@@ -41704,6 +41704,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly error_reason: string | null;
+      /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
+      readonly is_recovery: boolean;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -62450,6 +62452,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly error_reason: string | null;
+      /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
+      readonly is_recovery: boolean;
       readonly created_at: string;
       readonly updated_at: string;
       /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
