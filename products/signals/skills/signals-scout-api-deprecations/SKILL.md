@@ -11,14 +11,16 @@ description: >
   uncitable suspicions go to the scratchpad, never the inbox. Code changes slowly, so most runs
   close out empty against the last-scan memory. Self-contained peer in the signals-scout-* fleet.
 compatibility: >
-  Designed for the PostHog Signals agent in a Claude sandbox with shell access, TRUSTED network
-  (vendor docs + github.com reachable), and PostHog MCP scopes: read-only,
-  signal_scout_internal:write for scratchpad, and signal_scout_report:write for
-  emit-report/edit-report (this scout authors reports directly via the report channel). Assumes the
-  scout MCP family (scratchpad-search, scratchpad-remember, scratchpad-forget, runs-list,
-  emit-report, edit-report, members-list) plus inbox-reports-list / -retrieve. Needs a repository
-  checkout — uses one if the harness provides it, otherwise shallow-clones the project's repository
-  when it is public.
+  Designed for the PostHog Signals agent in a Claude sandbox with shell access, a TRUSTED-allowlist
+  network (github.com and package registries reachable; arbitrary vendor doc hosts are NOT on the
+  allowlist and WebFetch is withheld, so vendor research goes through WebSearch, not direct page
+  fetch), and PostHog MCP scopes: read-only, signal_scout_internal:write for scratchpad, and
+  signal_scout_report:write for emit-report/edit-report (this scout authors reports directly via the
+  report channel). Assumes the scout MCP family (scratchpad-search, scratchpad-remember,
+  scratchpad-forget, runs-list, emit-report, edit-report, members-list) plus inbox-reports-list /
+  -retrieve, and WebSearch for vendor changelog research. Needs a repository to scan: uses a harness
+  checkout if one is present, otherwise shallow-clones the project's repository from github.com (on
+  the allowlist) when it is public.
 allowed_tools:
   - emit_report
   - edit_report
@@ -88,12 +90,15 @@ cadence is plenty, and the close-out short-circuits when the integration surface
   report; your own report-channel reports persist their backing signals under
   `source_product=signals_scout`, so don't filter by another source product.
 - `scout-runs-list` (last 14d) — what prior runs of this scout filed or ruled out.
-- Get the code. Prefer a checkout the harness already placed under the working directory's
-  `repos/` tree. Otherwise resolve which repository to scan: a `config:api-dep:repo` scratchpad
-  entry takes precedence (operators set this per team via scratchpad — the parameter mechanism
-  until skills support params natively); failing that, the repository the project's GitHub
-  connection targets, if discoverable through available tools. Then shallow-clone it (public
-  repos only): `git clone --depth 1 --single-branch <repo-url> /tmp/repo`.
+- Get the code. On the scheduled cadence path the harness does **not** check out a repo, so
+  expect to clone it yourself. If a checkout is present under the working directory's `repos/`
+  tree (ad-hoc runs), use it. Otherwise resolve which repository to scan: a `config:api-dep:repo`
+  scratchpad entry takes precedence (operators set this per team via scratchpad — the parameter
+  mechanism until skills support params natively); failing that, the repository the project's
+  GitHub connection targets, if discoverable through available tools. Then shallow-clone it from
+  github.com (on the network allowlist), public repos only:
+  `git clone --depth 1 --single-branch <repo-url> /tmp/repo`. A private repo can't be cloned here —
+  write the `blocked:api-deprecations:no-repo` entry and close out.
 
 ## Stage 1 — deterministic inventory (facts, not judgment)
 
@@ -157,11 +162,21 @@ For each genuine call site, check **both axes** against the vendor's own documen
 - **Endpoint/product axis** — is the endpoint or API product itself being retired or migrated,
   even though the version is current? A current version is not evidence the usage is safe.
 
+Research through **WebSearch** — it is the web tool you actually have in the sandbox. Arbitrary
+vendor doc hosts are not on the network allowlist and WebFetch is withheld, so you generally cannot
+open a vendor page directly; a `curl` to `developers.<vendor>.com` will be blocked. Search for the
+deprecation (`"<vendor> <api> <version> deprecation sunset date"`), read the result snippets, and
+keep following searches until the vendor's own page is among the results and its snippet carries the
+claim.
+
 Rules:
 
-- Cite the specific vendor page URL and quote the exact sentence that supports the claim. If the
-  vendor page blocks your fetch, corroborate via multiple independent secondary sources and lower
-  your confidence accordingly — or don't file.
+- Cite the specific vendor page URL (the vendor's OWN changelog/sunset page, from the search
+  results) and quote the exact sentence that supports the claim — from the vendor page's search
+  snippet when you can't open the page. If only third-party sources (blog posts, SDK release notes)
+  carry the claim, corroborate across several independent ones and lower your confidence
+  accordingly. If neither the vendor's own snippet nor solid corroboration is reachable, don't file
+  — remember it and re-check next run.
 - If the page states no removal date, say "no published date" — never substitute an estimate. If
   the vendor publishes only an estimated month ("V21: August 2026 … dates are only estimates"),
   cite it as estimated.
@@ -265,7 +280,9 @@ must not stop future runs from researching a genuine API call site on the same h
   `suggested_reviewers` (wrap as a `{github_login}` object, or pass the member's `{user_uuid}`).
 - `scout-scratchpad-search` / `-remember` / `-forget`, `scout-runs-list` /
   `-runs-retrieve` — orientation, dedupe, and durable memory.
-- Shell for the clone, `rg`, and reading call sites; web fetch for the vendor documentation.
+- `WebSearch` — vendor changelog / sunset research (direct page fetch is unavailable in the
+  sandbox; search snippets are your window onto the vendor's own page).
+- Shell for the clone, `rg`, and reading call sites.
 
 ## Close out
 
