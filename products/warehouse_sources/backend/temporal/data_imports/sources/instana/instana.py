@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instana.se
     EVENTS_WINDOW_CHUNK_MS,
     INSTANA_ENDPOINTS,
     MAX_CATALOG_PAGES,
+    MAX_CATALOG_WALK_SECONDS,
     PAGE_SIZE,
     SNAPSHOTS_MAX_SIZE,
     InstanaEndpointConfig,
@@ -300,10 +301,18 @@ def _get_paged_rows(
 
     fetched = 0
     pages_walked = 0
+    walk_deadline = time.monotonic() + MAX_CATALOG_WALK_SECONDS
     while True:
         # A self-hosted host can return a full page forever while omitting `totalHits`, so the
         # termination conditions below never trip; bound the walk so the loop (and its ingestion)
-        # can't run for the whole activity. Non-retryable — the same host replays the same loop.
+        # can't run for the whole activity. Both bounds are non-retryable — the same host replays
+        # the same loop. The wall-clock budget is the effective bound: a slow host can stay under
+        # the page cap while streaming each page for MAX_DOWNLOAD_SECONDS, so pages alone wouldn't
+        # cap worker time.
+        if time.monotonic() > walk_deadline:
+            raise InstanaPaginationLimitError(
+                f"{PAGINATION_LIMIT_ERROR}: exceeded {MAX_CATALOG_WALK_SECONDS}s walk budget for {config.name}"
+            )
         if pages_walked >= MAX_CATALOG_PAGES:
             raise InstanaPaginationLimitError(
                 f"{PAGINATION_LIMIT_ERROR}: stopped after {MAX_CATALOG_PAGES} pages for {config.name}"

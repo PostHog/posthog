@@ -9,8 +9,15 @@ PAGE_SIZE = 200
 
 # A self-hosted server the user controls can return a full page on every request while never
 # signalling the end of pagination, keeping the catalog walk (and its ingestion) running for the
-# whole activity. Cap the pages walked and fail non-retryably past it — far above any real catalog
-# (10k pages x 200 = 2M records), so a legitimate inventory is never truncated.
+# whole activity. Two independent bounds stop the walk and fail non-retryably:
+#
+#  - A cumulative wall-clock budget is the effective bound. A page count alone doesn't cap worker
+#    time — each page may stream for MAX_DOWNLOAD_SECONDS, so a slow host could stay under a page
+#    cap yet hold the worker for days. 30 minutes is far longer than any real catalog walk (which
+#    is minutes) but far below the import activity timeout, so a slow-drip host is evicted quickly.
+#  - A page ceiling is a secondary record/memory bound (10k pages x 200 = 2M records), far above
+#    any real catalog, so a legitimate inventory is never truncated.
+MAX_CATALOG_WALK_SECONDS = 30 * 60
 MAX_CATALOG_PAGES = 10_000
 
 # `/api/events` has no pagination — the window itself bounds the response — so wide ranges must be

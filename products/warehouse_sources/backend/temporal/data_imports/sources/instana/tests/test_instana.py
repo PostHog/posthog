@@ -254,6 +254,31 @@ class TestPagedRows:
             with pytest.raises(inst.InstanaPaginationLimitError):
                 _run_get_rows("applications", [full_page])
 
+    def test_pagination_walk_stops_at_time_budget(self) -> None:
+        # A slow host can stay under the per-page limits (and the page cap) while holding the worker,
+        # so the walk must also stop on a cumulative wall-clock budget. Fetch is stubbed to isolate
+        # the loop from the body-reader's own clock; monotonic advances 1s per call.
+        full_page = self._page(PAGE_SIZE, page=1, total_hits=10**9)
+        ticker = iter(range(0, 10_000))
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        manager.load_state.return_value = None
+        with (
+            mock.patch.object(inst, "MAX_CATALOG_WALK_SECONDS", 5),
+            mock.patch.object(inst.time, "monotonic", lambda: next(ticker)),
+            mock.patch.object(inst, "_fetch", return_value=full_page),
+        ):
+            with pytest.raises(inst.InstanaPaginationLimitError):
+                list(
+                    inst._get_paged_rows(
+                        mock.MagicMock(),
+                        BASE_URL,
+                        inst.INSTANA_ENDPOINTS["applications"],
+                        mock.MagicMock(),
+                        manager,
+                    )
+                )
+
 
 class TestListRows:
     def test_bare_list_body_is_yielded(self) -> None:
