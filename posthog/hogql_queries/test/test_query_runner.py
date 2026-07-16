@@ -9,6 +9,7 @@ from unittest import mock
 
 from django.core.cache import cache
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -55,6 +56,7 @@ from posthog.hogql_queries.query_runner import (
     ExecutionMode,
     QueryRunner,
     QueryRunnerWithHogQLContext,
+    cost_aware_shared_cache_age_seconds,
     get_query_runner,
     shared_insights_execution_mode,
 )
@@ -1279,27 +1281,30 @@ class TestApplySeriesCustomNames(BaseTest):
         self.assertEqual(was_modified, expect_modified)
 
 
-class TestSharedInsightsExecutionMode(BaseTest):
+class TestSharedInsightsExecutionMode(SimpleTestCase):
     @parameterized.expand(
         [
-            # name, execution_mode, expected_mode, expected_cache_age_seconds
+            # name, execution_mode, expected_mode, expected_cache_age_seconds, expected_cost_aware
             (
                 "force_blocking_downgrades_with_staleness_window_threshold",
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
+                True,
             ),
             (
                 "cache_only_remaps_to_extended_async",
                 ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
                 None,
+                False,
             ),
             (
                 "recent_cache_async_passes_through",
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
                 None,
+                False,
             ),
             (
                 "blocking_if_stale_passes_through",
@@ -1310,6 +1315,7 @@ class TestSharedInsightsExecutionMode(BaseTest):
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 None,
+                False,
             ),
         ]
     )
@@ -1319,10 +1325,27 @@ class TestSharedInsightsExecutionMode(BaseTest):
         execution_mode: ExecutionMode,
         expected_mode: ExecutionMode,
         expected_cache_age_seconds: int | None,
+        expected_cost_aware: bool,
     ) -> None:
-        result_mode, cache_age_seconds = shared_insights_execution_mode(execution_mode)
+        result_mode, cache_age_seconds, cost_aware = shared_insights_execution_mode(execution_mode)
         self.assertEqual(result_mode, expected_mode)
         self.assertEqual(cache_age_seconds, expected_cache_age_seconds)
+        self.assertEqual(cost_aware, expected_cost_aware)
+
+    @parameterized.expand(
+        [
+            (None, 1800),
+            (9999, 1800),
+            (10_000, 3600),
+            (60_000, 21_600),
+        ]
+    )
+    def test_cost_aware_shared_cache_age_seconds(self, query_duration_ms: float | None, expected: int) -> None:
+        with mock.patch(
+            "posthog.hogql_queries.query_runner.settings.SHARED_QUERY_COST_AWARE_THROTTLE_TIERS",
+            [(10_000, 3600), (60_000, 21_600)],
+        ):
+            self.assertEqual(cost_aware_shared_cache_age_seconds(1800, query_duration_ms), expected)
 
 
 @pytest.mark.ee

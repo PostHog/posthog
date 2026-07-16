@@ -300,6 +300,7 @@ class SharedExecutionSettings(NamedTuple):
 
     execution_mode: ExecutionMode
     cache_age_seconds: int | None
+    cost_aware_cache_age: bool
 
 
 def shared_insights_execution_mode(execution_mode: ExecutionMode) -> SharedExecutionSettings:
@@ -315,10 +316,21 @@ def shared_insights_execution_mode(execution_mode: ExecutionMode) -> SharedExecu
         return SharedExecutionSettings(
             ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
             int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
+            True,
         )
     return SharedExecutionSettings(
-        _SHARED_MODE_WHITELIST.get(execution_mode, ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE), None
+        _SHARED_MODE_WHITELIST.get(execution_mode, ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE), None, False
     )
+
+
+def cost_aware_shared_cache_age_seconds(base_cache_age_seconds: int, query_duration_ms: float | None) -> int:
+    if query_duration_ms is None:
+        return base_cache_age_seconds
+
+    for minimum_duration_ms, cache_age_seconds in sorted(settings.SHARED_QUERY_COST_AWARE_THROTTLE_TIERS, reverse=True):
+        if query_duration_ms >= minimum_duration_ms:
+            return max(base_cache_age_seconds, cache_age_seconds)
+    return base_cache_age_seconds
 
 
 RunnableQueryNode = Union[
@@ -1626,6 +1638,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         insight_id: Optional[int] = None,
         dashboard_id: Optional[int] = None,
         cache_age_seconds: Optional[int] = None,
+        cost_aware_cache_age: bool = False,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         # Set user for access control during query execution. Some subclasses
@@ -1737,6 +1750,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         insight_id=insight_id,
                         dashboard_id=dashboard_id,
                     )
+                    if cost_aware_cache_age and cache_age_seconds is not None:
+                        self._cache_age_override = cost_aware_shared_cache_age_seconds(
+                            cache_age_seconds, cache_manager.get_query_duration_ms()
+                        )
 
                     if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
                         # We should always kick off async calculation and disregard the cache.
@@ -1963,6 +1980,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     # Set target_age to None in that case
                     target_age=target_age,
                 )
+                cache_manager.set_query_duration_ms(query_duration_ms)
 
             query_executed_props = {
                 "insight_id": insight_id,

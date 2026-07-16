@@ -57,6 +57,7 @@ def process_query_dict(
     dashboard_id: Optional[int] = None,
     is_query_service: bool = False,
     cache_age_seconds: Optional[int] = None,
+    cost_aware_cache_age: bool = False,
     pagination_cursor: Optional[str] = None,
     analytics_props: Optional[AnalyticsProps] = None,
 ) -> dict | BaseModel:
@@ -109,6 +110,7 @@ def process_query_dict(
         dashboard_id=dashboard_id,
         is_query_service=is_query_service,
         cache_age_seconds=cache_age_seconds,
+        cost_aware_cache_age=cost_aware_cache_age,
         pagination_cursor=pagination_cursor,
         analytics_props=analytics_props,
     )
@@ -129,6 +131,7 @@ def process_query_model(
     dashboard_id: Optional[int] = None,
     is_query_service: bool = False,
     cache_age_seconds: Optional[int] = None,
+    cost_aware_cache_age: bool = False,
     pagination_cursor: Optional[str] = None,
     analytics_props: Optional[AnalyticsProps] = None,
 ) -> dict | BaseModel:
@@ -240,6 +243,7 @@ def process_query_model(
             insight_id=insight_id,
             dashboard_id=dashboard_id,
             cache_age_seconds=cache_age_seconds,
+            cost_aware_cache_age=cost_aware_cache_age,
             analytics_props=analytics_props,
         )
 

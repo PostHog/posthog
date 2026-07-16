@@ -955,6 +955,11 @@ API_ENVIRONMENTS_SUNSET_DATE = get_from_env("API_ENVIRONMENTS_SUNSET_DATE", "202
 # var without redeploy. 1.0 = emit every operation, 0.01 = 1% sample.
 # Defaults to 1.0 under TEST so assertions on emitted SLO events are deterministic.
 QUERY_SERVICE_SLO_SAMPLE_RATE = get_from_env("QUERY_SERVICE_SLO_SAMPLE_RATE", 1.0 if TEST else 0.01, type_cast=float)
+SHARED_QUERY_COST_AWARE_THROTTLE_TIERS: list[tuple[int, int]] = [
+    tuple(map(int, tier.split(":")))
+    for tier in os.getenv("SHARED_QUERY_COST_AWARE_THROTTLE_TIERS", "").split(",")
+    if tier
+]
 
 ####
 # Livestream
