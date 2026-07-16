@@ -46,8 +46,11 @@ def _is_free_plan_throttled(context: ThrottleContext) -> bool:
     )
 
 
-def _is_org_billed_seatless(context: ThrottleContext) -> bool:
-    return context.product == POSTHOG_CODE_PRODUCT and context.seat_missing and context.code_usage_billed
+def _is_org_billed(context: ThrottleContext) -> bool:
+    # Seat state is deliberately ignored: with usage-based billing every request
+    # is metered into the org's credit bucket, so a leftover seat record from the
+    # retired seat products must not hold a paying org's user on the free-plan cap.
+    return context.product == POSTHOG_CODE_PRODUCT and context.code_usage_billed
 
 
 class CostThrottle(Throttle):
@@ -250,9 +253,9 @@ class _UserCostThrottleBase(CostThrottle):
         return f"{base}:m{mult}"
 
     def _get_config(self, context: ThrottleContext) -> UserCostLimit:
-        # Precedence matters: an org-billed seatless user is uncapped even though
-        # seat_missing would otherwise select the free-plan cap below.
-        if _is_org_billed_seatless(context):
+        # Precedence matters: an org-billed user is uncapped even though their
+        # seat state would otherwise select the free-plan cap below.
+        if _is_org_billed(context):
             return ORG_BILLED_USER_COST_LIMIT
         if _is_free_plan_throttled(context):
             return FREE_PLAN_COST_LIMIT

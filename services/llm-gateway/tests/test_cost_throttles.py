@@ -1419,12 +1419,14 @@ class TestPlanAwareThrottling:
             # Seatless + not billed: the free cap holds (this pair pins that the
             # bypass never leaks to orgs that would get the usage for free).
             (True, False, False),
-            # Seat still exists (pre-retirement): org billing doesn't lift the cap -
-            # seat-covered usage stays bounded until the seat is deleted.
-            (False, True, False),
+            # Leftover seat record + org-billed: usage bills to the org regardless
+            # of the retired seat, so the seat must not re-cap a paying org's user.
+            (False, True, True),
+            # Seat + not billed: the free cap holds.
+            (False, False, False),
         ],
     )
-    async def test_code_usage_billing_gates_seatless_cap_bypass(
+    async def test_code_usage_billing_gates_user_cap_bypass(
         self, seat_missing: bool, code_usage_billed: bool, expected_allowed: bool
     ) -> None:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
@@ -1443,12 +1445,17 @@ class TestPlanAwareThrottling:
         assert result.allowed is expected_allowed
 
     @pytest.mark.asyncio
-    async def test_org_billed_seatless_status_reports_unlimited(self) -> None:
+    @pytest.mark.parametrize("seat_missing", [True, False])
+    async def test_org_billed_status_reports_unlimited(self, seat_missing: bool) -> None:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
         context = make_context(
-            product="posthog_code", plan_key=None, seat_created_at=None, seat_missing=True, code_usage_billed=True
+            product="posthog_code",
+            plan_key=None if seat_missing else "posthog-code-free-20260301",
+            seat_created_at=None if seat_missing else "2026-01-01T00:00:00+00:00",
+            seat_missing=seat_missing,
+            code_usage_billed=True,
         )
 
         await throttle.record_cost(context, 600.0)
