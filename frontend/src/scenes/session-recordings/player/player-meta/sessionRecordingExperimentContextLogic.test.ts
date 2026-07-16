@@ -18,7 +18,7 @@ const mockResponse = {
             variant: 'test',
             variants_seen: ['control', 'test'],
             multiple_variants: true,
-            first_flag_evaluation_timestamp: '2026-07-01T10:02:11Z',
+            first_exposure_timestamp: '2026-07-01T10:02:11Z',
             experiment_start_date: '2026-06-01T00:00:00Z',
             experiment_end_date: null,
         },
