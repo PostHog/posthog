@@ -405,23 +405,45 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
+    def _slack_mirror_flag_enabled(self) -> bool:
+        """Whether discussions↔Slack sync is on for this user/team.
+
+        Keyed on the requesting user (plus org/project groups) so the gate agrees with the
+        frontend's per-user flag evaluation during partial rollouts.
+        """
+        team = self.team
+        flag_distinct_id = str(getattr(self.request.user, "distinct_id", None) or team.uuid)
+        try:
+            return bool(
+                posthoganalytics.feature_enabled(
+                    DISCUSSIONS_SLACK_SYNC_FLAG,
+                    flag_distinct_id,
+                    groups={"organization": str(team.organization_id), "project": str(team.id)},
+                )
+            )
+        except Exception:
+            return False
+
     def get_serializer_context(self) -> dict:
         context = super().get_serializer_context()
         # Prefetch the discussion's Slack mirrors once (keyed by thread-root comment, 1:1) so the
-        # serializer's slack_thread field doesn't do a query per comment.
+        # serializer's slack_thread field doesn't do a query per comment. Skipped entirely while
+        # the feature flag is off, so unflagged teams don't pay the lookup on a hot endpoint.
         scope = self.request.GET.get("scope")
         item_id = self.request.GET.get("item_id")
+        pk = self.kwargs.get("pk")
         thread_by_comment: dict[str, CommentSlackThread] = {}
-        if scope and item_id:
-            for thread in CommentSlackThread.objects.for_team(self.team.id).filter(scope=scope, item_id=item_id):
-                if thread.source_comment_id:
+        if ((scope and item_id) or pk) and self._slack_mirror_flag_enabled():
+            if scope and item_id:
+                for thread in CommentSlackThread.objects.for_team(self.team.id).filter(scope=scope, item_id=item_id):
+                    if thread.source_comment_id:
+                        thread_by_comment[str(thread.source_comment_id)] = thread
+            else:
+                # Detail responses (retrieve/update/complete/reopen) have no scope/item_id params; fetch
+                # the one possible mirror so slack_thread doesn't silently null out — the frontend
+                # replaces list entries with these responses, which would drop the Slack state.
+                for thread in CommentSlackThread.objects.for_team(self.team.id).filter(source_comment_id=pk):
                     thread_by_comment[str(thread.source_comment_id)] = thread
-        elif pk := self.kwargs.get("pk"):
-            # Detail responses (retrieve/update/complete/reopen) have no scope/item_id params; fetch
-            # the one possible mirror so slack_thread doesn't silently null out — the frontend
-            # replaces list entries with these responses, which would drop the Slack state.
-            for thread in CommentSlackThread.objects.for_team(self.team.id).filter(source_comment_id=pk):
-                thread_by_comment[str(thread.source_comment_id)] = thread
         context["slack_thread_by_comment"] = thread_by_comment
         return context
 
@@ -546,18 +568,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     @action(methods=["POST"], detail=True)
     def send_to_slack(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
-        # Keyed on the requesting user (plus org/project groups) so the gate agrees with the
-        # frontend's per-user flag evaluation during partial rollouts.
-        flag_distinct_id = str(getattr(request.user, "distinct_id", None) or team.uuid)
-        try:
-            flag_enabled = posthoganalytics.feature_enabled(
-                DISCUSSIONS_SLACK_SYNC_FLAG,
-                flag_distinct_id,
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-            )
-        except Exception:
-            flag_enabled = False
-        if not flag_enabled:
+        if not self._slack_mirror_flag_enabled():
             raise exceptions.NotFound()
 
         comment = self.get_object()
