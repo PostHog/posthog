@@ -835,6 +835,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             false,
             {
                 loadDashboardSuccess: () => false,
+                loadDashboardMetadataSuccess: () => false,
                 loadDashboardFailure: () => true,
             },
         ],
@@ -2066,6 +2067,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 primary_interaction_id: dashboardQueryId,
                 time_to_see_data_ms: Math.floor(performance.now() - startTime),
             })
+
+            if (values.dashboard) {
+                actions.loadDashboardMetadataSuccess(values.dashboard)
+            }
         },
         tileStreamingFailure: ({ error }) => {
             if (error?.message?.includes('404') || error?.status === 404) {

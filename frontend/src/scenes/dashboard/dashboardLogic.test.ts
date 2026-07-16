@@ -1474,6 +1474,15 @@ describe('dashboardLogic', () => {
 
             await expectLogic(logic).toFinishAllListeners()
 
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardFailure(new Error('Revalidation failed'))
+            })
+                .toDispatchActions(['loadDashboardMetadataSuccess'])
+                .toMatchValues({
+                    dashboardFailedToLoad: false,
+                    dashboard: truth((dashboard) => dashboard?.tiles.length === 8),
+                })
+
             hydrateDashboardSpy.mockRestore()
             getResponseSpy.mockRestore()
         })
