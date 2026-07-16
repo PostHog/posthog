@@ -184,9 +184,11 @@ The **object key** lands in `QueryStatus` instead of rows, and the status endpoi
 A frame key is a slot holding the query's current result, not an immutable blob: `query_hash` is
 `sha256(user_id + wrapped query)` with no freshness component, and dedup only joins **in-flight**
 materializations — a completed status is never served as a cache. Every re-run therefore re-executes against
-ClickHouse and atomically overwrites the same key, which is exactly why a re-run after new events lands always
-returns fresh rows in this phase (a reader holding a presign across an overwrite gets one complete object or
-the other, never torn bytes).
+ClickHouse and atomically overwrites the same key, so a re-run after new events lands returns fresh rows
+modulo offline replica lag — materialization reads the OFFLINE pool, which can trail ingestion further than
+the online nodes the inline path reads, so a frame can briefly miss rows an inline preview of the same query
+just showed (batch exports accept the same window). A reader holding a presign across an overwrite gets one
+complete object or the other, never torn bytes.
 One correction to the sketch below: the kernel's client is `urllib`, not `requests` — urllib re-sends
 `Authorization` on redirects, so the client intercepts the 302 and fetches the presigned URL with a fresh,
 credential-free request instead of auto-following.
@@ -208,10 +210,24 @@ _Rollout prerequisites (per environment, before flipping the flag on):_
 - Confirm `OBJECT_STORAGE_PUBLIC_ENDPOINT` resolves and routes **from the sandbox kernel's network** — the
   kernel fetches the presigned URL directly. An internal-only host (or the local SeaweedFS docker name)
   makes every download fail (loud, not silent).
-- Provision the `notebooks` ClickHouse user (settings profile, QUOTAs, `max_concurrent_queries_for_user`) and
-  set `CLICKHOUSE_NOTEBOOKS_USER`/`CLICKHOUSE_NOTEBOOKS_PASSWORD` on the general-purpose Temporal worker
-  fleet. Deliberately fail-open: until provisioned, the flow runs as the default CH user (dev/self-hosted
-  parity), so this is a hardening prerequisite for scale, not a hard blocker for the first flip.
+- Provision the `notebooks` ClickHouse user, **in this order**: create and verify the user server-side first
+  (a `SELECT 1` as the user), then set `CLICKHOUSE_NOTEBOOKS_USER`/`CLICKHOUSE_NOTEBOOKS_PASSWORD` on the
+  general-purpose Temporal worker fleet — env vars pointing at a not-yet-created user (or a rotated password;
+  creds are cached per worker process, rotation needs a fleet restart) fail every materialization with a
+  generic retried auth error, a hard outage rather than a fallback. The user spec, since HogQL fans out to
+  distributed tables (remote legs authenticate as the initiating user via the interserver secret): exists on
+  **every** node of the `posthog` cluster, SELECT grants mirroring the app user (including data-warehouse
+  table functions), a profile with `readonly = 2` — `readonly = 1` rejects the per-query SETTINGS/HTTP params
+  this path sends — and no setting constraints below the app-side caps; prefer per-query `max_memory_usage`
+  over `..._for_user` so a `MEMORY_LIMIT_EXCEEDED` stays attributable to the offending query, and leave QUOTA
+  headroom since a shared-user quota breach reads as a (wrong) "narrow your query" message to whichever
+  tenant trips it. Deliberately fail-open: until provisioned, the flow runs as the default CH user
+  (dev/self-hosted parity) — the `ch_user` label on `posthog_notebooks_frame_materializations_started` is the
+  signal that the dedicated user actually engaged.
+- Confirm `CLICKHOUSE_OFFLINE_CLUSTER_HOST` is set on the **general-purpose** Temporal worker fleet (US) —
+  batch exports prove offline routing on _their_ deployment, not this one, and an unset host silently
+  falls back to the online URL, no-opping the pool isolation. The `pool` label on the started counter
+  verifies routing from metrics.
 - Provision the bucket lifecycle TTL (~24h) on the `notebooks/frames/` prefix **before** enabling.
   Successful objects are never deleted by app code, and query-text variations (even comment-only edits)
   mint new hashes, so without the lifecycle rule an authenticated user can accumulate unbounded durable
