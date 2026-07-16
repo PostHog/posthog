@@ -1099,7 +1099,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                     team_id = {{team_id}}
                     AND condition = {{condition_hash}}
                     AND {date_filter}
-                GROUP BY distinct_id, date, uuid
+                GROUP BY date, distinct_id, uuid
             )
         """
 
@@ -1187,7 +1187,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                     team_id = {{team_id}}
                     AND condition = {{condition_hash}}
                     AND {date_filter}
-                GROUP BY distinct_id, date, uuid
+                GROUP BY date, distinct_id, uuid
             )
             GROUP BY person_id
             HAVING count() {sql_operator} {{min_matches}}

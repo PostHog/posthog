@@ -222,7 +222,6 @@ async def reconcile_team_precalculated_events_activity(inputs: ReconcileTeamInpu
                 kafka_results: list = []
                 rows_checked = 0
                 rows_corrected = 0
-                total_flushed = 0
 
                 overridden_distinct_ids = list(overrides.keys())
                 for batch_start in range(0, len(overridden_distinct_ids), distinct_id_batch_size):
@@ -258,9 +257,7 @@ async def reconcile_team_precalculated_events_activity(inputs: ReconcileTeamInpu
                         rows_corrected += 1
 
                         if len(kafka_results) >= kafka_flush_batch_size:
-                            total_flushed += await flush_kafka_batch_async(
-                                kafka_results, kafka_producer, inputs.team_id, logger
-                            )
+                            await flush_kafka_batch_async(kafka_results, kafka_producer, inputs.team_id, logger)
                             kafka_results.clear()
 
                     heartbeater.details = (
@@ -269,9 +266,7 @@ async def reconcile_team_precalculated_events_activity(inputs: ReconcileTeamInpu
                     )
 
                 if kafka_results:
-                    total_flushed += await flush_kafka_batch_async(
-                        kafka_results, kafka_producer, inputs.team_id, logger
-                    )
+                    await flush_kafka_batch_async(kafka_results, kafka_producer, inputs.team_id, logger)
 
     duration_seconds = time.time() - start_time
     logger.info(
