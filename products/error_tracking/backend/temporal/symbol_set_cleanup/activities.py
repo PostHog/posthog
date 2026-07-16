@@ -1,3 +1,4 @@
+import time
 import datetime
 
 from django.db import close_old_connections, transaction
@@ -18,6 +19,13 @@ from products.error_tracking.backend.temporal.symbol_set_cleanup.types import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Pace S3 deletes so we don't burst DeleteObjects faster than S3 will accept. The storage client
+# retries throttling responses with backoff; these delays keep us from provoking it in the first
+# place. `_DELETE_CHUNK_PACING_SECONDS` spaces out 1000-key chunks within one batch's delete call;
+# `_INTER_BATCH_PACING_SECONDS` spaces out the tight batch-after-batch loop.
+_DELETE_CHUNK_PACING_SECONDS = 0.1
+_INTER_BATCH_PACING_SECONDS = 0.5
 
 
 def _cleanup_filter(inputs: SymbolSetCleanupInputs) -> Q:
@@ -116,7 +124,9 @@ def cleanup_symbol_sets_activity(inputs: SymbolSetCleanupInputs) -> SymbolSetCle
         ]
         if deleted_storage_ptrs:
             try:
-                failed_storage_ptrs = delete_symbol_set_contents_many(deleted_storage_ptrs)
+                failed_storage_ptrs = delete_symbol_set_contents_many(
+                    deleted_storage_ptrs, pacing_seconds=_DELETE_CHUNK_PACING_SECONDS
+                )
             except Exception as exc:
                 failed_storage_ptrs = deleted_storage_ptrs
                 logger.exception(
@@ -139,6 +149,10 @@ def cleanup_symbol_sets_activity(inputs: SymbolSetCleanupInputs) -> SymbolSetCle
             objects_failed=total_db_failed,
             storage_objects_failed=total_storage_failed,
         )
+
+        # Breathe between batches so concurrent cleanup activities don't collectively hammer S3.
+        if total_processed < inputs.total_per_run:
+            time.sleep(_INTER_BATCH_PACING_SECONDS)
 
     if total_db_failed > 0 or total_storage_failed > 0:
         logger.warning(

@@ -1,4 +1,5 @@
 import abc
+import time
 import threading
 from typing import IO, Any, Optional, Union
 from urllib.parse import urlparse
@@ -91,7 +92,7 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def delete_objects(self, bucket: str, keys: list[str]) -> list[str]:
+    def delete_objects(self, bucket: str, keys: list[str], *, pacing_seconds: float = 0.0) -> list[str]:
         pass
 
 
@@ -147,14 +148,18 @@ class UnavailableStorage(ObjectStorageClient):
     def delete(self, bucket: str, key: str) -> None:
         pass
 
-    def delete_objects(self, bucket: str, keys: list[str]) -> list[str]:
+    def delete_objects(self, bucket: str, keys: list[str], *, pacing_seconds: float = 0.0) -> list[str]:
         return []
 
 
 class ObjectStorage(ObjectStorageClient):
-    def __init__(self, aws_client, presigned_client=None) -> None:
+    def __init__(self, aws_client, presigned_client=None, write_client=None) -> None:
         self.aws_client = aws_client
         self.presigned_client = presigned_client or aws_client
+        # Writes and deletes route through a client with real retry/backoff so S3 throttling
+        # (SlowDown / 503) is absorbed rather than surfacing as hard failures. Reads stay on
+        # the latency-sensitive `aws_client` with its single-attempt config.
+        self.write_client = write_client or aws_client
 
     def head_bucket(self, bucket: str) -> bool:
         try:
@@ -267,7 +272,7 @@ class ObjectStorage(ObjectStorageClient):
 
     def tag(self, bucket: str, key: str, tags: dict[str, str]) -> None:
         try:
-            self.aws_client.put_object_tagging(
+            self.write_client.put_object_tagging(
                 Bucket=bucket,
                 Key=key,
                 Tagging={"TagSet": [{"Key": k, "Value": v} for k, v in tags.items()]},
@@ -280,7 +285,7 @@ class ObjectStorage(ObjectStorageClient):
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
         s3_response = {}
         try:
-            s3_response = self.aws_client.put_object(Bucket=bucket, Body=content, Key=key, **(extras or {}))
+            s3_response = self.write_client.put_object(Bucket=bucket, Body=content, Key=key, **(extras or {}))
         except Exception as e:
             logger.exception(
                 "object_storage.write_failed",
@@ -300,7 +305,7 @@ class ObjectStorage(ObjectStorageClient):
         instead of buffering the whole body before calling `write()`.
         """
         try:
-            self.aws_client.upload_fileobj(
+            self.write_client.upload_fileobj(
                 Fileobj=fileobj,
                 Bucket=bucket,
                 Key=key,
@@ -319,7 +324,7 @@ class ObjectStorage(ObjectStorageClient):
     def write_from_file(self, bucket: str, key: str, file_path: str) -> None:
         """Upload a file to S3 by streaming from disk."""
         try:
-            self.aws_client.upload_file(Filename=file_path, Bucket=bucket, Key=key)
+            self.write_client.upload_file(Filename=file_path, Bucket=bucket, Key=key)
         except Exception as e:
             logger.exception(
                 "object_storage.write_from_file_failed",
@@ -338,7 +343,7 @@ class ObjectStorage(ObjectStorageClient):
             for object_key in source_objects:
                 copy_source = {"Bucket": bucket, "Key": object_key}
                 target = object_key.replace(source_prefix.rstrip("/"), target_prefix)
-                self.aws_client.copy(copy_source, bucket, target)
+                self.write_client.copy(copy_source, bucket, target)
 
             return len(source_objects)
         except Exception as e:
@@ -353,7 +358,7 @@ class ObjectStorage(ObjectStorageClient):
 
     def copy(self, bucket: str, source_key: str, target_key: str) -> None:
         try:
-            self.aws_client.copy({"Bucket": bucket, "Key": source_key}, bucket, target_key)
+            self.write_client.copy({"Bucket": bucket, "Key": source_key}, bucket, target_key)
         except Exception as e:
             logger.exception(
                 "object_storage.copy_failed",
@@ -368,23 +373,29 @@ class ObjectStorage(ObjectStorageClient):
     def delete(self, bucket: str, key: str) -> None:
         response = {}
         try:
-            response = self.aws_client.delete_object(Bucket=bucket, Key=key)
+            response = self.write_client.delete_object(Bucket=bucket, Key=key)
         except Exception as e:
             logger.exception("object_storage.delete_failed", bucket=bucket, key=key, error=e, s3_response=response)
             capture_exception(e)
             raise ObjectStorageError("delete failed") from e
 
-    def delete_objects(self, bucket: str, keys: list[str]) -> list[str]:
+    def delete_objects(self, bucket: str, keys: list[str], *, pacing_seconds: float = 0.0) -> list[str]:
         failed_keys: list[str] = []
 
-        for index in range(0, len(keys), 1000):
+        chunk_starts = list(range(0, len(keys), 1000))
+        for chunk_number, index in enumerate(chunk_starts):
             chunk = keys[index : index + 1000]
             if not chunk:
                 continue
 
+            # Space out back-to-back DeleteObjects calls so we don't burst faster than S3
+            # will accept. Retries with backoff absorb throttling; pacing avoids provoking it.
+            if pacing_seconds > 0 and chunk_number > 0:
+                time.sleep(pacing_seconds)
+
             response = {}
             try:
-                response = self.aws_client.delete_objects(
+                response = self.write_client.delete_objects(
                     Bucket=bucket,
                     Delete={"Objects": [{"Key": key} for key in chunk], "Quiet": True},
                 )
@@ -425,12 +436,28 @@ def object_storage_client() -> ObjectStorageClient:
             connect_timeout=1,
             retries={"max_attempts": 1},
         )
+        # Writes and deletes get a real retry policy with backoff. Adaptive mode also adds a
+        # shared client-side rate limiter that throttles proactively when S3 returns SlowDown /
+        # 503, which keeps bursty callers (e.g. symbol-set cleanup) from hard-failing. Kept
+        # separate from the read config above so the latency-sensitive read path is untouched.
+        write_s3_config = Config(
+            signature_version="s3v4",
+            retries={"max_attempts": 5, "mode": "adaptive"},
+        )
         aws_client = client(
             "s3",
             endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
             aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             config=s3_config,
+            region_name=settings.OBJECT_STORAGE_REGION,
+        )
+        write_client = client(
+            "s3",
+            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            config=write_s3_config,
             region_name=settings.OBJECT_STORAGE_REGION,
         )
         presigned_client = None
@@ -460,7 +487,7 @@ def object_storage_client() -> ObjectStorageClient:
                 error = ValueError(f"Invalid OBJECT_STORAGE_PUBLIC_ENDPOINT: {public_endpoint!r}")
                 logger.error("object_storage.invalid_public_endpoint", endpoint=public_endpoint, error=error)
                 capture_exception(error)
-        _client = ObjectStorage(aws_client, presigned_client)
+        _client = ObjectStorage(aws_client, presigned_client, write_client)
 
     return _client
 
@@ -495,8 +522,10 @@ def delete(file_name: str, bucket: str | None = None) -> None:
     return object_storage_client().delete(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, key=file_name)
 
 
-def delete_objects(file_names: list[str], bucket: str | None = None) -> list[str]:
-    return object_storage_client().delete_objects(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, keys=file_names)
+def delete_objects(file_names: list[str], bucket: str | None = None, *, pacing_seconds: float = 0.0) -> list[str]:
+    return object_storage_client().delete_objects(
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET, keys=file_names, pacing_seconds=pacing_seconds
+    )
 
 
 def tag(file_name: str, tags: dict[str, str]) -> None:

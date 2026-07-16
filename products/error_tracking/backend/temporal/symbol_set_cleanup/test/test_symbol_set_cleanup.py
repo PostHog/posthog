@@ -23,6 +23,13 @@ from products.error_tracking.backend.temporal.symbol_set_cleanup.workflow import
 
 
 class TestSymbolSetCleanupActivity(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # The activity paces S3 deletes with real sleeps; neutralize them so tests stay fast.
+        sleep_patcher = patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.time.sleep")
+        sleep_patcher.start()
+        self.addCleanup(sleep_patcher.stop)
+
     def _create_symbol_set(
         self,
         ref: str,
