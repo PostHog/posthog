@@ -129,6 +129,31 @@ class TestWindowedRows:
         # State advances after each yielded window.
         assert manager.save_state.call_count == len(batches)
 
+    @mock.patch(f"{MODULE}.WINDOW_PAGE_LIMIT", 2)
+    @mock.patch(f"{MODULE}.make_tracked_session")
+    def test_over_limit_narrow_window_is_fetched_not_split_forever(self, mock_session):
+        # More rows than the page limit inside a span narrower than 2 * MIN_WINDOW_SECONDS.
+        # Bisection can't shrink such a window (the right child's `mid - 1` overlap makes it equal
+        # to its parent), so it must be fetched directly rather than split endlessly.
+        base = self._now() - 10
+        rows = [{"id": str(offset), "time": base + offset} for offset in range(3)]
+        session = _windowed_session(rows)
+        inner_get = session.get.side_effect
+        calls = {"n": 0}
+
+        def guarded_get(*args: Any, **kwargs: Any) -> mock.MagicMock:
+            calls["n"] += 1
+            assert calls["n"] <= 100, "windowed walk failed to terminate"
+            return inner_get(*args, **kwargs)
+
+        session.get.side_effect = guarded_get
+        mock_session.return_value = session
+
+        manager = _make_manager(AppsignalResumeConfig(window_start=base))
+        batches = list(get_rows("token", "app-id", "error_samples", mock.MagicMock(), manager))
+
+        assert {row["id"] for batch in batches for row in batch} == {"0", "1", "2"}
+
     @mock.patch(f"{MODULE}.make_tracked_session")
     def test_incremental_walk_starts_just_below_watermark(self, mock_session):
         base = self._now() - 10_000

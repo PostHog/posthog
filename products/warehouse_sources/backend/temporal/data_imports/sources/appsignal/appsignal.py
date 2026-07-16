@@ -28,7 +28,8 @@ APPSIGNAL_GRAPHQL_URL = f"{APPSIGNAL_BASE_URL}/graphql"
 WINDOW_PAGE_LIMIT = 200
 # Hard ceiling on a single fetch once a window can't be bisected further (1-second windows).
 MAX_LEAF_LIMIT = 10_000
-# Windows narrower than this are fetched directly instead of split again.
+# Smallest leaf window a bisection can produce. A window must be at least twice this to split
+# (see `_get_windowed_rows`); anything narrower is fetched directly even if it's over the page limit.
 MIN_WINDOW_SECONDS = 2
 GRAPHQL_PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
@@ -335,7 +336,10 @@ def _get_windowed_rows(
         if count == 0:
             continue
 
-        if count > WINDOW_PAGE_LIMIT and (window_before - window_since) >= MIN_WINDOW_SECONDS:
+        # Require at least 2 * MIN_WINDOW_SECONDS before splitting: the right child's `mid - 1`
+        # overlap eats a second, so on a narrower window it would equal the parent and the walk
+        # would spin forever. Below that, fetch directly even if the window is over the page limit.
+        if count > WINDOW_PAGE_LIMIT and (window_before - window_since) >= 2 * MIN_WINDOW_SECONDS:
             mid = (window_since + window_before) // 2
             # The right child starts 1s early: if both bounds turn out exclusive, a row landing
             # exactly on `mid` would otherwise fall between the halves. Dupes merge away.
