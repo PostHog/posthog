@@ -151,6 +151,7 @@ The Data API key is distinct from your Cancel Flow API key — request one from 
             api_key=config.api_key,
             app_id=config.app_id,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
