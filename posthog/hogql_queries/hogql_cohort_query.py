@@ -1079,15 +1079,28 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         if date_to_datetime:
             date_filter = "date >= toDate({date_from}) AND date <= toDate({date_to})"
 
-        # Build query using precalculated_events
+        # Build query using precalculated_events. person_id is resolved with argMax over
+        # (distinct_id, date, uuid) rather than read raw: a person merge re-emits the row for
+        # the same key with a new person_id, and ReplacingMergeTree only collapses the stale
+        # copy on its own schedule, not synchronously with the write. Without this, a merged-away
+        # person keeps matching until the background merge happens to run.
         query_str = f"""
             SELECT DISTINCT
                 person_id as id
-            FROM precalculated_events
-            WHERE
-                team_id = {{team_id}}
-                AND condition = {{condition_hash}}
-                AND {date_filter}
+            FROM
+            (
+                SELECT
+                    distinct_id,
+                    date,
+                    uuid,
+                    argMax(person_id, _timestamp) as person_id
+                FROM precalculated_events
+                WHERE
+                    team_id = {{team_id}}
+                    AND condition = {{condition_hash}}
+                    AND {date_filter}
+                GROUP BY distinct_id, date, uuid
+            )
         """
 
         query_params: dict[str, ast.Expr] = {
@@ -1162,11 +1175,20 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         query_str = f"""
             SELECT
                 person_id as id
-            FROM precalculated_events
-            WHERE
-                team_id = {{team_id}}
-                AND condition = {{condition_hash}}
-                AND {date_filter}
+            FROM
+            (
+                SELECT
+                    distinct_id,
+                    date,
+                    uuid,
+                    argMax(person_id, _timestamp) as person_id
+                FROM precalculated_events
+                WHERE
+                    team_id = {{team_id}}
+                    AND condition = {{condition_hash}}
+                    AND {date_filter}
+                GROUP BY distinct_id, date, uuid
+            )
             GROUP BY person_id
             HAVING count() {sql_operator} {{min_matches}}
         """
