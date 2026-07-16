@@ -265,7 +265,7 @@ def get_global_themes():
 # Rendering-only flags evaluated for the resource creator, so exported and shared charts
 # render with the same styling the creator sees in-app (the anonymous exporter page has
 # no user to evaluate flags for otherwise). Remove entries once their rollout is complete.
-CHART_RENDERING_FEATURE_FLAGS = ["quill-chart-style-refresh"]
+CHART_RENDERING_FEATURE_FLAGS = ["quill-chart-style-refresh", "product-analytics-quill-legend"]
 
 
 def chart_rendering_flags_for_resource(resource: Model | None) -> list[str]:
