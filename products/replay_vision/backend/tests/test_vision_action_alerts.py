@@ -122,16 +122,19 @@ class TestVisionActionAlerts(BaseTest):
 
     @parameterized.expand(
         [
-            ("below_threshold", 3, AlertStatus.NOT_BREACHED),
-            ("at_threshold", 2, AlertStatus.FIRED),
+            # direction defaults to above: fires when the metric is at or above the threshold.
+            ("above_under_threshold", {"threshold": 3}, AlertStatus.NOT_BREACHED),
+            ("above_at_threshold", {"threshold": 2}, AlertStatus.FIRED),
+            # below inverts the comparison (inclusive): fires when the metric is at or below it.
+            ("below_at_threshold", {"threshold": 2, "direction": "below"}, AlertStatus.FIRED),
+            ("below_over_threshold", {"threshold": 1, "direction": "below"}, AlertStatus.NOT_BREACHED),
         ]
     )
-    def test_threshold_semantics_over_count(self, _label: str, threshold: float, expected: AlertStatus) -> None:
-        # The only condition shape is "metric at or above threshold" — the operator knob was dropped.
+    def test_threshold_semantics_over_count(self, _label: str, config: dict, expected: AlertStatus) -> None:
         scanner = self._scanner(name=f"ops-{_label}")
         self._observation(scanner, {"verdict": "yes"})
         self._observation(scanner, {"verdict": "no"}, session_id="s2")
-        action = self._alert(scanner, {"metric": "count", "threshold": threshold})
+        action = self._alert(scanner, {"metric": "count", **config})
 
         result, run = self._evaluate(action)
 
@@ -139,6 +142,17 @@ class TestVisionActionAlerts(BaseTest):
         if expected == AlertStatus.NOT_BREACHED:
             run.refresh_from_db()
             self.assertEqual(run.synthesized_markdown, "")
+
+    def test_below_direction_message_says_at_or_below(self) -> None:
+        scanner = self._scanner(scanner_type=ScannerType.SCORER, name="floor-scorer")
+        self._observation(scanner, {"score": 2})
+        action = self._alert(scanner, {"metric": "avg_score", "threshold": 3, "direction": "below"})
+
+        result, run = self._evaluate(action)
+
+        self.assertEqual(result.status, AlertStatus.FIRED)
+        run.refresh_from_db()
+        self.assertIn("at or below the threshold of 3", run.synthesized_markdown)
 
     def test_slack_output_escapes_mrkdwn_control_sequences(self) -> None:
         # Freeform tags are observation-derived untrusted text that the alert message interpolates
@@ -194,10 +208,13 @@ class TestVisionActionAlerts(BaseTest):
         run.refresh_from_db()
         self.assertIn("average score over the last 24 hours was 3", run.synthesized_markdown)
 
-    def test_avg_over_empty_window_never_fires(self) -> None:
-        # An unmeasurable metric must not breach — a None average must not be coerced to a comparable 0.
-        scanner = self._scanner(scanner_type=ScannerType.SCORER, name="quiet-scorer")
-        action = self._alert(scanner, {"metric": "avg_score", "threshold": 0})
+    @parameterized.expand([("above", "above"), ("below", "below")])
+    def test_avg_over_empty_window_never_fires(self, _label: str, direction: str) -> None:
+        # An unmeasurable metric must not breach in either direction — a None average must not be
+        # coerced to a comparable 0 (below would otherwise fire on every quiet window).
+        scanner = self._scanner(scanner_type=ScannerType.SCORER, name=f"quiet-scorer-{_label}")
+        threshold = 0 if direction == "above" else 100
+        action = self._alert(scanner, {"metric": "avg_score", "threshold": threshold, "direction": direction})
 
         result, _ = self._evaluate(action)
 

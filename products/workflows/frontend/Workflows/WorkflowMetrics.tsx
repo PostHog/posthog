@@ -20,6 +20,7 @@ import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { EmailMetricsSummary } from './EmailMetricsSummary'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlowBatchJob } from './hogflows/types'
+import { PushMetricsSummary } from './PushMetricsSummary'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetricsSummary } from './WorkflowMetricsSummary'
 import { type EmailMetric, buildEmailMetricInvocationSearchParams } from './workflowMetricsSummaryLogic'
@@ -159,6 +160,8 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
                 />
             ) : selectedAction?.type === 'function_email' ? (
                 <EmailMetricsSummary logicKey={logicKey} onMetricClick={onEmailMetricClick} />
+            ) : selectedAction?.type === 'function_push' ? (
+                <PushMetricsSummary logicKey={logicKey} />
             ) : (
                 <>
                     <div className="flex flex-row gap-2 flex-wrap justify-center">
@@ -297,6 +300,8 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
                 />
             ) : selectedAction?.type === 'function_email' ? (
                 <EmailMetricsSummary logicKey={logicKey} />
+            ) : selectedAction?.type === 'function_push' ? (
+                <PushMetricsSummary logicKey={logicKey} />
             ) : (
                 <>
                     <div className="flex flex-row gap-2 flex-wrap justify-center">

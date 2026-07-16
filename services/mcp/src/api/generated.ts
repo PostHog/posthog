@@ -9571,6 +9571,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `above` - At or above
+     * * `below` - At or below
+     */
+    export type VisionAlertDirectionEnum = typeof VisionAlertDirectionEnum[keyof typeof VisionAlertDirectionEnum];
+
+
+    export const VisionAlertDirectionEnum = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    /**
      * * `1` - 1 day
      * * `3` - 3 days
      * * `7` - 7 days
@@ -9604,8 +9616,13 @@ export namespace Schemas {
        * * `count` - Count of matching observations
        * * `avg_score` - Average score */
       metric?: VisionAlertMetricEnum;
-      /** The alert fires when the metric is at or above this value. Required for on_breach; ignored for every_match. */
+      /** The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match. */
       threshold?: number;
+      /** Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.
+       *
+       * * `above` - At or above
+       * * `below` - At or below */
+      direction?: VisionAlertDirectionEnum;
       /** Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).
        *
        * * `1` - 1 day
@@ -17851,6 +17868,10 @@ export namespace Schemas {
      * * `Autumn` - Autumn
      * * `GetStream` - GetStream
      * * `Octolens` - Octolens
+     * * `Kajabi` - Kajabi
+     * * `Shopware` - Shopware
+     * * `Dubsado` - Dubsado
+     * * `Campfire` - Campfire
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -18709,6 +18730,10 @@ export namespace Schemas {
       Autumn: 'Autumn',
       GetStream: 'GetStream',
       Octolens: 'Octolens',
+      Kajabi: 'Kajabi',
+      Shopware: 'Shopware',
+      Dubsado: 'Dubsado',
+      Campfire: 'Campfire',
     } as const;
 
     /**
@@ -19580,7 +19605,11 @@ export namespace Schemas {
        * * `Automox` - Automox
        * * `Autumn` - Autumn
        * * `GetStream` - GetStream
-       * * `Octolens` - Octolens */
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -26259,7 +26288,11 @@ export namespace Schemas {
        * * `Automox` - Automox
        * * `Autumn` - Autumn
        * * `GetStream` - GetStream
-       * * `Octolens` - Octolens */
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -27144,7 +27177,11 @@ export namespace Schemas {
        * * `Automox` - Automox
        * * `Autumn` - Autumn
        * * `GetStream` - GetStream
-       * * `Octolens` - Octolens */
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -33091,6 +33128,7 @@ export namespace Schemas {
      * * `posthog-go` - posthog-go
      * * `posthog-flutter` - posthog-flutter
      * * `posthog-react-native` - posthog-react-native
+     * * `posthog-kmp` - posthog-kmp
      * * `posthog-dotnet` - posthog-dotnet
      * * `posthog-elixir` - posthog-elixir
      */
@@ -33110,6 +33148,7 @@ export namespace Schemas {
       PosthogGo: 'posthog-go',
       PosthogFlutter: 'posthog-flutter',
       PosthogReactNative: 'posthog-react-native',
+      PosthogKmp: 'posthog-kmp',
       PosthogDotnet: 'posthog-dotnet',
       PosthogElixir: 'posthog-elixir',
     } as const;
@@ -53078,6 +53117,16 @@ export namespace Schemas {
     export interface QuotaResourceLimit {
       /** True when the team is currently over its quota for this resource and limits are in effect. */
       limited: boolean;
+      /**
+         * Units of this resource the organization has used so far this billing period, in the resource's native unit (credits for credit buckets). Null when billing hasn't synced usage for the resource.
+         * @nullable
+         */
+      usage: number | null;
+      /**
+         * The organization's limit for this resource in the same unit. Null when unlimited or unknown.
+         * @nullable
+         */
+      limit: number | null;
     }
 
     /**
@@ -54805,6 +54854,7 @@ export namespace Schemas {
        * * `posthog-go` - posthog-go
        * * `posthog-flutter` - posthog-flutter
        * * `posthog-react-native` - posthog-react-native
+       * * `posthog-kmp` - posthog-kmp
        * * `posthog-dotnet` - posthog-dotnet
        * * `posthog-elixir` - posthog-elixir */
       lib: LibEnum;
@@ -56665,7 +56715,11 @@ export namespace Schemas {
        * * `Automox` - Automox
        * * `Autumn` - Autumn
        * * `GetStream` - GetStream
-       * * `Octolens` - Octolens */
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -57563,7 +57617,11 @@ export namespace Schemas {
        * * `Automox` - Automox
        * * `Autumn` - Autumn
        * * `GetStream` - GetStream
-       * * `Octolens` - Octolens */
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -58453,7 +58511,11 @@ export namespace Schemas {
        * * `Automox` - Automox
        * * `Autumn` - Autumn
        * * `GetStream` - GetStream
-       * * `Octolens` - Octolens */
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
