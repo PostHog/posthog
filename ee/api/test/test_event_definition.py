@@ -295,6 +295,131 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_by"] is None
         assert response.json()["verified_at"] is None
 
+    @parameterized.expand([("verify", True), ("unverify", False)])
+    def test_bulk_update_verified_flips_state_and_skips_noops(self, _name, target):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        already = EnterpriseEventDefinition.objects.create(
+            team=self.demo_team, name="bulk_verify_already", verified=target
+        )
+        to_change = EnterpriseEventDefinition.objects.create(
+            team=self.demo_team, name="bulk_verify_change", verified=not target
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_verified/",
+            {"ids": [str(already.id), str(to_change.id)], "verified": target},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        # Only the event that actually changed is reported; the one already in the target state is skipped.
+        assert {u["id"] for u in data["updated"]} == {str(to_change.id)}
+        assert all(u["verified"] is target for u in data["updated"])
+        assert data["skipped"] == []
+
+        already.refresh_from_db()
+        to_change.refresh_from_db()
+        assert already.verified is target
+        assert to_change.verified is target
+        # Verifying stamps metadata; unverifying clears it.
+        if target:
+            assert to_change.verified_by_id == self.user.id
+            assert to_change.verified_at is not None
+        else:
+            assert to_change.verified_by_id is None
+            assert to_change.verified_at is None
+
+    def test_bulk_update_verified_promotes_base_event_definition(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        # A base row with no enterprise extension, as created during ingestion.
+        base = EventDefinition.objects.create(team=self.demo_team, name="ingested_only_event")
+        assert not EnterpriseEventDefinition.objects.filter(id=base.id).exists()
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_verified/",
+            {"ids": [str(base.id)], "verified": True},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["updated"] == [{"id": str(base.id), "verified": True}]
+        promoted = EnterpriseEventDefinition.objects.get(id=base.id)
+        assert promoted.verified is True
+        assert promoted.verified_by_id == self.user.id
+
+    def test_bulk_update_verified_logs_activity_per_event(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        events = [
+            EnterpriseEventDefinition.objects.create(team=self.demo_team, name=f"bulk_log_event_{i}", verified=False)
+            for i in range(3)
+        ]
+        ActivityLog.objects.filter(team_id=self.demo_team.pk, scope="EventDefinition").delete()
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_verified/",
+            {"ids": [str(e.id) for e in events], "verified": True},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["updated"]) == 3
+
+        logs = ActivityLog.objects.filter(team_id=self.demo_team.pk, scope="EventDefinition", activity="changed")
+        assert logs.count() == 3
+        assert {log.item_id for log in logs} == {str(e.id) for e in events}
+        for log in logs:
+            assert log.user == self.user
+            assert log.detail is not None
+            verified_changes = [c for c in (log.detail.get("changes") or []) if c["field"] == "verified"]
+            assert verified_changes == [
+                {"type": "EventDefinition", "action": "changed", "field": "verified", "before": False, "after": True}
+            ]
+
+    def test_bulk_update_verified_ignores_event_definitions_in_other_project(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        mine = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_verify_mine", verified=False)
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        other = EnterpriseEventDefinition.objects.create(team=other_team, name="bulk_verify_other", verified=False)
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_verified/",
+            {"ids": [str(mine.id), str(other.id)], "verified": True},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert {u["id"] for u in data["updated"]} == {str(mine.id)}
+        assert data["skipped"] == [{"id": str(other.id), "reason": "Not found"}]
+
+        mine.refresh_from_db()
+        other.refresh_from_db()
+        assert mine.verified is True
+        assert other.verified is False
+
+    def test_bulk_update_verified_unhides_event_when_verifying(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        hidden_event = EnterpriseEventDefinition.objects.create(
+            team=self.demo_team, name="bulk_verify_hidden", verified=False, hidden=True
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_verified/",
+            {"ids": [str(hidden_event.id)], "verified": True},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        hidden_event.refresh_from_db()
+        assert hidden_event.verified is True
+        assert hidden_event.hidden is False
+
     def test_verify_then_verify_again_no_change(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)

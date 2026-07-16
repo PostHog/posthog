@@ -7,6 +7,7 @@ from typing import Any, Literal, Optional, cast
 from django.core.cache import cache
 from django.db.models import Manager, Prefetch
 from django.http import Http404
+from django.utils import timezone
 
 import orjson
 import posthoganalytics
@@ -21,7 +22,9 @@ from posthog.api.event_definition_generators.typescript import TypeScriptGenerat
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import (
+    BULK_UPDATE_TAGS_MAX_IDS,
     BulkTagActivityContext,
+    BulkUpdateTagsUUIDErrorSerializer,
     BulkUpdateTagsUUIDRequestSerializer,
     BulkUpdateTagsUUIDResponseSerializer,
     TaggedItemSerializerMixin,
@@ -35,7 +38,7 @@ from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import EventDefinition, ObjectMediaPreview, TaggedItem, Team
-from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
@@ -227,6 +230,35 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         return hasattr(obj, "action_id") and obj.action_id is not None
 
 
+class EventDefinitionBulkUpdateVerifiedRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=BULK_UPDATE_TAGS_MAX_IDS,
+        help_text="List of event definition UUIDs to update.",
+    )
+    verified = serializers.BooleanField(
+        help_text=(
+            "Target verified state to apply to every matched event. `true` marks the events as verified "
+            "(and unhides them, since an event cannot be both hidden and verified); `false` unverifies them."
+        ),
+    )
+
+
+class EventDefinitionBulkUpdateVerifiedItemSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="UUID of the event definition whose verified state changed.")
+    verified = serializers.BooleanField(help_text="The event's verified state after the update.")
+
+
+class EventDefinitionBulkUpdateVerifiedResponseSerializer(serializers.Serializer):
+    updated = EventDefinitionBulkUpdateVerifiedItemSerializer(
+        many=True, help_text="Events whose verified state was changed. Events already in the target state are omitted."
+    )
+    skipped = BulkUpdateTagsUUIDErrorSerializer(
+        many=True, help_text="Events that were skipped (e.g. not found in this project), with a reason each."
+    )
+
+
 class EventDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,
@@ -238,8 +270,17 @@ class EventDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "event_definition"
-    # "bulk_update_tags" must be opted in here so personal API keys with event_definition:write can use it.
-    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "bulk_update_tags"]
+    # "bulk_update_tags"/"bulk_update_verified" must be opted in here so personal API keys with
+    # event_definition:write can use them.
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "bulk_update_tags",
+        "bulk_update_verified",
+    ]
     serializer_class = EventDefinitionSerializer
     lookup_field = "id"
     filter_backends = [TermSearchFilterBackend]
@@ -489,6 +530,95 @@ class EventDefinitionViewSet(
         updated = apply_bulk_tag_changes(
             objects, validated["action"], validated["tags"], activity_context=activity_context
         )
+        return response.Response({"updated": updated, "skipped": skipped})
+
+    @extend_schema(
+        request=EventDefinitionBulkUpdateVerifiedRequestSerializer,
+        responses={200: EventDefinitionBulkUpdateVerifiedResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False)
+    def bulk_update_verified(self, request, *args, **kwargs) -> response.Response:
+        """Mark multiple event definitions as verified or unverified in one request.
+
+        In the same vein as ``bulk_update_tags``, but ``verified`` lives on the enterprise
+        ``EnterpriseEventDefinition`` extension rather than the base row, so this action:
+        - requires an enterprise license;
+        - scopes by project (``team__project_id``) and relies on project membership — the same
+          boundary the single-object update path uses — rather than object-level RBAC;
+        - lazily promotes ingestion-created base rows to ``EnterpriseEventDefinition`` (mirroring
+          ``_get_event_definition``) before setting ``verified``;
+        - mirrors the single-object semantics: verifying stamps ``verified_by``/``verified_at`` and
+          unhides the event (an event cannot be both hidden and verified); unverifying clears them;
+        - logs a "changed" activity per event so the History tab matches the single-object path.
+
+        Events already in the target state are skipped (not re-written, not logged).
+        """
+        if not EE_AVAILABLE:
+            raise serializers.ValidationError("Verifying event definitions requires an enterprise license.")
+
+        from ee.models.event_definition import EnterpriseEventDefinition
+
+        serializer = EventDefinitionBulkUpdateVerifiedRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated_ids = serializer.validated_data["ids"]
+        verified = serializer.validated_data["verified"]
+
+        # Base rows are authoritative for existence and project scoping.
+        found_ids = set(
+            EventDefinition.objects.filter(id__in=validated_ids, team__project_id=self.project_id).values_list(
+                "id", flat=True
+            )
+        )
+        skipped = [{"id": obj_id, "reason": "Not found"} for obj_id in validated_ids if obj_id not in found_ids]
+
+        # Current verified state comes from existing enterprise rows; a base row without one is
+        # unverified by default, so a missing entry means verified=False.
+        verified_by_id = dict(EnterpriseEventDefinition.objects.filter(id__in=found_ids).values_list("id", "verified"))
+
+        user = cast(User, request.user)
+        now = timezone.now()
+        was_impersonated = is_impersonated(request)
+        updated: list[dict[str, Any]] = []
+
+        for obj_id in validated_ids:
+            if obj_id not in found_ids:
+                continue
+            if bool(verified_by_id.get(obj_id, False)) == verified:
+                continue  # no-op: skip without promoting a base row or writing
+
+            # Promote base -> enterprise if needed (same lazy path as single-object updates).
+            enterprise = self._get_event_definition(id=obj_id, team__project_id=self.project_id)
+            before_hidden = bool(enterprise.hidden)
+
+            enterprise.verified = verified
+            if verified:
+                enterprise.verified_by = user
+                enterprise.verified_at = now
+                enterprise.hidden = False  # an event cannot be both hidden and verified
+            else:
+                enterprise.verified_by = None
+                enterprise.verified_at = None
+            enterprise.save()
+
+            # `verified` was necessarily the opposite before (no-ops were skipped above).
+            changes = dict_changes_between(
+                "EventDefinition",
+                {"verified": not verified, "hidden": before_hidden},
+                {"verified": verified, "hidden": bool(enterprise.hidden)},
+                use_field_exclusions=True,
+            )
+            log_activity(
+                organization_id=None,
+                team_id=self.team_id,
+                user=user,
+                item_id=str(enterprise.id),
+                scope="EventDefinition",
+                activity="changed",
+                was_impersonated=was_impersonated,
+                detail=Detail(name=str(enterprise.name), changes=changes),
+            )
+            updated.append({"id": enterprise.id, "verified": verified})
+
         return response.Response({"updated": updated, "skipped": skipped})
 
     def perform_create(self, serializer):

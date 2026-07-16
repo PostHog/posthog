@@ -1,6 +1,8 @@
-import { MakeLogicType, actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
@@ -8,6 +10,7 @@ import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { parseTagsFilter } from 'lib/utils/url'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { AnyPropertyFilter, EventDefinition, EventDefinitionType, PropertyDefinition } from '~/types'
 
@@ -30,6 +33,13 @@ export interface Filters {
     ordering?: string
     tags?: string[]
     verified?: boolean
+}
+
+export interface BulkVerifiedResult {
+    // Echoes the requested target so the success toast can describe the direction (verify vs unverify).
+    verified: boolean
+    updated: { id: string; verified: boolean }[]
+    skipped: { id: string; reason: string }[]
 }
 
 const DEFAULT_FILTERS: Filters = {
@@ -269,6 +279,9 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
     path((key) => ['scenes', 'data-management', 'events', 'eventDefinitionsTableLogic', key]),
     props({} as EventDefinitionsTableLogicProps),
     key((props) => props.key || 'scene'),
+    connect(() => ({
+        values: [projectLogic, ['currentProjectId']],
+    })),
     actions({
         loadEventDefinitions: (url: string | null = '') => ({ url }),
         loadEventExample: (definition: EventDefinition) => ({ definition }),
@@ -276,6 +289,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         setFilters: (filters: Partial<Filters>) => ({ filters }),
         setLocalEventDefinition: (definition: EventDefinition) => ({ definition }),
         applyBulkTagUpdates: (updates: { id: number | string; tags: string[] }[]) => ({ updates }),
+        applyBulkVerifiedUpdates: (updates: { id: string; verified: boolean }[]) => ({ updates }),
         setLocalPropertyDefinition: (event: EventDefinition, definition: PropertyDefinition) => ({ event, definition }),
         setEventDefinitionPropertiesLoading: (ids: string[]) => ({ ids }),
     }),
@@ -379,6 +393,37 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     }
 
                     return result
+                },
+                applyBulkVerifiedUpdates: ({ updates }) => {
+                    if (!values.eventDefinitions.current || updates.length === 0) {
+                        return values.eventDefinitions
+                    }
+                    const verifiedById = new Map(updates.map((u) => [String(u.id), u.verified]))
+                    const result = {
+                        ...values.eventDefinitions,
+                        results: values.eventDefinitions.results.map((d) =>
+                            verifiedById.has(String(d.id)) ? { ...d, verified: verifiedById.get(String(d.id)) } : d
+                        ),
+                    }
+
+                    cache.apiCache = {
+                        ...cache.apiCache,
+                        [values.eventDefinitions.current]: result,
+                    }
+
+                    return result
+                },
+            },
+        ],
+        bulkVerifiedResult: [
+            null as BulkVerifiedResult | null,
+            {
+                bulkUpdateVerified: async ({ ids, verified }: { ids: string[]; verified: boolean }) => {
+                    const response = (await api.create(
+                        `api/projects/${values.currentProjectId}/event_definitions/bulk_update_verified/`,
+                        { ids, verified }
+                    )) as Omit<BulkVerifiedResult, 'verified'>
+                    return { verified, ...response }
                 },
             },
         ],
@@ -508,6 +553,27 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
     listeners(({ actions, values, cache }) => ({
         setFilters: async () => {
             actions.loadEventDefinitions()
+        },
+        bulkUpdateVerifiedSuccess: ({ bulkVerifiedResult }) => {
+            if (!bulkVerifiedResult) {
+                return
+            }
+            const { verified, updated, skipped } = bulkVerifiedResult
+            actions.applyBulkVerifiedUpdates(updated)
+            if (updated.length > 0) {
+                lemonToast.success(
+                    `${verified ? 'Verified' : 'Unverified'} ${updated.length} event${updated.length !== 1 ? 's' : ''}`
+                )
+            }
+            if (skipped.length > 0) {
+                lemonToast.warning(`${skipped.length} event${skipped.length !== 1 ? 's' : ''} skipped`)
+            }
+            if (updated.length === 0 && skipped.length === 0) {
+                lemonToast.info('No events needed updating')
+            }
+        },
+        bulkUpdateVerifiedFailure: () => {
+            lemonToast.error('Failed to update verification status')
         },
         loadEventDefinitionsSuccess: () => {
             if (cache.eventsStartTime !== undefined) {

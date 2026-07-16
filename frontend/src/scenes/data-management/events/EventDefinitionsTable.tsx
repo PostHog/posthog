@@ -42,9 +42,10 @@ const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
 ]
 
 export function EventDefinitionsTable(): JSX.Element {
-    const { eventDefinitions, eventDefinitionsLoading, filters, showVerifiedFilter } =
+    const { eventDefinitions, eventDefinitionsLoading, filters, showVerifiedFilter, bulkVerifiedResultLoading } =
         useValues(eventDefinitionsTableLogic)
-    const { loadEventDefinitions, setFilters, applyBulkTagUpdates } = useActions(eventDefinitionsTableLogic)
+    const { loadEventDefinitions, setFilters, applyBulkTagUpdates, bulkUpdateVerified } =
+        useActions(eventDefinitionsTableLogic)
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
 
     const columns: LemonTableColumns<EventDefinition> = [
@@ -261,14 +262,38 @@ export function EventDefinitionsTable(): JSX.Element {
                     headerAriaLabel: 'Select all events on this page',
                     noun: ['event', 'events'],
                     renderActions: (ctx) => (
-                        <BulkUpdateTagsButton
-                            resource="event_definitions"
-                            selectedIds={ctx.selectedKeys}
-                            onSuccess={(result) => {
-                                applyBulkTagUpdates(result.updated)
-                                ctx.clearSelection()
-                            }}
-                        />
+                        <>
+                            <BulkUpdateTagsButton
+                                resource="event_definitions"
+                                selectedIds={ctx.selectedKeys}
+                                onSuccess={(result) => {
+                                    applyBulkTagUpdates(result.updated)
+                                    ctx.clearSelection()
+                                }}
+                            />
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                disabledReason={bulkVerifiedResultLoading ? 'Updating…' : undefined}
+                                onClick={() => {
+                                    bulkUpdateVerified({ ids: [...ctx.selectedKeys], verified: true })
+                                    ctx.clearSelection()
+                                }}
+                            >
+                                Verify
+                            </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                disabledReason={bulkVerifiedResultLoading ? 'Updating…' : undefined}
+                                onClick={() => {
+                                    bulkUpdateVerified({ ids: [...ctx.selectedKeys], verified: false })
+                                    ctx.clearSelection()
+                                }}
+                            >
+                                Unverify
+                            </LemonButton>
+                        </>
                     ),
                 }}
                 dataSource={eventDefinitions.results}
