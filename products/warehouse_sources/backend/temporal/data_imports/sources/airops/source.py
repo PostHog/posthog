@@ -26,7 +26,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AirOpsSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -91,20 +94,8 @@ You can create a workspace API key in your [AirOps workspace settings](https://a
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
         # AirOps has no server-side timestamp filter and executions mutate after creation, so every
-        # table is full refresh only (no incremental / append support).
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # table is full refresh only (no incremental / append support — INCREMENTAL_FIELDS is empty).
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: AirOpsSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -117,5 +108,6 @@ You can create a workspace API key in your [AirOps workspace settings](https://a
         return airops_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )
