@@ -3,7 +3,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -25,6 +25,25 @@ MAX_RETRY_AFTER_SECONDS = 60
 
 class BetterStackRetryableError(Exception):
     pass
+
+
+class BetterStackUntrustedURLError(Exception):
+    pass
+
+
+def _validate_pagination_url(url: str) -> str:
+    """Pin every authenticated request to the Better Stack API origin.
+
+    Both resumed `next_url` values (loaded from Redis) and upstream `pagination.next` URLs are
+    followed verbatim with the customer's bearer token. Validating the scheme, host, and `/api/`
+    path prefix keeps a poisoned resume state or a hostile upstream response from retargeting the
+    request at another host and leaking the token (SSRF). Returns the URL unchanged when trusted.
+    """
+    parts = urlsplit(url)
+    is_trusted = parts.scheme == "https" and parts.netloc == "uptime.betterstack.com" and parts.path.startswith("/api/")
+    if not is_trusted:
+        raise BetterStackUntrustedURLError(f"Refusing to follow pagination URL outside {BETTER_STACK_BASE_URL}/")
+    return url
 
 
 @dataclasses.dataclass
@@ -92,13 +111,7 @@ def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     return flattened
 
 
-@retry(
-    retry=retry_if_exception_type((BetterStackRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
+def _fetch_page_once(
     session: requests.Session, page_url: str, headers: dict[str, str], logger: FilteringBoundLogger
 ) -> dict:
     response = session.get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
@@ -124,6 +137,16 @@ def _fetch_page(
         response.raise_for_status()
 
     return response.json()
+
+
+# Kept separate from `_fetch_page_once` so tests can exercise the request handling without
+# tenacity's retry waits.
+_fetch_page = retry(
+    retry=retry_if_exception_type((BetterStackRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)(_fetch_page_once)
 
 
 def probe_credentials(api_token: str, endpoint: str | None = None) -> int | None:
@@ -154,7 +177,7 @@ def get_rows(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_url:
-        url = resume.next_url
+        url = _validate_pagination_url(resume.next_url)
         logger.debug(f"Better Stack: resuming {endpoint} from URL: {url}")
     else:
         params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
@@ -165,6 +188,8 @@ def get_rows(
 
         items = data.get("data", [])
         next_url = data.get("pagination", {}).get("next")
+        if next_url:
+            next_url = _validate_pagination_url(next_url)
 
         if items:
             # Yield one page at a time as a list[dict]; the pipeline buffers and batches for us.

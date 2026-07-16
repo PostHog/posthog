@@ -10,10 +10,12 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack import better_stack
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.better_stack import (
     BetterStackResumeConfig,
+    BetterStackUntrustedURLError,
     _build_initial_params,
-    _fetch_page,
+    _fetch_page_once,
     _flatten_item,
     _format_from_date,
+    _validate_pagination_url,
     get_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.settings import (
@@ -97,7 +99,7 @@ class TestFetchPage:
         with mock.patch.object(better_stack.time, "sleep") as sleep:
             try:
                 # Call the undecorated function so tenacity doesn't retry 5 times in the test.
-                _fetch_page.__wrapped__(session, "https://uptime.betterstack.com/api/v2/monitors", {}, MagicMock())
+                _fetch_page_once(session, "https://uptime.betterstack.com/api/v2/monitors", {}, MagicMock())
                 raise AssertionError("expected BetterStackRetryableError")
             except better_stack.BetterStackRetryableError:
                 pass
@@ -109,11 +111,33 @@ class TestFetchPage:
         session.get.return_value = response
         with mock.patch.object(better_stack.time, "sleep") as sleep:
             try:
-                _fetch_page.__wrapped__(session, "https://uptime.betterstack.com/api/v2/monitors", {}, MagicMock())
+                _fetch_page_once(session, "https://uptime.betterstack.com/api/v2/monitors", {}, MagicMock())
                 raise AssertionError("expected BetterStackRetryableError")
             except better_stack.BetterStackRetryableError:
                 pass
         sleep.assert_called_once_with(better_stack.MAX_RETRY_AFTER_SECONDS)
+
+
+class TestValidatePaginationUrl:
+    def test_api_origin_url_is_returned_unchanged(self) -> None:
+        url = "https://uptime.betterstack.com/api/v3/incidents?page=2&per_page=50"
+        assert _validate_pagination_url(url) == url
+
+    @parameterized.expand(
+        [
+            ("other_host", "https://evil.example.com/api/v3/incidents"),
+            ("http_downgrade", "http://uptime.betterstack.com/api/v3/incidents"),
+            ("userinfo_confusion", "https://uptime.betterstack.com@evil.example.com/api/v3/incidents"),
+            ("wrong_path", "https://uptime.betterstack.com/steal-token"),
+        ]
+    )
+    def test_off_origin_urls_are_refused(self, _name: str, url: str) -> None:
+        # A poisoned resume state or hostile response must not retarget the bearer-token request.
+        try:
+            _validate_pagination_url(url)
+            raise AssertionError("expected BetterStackUntrustedURLError")
+        except BetterStackUntrustedURLError:
+            pass
 
 
 class _FakeResumableManager:
@@ -195,6 +219,28 @@ class TestGetRows:
         pages = {first: {"data": [], "pagination": {"next": None}}}
         rows = self._collect(_FakeResumableManager(), monkeypatch, pages)
         assert rows == []
+
+    def test_off_origin_next_url_is_refused(self, monkeypatch: Any) -> None:
+        first = "https://uptime.betterstack.com/api/v3/incidents?per_page=50"
+        pages = {
+            first: {
+                "data": [{"id": "1", "attributes": {}}],
+                "pagination": {"next": "https://evil.example.com/api/v3/incidents?page=2"},
+            }
+        }
+        try:
+            self._collect(_FakeResumableManager(), monkeypatch, pages)
+            raise AssertionError("expected BetterStackUntrustedURLError")
+        except BetterStackUntrustedURLError:
+            pass
+
+    def test_poisoned_resume_url_is_refused(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager(BetterStackResumeConfig(next_url="https://evil.example.com/api/v3/incidents"))
+        try:
+            self._collect(manager, monkeypatch, pages={})
+            raise AssertionError("expected BetterStackUntrustedURLError")
+        except BetterStackUntrustedURLError:
+            pass
 
 
 class TestProbeCredentials:
