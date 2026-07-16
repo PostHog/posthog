@@ -945,7 +945,14 @@ def find_flags_with_enriched_analytics() -> None:
     end = datetime.now()
     begin = end - timedelta(hours=12)
 
-    find_flags_with_enriched_analytics(begin, end)
+    try:
+        find_flags_with_enriched_analytics(begin, end)
+    except Exception as e:
+        logger.exception("Find flags with enriched analytics failed", error=e)
+        capture_exception(
+            e, additional_properties={"feature": "feature_flags", "task": "find_flags_with_enriched_analytics"}
+        )
+        raise
 
 
 @shared_task(ignore_result=True)
