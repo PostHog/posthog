@@ -22,7 +22,7 @@ import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
-import { insightLogicType } from 'scenes/insights/insightLogicType'
+import type { insightLogicType } from 'scenes/insights/insightLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -70,7 +70,7 @@ import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../types'
 import { insightDataLogic } from './insightDataLogic'
-import { insightDataLogicType } from './insightDataLogicType'
+import type { insightDataLogicType } from './insightDataLogic'
 import { getInsightIconTypeFromQuery, parseDraftQueryFromURL } from './utils'
 
 const NEW_INSIGHT = 'new' as const
