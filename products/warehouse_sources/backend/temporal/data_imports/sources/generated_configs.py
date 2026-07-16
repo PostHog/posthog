@@ -1042,7 +1042,7 @@ class CoverallsSourceConfig(config.Config):
 
 @config.config
 class CratesIOSourceConfig(config.Config):
-    pass
+    crates: str
 
 
 @config.config
@@ -1602,7 +1602,7 @@ class FreshserviceSourceConfig(config.Config):
 
 @config.config
 class FrillSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3364,7 +3364,9 @@ class QualtricsSourceConfig(config.Config):
 
 @config.config
 class QualysVmdrSourceConfig(config.Config):
-    pass
+    api_server: str
+    username: str
+    password: str
 
 
 @config.config

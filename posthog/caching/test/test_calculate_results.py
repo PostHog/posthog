@@ -3,6 +3,8 @@ from datetime import UTC, datetime
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+import orjson
+
 from posthog.schema import (
     CachedMarketingAnalyticsAggregatedQueryResponse,
     CachedMarketingAnalyticsTableQueryResponse,
@@ -13,14 +15,14 @@ from posthog.schema import (
     RetentionResult,
 )
 
-from posthog.api.services.query import ExecutionMode
+from posthog.api.services.query import ExecutionMode, RawCachedQueryResponse
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 
 from products.product_analytics.backend.models.insight import Insight
 
 
 class TestCalculateForQueryBasedInsight(BaseTest):
-    def _calculate(self, response):
+    def _calculate(self, response, allow_raw_results: bool = False):
         insight = Insight.objects.create(
             team=self.team,
             query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}},
@@ -31,6 +33,7 @@ class TestCalculateForQueryBasedInsight(BaseTest):
                 team=self.team,
                 execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 user=None,
+                allow_raw_results=allow_raw_results,
             )
 
     # Model-typed results (e.g. retention, paths, marketing analytics) must be dumped to
@@ -104,3 +107,22 @@ class TestCalculateForQueryBasedInsight(BaseTest):
         assert insight_result.result[0] is response.results[0]
         assert insight_result.is_cached is True
         assert insight_result.cache_key == "key"
+
+    def test_raw_cached_results_become_fragments(self):
+        raw = orjson.dumps([{"data": [1.0], "label": "series"}])
+        response = RawCachedQueryResponse(
+            response=CachedTrendsQueryResponse(
+                results=[],
+                is_cached=True,
+                last_refresh=datetime(2026, 1, 1, tzinfo=UTC),
+                next_allowed_client_refresh=datetime(2026, 1, 1, tzinfo=UTC),
+                cache_key="key",
+                timezone="UTC",
+            ),
+            raw_results=raw,
+        )
+
+        insight_result = self._calculate(response, allow_raw_results=True)
+
+        assert isinstance(insight_result.result, orjson.Fragment)
+        assert orjson.dumps({"result": insight_result.result}) == b'{"result":[{"data":[1.0],"label":"series"}]}'
