@@ -5,7 +5,7 @@ import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog
 import { TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { dayjs } from 'lib/dayjs'
+import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -73,9 +73,9 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
             width: 110,
             align: 'right',
             render: (_, row) => (
-                <Tooltip title={dayjs(row.lastSeenAt).format('YYYY-MM-DD HH:mm:ss')}>
-                    <span className="text-xs whitespace-nowrap text-secondary">{dayjs(row.lastSeenAt).fromNow()}</span>
-                </Tooltip>
+                <span className="text-xs whitespace-nowrap text-secondary">
+                    <TZLabel time={row.lastSeenAt} />
+                </span>
             ),
         },
     ]

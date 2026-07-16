@@ -67,7 +67,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
             width: 140,
             align: 'right',
             tooltip:
-                'Owned tests meeting the flaky-leaderboard bar in this window (passed on retry, or failed on 3+ distinct PRs), vs the previous window.',
+                'Owned tests meeting the flaky-leaderboard bar in this window (passed on retry, or failed across several distinct PRs), vs the previous window.',
             sorter: (a, b) => a.flakyTestCount - b.flakyTestCount,
             render: (_, row) => <CountWithDelta current={row.flakyTestCount} prior={row.flakyTestCountPrior} />,
         },

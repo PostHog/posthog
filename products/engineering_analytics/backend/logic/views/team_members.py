@@ -16,8 +16,7 @@ def build_query(table_name: str) -> str:
     return f"""
         SELECT
             ifNull(login, '') AS member_handle,
-            ifNull(team_slug, '') AS team_slug,
-            ifNull(team_name, '') AS team_name
+            ifNull(team_slug, '') AS team_slug
         FROM {table_name}
         WHERE ifNull(login, '') != ''
     """
