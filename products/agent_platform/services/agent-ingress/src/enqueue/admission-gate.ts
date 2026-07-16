@@ -12,6 +12,7 @@ import {
     AdmissionService,
     buildIdentityRegistry,
     buildLinkCallbackUrl,
+    jwtPrincipalSubject,
     type AgentRevision,
     type EncryptedFields,
     type HttpFetcher,
@@ -85,9 +86,11 @@ export function httpTransportClaim(
             }
         }
         case 'jwt':
+            // Issuer-scoped (see `jwtPrincipalSubject`): colliding `sub`s across
+            // two configured jwt modes must not resolve each other's binding.
             // The JWT proves the transport claim, not the authoritative identity —
             // it is never attached as a bearer.
-            return { transport: 'jwt', subjectId: principal.sub }
+            return { transport: 'jwt', subjectId: jwtPrincipalSubject(principal) }
         default:
             return null
     }

@@ -378,12 +378,22 @@ maybeDescribe('edge admission e2e (chat/HTTP, authoritative provider, mocked inf
         expect(cano).toBeTruthy()
         expect(second.body.principal.canonical_agent_user_id).toBe(cano!.id)
 
+        // The ACL routes admit too: the stored principal carries the canonical
+        // id, so /cancel with a raw (un-stamped) principal would 403 the owner.
+        const cancel = await request(c.ingress)
+            .post('/agents/gatedchat/cancel')
+            .set('Authorization', `Bearer ${bearer}`)
+            .send({ session_id: second.body.session_id })
+        expect(cancel.status).toBe(200)
+        expect(cancel.body.ok).toBe(true)
+
         // Unlink → the binding is gone, so even the EXISTING session stops
         // advancing: /send re-runs admission per message, like the Slack path.
         const transportUser = await c.identities.find({
             application_id: session!.application_id,
             principal_kind: 'jwt',
-            principal_id: 'alice',
+            // Issuer-scoped subject (see `jwtPrincipalSubject`).
+            principal_id: `${JWT_SECRET_REF}:alice`,
         })
         await new PgTransportBindingStore(c.pool).unbind(session!.application_id, transportUser!.id)
         const send = await request(c.ingress)

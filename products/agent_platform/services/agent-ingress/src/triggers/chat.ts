@@ -10,10 +10,14 @@
  * `principal`. The write/stream paths additionally enforce session ownership
  * (ACL) on the principal the guard produced.
  *
- * Edge admission: when the agent declares an `authoritative_provider`, the
- * write paths (`/run`, `/send`) must additionally resolve a verified canonical
- * identity for the principal before touching a session — unauthenticated
+ * Edge admission: when the agent declares an `authoritative_provider`, EVERY
+ * session-touching route (`/run`, `/send`, `/cancel`, `/listen`,
+ * `/client_tool_result`) must additionally resolve a verified canonical
+ * identity for the principal before touching the session — unauthenticated
  * callers get `401 { auth_required }` with a link (see `admitChatPrincipal`).
+ * Admission also stamps `canonical_agent_user_id` on the principal, which the
+ * ACL's canonical match requires, so skipping it on any route would 403 the
+ * legitimate owner of an admitted session.
  */
 
 import { z } from 'zod'
@@ -220,12 +224,20 @@ async function sendHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatSendBodySchema
 async function cancelHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatCancelBodySchema>>): Promise<void> {
     const { res, deps } = ctx
     const { session_id: sessionId } = ctx.parsed
+    // Admission first (mirrors /send): an admitted session's stored principal
+    // carries canonical_agent_user_id, so ACL only recognises the owner once
+    // the incoming principal is stamped too — and a revoked binding loses
+    // control of the session, not just the ability to advance it.
+    const incomingPrincipal = await admitChatPrincipal(ctx)
+    if (!incomingPrincipal) {
+        return
+    }
     const existing = await getOwnedSession(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'session_not_found' })
         return
     }
-    if (requireAclAccess(existing, ctx.principal).kind === 'denied') {
+    if (requireAclAccess(existing, incomingPrincipal).kind === 'denied') {
         res.status(403).json({ error: 'forbidden' })
         return
     }
@@ -264,6 +276,13 @@ async function cancelHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatCancelBodySc
 async function listenHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatListenQuerySchema>>): Promise<void> {
     const { req, res, deps, resolved } = ctx
     const { session_id: sessionId } = ctx.parsed
+    // Admission first (mirrors /send): stamps canonical_agent_user_id so ACL
+    // recognises the admitted owner, and a revoked binding can no longer
+    // replay the conversation.
+    const incomingPrincipal = await admitChatPrincipal(ctx)
+    if (!incomingPrincipal) {
+        return
+    }
     const existing = await getOwnedSession(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'session_not_found' })
@@ -272,7 +291,7 @@ async function listenHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatListenQueryS
     // The stream replays the whole conversation, so gate it the same as the
     // write paths. EventSource can't set headers, so the bearer rides in
     // `?token=` (handled in readBearer, which the guard already consumed).
-    if (requireAclAccess(existing, ctx.principal).kind === 'denied') {
+    if (requireAclAccess(existing, incomingPrincipal).kind === 'denied') {
         res.status(403).json({ error: 'forbidden' })
         return
     }
@@ -360,6 +379,12 @@ async function clientToolResultHandler(
 ): Promise<void> {
     const { res, deps } = ctx
     const { session_id: sessionId, call_id, result, error } = ctx.parsed
+    // Admission first (mirrors /send): stamps canonical_agent_user_id so ACL
+    // recognises the admitted owner of the running turn.
+    const incomingPrincipal = await admitChatPrincipal(ctx)
+    if (!incomingPrincipal) {
+        return
+    }
     const existing = await getOwnedSession(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'no_session' })
@@ -367,7 +392,7 @@ async function clientToolResultHandler(
     }
     // A tool result feeds straight into the running turn — confirm session
     // ownership before publishing it.
-    if (requireAclAccess(existing, ctx.principal).kind === 'denied') {
+    if (requireAclAccess(existing, incomingPrincipal).kind === 'denied') {
         res.status(403).json({ error: 'forbidden' })
         return
     }

@@ -1254,7 +1254,14 @@ export function principalsMatch(stored: SessionPrincipal | null, incoming: Sessi
             }
             return canonicalIdentityMatches(stored, incoming)
         case 'jwt':
-            if (incoming.kind !== 'jwt' || stored.sub !== incoming.sub) {
+            if (
+                incoming.kind !== 'jwt' ||
+                stored.sub !== incoming.sub ||
+                // Issuer-scoped: `sub` is only meaningful within one issuer's
+                // trust domain — the same sub under a different configured
+                // jwt mode is a different caller, not a resume.
+                stored.issuer_secret_ref !== incoming.issuer_secret_ref
+            ) {
                 return false
             }
             return canonicalIdentityMatches(stored, incoming)

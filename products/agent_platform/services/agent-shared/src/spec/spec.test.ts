@@ -989,6 +989,12 @@ describe('AgentSpecSchema', () => {
                 { kind: 'jwt', issuer_secret_ref: 'S', sub: 'a', claims: {}, canonical_agent_user_id: 'C2' },
                 false,
             ],
+            [
+                'jwt: same sub under a DIFFERENT issuer does NOT match (issuer-scoped trust domains)',
+                { kind: 'jwt', issuer_secret_ref: 'S', sub: 'a', claims: {} },
+                { kind: 'jwt', issuer_secret_ref: 'S2', sub: 'a', claims: {} },
+                false,
+            ],
         ])('%s', (_label, stored, incoming, expected) => {
             expect(principalsMatch(stored, incoming)).toBe(expected)
         })
