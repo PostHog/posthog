@@ -49,6 +49,9 @@ REDACT_FIELD_NAMES: frozenset[str] = frozenset(
         # either grants terminal access, so keep them out of captured HTTP samples too.
         "jupyter_token",
         "jupyter_url",
+        # Paddle's `/notification-settings` responses carry the webhook signing secret here;
+        # it verifies delivery authenticity, so keep it out of captured samples.
+        "endpoint_secret_key",
     }
 )
 

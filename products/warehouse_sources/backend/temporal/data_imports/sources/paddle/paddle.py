@@ -304,6 +304,12 @@ def _paddle_error_detail(response: Optional[requests.Response]) -> Optional[str]
     except (ValueError, requests.exceptions.JSONDecodeError):
         return None
 
+    # A non-dict `error` (e.g. an intermediary returning `{"error": "..."}`) would make the
+    # `.get()` calls below raise inside the caller's except block, escaping the "never raise"
+    # contract of the webhook client functions.
+    if not isinstance(error, dict):
+        return None
+
     parts: list[str] = []
     if error.get("detail"):
         parts.append(str(error["detail"]))
@@ -358,7 +364,9 @@ def _list_notification_settings(session: requests.Session, base_url: str) -> lis
         if isinstance(page, list):
             items.extend(item for item in page if isinstance(item, dict))
 
-        next_url = payload.get("meta", {}).get("pagination", {}).get("next")
+        # `or {}` at each hop: an explicit `"meta": null` (or null pagination) would make a
+        # bare `.get("meta", {})` return None and the chained `.get` raise.
+        next_url = ((payload.get("meta") or {}).get("pagination") or {}).get("next")
         url = next_url if next_url and next_url not in seen_urls else None
         params = {}
 

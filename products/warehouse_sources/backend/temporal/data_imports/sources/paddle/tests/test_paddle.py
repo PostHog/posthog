@@ -324,6 +324,17 @@ class TestCreateWebhook:
         assert result.error is not None
         assert "subscribed_events: transaction.bogus is not a valid event" in result.error
 
+    @patch(MOCK_PATH)
+    def test_non_dict_error_body_does_not_raise(self, mock_request):
+        # An intermediary returning {"error": "<string>"} (not Paddle's object shape) must not
+        # crash the never-raise contract via AttributeError inside the except handler.
+        mock_request.return_value = MockResponse({"error": "gateway exploded"}, status_code=400)
+
+        result = create_webhook("key", "live", WEBHOOK_URL)
+
+        assert result.success is False
+        assert result.error is not None and "400" in result.error
+
 
 class TestUpdateWebhookEvents:
     @patch(MOCK_PATH)
@@ -422,3 +433,52 @@ class TestGetExternalWebhookInfo:
 
         assert info.exists is False
         assert info.error is None
+
+    @patch(MOCK_PATH)
+    def test_pagination_combines_pages_and_terminates_on_repeating_next(self, mock_request):
+        # Paddle returns a `next` cursor even on the last page, so termination relies on the
+        # seen-urls guard. A second page whose `next` points back at an already-fetched URL must
+        # stop the walk (not loop forever against Paddle) while still combining both pages.
+        next_url = f"{LIVE_HOST}/notification-settings?after=cursor2"
+        mock_request.side_effect = [
+            _settings_list_response([_setting(setting_id="ntfset_other", destination="https://other")], next_url),
+            _settings_list_response([_setting(setting_id="ntfset_match")], next_url),
+        ]
+
+        info = get_external_webhook_info("key", "live", WEBHOOK_URL)
+
+        assert info.exists is True
+        assert mock_request.call_count == 2
+
+
+class TestWebhookClientErrorHandling:
+    @parameterized.expand(
+        [
+            (
+                "update_webhook_events",
+                lambda: update_webhook_events("key", "live", WEBHOOK_URL, ["transaction.updated"]),
+                [
+                    _settings_list_response([_setting(events=["transaction.completed"])]),
+                    MockResponse({"error": {"code": "forbidden", "detail": "needs write permission"}}, status_code=403),
+                ],
+            ),
+            (
+                "delete_webhook",
+                lambda: delete_webhook("key", "live", WEBHOOK_URL),
+                [
+                    _settings_list_response([_setting()]),
+                    MockResponse({"error": {"code": "forbidden", "detail": "needs write permission"}}, status_code=403),
+                ],
+            ),
+        ]
+    )
+    @patch(MOCK_PATH)
+    def test_returns_friendly_result_on_http_error(self, _name, invoke, side_effect, mock_request):
+        # update/delete must honor the same never-raise contract as create: an HTTP error on the
+        # mutating call returns a failed result surfacing Paddle's detail, not an exception.
+        mock_request.side_effect = side_effect
+
+        result = invoke()
+
+        assert result.success is False
+        assert result.error is not None and "needs write permission" in result.error
