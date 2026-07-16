@@ -217,8 +217,9 @@ class TestCheckEndpointPermissions:
 
         assert results["problems"] is None
         for endpoint in ("hosts", "services", "applications", "process_groups"):
-            assert results[endpoint] is not None
-            assert "entities.read" in results[endpoint]
+            reason = results[endpoint]
+            assert reason is not None
+            assert "entities.read" in reason
         # The four entity tables share the entities.read scope, so one probe covers them all.
         assert call_count == 2
 
@@ -311,7 +312,7 @@ class TestGetRows:
         assert parse_qs(urlparse(fetched[1]).query) == {"nextPageKey": ["key-2"]}
 
     def test_first_page_carries_filters(self) -> None:
-        pages = [{"problems": [], "nextPageKey": None}]
+        pages: list[Any] = [{"problems": [], "nextPageKey": None}]
         _rows, _saved, fetched = self._run(pages)
         query = parse_qs(urlparse(fetched[0]).query)
         assert query["pageSize"] == ["500"]
