@@ -321,9 +321,15 @@ class GoogleAdsSource(
             customer_resource_name = f"customers/{clean_customer_id(config.customer_id)}"
             is_valid = customer_resource_name in accessible_customers.resource_names
             if not is_valid:
+                # `list_accessible_customers` returns only accounts the login can reach directly,
+                # never client accounts nested under a manager. A valid client-account id therefore
+                # lands here when the MCC toggle is off, so point at that toggle rather than telling
+                # the user their (correct) id is wrong. Mirrors the PERMISSION_DENIED message below.
                 return (
                     False,
-                    f"Customer ID {config.customer_id} is not correct. Please check your customer ID and try again.",
+                    f"Customer ID {config.customer_id} isn't accessible with the connected Google login. "
+                    "Check the ID is correct, and if it's a client account under a manager (MCC) account, "
+                    'enable "Using MCC account?" and enter your manager\'s customer ID, then try again.',
                 )
             return True, None
         except Integration.DoesNotExist:
