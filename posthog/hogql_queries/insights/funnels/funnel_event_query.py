@@ -481,7 +481,12 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         elif breakdownType == "data_warehouse":
             return get_breakdown_expr(breakdown, None)
         else:
-            raise ValidationError(detail=f"Unsupported breakdown type: {breakdownType}")
+            raise ValidationError(
+                detail=(
+                    f'"{breakdownType}" is not a supported breakdown type for funnels. '
+                    "Remove the breakdown or pick a different property to continue."
+                )
+            )
 
     def _query_has_array_breakdown(self) -> bool:
         breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
