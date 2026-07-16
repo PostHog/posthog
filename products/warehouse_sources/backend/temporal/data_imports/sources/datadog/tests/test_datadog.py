@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datadog im
 from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.datadog import (
     DEFAULT_SITE,
     DatadogResumeConfig,
+    DatadogRetryableError,
     _build_initial_params,
     _build_initial_url,
     _compute_next_url,
@@ -406,3 +407,56 @@ class TestGetRowsResume:
         pages = [{"data": [{"id": "9", "attributes": {}}], "links": {}}]
         with pytest.raises(ValueError, match="unexpected URL"):
             self._run("logs", pages, can_resume=True, resume_url=resume_url)
+
+
+class TestFetchPageRetry:
+    def _run(self, statuses: list[int]) -> list[int]:
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        manager.load_state.return_value = None
+
+        seen: list[int] = []
+
+        def fake_get(url: str, headers: Any = None, timeout: Any = None) -> Any:
+            status = statuses[len(seen)]
+            seen.append(status)
+            resp = mock.MagicMock()
+            resp.status_code = status
+            resp.ok = status < 400
+            resp.json.return_value = {"data": [], "links": {}}
+            resp.text = f"{status} body"
+            if status >= 400:
+                resp.raise_for_status.side_effect = requests.HTTPError(f"{status} Client Error")
+            return resp
+
+        # Patch tenacity's backoff sleep so retries don't block the test.
+        with (
+            mock.patch.object(ddog, "make_tracked_session") as mock_session,
+            mock.patch("tenacity.nap.time.sleep"),
+        ):
+            mock_session.return_value.get.side_effect = fake_get
+            list(
+                ddog.get_rows(
+                    site="datadoghq.com",
+                    api_key="api",
+                    app_key="app",
+                    endpoint="logs",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager,
+                )
+            )
+        return seen
+
+    def test_408_is_retried_then_succeeds(self) -> None:
+        seen = self._run([408, 200])
+        assert seen == [408, 200]
+
+    def test_persistent_408_reraises_as_retryable(self) -> None:
+        with pytest.raises(DatadogRetryableError):
+            self._run([408, 408, 408, 408, 408])
+
+    def test_other_4xx_is_not_retried(self) -> None:
+        # A genuine client error stays fatal — HTTPError isn't retryable, so it never becomes
+        # DatadogRetryableError. Guards against widening the 408 fix to swallow all 4xx.
+        with pytest.raises(requests.HTTPError):
+            self._run([400])
