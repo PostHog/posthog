@@ -1,5 +1,6 @@
 from typing import Any, cast
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
@@ -238,6 +239,15 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         requested_scope = request.GET.get("scope")
         if not requested_scope and isinstance(request.data, dict):
             requested_scope = request.data.get("scope")
+        if not requested_scope and (pk := self.kwargs.get("pk")):
+            # Detail actions carry no scope param — resolve it from the target comment so an
+            # API key scoped to comment:* can't reach ticket contents by id.
+            try:
+                requested_scope = (
+                    Comment.objects.filter(team_id=self.team_id, pk=pk).values_list("scope", flat=True).first()
+                )
+            except (ValueError, ValidationError):
+                return None
         if requested_scope not in TICKET_COMMENT_SCOPES:
             return None
         access = "read" if self.action in self.scope_object_read_actions else "write"
@@ -258,10 +268,11 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
 
         if params.get("scope"):
             queryset = queryset.filter(scope=params.get("scope"))
-        else:
-            # Ticket-carrying comments (customer messages and internal ticket discussions) are
-            # only returned when explicitly requested by scope, where ticket API scope access is
-            # enforced by dangerously_get_required_scopes.
+        elif self.action in ("list", "count"):
+            # Ticket-carrying comments (customer messages and internal ticket discussions) never
+            # appear in unscoped enumeration — only when explicitly requested by scope. Detail
+            # actions (retrieve, thread, send_to_slack, ...) pin an object by pk, where ticket
+            # API scope access is enforced by dangerously_get_required_scopes instead.
             queryset = queryset.exclude(scope__in=TICKET_COMMENT_SCOPES)
 
         if params.get("item_id"):

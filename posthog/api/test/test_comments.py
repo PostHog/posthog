@@ -614,6 +614,25 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert [c["scope"] for c in response.json()["results"]] == ["Notebook"]
 
+    def test_ticket_scoped_comment_detail_actions_work_for_session_users(self) -> None:
+        # Detail actions carry no scope param; the default-list exclusion must not 404 them.
+        comment = Comment.objects.create(
+            team=self.team, scope="Ticket", item_id="t1", content="discussion", created_by=self.user
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/comments/{comment.id}")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["scope"] == "Ticket"
+
+    def test_ticket_scoped_comment_detail_requires_ticket_api_scope(self) -> None:
+        comment = Comment.objects.create(
+            team=self.team, scope="Ticket", item_id="t1", content="discussion", created_by=self.user
+        )
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/comments/{comment.id}",
+            headers=self._scoped_key_headers(["comment:read"]),
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
 
 class TestDiscussionMentionInternalEvents(APIBaseTest, QueryMatchingTest):
     @mock.patch("posthog.models.comment.utils.produce_internal_event")
