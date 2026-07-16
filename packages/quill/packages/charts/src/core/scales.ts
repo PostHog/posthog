@@ -126,7 +126,26 @@ export function createXScale(labels: string[], dimensions: ChartDimensions): Sca
 }
 
 export function yTickCountForHeight(plotHeight: number): number {
+    // A non-finite or non-positive plot height (e.g. an unmeasured container) would make d3's
+    // `ticks(count)` return `[]` — the axis then renders no ticks at all. Floor at the minimum.
+    if (!isFinite(plotHeight) || plotHeight <= 0) {
+        return 2
+    }
     return Math.max(2, Math.min(11, Math.floor(plotHeight / 50)))
+}
+
+/** Repair a fixed, caller-supplied `[min, max]` domain so it can't map every value to NaN. A
+ *  non-finite bound (e.g. a `Math.max(...[])` that yielded `-Infinity`, or a `0/0`) falls back to
+ *  `[0, 1]`; a collapsed `min === max` domain gets a unit span. Keeps the caller's finite bounds
+ *  otherwise, only normalizing an inverted order. */
+export function sanitizeFixedDomain([min, max]: readonly [number, number]): [number, number] {
+    if (!isFinite(min) || !isFinite(max)) {
+        return [0, 1]
+    }
+    if (min === max) {
+        return [min, min + 1]
+    }
+    return min < max ? [min, max] : [max, min]
 }
 
 export function createYScale(
@@ -147,7 +166,7 @@ export function createYScale(
 
     if (fixed) {
         return scaleLinear()
-            .domain([fixed[0], fixed[1]])
+            .domain(sanitizeFixedDomain(fixed))
             .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
     }
 
@@ -219,9 +238,9 @@ export function buildValueScale(options: {
             // bracket a degenerate `min === max` domain so it doesn't collapse to NaN.
             let logMin = min
             let logMax = max
-            if (logMin === logMax) {
-                logMin = Math.min(0, logMin)
-                logMax = Math.max(0, logMax, logMin + 1)
+            if (!isFinite(logMin) || !isFinite(logMax) || logMin === logMax) {
+                logMin = Math.min(0, isFinite(logMin) ? logMin : 0)
+                logMax = Math.max(0, isFinite(logMax) ? logMax : 0, logMin + 1)
             }
             return scaleLinear().domain([logMin, logMax]).nice(tickCount).range(valueRange)
         }
@@ -237,11 +256,13 @@ export function buildValueScale(options: {
     }
 
     // The range can collapse to a single point (e.g. all-equal data, or `include`-only goal values
-    // like `[100, 100]`) — a degenerate domain that maps everything to NaN. Bracket zero, then
-    // guarantee a unit span, so the axis stays well-formed.
-    if (min === max) {
-        min = Math.min(0, min)
-        max = Math.max(0, max, min + 1)
+    // like `[100, 100]`) — a degenerate domain that maps everything to NaN. A non-finite extent
+    // (defensive: `count > 0` should keep both bounds finite, but a stray NaN here blanks the whole
+    // chart) is treated the same. Bracket zero, then guarantee a unit span, so the axis stays
+    // well-formed.
+    if (!isFinite(min) || !isFinite(max) || min === max) {
+        min = Math.min(0, isFinite(min) ? min : 0)
+        max = Math.max(0, isFinite(max) ? max : 0, min + 1)
     }
 
     return scaleLinear().domain([min, max]).nice(tickCount).range(valueRange)
@@ -695,14 +716,16 @@ function buildBarValueScale(
     if (range.count === 0) {
         return scaleLinear().domain([0, 1]).range(valueRange)
     }
-    const min = range.min > 0 ? 0 : range.min
+    let min = range.min > 0 ? 0 : range.min
     let max = range.max < 0 ? 0 : range.max
     if (scaleType === 'log' && isFinite(range.minPositive)) {
         return scaleLog().domain(niceLogDomain(range.minPositive, max)).range(valueRange).clamp(true)
     }
-    // Guard the degenerate single-point domain (e.g. empty data with a single goal value at 0).
-    if (min === max) {
-        max = min + 1
+    // Guard the degenerate single-point domain (e.g. empty data with a single goal value at 0), and
+    // any non-finite extent, so the value scale never maps every bar to NaN.
+    if (!isFinite(min) || !isFinite(max) || min === max) {
+        min = isFinite(min) ? min : 0
+        max = Math.max(min + 1, isFinite(max) ? max : min + 1)
     }
     const scale = scaleLinear().domain([min, max]).nice(tickCount)
     return scale.range(padValueRange(valueRange, scale.domain() as [number, number], valuePadding))
