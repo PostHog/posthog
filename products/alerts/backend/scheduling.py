@@ -10,9 +10,10 @@ names, quiet-hours windows as parsed tuples.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import pytz
@@ -109,7 +110,9 @@ REAL_TIME_CADENCE_MINUTES = 2
 EVERY_15_MINUTES_CADENCE_MINUTES = 15
 
 
-def to_calendar_interval(value: str) -> CalendarInterval:
+def to_calendar_interval(value: str | None) -> CalendarInterval:
+    if value is None:
+        raise ValueError("Unhandled alert calculation interval: None")
     try:
         return CalendarInterval(value)
     except ValueError:
@@ -123,12 +126,13 @@ def is_weekend(now: datetime, tz_name: str) -> bool:
 
 
 def _localize_wall_time(team_timezone: BaseTzInfo, naive_local: datetime) -> datetime:
+    localize = cast(Callable[[datetime, bool | None], datetime], team_timezone.localize)
     try:
-        return team_timezone.localize(naive_local, is_dst=None)
+        return localize(naive_local, None)
     except AmbiguousTimeError:
-        return team_timezone.localize(naive_local, is_dst=True)
+        return localize(naive_local, True)
     except NonExistentTimeError:
-        return team_timezone.normalize(team_timezone.localize(naive_local, is_dst=False))
+        return team_timezone.normalize(localize(naive_local, False))
 
 
 def _calendar_anchor_utc(
