@@ -5,7 +5,6 @@ from datetime import timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
-from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Count, Exists, F, Max, OuterRef, Prefetch, QuerySet, Subquery
 from django.db.models.query_utils import Q
@@ -137,7 +136,7 @@ from posthog.utils import (
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.access import (
-    DashboardAccessMethod,
+    claim_dashboard_cache_miss_persistence,
     dashboard_access_method,
     record_dashboard_cache_outcome,
 )
@@ -159,39 +158,6 @@ tracer = trace.get_tracer(__name__)
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
 LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG = "legacy-insight-filters-disabled"
-DASHBOARD_CACHE_MISS_CLAIM_TTL_SECONDS = 60
-
-
-def _claim_dashboard_cache_miss(dashboard: Dashboard, access_method: DashboardAccessMethod) -> bool:
-    cache_key = f"dashboard_cache_miss:{dashboard.team_id}:{dashboard.id}:{access_method.value}"
-    return cache.add(cache_key, True, timeout=DASHBOARD_CACHE_MISS_CLAIM_TTL_SECONDS)
-
-
-def _should_persist_dashboard_cache_miss(
-    request: Request,
-    dashboard: Dashboard,
-    access_method: DashboardAccessMethod,
-    execution_mode: ExecutionMode,
-    *,
-    is_cached: bool,
-) -> bool:
-    if is_cached or execution_mode in (
-        ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-        ExecutionMode.CALCULATE_ASYNC_ALWAYS,
-    ):
-        return False
-
-    recorded_dashboard_ids = cast(
-        set[int],
-        request.__dict__.setdefault("_cache_warming_miss_dashboard_ids", set()),
-    )
-    if dashboard.id in recorded_dashboard_ids:
-        return False
-
-    recorded_dashboard_ids.add(dashboard.id)
-    return _claim_dashboard_cache_miss(dashboard, access_method)
-
-
 EXPORT_QUERY_CACHE_MISS = Counter(
     "export_query_cache_miss",
     "Cache misses during PNG export rendering when expected cache key was not found",
@@ -1252,7 +1218,7 @@ class InsightSerializer(InsightBasicSerializer):
                             dashboard,
                             access_method,
                             is_cached=insight_result.is_cached,
-                            persist_miss=_should_persist_dashboard_cache_miss(
+                            persist_miss=claim_dashboard_cache_miss_persistence(
                                 request,
                                 dashboard,
                                 access_method,

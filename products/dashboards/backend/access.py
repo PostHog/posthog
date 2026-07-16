@@ -1,16 +1,22 @@
 from datetime import datetime
 from enum import StrEnum
+from typing import cast
 
+from django.core.cache import cache
 from django.db.models import DateTimeField
 from django.db.models.expressions import RawSQL
 from django.utils.timezone import now
 
+import structlog
 from prometheus_client import Counter
 from rest_framework.request import Request
 
 from posthog.event_usage import EventSource, get_event_source
+from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.dashboards.backend.models.dashboard import Dashboard
+
+logger = structlog.get_logger(__name__)
 
 
 class DashboardAccessMethod(StrEnum):
@@ -30,6 +36,7 @@ DASHBOARD_CACHE_OUTCOME_COUNTER = Counter(
     "Dashboard insight cache outcomes recorded from views",
     ["access_method", "result"],
 )
+DASHBOARD_CACHE_MISS_CLAIM_TTL_SECONDS = 60
 
 
 def dashboard_access_method(
@@ -42,6 +49,41 @@ def dashboard_access_method(
     if get_event_source(request) == EventSource.WEB:
         return DashboardAccessMethod.HUMAN
     return DashboardAccessMethod.API
+
+
+def claim_dashboard_cache_miss_persistence(
+    request: Request,
+    dashboard: Dashboard,
+    access_method: DashboardAccessMethod,
+    execution_mode: ExecutionMode,
+    *,
+    is_cached: bool,
+) -> bool:
+    if is_cached or execution_mode in (
+        ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        ExecutionMode.CALCULATE_ASYNC_ALWAYS,
+    ):
+        return False
+
+    claimed_dashboard_ids = cast(
+        set[int],
+        request.__dict__.setdefault("_cache_warming_miss_dashboard_ids", set()),
+    )
+    if dashboard.id in claimed_dashboard_ids:
+        return False
+    claimed_dashboard_ids.add(dashboard.id)
+
+    cache_key = f"dashboard_cache_miss:{dashboard.team_id}:{dashboard.id}:{access_method.value}"
+    try:
+        return cache.add(cache_key, True, timeout=DASHBOARD_CACHE_MISS_CLAIM_TTL_SECONDS)
+    except Exception:
+        logger.exception(
+            "dashboard_cache_miss_claim_failed",
+            team_id=dashboard.team_id,
+            dashboard_id=dashboard.id,
+            access_method=access_method.value,
+        )
+        return False
 
 
 def record_dashboard_access(
@@ -120,8 +162,7 @@ def record_dashboard_cache_outcome(
                         '-infinity'::timestamptz
                     ),
                     %s::timestamptz
-                )),
-                'cache_miss_count', COALESCE((most_recent_access -> %s ->> 'cache_miss_count')::bigint, 0) + 1
+                ))
             ),
             true
         )
@@ -131,7 +172,6 @@ def record_dashboard_cache_outcome(
             access_key,
             access_key,
             observation_timestamp,
-            access_key,
         ),
     )
     Dashboard.objects.filter(team_id=dashboard.team_id, pk=dashboard.pk).update(most_recent_access=updated_access)

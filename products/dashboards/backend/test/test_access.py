@@ -63,7 +63,6 @@ class TestDashboardAccess(BaseTest):
                 "timestamp": accessed_at.isoformat(),
                 "count": 1,
                 "last_cache_miss_at": (accessed_at + timedelta(minutes=1)).isoformat(),
-                "cache_miss_count": 1,
             }
         }
         assert miss_counter._value.get() == miss_count_before + 2
@@ -105,5 +104,5 @@ class TestDashboardAccess(BaseTest):
 
         dashboard.refresh_from_db()
         assert dashboard.most_recent_access == {
-            "api": {"last_cache_miss_at": latest_miss.isoformat(), "cache_miss_count": 2},
+            "api": {"last_cache_miss_at": latest_miss.isoformat()},
         }

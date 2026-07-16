@@ -12,6 +12,7 @@ class DashboardVisitor(
         "analytics_dashboards",
         "last_refresh",
         "last_accessed_at",
+        "most_recent_access",
         "share_token",
         "is_shared",
     ],

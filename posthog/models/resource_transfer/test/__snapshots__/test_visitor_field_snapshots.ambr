@@ -39,6 +39,7 @@
     'is_shared',
     'last_accessed_at',
     'last_refresh',
+    'most_recent_access',
     'share_token',
   ])
 # ---
@@ -172,7 +173,6 @@
     'deprecated_tags_v2',
     'description',
     'filters',
-    'most_recent_access',
     'name',
     'pinned',
     'quick_filter_ids',

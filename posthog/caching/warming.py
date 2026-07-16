@@ -1,7 +1,8 @@
+import json
 import math
 import heapq
 import itertools
-from collections import Counter as CollectionCounter
+from collections import Counter
 from collections.abc import Generator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -13,7 +14,11 @@ import structlog
 import posthoganalytics
 from celery import shared_task
 from celery.canvas import chain
-from prometheus_client import Counter, Gauge, Histogram
+from prometheus_client import (
+    Counter as PrometheusCounter,
+    Gauge,
+    Histogram,
+)
 
 from posthog.hogql.constants import LimitContext
 
@@ -40,16 +45,16 @@ logger = structlog.get_logger(__name__)
 
 STALE_INSIGHTS_GAUGE = Gauge(
     "posthog_cache_warming_stale_insights_gauge",
-    "Number of stale insights present",
+    "Number of stale insights scanned for cache warming",
     ["team_id"],
     multiprocess_mode="max",
 )
-PRIORITY_INSIGHTS_COUNTER = Counter(
+PRIORITY_INSIGHTS_COUNTER = PrometheusCounter(
     "posthog_cache_warming_priority_insights",
     "Number of priority insights warmed",
     ["team_id", "dashboard", "is_cached"],
 )
-CACHE_WARMING_CANDIDATE_COUNTER = Counter(
+CACHE_WARMING_CANDIDATE_COUNTER = PrometheusCounter(
     "posthog_cache_warming_candidates_total",
     "Cache warming candidates by access method and scheduling outcome",
     ["access_method", "outcome", "cache_miss_boost"],
@@ -67,7 +72,8 @@ MAX_WARMING_CANDIDATES_PER_TEAM = 500
 CACHE_MISS_BOOST = 300.0
 CACHE_MISS_BOOST_THRESHOLD = timedelta(days=1)
 DASHBOARD_CANDIDATE_QUERY_CHUNK_SIZE = 100
-STALE_INSIGHT_SCAN_PAGE_SIZE = 2000
+STALE_INSIGHT_SCAN_BUDGET = 2000
+STALE_INSIGHT_CURSOR_TTL_SECONDS = 60 * 60 * 48
 
 ACCESS_METHOD_WEIGHTS = {
     DashboardAccessMethod.HUMAN: 300.0,
@@ -206,17 +212,61 @@ def teams_enabled_for_cache_warming() -> list[int]:
 def _iter_stale_insights(*, team_id: int, current_time: datetime) -> Generator[str]:
     redis_key = f"{QueryCacheManagerBase._redis_key_prefix()}:{team_id}"
     redis_client = redis.get_client()
-    offset = 0
-    while page := redis_client.zrevrangebyscore(
-        name=redis_key,
-        max=current_time.timestamp(),
-        min="-inf",
-        start=offset,
-        num=STALE_INSIGHT_SCAN_PAGE_SIZE,
-    ):
-        for raw_identifier in page:
-            yield raw_identifier.decode("utf-8")
-        offset += len(page)
+    cursor_key = f"cache_warming_cursor:{team_id}"
+    page: list[bytes] | None = None
+    raw_cursor = redis_client.get(cursor_key)
+
+    if raw_cursor:
+        cursor_member: bytes | None = None
+        cursor_score: float | None = None
+        try:
+            cursor = json.loads(raw_cursor)
+            cursor_member = cursor["member"].encode("utf-8")
+            cursor_score = float(cursor["score"])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            pass
+        if cursor_member is not None and cursor_score is not None:
+            if redis_client.zscore(redis_key, cursor_member) == cursor_score:
+                cursor_rank = redis_client.zrevrank(redis_key, cursor_member)
+                if cursor_rank is not None:
+                    page = redis_client.zrevrange(
+                        redis_key,
+                        cursor_rank + 1,
+                        cursor_rank + STALE_INSIGHT_SCAN_BUDGET,
+                    )
+            if page is None:
+                page = redis_client.zrevrangebyscore(
+                    name=redis_key,
+                    max=f"({cursor_score}",
+                    min="-inf",
+                    start=0,
+                    num=STALE_INSIGHT_SCAN_BUDGET,
+                )
+
+    if page is None:
+        page = redis_client.zrevrangebyscore(
+            name=redis_key,
+            max=current_time.timestamp(),
+            min="-inf",
+            start=0,
+            num=STALE_INSIGHT_SCAN_BUDGET,
+        )
+
+    if not page:
+        redis_client.delete(cursor_key)
+        return
+
+    last_member = page[-1]
+    last_score = redis_client.zscore(redis_key, last_member)
+    if last_score is not None:
+        redis_client.set(
+            cursor_key,
+            json.dumps({"member": last_member.decode("utf-8"), "score": last_score}),
+            ex=STALE_INSIGHT_CURSOR_TTL_SECONDS,
+        )
+
+    for raw_identifier in page:
+        yield raw_identifier.decode("utf-8")
 
 
 def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[tuple[int, Optional[int]]]:
@@ -231,7 +281,7 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
 
     candidate_heap: list[tuple[float, int, WarmingCandidate]] = []
     candidate_sequence = itertools.count()
-    candidate_metric_counts: CollectionCounter[tuple[str, str, str]] = CollectionCounter()
+    candidate_metric_counts: Counter[tuple[str, str, str]] = Counter()
 
     def add_candidate(candidate: WarmingCandidate) -> None:
         cache_miss_boost = str(candidate.has_cache_miss_boost).lower()
@@ -242,79 +292,71 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
         elif heap_entry[:2] > candidate_heap[0][:2]:
             heapq.heapreplace(candidate_heap, heap_entry)
 
-    stale_insight_count = 0
-    for combo_batch in itertools.batched(
-        _iter_stale_insights(team_id=team.pk, current_time=current_time),
-        STALE_INSIGHT_SCAN_PAGE_SIZE,
-        strict=False,
-    ):
-        stale_insight_count += len(combo_batch)
-        dashboard_pairs: list[tuple[int, int]] = []
-        insight_ids_single: set[int] = set()
-        for raw_insight_id, raw_dashboard_id in (combo.split(":") for combo in combo_batch):
-            if raw_dashboard_id:
-                dashboard_pairs.append((int(raw_insight_id), int(raw_dashboard_id)))
-            else:
-                insight_ids_single.add(int(raw_insight_id))
+    stale_insights = list(_iter_stale_insights(team_id=team.pk, current_time=current_time))
+    dashboard_pairs: list[tuple[int, int]] = []
+    insight_ids_single: set[int] = set()
+    for raw_insight_id, raw_dashboard_id in (combo.split(":") for combo in stale_insights):
+        if raw_dashboard_id:
+            dashboard_pairs.append((int(raw_insight_id), int(raw_dashboard_id)))
+        else:
+            insight_ids_single.add(int(raw_insight_id))
 
-        if insight_ids_single:
-            single_insights = team.insight_set.filter(
-                insightviewed__last_viewed_at__gte=threshold,
-                pk__in=insight_ids_single,
-            )
-            if shared_only:
-                single_insights = single_insights.filter(sharingconfiguration__enabled=True)
+    if insight_ids_single:
+        single_insights = team.insight_set.filter(
+            insightviewed__last_viewed_at__gte=threshold,
+            pk__in=insight_ids_single,
+        )
+        if shared_only:
+            single_insights = single_insights.filter(sharingconfiguration__enabled=True)
 
-            for single_insight_id in single_insights.distinct().values_list("id", flat=True):
-                add_candidate(
-                    WarmingCandidate(
-                        insight_id=single_insight_id,
-                        dashboard_id=None,
-                        priority=ACCESS_METHOD_WEIGHTS[DashboardAccessMethod.HUMAN],
-                        access_method=DashboardAccessMethod.HUMAN.value,
-                    )
-                )
-
-        for dashboard_pair_chunk in itertools.batched(
-            dashboard_pairs, DASHBOARD_CANDIDATE_QUERY_CHUNK_SIZE, strict=False
-        ):
-            dashboard_q_filter = Q()
-            for candidate_insight_id, candidate_dashboard_id in dashboard_pair_chunk:
-                dashboard_q_filter |= Q(insight_id=candidate_insight_id, dashboard_id=candidate_dashboard_id)
-            if shared_only:
-                dashboard_q_filter &= Q(dashboard__sharingconfiguration__enabled=True)
-
-            dashboard_tiles = (
-                DashboardTile.objects.filter(dashboard_q_filter)
-                .distinct()
-                .values_list(
-                    "insight_id",
-                    "dashboard_id",
-                    "dashboard__last_accessed_at",
-                    "dashboard__most_recent_access",
+        for single_insight_id in single_insights.distinct().values_list("id", flat=True):
+            add_candidate(
+                WarmingCandidate(
+                    insight_id=single_insight_id,
+                    dashboard_id=None,
+                    priority=ACCESS_METHOD_WEIGHTS[DashboardAccessMethod.HUMAN],
+                    access_method=DashboardAccessMethod.HUMAN.value,
                 )
             )
-            for tile_insight_id, tile_dashboard_id, last_accessed_at, most_recent_access in dashboard_tiles:
-                priority, access_method, has_cache_miss_boost = _dashboard_warming_priority(
-                    most_recent_access,
-                    last_accessed_at,
-                    current_time=current_time,
-                    max_access_age=SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD if shared_only else None,
-                )
-                if priority <= 0:
-                    candidate_metric_counts[(access_method, "ineligible", "false")] += 1
-                    continue
-                add_candidate(
-                    WarmingCandidate(
-                        insight_id=tile_insight_id,
-                        dashboard_id=tile_dashboard_id,
-                        priority=priority,
-                        access_method=access_method,
-                        has_cache_miss_boost=has_cache_miss_boost,
-                    )
-                )
 
-    STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(stale_insight_count)
+    for dashboard_pair_chunk in itertools.batched(dashboard_pairs, DASHBOARD_CANDIDATE_QUERY_CHUNK_SIZE, strict=False):
+        dashboard_q_filter = Q()
+        for candidate_insight_id, candidate_dashboard_id in dashboard_pair_chunk:
+            dashboard_q_filter |= Q(insight_id=candidate_insight_id, dashboard_id=candidate_dashboard_id)
+        if shared_only:
+            dashboard_q_filter &= Q(dashboard__sharingconfiguration__enabled=True)
+
+        dashboard_tiles = (
+            DashboardTile.objects.filter(dashboard_q_filter)
+            .distinct()
+            .values_list(
+                "insight_id",
+                "dashboard_id",
+                "dashboard__last_accessed_at",
+                "dashboard__most_recent_access",
+            )
+        )
+        for tile_insight_id, tile_dashboard_id, last_accessed_at, most_recent_access in dashboard_tiles:
+            priority, access_method, has_cache_miss_boost = _dashboard_warming_priority(
+                most_recent_access,
+                last_accessed_at,
+                current_time=current_time,
+                max_access_age=SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD if shared_only else None,
+            )
+            if priority <= 0:
+                candidate_metric_counts[(access_method, "ineligible", "false")] += 1
+                continue
+            add_candidate(
+                WarmingCandidate(
+                    insight_id=tile_insight_id,
+                    dashboard_id=tile_dashboard_id,
+                    priority=priority,
+                    access_method=access_method,
+                    has_cache_miss_boost=has_cache_miss_boost,
+                )
+            )
+
+    STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(len(stale_insights))
 
     selected_candidates = [entry[2] for entry in sorted(candidate_heap, reverse=True)]
     for candidate in selected_candidates:

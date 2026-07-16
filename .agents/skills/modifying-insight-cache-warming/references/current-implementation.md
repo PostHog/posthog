@@ -1,19 +1,20 @@
 # Current insight cache warming implementation
 
-This is the reviewed architecture reference. Run `scripts/refresh-reference.sh` for a fresh, read-only list of current call sites, constants, migration state, and focused tests.
+This reference describes the current architecture. Run `scripts/refresh-reference.sh` for a fresh, read-only list of call sites, constants, migration state, and focused tests.
 
 ## Access signals
 
 - `Dashboard.last_accessed_at` remains the compatibility timestamp used by older application versions and code outside cache warming.
 - `Dashboard.most_recent_access` stores additive records keyed by `human`, `embedded`, and `api`.
-- Each access record can contain `timestamp`, `count`, `last_cache_miss_at`, and `cache_miss_count`.
+- Each access record can contain `timestamp`, `count`, and `last_cache_miss_at`.
 - `record_dashboard_access` atomically increments counts and keeps both access timestamps monotonic when concurrent or delayed updates arrive.
 - `record_dashboard_cache_outcome` records only misses in the JSON signal and keeps the miss timestamp monotonic.
+- Dashboard access policy claims miss persistence through an atomic cache key and fails open when the cache backend is unavailable.
 - Insight serialization records miss pressure only for non-forced uncached dashboard requests. Multiple uncached tiles in one dashboard request coalesce to one miss write.
 
 ## Warming priority
 
-- Candidate collection asks the query cache for a wider stale pool than the per-team warming budget.
+- Candidate collection scans a fixed per-team stale-entry budget and stores a score/member continuation cursor for the next invocation.
 - Standalone insights use recent `InsightViewed` activity and receive human priority.
 - Dashboard candidates use source tiers that enforce human above embedded and embedded above API before miss pressure.
 - Recency and frequency bonuses are bounded within a source tier, so high-volume API traffic cannot cross a tier by itself.
@@ -25,7 +26,7 @@ This is the reviewed architecture reference. Run `scripts/refresh-reference.sh` 
 ## Scheduling contract
 
 - `MAX_WARMING_CANDIDATES_PER_TEAM` is a scheduling budget, not an eligibility threshold.
-- Candidates are globally ranked after all query chunks have been evaluated, then only the highest-priority candidates are yielded.
+- Candidates are ranked within the current bounded scan. Only the highest-priority candidates are yielded before the cursor advances on the next invocation.
 - Per-team warming tasks remain a sequential Celery chain on the analytics-limited queue.
 - Shared-only scheduling still requires an enabled sharing configuration.
 

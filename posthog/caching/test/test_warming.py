@@ -1,11 +1,12 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import ANY, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.caching.warming import (
+    STALE_INSIGHT_CURSOR_TTL_SECONDS,
     _dashboard_warming_priority,
     _iter_stale_insights,
     insights_to_keep_fresh,
@@ -111,16 +112,35 @@ class TestWarming(APIBaseTest):
         assert priority > 0
         assert access_method == "legacy"
 
-    @patch("posthog.caching.warming.STALE_INSIGHT_SCAN_PAGE_SIZE", 2)
+    @patch("posthog.caching.warming.STALE_INSIGHT_SCAN_BUDGET", 2)
     @patch("posthog.caching.warming.redis.get_client")
-    def test_stale_insights_are_fetched_in_bounded_pages(self, mock_get_redis_client) -> None:
+    def test_stale_insight_scan_stops_at_budget_and_saves_cursor(self, mock_get_redis_client) -> None:
         current_time = datetime.now(UTC)
         redis_client = mock_get_redis_client.return_value
-        redis_client.zrevrangebyscore.side_effect = [[b"1:", b"2:"], [b"3:"], []]
+        redis_client.get.return_value = None
+        redis_client.zrevrangebyscore.return_value = [b"1:", b"2:"]
+        redis_client.zscore.return_value = 20.0
 
-        assert list(_iter_stale_insights(team_id=self.team.pk, current_time=current_time)) == ["1:", "2:", "3:"]
-        assert [call.kwargs["start"] for call in redis_client.zrevrangebyscore.call_args_list] == [0, 2, 3]
-        assert all(call.kwargs["num"] == 2 for call in redis_client.zrevrangebyscore.call_args_list)
+        assert list(_iter_stale_insights(team_id=self.team.pk, current_time=current_time)) == ["1:", "2:"]
+        assert redis_client.zrevrangebyscore.call_args.kwargs["num"] == 2
+        redis_client.set.assert_called_once_with(
+            f"cache_warming_cursor:{self.team.pk}",
+            '{"member": "2:", "score": 20.0}',
+            ex=STALE_INSIGHT_CURSOR_TTL_SECONDS,
+        )
+
+    @patch("posthog.caching.warming.STALE_INSIGHT_SCAN_BUDGET", 2)
+    @patch("posthog.caching.warming.redis.get_client")
+    def test_stale_insight_scan_resumes_after_cursor_member(self, mock_get_redis_client) -> None:
+        current_time = datetime.now(UTC)
+        redis_client = mock_get_redis_client.return_value
+        redis_client.get.return_value = b'{"member": "2:", "score": 20.0}'
+        redis_client.zscore.side_effect = [20.0, 10.0]
+        redis_client.zrevrank.return_value = 1
+        redis_client.zrevrange.return_value = [b"3:", b"4:"]
+
+        assert list(_iter_stale_insights(team_id=self.team.pk, current_time=current_time)) == ["3:", "4:"]
+        redis_client.zrevrange.assert_called_once_with(f"cache_timestamps:{self.team.pk}", 2, 3)
 
     @patch("posthog.caching.warming._iter_stale_insights")
     def test_insights_to_keep_fresh_no_stale_insights(self, mock_get_stale_insights):
@@ -246,32 +266,6 @@ class TestWarming(APIBaseTest):
         ]
 
         assert list(insights_to_keep_fresh(self.team)) == [(missed_api_insight.id, missed_api_dashboard.id)]
-
-    @patch("posthog.caching.warming.STALE_INSIGHT_SCAN_PAGE_SIZE", 2)
-    @patch("posthog.caching.warming.MAX_WARMING_CANDIDATES_PER_TEAM", 1)
-    @patch("posthog.caching.warming._iter_stale_insights")
-    def test_high_priority_candidate_beyond_first_scan_page_is_selected(self, mock_get_stale_insights) -> None:
-        current_time = datetime.now(UTC)
-        api_dashboard = Dashboard.objects.create(
-            team=self.team,
-            most_recent_access={"api": {"timestamp": current_time.isoformat(), "count": 1}},
-        )
-        human_dashboard = Dashboard.objects.create(
-            team=self.team,
-            most_recent_access={"human": {"timestamp": current_time.isoformat(), "count": 1}},
-        )
-        api_insight = Insight.objects.create(team=self.team)
-        human_insight = Insight.objects.create(team=self.team)
-        DashboardTile.objects.create(insight=api_insight, dashboard=api_dashboard)
-        DashboardTile.objects.create(insight=human_insight, dashboard=human_dashboard)
-        mock_get_stale_insights.return_value = [
-            f"{api_insight.id}:{api_dashboard.id}",
-            "999999:999999",
-            f"{human_insight.id}:{human_dashboard.id}",
-        ]
-
-        assert list(insights_to_keep_fresh(self.team)) == [(human_insight.id, human_dashboard.id)]
-        mock_get_stale_insights.assert_called_once_with(team_id=self.team.pk, current_time=ANY)
 
     @patch("posthog.caching.warming._iter_stale_insights")
     def test_shared_only_dashboard_candidates_use_shared_access_threshold(self, mock_get_stale_insights) -> None:

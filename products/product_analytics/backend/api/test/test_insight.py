@@ -548,7 +548,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         if expect_recorded_miss:
             most_recent_access = dashboard.most_recent_access
             assert isinstance(most_recent_access, dict)
-            self.assertEqual(most_recent_access["human"]["cache_miss_count"], 1)
+            self.assertIn("last_cache_miss_at", most_recent_access["human"])
         else:
             self.assertEqual(dashboard.most_recent_access, {})
         self.assertEqual(miss_counter._value.get(), miss_count_before + 1)
@@ -571,7 +571,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(hit_counter._value.get(), hit_count_before + 1)
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    @patch("products.product_analytics.backend.api.insight.cache.add", side_effect=[True, False])
+    @patch("products.dashboards.backend.access.cache.add", side_effect=[True, False])
     def test_only_cache_miss_claim_winner_persists_pressure(
         self, mock_cache_add: mock.MagicMock, mock_calculate: mock.MagicMock
     ) -> None:
@@ -587,8 +587,25 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         dashboard.refresh_from_db()
         most_recent_access = dashboard.most_recent_access
         assert isinstance(most_recent_access, dict)
-        self.assertEqual(most_recent_access["human"]["cache_miss_count"], 1)
+        self.assertIn("last_cache_miss_at", most_recent_access["human"])
         self.assertEqual(mock_cache_add.call_count, 2)
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @patch("products.dashboards.backend.access.cache.add", side_effect=TimeoutError("cache unavailable"))
+    def test_cache_miss_claim_failure_does_not_replace_insight_result(
+        self, _mock_cache_add: mock.MagicMock, mock_calculate: mock.MagicMock
+    ) -> None:
+        dashboard, insight = self._create_dashboard_insight()
+        mock_calculate.return_value = self._insight_result(is_cached=False)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/",
+            {"from_dashboard": str(dashboard.id)},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.most_recent_access, {})
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     def test_shared_force_blocking_records_miss_after_mode_remapping(self, mock_calculate: mock.MagicMock) -> None:
@@ -602,7 +619,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         dashboard.refresh_from_db()
         most_recent_access = dashboard.most_recent_access
         assert isinstance(most_recent_access, dict)
-        self.assertEqual(most_recent_access["embedded"]["cache_miss_count"], 1)
+        self.assertIn("last_cache_miss_at", most_recent_access["embedded"])
 
     def test_get_insight_in_shared_context(self) -> None:
         filter_dict = {
