@@ -17,7 +17,7 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from posthog.models.integration import GitHubIntegration
+from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
@@ -264,9 +264,19 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         # `repository` is `owner/repo`. Repo lists can be large, so push the search down to the cache
         # query (server-side) and cap the page — the picker searches as the user types rather than
         # loading every repo at once.
-        repositories, _has_more = GitHubIntegration(integration).list_cached_repositories(
-            search=search or "", limit=100, offset=0
-        )
+        try:
+            repositories, _has_more = GitHubIntegration(integration).list_cached_repositories(
+                search=search or "", limit=100, offset=0
+            )
+        except GitHubIntegrationError as e:
+            # The refresh talks to GitHub, which can reject the credentials, report a suspended
+            # installation, or return a transient non-JSON/5xx body from its edge. None of these are
+            # server bugs, so surface an actionable 400 rather than a 500 that only adds noise.
+            raise IntegrationAccountListingError(
+                "Couldn't load your GitHub repositories. GitHub may be temporarily unavailable, or your "
+                "connection may need refreshing. Please try again, and reconnect your GitHub account if the "
+                "problem persists."
+            ) from e
         return [
             IntegrationAccount(value=repo["full_name"], display_name=repo["full_name"])
             for repo in repositories
