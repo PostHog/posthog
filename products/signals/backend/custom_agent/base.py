@@ -337,10 +337,10 @@ Explain the impact/scope, not just the implementation size."""
 Rules:
 - Use GitHub logins only.
 - Prefer owners/authors supported by code paths, blame/commit evidence, or obvious domain ownership.
-- Prefer people recently active in the affected area: blame lines can be years old, and their \
-author may have moved on. When you have the repository checked out, verify with \
-`git log --since=90.days --format='%an %ae' -- <path>` (or similar) and prefer contributors who \
-show up there; do not suggest someone whose only connection is stale blame.
+- Prefer people recently active in the affected area: blame lines can be years old, and
+their author may have moved on. When you have the repository checked out, verify with
+`git log --since=90.days --format='%an %ae' -- <path>` (or similar) and prefer contributors
+who show up there; do not suggest someone whose only connection is stale blame.
 - Return an empty list when no clear assignee is supported.
 - Do not include placeholder users."""
 

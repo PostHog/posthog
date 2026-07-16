@@ -241,7 +241,7 @@ class _AreaContributor:
     days_since_last_commit: float
     last_commit_sha: str
     last_commit_url: str
-    area: str  # the area with their highest commit count, for evidence wording
+    area: str  # the area of the evidence (freshest) commit, for evidence wording
 
 
 def _relevant_area_activity(
@@ -306,12 +306,13 @@ def _merge_contributor(
             last_commit_url=incoming.last_commit_url,
             area=area,
         )
-    freshest = min(existing.days_since_last_commit, days_since)
-    keep_incoming_evidence = incoming.commit_count > existing.commit_count
+    # Evidence follows the freshest commit, so sha/url/area always agree with
+    # days_since_last_commit.
+    keep_incoming_evidence = days_since < existing.days_since_last_commit
     return _AreaContributor(
         name=existing.name or incoming.name,
         commit_count=existing.commit_count + incoming.commit_count,
-        days_since_last_commit=freshest,
+        days_since_last_commit=min(existing.days_since_last_commit, days_since),
         last_commit_sha=incoming.last_commit_sha if keep_incoming_evidence else existing.last_commit_sha,
         last_commit_url=incoming.last_commit_url if keep_incoming_evidence else existing.last_commit_url,
         area=area if keep_incoming_evidence else existing.area,
