@@ -79,8 +79,8 @@ export interface wizardCloudRunLogicActions {
     setSelectedRepository: (repository: string | null) => {
         repository: string | null
     }
-    startCloudRun: () => {
-        value: true
+    startCloudRun: (setupReview?: boolean) => {
+        setupReview: boolean
     }
     startCloudRunFailure: () => {
         value: true
