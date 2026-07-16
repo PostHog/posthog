@@ -42,8 +42,9 @@ class SonarqubeResumeConfig:
 def normalize_base_url(host: str) -> str:
     """Reduce user input to a validated SonarQube server base URL with no trailing slash or path.
 
-    Accepts a bare host or a full URL. Bare hosts default to https. Rejects anything without a
-    hostname so the stored token can only ever be sent to the configured instance.
+    Accepts a bare host or a full URL. Bare hosts default to https; plaintext http:// is rejected
+    because the token travels as a bearer header and must stay off the wire in the clear. Rejects
+    anything without a hostname so the stored token can only ever be sent to the configured instance.
     """
     cleaned = host.strip()
     if not cleaned:
@@ -51,11 +52,11 @@ def normalize_base_url(host: str) -> str:
     if "://" not in cleaned:
         cleaned = f"https://{cleaned}"
     parsed = urlparse(cleaned)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        raise ValueError(f"Invalid SonarQube server URL: {host}")
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise ValueError(f"Invalid SonarQube server URL (must be https): {host}")
     # Keep scheme + netloc only; drop any path/query the user pasted so we control the API paths.
     port = f":{parsed.port}" if parsed.port else ""
-    return f"{parsed.scheme}://{parsed.hostname}{port}"
+    return f"https://{parsed.hostname}{port}"
 
 
 def hostname_of(host: str) -> str:

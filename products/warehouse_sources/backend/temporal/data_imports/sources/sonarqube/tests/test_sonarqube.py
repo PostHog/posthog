@@ -28,13 +28,21 @@ class TestNormalizeBaseUrl:
             ("strips_path", "https://sonar.example.com/sonarqube/foo", "https://sonar.example.com"),
             ("keeps_port", "https://sonar.example.com:9000", "https://sonar.example.com:9000"),
             ("whitespace", "  https://sonar.example.com  ", "https://sonar.example.com"),
-            ("http_allowed", "http://sonar.internal", "http://sonar.internal"),
         ]
     )
     def test_valid(self, _name: str, value: str, expected: str) -> None:
         assert normalize_base_url(value) == expected
 
-    @parameterized.expand([("empty", ""), ("whitespace_only", "   "), ("scheme_only", "https://"), ("ftp", "ftp://x")])
+    @parameterized.expand(
+        [
+            ("empty", ""),
+            ("whitespace_only", "   "),
+            ("scheme_only", "https://"),
+            ("ftp", "ftp://x"),
+            # Plaintext http would put the bearer token on the wire in the clear.
+            ("http_rejected", "http://sonar.internal"),
+        ]
+    )
     def test_invalid_raises(self, _name: str, value: str) -> None:
         with pytest.raises(ValueError):
             normalize_base_url(value)
