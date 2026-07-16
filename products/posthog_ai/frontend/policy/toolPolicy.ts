@@ -6,14 +6,16 @@ import type { PermissionRequestRecord } from '../types/streamTypes'
 export { isPostHogExecTool } from '../components/tool/posthogExecDisplay'
 
 /**
- * Default sandbox tool-permission policy, ported from Twig
- * (`packages/agent/src/adapters/claude/permissions/posthog-exec-gate.ts`).
+ * Default sandbox tool-permission policy, mirroring the agent-server's exec gate
+ * (`packages/agent/src/adapters/claude/permissions/posthog-exec-gate.ts` in PostHog/code).
  *
- * The deployed agent-server runs in `default` mode and asks for approval on every PostHog `exec`
- * call. We mirror Twig's policy on the client instead: auto-approve every built-in (default) tool
- * and every PostHog `exec` operation EXCEPT the destructive ones (update/delete/destroy/
- * partial-update), which still surface the approval card. Non-PostHog MCP tools fall outside the
- * default-allow contract and also prompt.
+ * The web surface starts runs in `auto` mode (`INITIAL_PERMISSION_MODE`): the agent-server
+ * auto-runs built-ins (edits, shell) server-side and emits a `permission_request` for every
+ * PostHog `exec` call — including destructive sub-tools, which its gate deliberately does not
+ * skip in `auto` mode. This client policy decides those requests: auto-approve every `exec`
+ * operation EXCEPT the destructive ones (update/delete/destroy/partial-update), which surface
+ * the approval card. Built-ins are auto-approved too as a fallback for modes where the server
+ * does ask. Non-PostHog MCP tools fall outside the default-allow contract and also prompt.
  */
 
 /** A sub-tool is destructive when one of these verbs appears as a whole `-`-bounded segment. */
