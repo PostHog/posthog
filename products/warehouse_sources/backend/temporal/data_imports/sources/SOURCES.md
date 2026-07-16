@@ -145,6 +145,7 @@ the row lists both.
 | decagon                   | HTTP                        | requests                                                        | ✅                          |
 | deel                      | HTTP                        | requests                                                        | ✅                          |
 | deepgram                  | HTTP                        | requests                                                        | ✅                          |
+| deepsource                | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | delighted                 | HTTP                        | requests                                                        | ✅                          |
 | deno_deploy               | HTTP                        | requests                                                        | ✅                          |
 | devin_ai                  | HTTP                        | requests                                                        | ✅                          |
@@ -597,7 +598,6 @@ doesn't conflict with concurrent PRs.
 - datascope
 - datorama
 - db2
-- deepsource
 - deno_deploy
 - deputy
 - display_video_360
