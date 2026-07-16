@@ -489,7 +489,7 @@ pub fn message_first_party_hosts(
         return (Vec::new(), HostScanOutcome::StampUnusable);
     };
     let mut patterns: Vec<String> = Vec::new();
-    let mut add = |p: String, patterns: &mut Vec<String>| {
+    let add = |p: String, patterns: &mut Vec<String>| {
         if !patterns.contains(&p) {
             patterns.push(p);
         }
