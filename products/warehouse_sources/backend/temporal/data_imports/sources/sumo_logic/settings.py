@@ -83,6 +83,10 @@ SUMO_LOGIC_ENDPOINTS: dict[str, SumoLogicEndpointConfig] = {
         # Source ids are only unique within their collector, so the parent id is part of the key.
         primary_keys=["collector_id", "id"],
         fan_out_over_collectors=True,
+        # HTTP-source records carry a generated `url` that is itself a bearer credential for log
+        # ingestion — anyone with it can inject arbitrary logs into the account. Drop it so a
+        # warehouse reader sees the source metadata (id, name, type) without the ingestion secret.
+        redact_fields=frozenset({"url"}),
     ),
     "dashboards": SumoLogicEndpointConfig(name="dashboards", path="/v2/dashboards", data_key="dashboards"),
     "monitors": SumoLogicEndpointConfig(

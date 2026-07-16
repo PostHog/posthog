@@ -278,7 +278,10 @@ class TestOffsetPagination:
 
 
 class TestCollectorFanOut:
-    def test_rows_carry_collector_id(self) -> None:
+    def test_rows_carry_collector_id_and_drop_ingestion_url(self) -> None:
+        # An HTTP source's `url` is itself a bearer credential for log ingestion, so it must be
+        # redacted even though it arrives via the collector fan-out path; the parent collector id
+        # is still stitched onto every row.
         manager, _saved = _make_manager()
         requested: list[str] = []
 
@@ -288,7 +291,9 @@ class TestCollectorFanOut:
             if path.endswith("/v1/collectors"):
                 return _response({"collectors": [{"id": 1}, {"id": 2}]})
             if path.endswith("/v1/collectors/1/sources"):
-                return _response({"sources": [{"id": 10, "name": "s10"}]})
+                return _response(
+                    {"sources": [{"id": 10, "name": "s10", "url": "https://collectors.sumologic.com/receiver/secret"}]}
+                )
             if path.endswith("/v1/collectors/2/sources"):
                 return _response({"sources": [{"id": 10, "name": "other-s10"}]})
             raise AssertionError(f"unexpected URL {url}")
