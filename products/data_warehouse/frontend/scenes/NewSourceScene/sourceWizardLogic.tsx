@@ -174,6 +174,11 @@ export const buildKeaFormDefaultFromSourceDetails = (
             return
         }
 
+        if (field.type === 'oauth-account-select' && field.multiple) {
+            obj[field.name] = []
+            return
+        }
+
         // All other types
         obj[field.name] = ''
     }
@@ -221,6 +226,21 @@ export function shouldHydrateSourceFromUrl(
     urlAccessMethod: 'warehouse' | 'direct'
 ): boolean {
     return !(selectedConnector?.name === source.name && currentAccessMethod === urlAccessMethod && currentStep > 1)
+}
+
+/**
+ * Resolve the `direct_query_enabled` create-payload value. Synced direct-capable sources
+ * default to live queries enabled unless the toggle was switched off; the flag is omitted
+ * for pure direct sources (backend ignores it) and for sources that can't be live-queried.
+ */
+export function resolveCreateDirectQueryEnabled(
+    sourceValues: { access_method?: string; direct_query_enabled?: boolean },
+    connectorName: string
+): boolean | undefined {
+    if (!supportsDirectQuery(connectorName) || sourceValues.access_method === 'direct') {
+        return undefined
+    }
+    return sourceValues.direct_query_enabled !== false
 }
 
 function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | null | undefined): boolean {
@@ -556,6 +576,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 prefix: string
                 description: string
                 access_method: 'warehouse' | 'direct'
+                direct_query_enabled?: boolean
                 payload: Record<string, any>
             },
             {
@@ -564,6 +585,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         prefix: source.prefix ?? state.prefix,
                         description: source.description ?? state.description,
                         access_method: source.access_method ?? state.access_method,
+                        direct_query_enabled:
+                            'direct_query_enabled' in source ? source.direct_query_enabled : state.direct_query_enabled,
                         payload: {
                             ...state.payload,
                             ...source.payload,
@@ -1707,6 +1730,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     const payload: Record<string, any> = {
                         ...sourceValues,
                         access_method: isDirectQueryMode ? 'direct' : 'warehouse',
+                        direct_query_enabled: resolveCreateDirectQueryEnabled(
+                            sourceValues,
+                            values.selectedConnector.name
+                        ),
                         source_type: values.selectedConnector.name,
                     }
                     actions.setIsLoading(true)
@@ -1888,8 +1915,14 @@ export const getErrorsForFields = (
             return
         }
 
-        if ('required' in field && field.required && !valueObj[field.name]) {
-            errorsObj[field.name] = `Please enter a ${field.label.toLowerCase()}`
+        // An empty array is truthy, so multi-value fields (e.g. repo pickers) need their own
+        // emptiness check or `required` would pass with zero selections.
+        const fieldValue = valueObj[field.name]
+        const valueMissing = Array.isArray(fieldValue) ? fieldValue.length === 0 : !fieldValue
+        if ('required' in field && field.required && valueMissing) {
+            errorsObj[field.name] = Array.isArray(fieldValue)
+                ? `Please enter at least one of your ${field.label.toLowerCase()}`
+                : `Please enter a ${field.label.toLowerCase()}`
         }
     }
 

@@ -37,6 +37,10 @@ class CostLimitStatus(BaseModel):
 
 class AiCreditsStatus(BaseModel):
     exhausted: bool
+    # Org-level bucket spend this billing period. None means unknown (unsynced
+    # org, resolver fail-open) — clients must not render None as $0.
+    used_usd: float | None = None
+    limit_usd: float | None = None
 
 
 class UsageResponse(BaseModel):
@@ -47,6 +51,7 @@ class UsageResponse(BaseModel):
     ai_credits: AiCreditsStatus
     is_rate_limited: bool
     is_pro: bool
+    code_usage_subscribed: bool = False
     billing_period_end: datetime | None = None
 
 
@@ -138,9 +143,14 @@ async def get_usage(
         user_id=user.user_id,
         burst=burst_status,
         sustained=sustained_status,
-        ai_credits=AiCreditsStatus(exhausted=credits_exhausted),
+        ai_credits=AiCreditsStatus(
+            exhausted=credits_exhausted,
+            used_usd=quota_status.used_usd,
+            limit_usd=quota_status.limit_usd,
+        ),
         is_rate_limited=burst_status.exceeded or sustained_status.exceeded or credits_exhausted,
         is_pro=is_pro_plan(plan_info.plan_key),
+        code_usage_subscribed=quota_status.code_usage_billing_active,
         billing_period_end=billing_period_end,
     )
 

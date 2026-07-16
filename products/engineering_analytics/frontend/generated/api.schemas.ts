@@ -922,6 +922,86 @@ export interface GitHubSourceApi {
     prefix: string
 }
 
+export interface TeamTestSignalApi {
+    /** Reconstructed pytest nodeid (the CI span name), a stable grouping key. */
+    nodeid: string
+    /** Runnable pytest selector; exact when the CI reporter emitted it. */
+    selector: string
+    /** Failed + error + pass-on-retry spans in the current window (xfail excluded). */
+    signal_count: number
+    /** Same count over the equal-length window before date_from. */
+    signal_count_prior: number
+    /** Most recent signal span for this test, either window. */
+    last_seen_at: string
+}
+
+export interface TeamCIActivityApi {
+    /** The team's owned tests with signal in either window, ranked by the stronger window's count (the current-vs-prior pairs behind a before/after comparison). */
+    tests: TeamTestSignalApi[]
+    /** The team slug this activity is scoped to, or 'unowned'. */
+    owner_team: string
+    /** True when more owned tests had signal than the test cap. */
+    truncated_tests: boolean
+}
+
+export interface TeamCIHealthItemApi {
+    /** Owning team slug (the CODEOWNERS handle minus '@PostHog/', e.g. 'team-replay'), or the literal 'unowned' for tests whose spans carry no ownership stamp. */
+    owner_team: string
+    /** Owned tests meeting the flaky-leaderboard bar in the window (passed on retry or failed on enough distinct PRs). Compare with flaky_test_count_prior for the delta. */
+    flaky_test_count: number
+    /** Same count over the equal-length window immediately before date_from. */
+    flaky_test_count_prior: number
+    /** Signal spans on owned tests with final outcome 'failed' or 'error' in the window. An absolute count, not a rate: fast passing runs are not emitted. */
+    failed_count: number
+    /** Same count over the prior window. */
+    failed_count_prior: number
+    /** Spans on owned tests that failed, then passed on an automatic retry, the strongest flaky signal. Only rerun-enabled CI lanes emit it. */
+    rerun_passed_count: number
+    /** Same count over the prior window. */
+    rerun_passed_count_prior: number
+    /** Spans on owned tests that failed while quarantined (xfail): masked in CI but still flaky. */
+    xfailed_count: number
+    /** Same count over the prior window. */
+    xfailed_count_prior: number
+    /** Most recent signal span across the team's owned tests, either window. */
+    last_seen_at: string
+}
+
+export interface TeamCIHealthListApi {
+    /** Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. Teams are organizational owners of code surfaces; this never aggregates by author. */
+    items: TeamCIHealthItemApi[]
+    /** True when more teams had signal than the cap. */
+    truncated: boolean
+    /** Maximum number of teams returned in `items`. */
+    limit: number
+}
+
+export interface TeamMergeTrendPointApi {
+    /** Start of the day bucket (team timezone), keyed on merged_at. */
+    day: string
+    /**
+     * Median open→merge seconds of the PRs this team's members merged that day; null on a day the team merged nothing.
+     * @nullable
+     */
+    median_seconds: number | null
+    /**
+     * Average open→merge seconds over the same merges; diverges above the median when a few long-running PRs drag the mean. Null on a day the team merged nothing.
+     * @nullable
+     */
+    average_seconds: number | null
+    /** Merged PRs behind that day's median and average. */
+    merged_count: number
+}
+
+export interface TeamMergeTrendApi {
+    /** Daily median and average open→merge over the PRs this team's members merged, ascending by day. Coarse timing (open→merge combines draft and review time); bots excluded. */
+    points: TeamMergeTrendPointApi[]
+    /** The team slug this trend is scoped to. */
+    owner_team: string
+    /** False when the GitHub source has no team_members snapshot synced: the trend then has no honest team attribution and `points` is empty. */
+    has_membership_data: boolean
+}
+
 export interface WorkflowHealthBucketApi {
     /** Bucket start, aligned to the item's granularity (top of hour, midnight, or Monday). */
     bucket_start: string
@@ -1304,6 +1384,75 @@ export type EngineeringAnalyticsRunFailureLogsParams = {
      * Workflow run id whose failure logs to fetch.
      */
     run_id: number
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsTeamCiActivityParams = {
+    /**
+     * Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days. An equal-length prior window feeds the *_prior twins; near the 30-day ceiling that prior window can reach past Traces retention, deflating *_prior counts.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Owning team slug to scope to (as returned by team_ci_health), e.g. 'team-replay', or the literal 'unowned' for tests with no ownership stamp.
+     */
+    owner_team: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+    /**
+     * Maximum number of per-test signal rows to return (1-100). Defaults to 25.
+     */
+    test_limit?: number
+}
+
+export type EngineeringAnalyticsTeamCiHealthParams = {
+    /**
+     * Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days. An equal-length prior window is scanned for the *_prior twins; near the 30-day ceiling that prior window can reach past Traces retention, deflating *_prior counts and overstating deltas.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Maximum number of teams to return (1-200). Defaults to 100.
+     */
+    limit?: number
+    /**
+     * A test counts as flaky once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.
+     */
+    min_failed_prs?: number
+    /**
+     * A test counts as flaky once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.
+     */
+    min_rerun_passes?: number
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsTeamMergeTrendParams = {
+    /**
+     * Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Team slug to scope to (as returned by team_ci_health), matched against the GitHub org team slug of the source's team_members snapshot. The literal 'unowned' names an ownership gap, not an org team, and has no merge trend.
+     */
+    owner_team: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

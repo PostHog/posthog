@@ -31,6 +31,9 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequestList,
     RepoOverview,
     RunFailureLogs,
+    TeamCIActivity,
+    TeamCIHealthList,
+    TeamMergeTrend,
     WorkflowCost,
     WorkflowHealthItem,
     WorkflowHealthRunScope,
@@ -72,6 +75,11 @@ from products.engineering_analytics.backend.logic.queries.repo_overview import (
 )
 from products.engineering_analytics.backend.logic.queries.repo_run_activity import query_repo_run_activity
 from products.engineering_analytics.backend.logic.queries.resolve_branch import query_resolve_branch
+from products.engineering_analytics.backend.logic.queries.team_ci_health import (
+    query_team_ci_activity,
+    query_team_ci_health,
+)
+from products.engineering_analytics.backend.logic.queries.team_merge_trend import query_team_merge_trend
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
 from products.engineering_analytics.backend.logic.queries.workflow_jobs import query_workflow_jobs
 from products.engineering_analytics.backend.logic.queries.workflow_run import query_workflow_run
@@ -104,6 +112,15 @@ _DEFAULT_FLAKY_MIN_RERUN_PASSES = 1
 _DEFAULT_FLAKY_MIN_FAILED_PRS = 3
 _DEFAULT_FLAKY_LIMIT = 50
 _MAX_FLAKY_LIMIT = 200
+
+# Team CI health rollups scan the current window plus an equal-length prior twin, so the
+# default sits below the flaky ceiling to keep both windows inside Traces retention. At the
+# 30d cap the prior twin reaches past retention and *_prior counts read low.
+_DEFAULT_TEAM_WINDOW = "-14d"
+_DEFAULT_TEAM_LIMIT = 100
+_MAX_TEAM_LIMIT = 200
+_DEFAULT_TEAM_TEST_LIMIT = 25
+_MAX_TEAM_TEST_LIMIT = 100
 
 # Broken-tests panel: a fixed short window (not caller-tunable in v1, like current_branch_health).
 # Two days keeps the logs-cluster scan light while still spanning the classifier's boundaries — a
@@ -324,6 +341,84 @@ def build_flaky_tests(
         date_to=parsed_to,
         min_failed_prs=min_failed_prs,
         limit=limit,
+    )
+
+
+def build_team_ci_health(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    min_rerun_passes: int | None = None,
+    min_failed_prs: int | None = None,
+    limit: int | None = None,
+) -> TeamCIHealthList:
+    parsed_from, parsed_to = _parse_window(
+        curated.team, date_from, date_to, default=_DEFAULT_TEAM_WINDOW, max_days=_MAX_FLAKY_WINDOW_DAYS
+    )
+    min_rerun_passes = min_rerun_passes if min_rerun_passes is not None else _DEFAULT_FLAKY_MIN_RERUN_PASSES
+    min_failed_prs = min_failed_prs if min_failed_prs is not None else _DEFAULT_FLAKY_MIN_FAILED_PRS
+    # Same explicit-positive-bar rule as the flaky leaderboard: a zero threshold would
+    # silently qualify every test with any signal span.
+    if min_rerun_passes < 1 or min_failed_prs < 1:
+        raise ValueError("min_rerun_passes and min_failed_prs must be at least 1")
+    limit = limit if limit is not None else _DEFAULT_TEAM_LIMIT
+    if not 1 <= limit <= _MAX_TEAM_LIMIT:
+        raise ValueError(f"limit must be between 1 and {_MAX_TEAM_LIMIT}")
+    return query_team_ci_health(
+        curated=curated,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        min_rerun_passes=min_rerun_passes,
+        min_failed_prs=min_failed_prs,
+        limit=limit,
+    )
+
+
+def build_team_ci_activity(
+    *,
+    curated: CuratedGitHubSource,
+    owner_team: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    test_limit: int | None = None,
+) -> TeamCIActivity:
+    normalized_team = owner_team.strip()
+    if not normalized_team:
+        raise ValueError("owner_team is required")
+    parsed_from, parsed_to = _parse_window(
+        curated.team, date_from, date_to, default=_DEFAULT_TEAM_WINDOW, max_days=_MAX_FLAKY_WINDOW_DAYS
+    )
+    test_limit = test_limit if test_limit is not None else _DEFAULT_TEAM_TEST_LIMIT
+    if not 1 <= test_limit <= _MAX_TEAM_TEST_LIMIT:
+        raise ValueError(f"test_limit must be between 1 and {_MAX_TEAM_TEST_LIMIT}")
+    return query_team_ci_activity(
+        curated=curated,
+        owner_team=normalized_team,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        test_limit=test_limit,
+    )
+
+
+def build_team_merge_trend(
+    *,
+    curated: CuratedGitHubSource,
+    owner_team: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> TeamMergeTrend:
+    normalized_team = owner_team.strip()
+    if not normalized_team:
+        raise ValueError("owner_team is required")
+    parsed_from, parsed_to = _parse_window(
+        curated.team, date_from, date_to, default=_DEFAULT_TEAM_WINDOW, max_days=_MAX_FLAKY_WINDOW_DAYS
+    )
+    return query_team_merge_trend(
+        curated=curated,
+        owner_team=normalized_team,
+        date_from=parsed_from,
+        date_to=parsed_to,
     )
 
 

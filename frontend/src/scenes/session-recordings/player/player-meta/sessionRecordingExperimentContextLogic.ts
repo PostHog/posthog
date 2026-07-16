@@ -18,6 +18,18 @@ export interface SessionRecordingExperimentContextLogicProps {
     sessionRecordingId: string
 }
 
+export function isControlVariant(item: ExperimentSessionContextItemApi): boolean {
+    return item.variant.toLowerCase() === 'control'
+}
+
+// Lower rank sorts first: multi-variant (a bias signal) → a non-control variant the session saw → control.
+export function experimentSignalRank(item: ExperimentSessionContextItemApi): number {
+    if (item.multiple_variants) {
+        return 0
+    }
+    return isControlVariant(item) ? 2 : 1
+}
+
 export const sessionRecordingExperimentContextLogic = kea<sessionRecordingExperimentContextLogicType>([
     path((key) => [
         'scenes',
@@ -62,10 +74,46 @@ export const sessionRecordingExperimentContextLogic = kea<sessionRecordingExperi
             (s) => [s.experimentContext],
             (experimentContext): ExperimentSessionContextItemApi[] => experimentContext?.results ?? [],
         ],
-        hasExperimentContext: [(s) => [s.experimentItems], (experimentItems): boolean => experimentItems.length > 0],
-        hasMultipleVariantWarning: [
+        // Experiments whose flag was evaluated during this recording — these have a moment on the timeline to jump to.
+        seenItems: [
             (s) => [s.experimentItems],
-            (experimentItems): boolean => experimentItems.some((item) => item.multiple_variants),
+            (experimentItems: ExperimentSessionContextItemApi[]): ExperimentSessionContextItemApi[] =>
+                experimentItems
+                    .filter((item) => item.first_flag_evaluation_timestamp != null)
+                    .sort(
+                        (a, b) =>
+                            experimentSignalRank(a) - experimentSignalRank(b) ||
+                            (a.first_flag_evaluation_timestamp ?? '').localeCompare(
+                                b.first_flag_evaluation_timestamp ?? ''
+                            )
+                    ),
+        ],
+        // Experiments the person is enrolled in but with no flag evaluation in this session (carried over from an earlier one).
+        enrolledItems: [
+            (s) => [s.experimentItems],
+            (experimentItems: ExperimentSessionContextItemApi[]): ExperimentSessionContextItemApi[] =>
+                experimentItems
+                    .filter((item) => item.first_flag_evaluation_timestamp == null)
+                    .sort(
+                        (a, b) =>
+                            experimentSignalRank(a) - experimentSignalRank(b) ||
+                            a.experiment_name.localeCompare(b.experiment_name)
+                    ),
+        ],
+        seenCount: [(s) => [s.seenItems], (seenItems: ExperimentSessionContextItemApi[]): number => seenItems.length],
+        enrolledCount: [
+            (s) => [s.enrolledItems],
+            (enrolledItems: ExperimentSessionContextItemApi[]): number => enrolledItems.length,
+        ],
+        hasExperimentContext: [
+            (s) => [s.experimentItems],
+            (experimentItems: ExperimentSessionContextItemApi[]): boolean => experimentItems.length > 0,
+        ],
+        // Scoped to seenItems: this warns the chip that summarizes only in-recording experiments, so a
+        // carried-over enrollment that saw multiple variants must not trigger the warning.
+        hasMultipleVariantWarning: [
+            (s) => [s.seenItems],
+            (seenItems: ExperimentSessionContextItemApi[]): boolean => seenItems.some((item) => item.multiple_variants),
         ],
     }),
     // Feature flags can arrive after the player mounts (posthog-js loads them asynchronously),

@@ -1,8 +1,7 @@
 """HogQL aggregation of per-test CI spans into the active test-health queue.
 
-Backend CI emits one OTel span per test into the Traces store (span name = reconstructed pytest
-nodeid, ``test.outcome`` span attribute, ``ci.*`` resource attributes, see
-``.github/scripts/report_test_timings.py``).
+Embeds the shared per-test span scan (``_test_spans``, the one definition of the service fence,
+signal outcomes, and repository scoping), grouped at run grain.
 
 The grain is the CI run, not the span and not the run attempt:
 
@@ -33,12 +32,11 @@ from products.engineering_analytics.backend.facade.contracts import (
     FlakyTestList,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
-
-# Only test spans carry test.outcome, so this also filters out job-root and setup spans.
-_SIGNAL_OUTCOMES = ["failed", "error", "rerun_passed", "xfailed"]
-
-# Without this, any team span carrying a test.outcome attribute would pollute the aggregation.
-_CI_SERVICE_NAME = "ci-backend"
+from products.engineering_analytics.backend.logic.queries._test_spans import (
+    scan_placeholders,
+    selector_from_nodeid,
+    span_scan,
+)
 
 _SELECT = """
     SELECT
@@ -83,30 +81,7 @@ _SELECT = """
                 max(outcome = 'xfailed') AS trial_quarantined,
                 max(outcome = 'passed') AND NOT trial_failed AS trial_passed,
                 max(span_timestamp) AS trial_at
-            FROM (
-                SELECT
-                    name AS nodeid,
-                    attributes['test.selector'] AS selector,
-                    attributes['test.outcome'] AS outcome,
-                    resource_attributes['ci.run_id'] AS run_id,
-                    ifNull(accurateCastOrNull(resource_attributes['ci.run_attempt'], 'Int64'), 1) AS attempt,
-                    resource_attributes['ci.pr_number'] AS pr_number,
-                    resource_attributes['ci.branch'] AS branch,
-                    timestamp AS span_timestamp
-                FROM posthog.trace_spans
-                WHERE service_name = {service_name}
-                    AND lower(resource_attributes['ci.repository']) = lower({repository})
-                    AND timestamp >= {date_from} __DATE_TO__
-                    AND (
-                        attributes['test.outcome'] IN {signal_outcomes}
-                        -- A first attempt's pass can never prove a recovery, and the passing corpus
-                        -- dwarfs the signal one, so it is never scanned.
-                        OR (
-                            attributes['test.outcome'] = 'passed'
-                            AND resource_attributes['ci.run_attempt'] NOT IN ('', '1')
-                        )
-                    )
-            )
+            FROM (__SPAN_SCAN__)
             GROUP BY nodeid, run_id, attempt
         )
         GROUP BY nodeid, run_id
@@ -126,26 +101,6 @@ _SELECT = """
 """
 
 
-def _selector_from_nodeid(nodeid: str) -> str:
-    """Best-effort runnable pytest selector for a span the CI reporter emitted before it stamped
-    ``test.selector``. The nodeid folds the file/class boundary into '/' and drops '.py'
-    ('posthog/api/test/test_x/TestX::test_y'); re-split on the convention that class segments are
-    CamelCase and everything before them is the module file. Newer spans skip this, they carry the
-    exact selector, built from JUnit's ``file`` where the boundary isn't guessed. Removable once every
-    in-retention span carries ``test.selector`` (i.e. the emitter has been live longer than Traces
-    retention).
-    """
-    class_path, sep, test_part = nodeid.partition("::")
-    if not sep or "/" not in class_path:
-        return nodeid
-    segments = class_path.split("/")
-    module_end = len(segments)
-    while module_end > 1 and segments[module_end - 1][:1].isupper():
-        module_end -= 1
-    module = "/".join(segments[:module_end]) + ".py"
-    return "::".join([module, *segments[module_end:], test_part])
-
-
 def query_flaky_tests(
     *,
     curated: CuratedGitHubSource,
@@ -161,21 +116,13 @@ def query_flaky_tests(
     if not repository:
         return FlakyTestList(items=[], truncated=False, limit=limit)
 
-    date_to_clause = "AND timestamp <= {date_to}" if date_to is not None else ""
-    placeholders: dict[str, ast.Expr] = {
-        "service_name": ast.Constant(value=_CI_SERVICE_NAME),
-        "signal_outcomes": ast.Constant(value=_SIGNAL_OUTCOMES),
-        "repository": ast.Constant(value=repository),
-        "date_from": ast.Constant(value=date_from),
-        "min_failed_prs": ast.Constant(value=min_failed_prs),
-        # +1 so a full page tells us more tests qualified than returned.
-        "limit_plus_one": ast.Constant(value=limit + 1),
-    }
-    if date_to is not None:
-        placeholders["date_to"] = ast.Constant(value=date_to)
+    placeholders = scan_placeholders(repository=repository, date_from=date_from, date_to=date_to)
+    placeholders["min_failed_prs"] = ast.Constant(value=min_failed_prs)
+    # +1 so a full page tells us more tests qualified than returned.
+    placeholders["limit_plus_one"] = ast.Constant(value=limit + 1)
 
     response = curated.run(
-        _SELECT.replace("__DATE_TO__", date_to_clause),
+        _SELECT.replace("__SPAN_SCAN__", span_scan(bounded=date_to is not None, with_run_attempts=True)),
         query_type="engineering_analytics.flaky_tests",
         placeholders=placeholders,
         # trace_spans lives on the LOGS ClickHouse cluster, not the warehouse default.
@@ -187,7 +134,7 @@ def query_flaky_tests(
             FlakyTestItem(
                 nodeid=nodeid,
                 # Prefer the emitter's exact selector; reconstruct from the nodeid for older spans.
-                selector=selector or _selector_from_nodeid(nodeid),
+                selector=selector or selector_from_nodeid(nodeid),
                 classification=FlakyTestClassification(classification),
                 same_commit_recovery_run_count=same_commit_recovery_run_count,
                 failed_run_count=failed_run_count,

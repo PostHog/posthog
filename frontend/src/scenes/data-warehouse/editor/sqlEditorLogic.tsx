@@ -86,6 +86,7 @@ import { validateEndpointName } from 'products/endpoints/frontend/common'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
 import { dataModelingLogic } from '../scene/dataModelingLogic'
+import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { draftsLogic } from './draftsLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import { findInnermostSelectAtOffset, findQueryAtCursor, type QueryRange, splitQueries } from './multiQueryUtils'
@@ -469,6 +470,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['featureFlags'],
             sourcesDataLogic,
             ['dataWarehouseSources'],
+            connectionSelectorLogic,
+            ['connectionOptions'],
             databaseTableListLogic,
             ['database', 'databaseLoading', 'connectionId as databaseConnectionId'],
             outputPaneLogic({ tabId: props.tabId }),
@@ -497,6 +500,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
             databaseTableListLogic,
             ['setConnection', 'loadDatabase'],
+            connectionSelectorLogic,
+            ['loadConnectionOptionsSuccess', 'maybeLoadConnectionOptions'],
         ],
     })),
     actions(() => ({
@@ -642,6 +647,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setEditorSource: (source: SqlEditorSource) => ({ source }),
         runSubquery: true,
         setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
+        enforceConnectionRawQueryMode: true,
         setDashboardId: (dashboardId: number | null) => ({ dashboardId }),
         openMaterializationModal: (view?: DataWarehouseSavedQuery) => ({
             view,
@@ -1140,6 +1146,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     },
                 })
                 actions.syncUrlWithQuery()
+            },
+            enforceConnectionRawQueryMode: () => {
+                // Raw-only connections cannot compile HogQL — force raw SQL mode.
+                if (
+                    values.selectedConnectionId &&
+                    !values.selectedConnectionSupportsHogQL &&
+                    !values.sourceQuery.source.sendRawQuery
+                ) {
+                    actions.setSendRawQuery(true)
+                }
+            },
+            // Options can load after a connection was restored from the URL.
+            loadConnectionOptionsSuccess: () => {
+                actions.enforceConnectionRawQueryMode()
             },
             runSubquery: async () => {
                 if (!props.editor) {
@@ -2119,6 +2139,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             cache.lastSelectedConnectionId = selectedConnectionId
             actions.setConnection(selectedConnectionId ?? null)
             actions.loadDatabase()
+            if (selectedConnectionId) {
+                // Capability data must load wherever a connection is in play — including
+                // surfaces that never render the connection selector.
+                actions.maybeLoadConnectionOptions()
+            }
+            actions.enforceConnectionRawQueryMode()
         },
     })),
     selectors({
@@ -2210,6 +2236,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         sendRawQueryEnabled: [
             (s) => [s.sourceQuery, s.selectedConnectionId],
             (sourceQuery, selectedConnectionId) => !!selectedConnectionId && (sourceQuery.source.sendRawQuery ?? false),
+        ],
+        selectedConnectionSupportsHogQL: [
+            (s) => [s.connectionOptions, s.selectedConnectionId],
+            (connectionOptions, selectedConnectionId): boolean => {
+                if (!selectedConnectionId) {
+                    return true
+                }
+                const option = connectionOptions?.find((option) => option.id === selectedConnectionId)
+                // Unknown connections (options still loading) default to HogQL.
+                return option ? option.supports_hogql !== false : true
+            },
         ],
         isEditingMaterializedView: [
             (s) => [s.editingView],
