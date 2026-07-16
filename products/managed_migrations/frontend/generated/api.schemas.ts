@@ -164,7 +164,7 @@ export interface PaginatedBatchImportSupportListListApi {
 export type BatchImportSupportDetailApiState = { [key: string]: unknown } | null
 
 /**
- * Source/format/sink configuration of the job. References secrets by key name only; secret values are never returned.
+ * Source/format/sink configuration of the job. References secrets by key name only; secret values are never returned. Embedded URLs (e.g. a custom S3 endpoint_url) have their query string and userinfo redacted.
  * @nullable
  */
 export type BatchImportSupportDetailApiImportConfig = { [key: string]: unknown } | null
@@ -267,7 +267,7 @@ export interface BatchImportSupportDetailApi {
      */
     readonly state: BatchImportSupportDetailApiState
     /**
-     * Source/format/sink configuration of the job. References secrets by key name only; secret values are never returned.
+     * Source/format/sink configuration of the job. References secrets by key name only; secret values are never returned. Embedded URLs (e.g. a custom S3 endpoint_url) have their query string and userinfo redacted.
      * @nullable
      */
     readonly import_config: BatchImportSupportDetailApiImportConfig

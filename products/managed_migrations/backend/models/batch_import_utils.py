@@ -35,6 +35,23 @@ def redact_part_key(key: object) -> object:
         return "[unparseable-url-redacted]"
 
 
+def redact_urls_in_json(value: object) -> object:
+    """Recursively redact credential-bearing URL components in a JSON-shaped value.
+
+    Applies `redact_urls_in_text` to every string leaf. Used on worker/operator-owned
+    blobs (state, import_config) before they serialize into support responses, so any
+    URL-bearing field - part keys, a custom S3 endpoint_url with userinfo, or fields
+    added later - gets the same treatment without per-field allowlisting.
+    """
+    if isinstance(value, str):
+        return redact_urls_in_text(value)
+    if isinstance(value, dict):
+        return {k: redact_urls_in_json(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [redact_urls_in_json(v) for v in value]
+    return value
+
+
 def redact_urls_in_text(text: Optional[str]) -> Optional[str]:
     """Redact credential-bearing components of any URL embedded in free text.
 

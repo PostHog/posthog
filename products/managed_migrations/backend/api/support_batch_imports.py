@@ -15,6 +15,7 @@ from products.managed_migrations.backend.models.batch_import_utils import (
     extract_batch_import_info,
     get_batch_import_created_by_info,
     redact_part_key,
+    redact_urls_in_json,
     redact_urls_in_text,
 )
 from products.managed_migrations.backend.models.batch_imports import BatchImport
@@ -22,11 +23,6 @@ from products.managed_migrations.backend.models.batch_imports import BatchImport
 logger = structlog.get_logger(__name__)
 
 DISPLAY_STATUSES = ["waiting_to_start", "running", "paused", "failed", "completed"]
-
-
-@extend_schema_field({"type": "object", "nullable": True})
-class RawJSONField(serializers.JSONField):
-    """JSON blob passed through untyped: the shape is owned by the Rust batch-import worker."""
 
 
 class BatchImportPartsProgressSerializer(serializers.Serializer):
@@ -197,9 +193,8 @@ class BatchImportSupportDetailSerializer(BatchImportSupportListSerializer):
     state = serializers.SerializerMethodField(
         help_text="Raw worker progress blob: {'parts': [{'key', 'current_offset', 'total_size'}]}. A part is done when current_offset >= total_size; parts are processed in order. URL part keys (url_list sources) have their query string and userinfo redacted, since those can carry presigned tokens or credentials.",
     )
-    import_config = RawJSONField(
-        read_only=True,
-        help_text="Source/format/sink configuration of the job. References secrets by key name only; secret values are never returned.",
+    import_config = serializers.SerializerMethodField(
+        help_text="Source/format/sink configuration of the job. References secrets by key name only; secret values are never returned. Embedded URLs (e.g. a custom S3 endpoint_url) have their query string and userinfo redacted.",
     )
     created_by_email = serializers.SerializerMethodField(
         help_text="Email of the user who created the import, if known."
@@ -213,16 +208,12 @@ class BatchImportSupportDetailSerializer(BatchImportSupportListSerializer):
         return email
 
     @extend_schema_field({"type": "object", "nullable": True})
-    def get_state(self, obj: BatchImport) -> dict | None:
-        if obj.state is None:
-            return None
-        if not isinstance(obj.state, dict):
-            return obj.state
-        parts = obj.state.get("parts")
-        if not isinstance(parts, list):
-            return obj.state
-        redacted_parts = [{**p, "key": redact_part_key(p.get("key"))} if isinstance(p, dict) else p for p in parts]
-        return {**obj.state, "parts": redacted_parts}
+    def get_state(self, obj: BatchImport) -> object:
+        return redact_urls_in_json(obj.state)
+
+    @extend_schema_field({"type": "object", "nullable": True})
+    def get_import_config(self, obj: BatchImport) -> object:
+        return redact_urls_in_json(obj.import_config)
 
 
 class UnscopedPersonalAPIKeyPermission(BasePermission):

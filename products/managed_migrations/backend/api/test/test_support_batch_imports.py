@@ -13,7 +13,11 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.managed_migrations.backend.api.support_batch_imports import BatchImportSupportDetailSerializer
-from products.managed_migrations.backend.models.batch_import_utils import redact_part_key, redact_urls_in_text
+from products.managed_migrations.backend.models.batch_import_utils import (
+    redact_part_key,
+    redact_urls_in_json,
+    redact_urls_in_text,
+)
 from products.managed_migrations.backend.models.batch_imports import BatchImport, ContentType
 
 
@@ -65,6 +69,23 @@ class TestRedactPartKey(SimpleTestCase):
     )
     def test_redact_urls_in_text(self, _name, text, expected):
         self.assertEqual(redact_urls_in_text(text), expected)
+
+    def test_redact_urls_in_json_walks_nested_structures(self):
+        blob = {
+            "source": {"type": "s3", "endpoint_url": "https://u:p@minio.example.com?token=x", "prefix": "a/b"},
+            "parts": [{"key": "https://a.com/x?sig=1", "current_offset": 0}],
+            "count": 3,
+            "flag": None,
+        }
+        self.assertEqual(
+            redact_urls_in_json(blob),
+            {
+                "source": {"type": "s3", "endpoint_url": "https://minio.example.com", "prefix": "a/b"},
+                "parts": [{"key": "https://a.com/x", "current_offset": 0}],
+                "count": 3,
+                "flag": None,
+            },
+        )
 
 
 class TestBatchImportSupportAPI(APIBaseTest):
@@ -297,7 +318,13 @@ class TestBatchImportSupportAPI(APIBaseTest):
             status=BatchImport.Status.RUNNING,
             lease_id="worker-lease",
             state={"parts": [{"key": secret_url, "current_offset": 0, "total_size": None}]},
-            import_config={"source": {"type": "url_list", "urls_key": "urls"}},
+            import_config={
+                "source": {
+                    "type": "url_list",
+                    "urls_key": "urls",
+                    "endpoint_url": "https://cfguser:cfgsecret@minio.example.com?token=topsecret",
+                }
+            },
             status_message=f"Parsing data in file '{secret_url}' failed: invalid JSON",
             display_status_message=f"Part {secret_url} begins with gzip-compressed data",
         )
@@ -309,9 +336,11 @@ class TestBatchImportSupportAPI(APIBaseTest):
         row = next(r for r in list_response.json()["results"] if r["id"] == str(batch_import.id))
         self.assertEqual(row["parts_progress"]["inflight_key"], redacted)
         self.assertEqual(detail_response.json()["state"]["parts"][0]["key"], redacted)
+        self.assertEqual(detail_response.json()["import_config"]["source"]["endpoint_url"], "https://minio.example.com")
         for content in (list_response.content, detail_response.content):
             self.assertNotIn(b"secretpass", content)
             self.assertNotIn(b"topsecret", content)
+            self.assertNotIn(b"cfgsecret", content)
         batch_import.refresh_from_db()
         assert batch_import.state is not None
         self.assertEqual(batch_import.state["parts"][0]["key"], secret_url)
