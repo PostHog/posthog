@@ -2419,6 +2419,65 @@ first so the latest fixes are loaded.
 
 ---
 
+### ⏭️ Stage 5c — UI trigger: review any accessible `posthog/*` PR from the Code review scene (DESIGNED 2026-07-16, not built)
+
+> **Status: DESIGNED (decision round with the maintainer, 2026-07-16), not yet built.** Design recorded here
+> before implementation, per this doc's convention.
+
+**Motivation.** The label trigger needs `.github/workflows/review-hog.yml` in every repo it serves — only
+`PostHog/posthog` has it, so every other `posthog/*` repo is out of reach unless we replicate the workflow
+file across the org. Instead: a **"Review this PR"** field in the Code review scene that starts the same
+server-side review for any PR the team's GitHub App installation can access — no per-repo CI configuration
+at all. Everything below the trigger already supports this: `_build_inputs` takes any `owner/repo`, the
+fetch activity resolves the installation token per repository (`first_for_team_repository`), fork rejection
+is authoritative server-side, and the deterministic per-PR workflow id + `USE_EXISTING` absorbs re-triggers.
+
+**Decisions locked (maintainer, 2026-07-16):**
+
+- **Always publish — no per-run toggle.** The UI trigger is label-path parity for repos the label can't
+  reach; `publish=True` is fixed. Results are additionally viewable in the findings drawer as usual.
+- **Team gate = `settings.REVIEWHOG_TEAM_ID` only** (prod team 2; local team 1). The endpoint rejects any
+  other team. No server-side feature-flag check — the scene's `REVIEW_HOG` flag gates discoverability only,
+  and the hard team check bounds the cost surface for now. Widening beyond the dogfood team is a later,
+  deliberate decision.
+- **Requester wins.** The acting user is the requesting PostHog user via the existing `acting_user_id`
+  override (`resolved_from="override"`): their perspectives / blind-spots / validator / urgency threshold
+  drive the run, and the report lands in their "For you" recent-reviews scope. The PR author's
+  `review_labeled_prs` opt-out stays label-only (its copy is label-specific; an explicit human ask is like
+  a manual CLI run). The GitHub author can be anyone, including a bot — no author→user mapping is needed.
+- **Repo scope = installation access, not a hardcoded org list.**
+  `GitHubIntegration.first_for_team_repository(team_id, repository)` is the boundary — for team 2 that IS
+  the `posthog` org — checked **synchronously at trigger time** so an inaccessible repo 400s immediately
+  with a clear message. The label endpoint's "no GitHub I/O" principle deliberately does not apply here:
+  that endpoint has the Action's upstream gates; the UI has none, and a silent async failure (the fetch
+  activity fails before the report row exists) would leave the user staring at nothing.
+
+**Design shape (v1):**
+
+- **New team-scoped, session-authenticated trigger action** (e.g. `POST` `trigger` on the
+  `review_hog/reviews` viewset), taking `pr_url`. The unscoped shared-secret `ReviewHogTriggerViewSet` and
+  its `ALLOWED_REPOS` stay untouched as the CI interface — the two callers have different auth and scope
+  rules, so they don't share an endpoint.
+- Sync pre-checks in the action: parse the URL (`PRParser`), team gate, installation-access check (above).
+  Optionally one PR-meta fetch to reject 404s/forks synchronously — authoritative fork rejection stays in
+  the fetch activity either way. Drafts remain reviewable + publishable (existing posture; the UI copy
+  should say the review is posted to the PR).
+- `start_review_pr_workflow(pr_url=…, publish=True, acting_user_id=request.user.id,
+  trigger_source=TRIGGER_UI)` with `user_id = request.user.id` too (inbox precedent: the run user must be a
+  real active org member — the requester is one by construction). New `TRIGGER_UI = "ui"` constant beside
+  label/inbox/manual; ungated in the workflow's gate map (explicit ask); update the `trigger_source`
+  comment on `ReviewReport`.
+- **Frontend:** a PR-URL input + submit button in `CodeReviewScene` near "Your recent reviews"
+  (`reviewHogSettingsLogic` action + generated client; button disabled/loading in flight). On 202, reload
+  the recent-reviews list — the row appears once the fetch activity creates the report, and the existing
+  in-progress poll takes over. Hide the field when the trigger isn't available for the team (surface a
+  `can_trigger` boolean, e.g. on the settings GET, computed from the team gate).
+- **Accepted / out of scope for v1:** no rate limit beyond the per-PR workflow-id dedupe (internal dogfood
+  team; revisit if abused); PR URLs only (no branch targets from the UI); the label Action keeps working
+  unchanged for `PostHog/posthog`.
+
+---
+
 ### ✅ Stage 6 — Inbox trigger: auto-review self-driving implementations (BUILT 2026-07-02, trigger redesigned + dogfood e2e ✅ 2026-07-03)
 
 > **Status: BUILT + e2e'd, uncommitted.** (The implementation spec, `STAGE_6_PLAN.md`, was deleted
