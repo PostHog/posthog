@@ -197,7 +197,7 @@ class Command(BaseCommand):
             "search.aol.com",
             "www.kidzsearch.com",
             "directsearch.io",
-            "search-results-now.com"
+            "search-results-now.com",
             # this showed up for some customers and after some head scratching, rot13(tbbtyf) = googls
             # I also googled this and most of the results were people asking what this was
             "tbbtyf",
