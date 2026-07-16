@@ -453,6 +453,11 @@ class DataWarehouseSavedQuerySerializer(
                     view.set_columns(columns)
 
                 view.external_tables = view.s3_tables
+            except ExposedHogQLError as e:
+                # Expected, user-facing query errors — e.g. the query references a table the
+                # user can't access. Surface straight to the user as a 400 without capturing,
+                # so access-control denials don't pollute error tracking.
+                raise serializers.ValidationError(str(e))
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to retrieve types for view %s", view.name)
@@ -596,6 +601,11 @@ class DataWarehouseSavedQuerySerializer(
                     view.external_tables = view.s3_tables
                 except RecursionError:
                     raise serializers.ValidationError("Model contains a cycle")
+                except ExposedHogQLError as e:
+                    # Expected, user-facing query errors — e.g. the query references a table the
+                    # user can't access. Surface straight to the user as a 400 without capturing,
+                    # so access-control denials don't pollute error tracking.
+                    raise serializers.ValidationError(str(e))
                 except Exception as e:
                     capture_exception(e)
                     logger.exception("Failed to retrieve types for view %s", view.name)
