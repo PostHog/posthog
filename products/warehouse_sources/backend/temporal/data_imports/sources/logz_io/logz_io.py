@@ -105,7 +105,11 @@ def validate_credentials(api_token: str, region: str | None, schema_name: str | 
     base_url = base_url_for_region(region)
     url = f"{base_url}/v2/alerts"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_token), timeout=10)
+        # X-API-TOKEN isn't in the tracked transport's auth-header denylist, so the raw token must be
+        # registered for redaction or sample capture would persist it.
+        response = make_tracked_session(redact_values=(api_token,)).get(
+            url, headers=_get_headers(api_token), timeout=10
+        )
     except Exception:
         return False, "Could not reach Logz.io. Check the selected region and try again."
 
@@ -273,7 +277,9 @@ def get_rows(
     config = LOGZIO_ENDPOINTS[endpoint]
     base_url = base_url_for_region(region)
     headers = _get_headers(api_token)
-    session = make_tracked_session()
+    # X-API-TOKEN isn't in the tracked transport's auth-header denylist, so the raw token must be
+    # registered for redaction or sample capture would persist it.
+    session = make_tracked_session(redact_values=(api_token,))
 
     if config.transport == "scroll":
         query_body = _build_log_query(should_use_incremental_field, db_incremental_field_last_value, incremental_field)

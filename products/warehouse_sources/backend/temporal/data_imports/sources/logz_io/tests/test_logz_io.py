@@ -131,6 +131,14 @@ class TestValidateCredentials:
         validate_credentials("token", "eu")
         assert mock_session.return_value.get.call_args.args[0].startswith("https://api-eu.logz.io")
 
+    @mock.patch(f"{TRANSPORT}.make_tracked_session")
+    def test_token_registered_for_sample_redaction(self, mock_session: mock.MagicMock) -> None:
+        # X-API-TOKEN isn't in the transport's auth-header denylist; dropping redact_values would
+        # persist the raw token in captured HTTP samples.
+        mock_session.return_value.get.return_value = _resp({}, status=200)
+        validate_credentials("secret-token", "us")
+        assert mock_session.call_args.kwargs["redact_values"] == ("secret-token",)
+
 
 class TestSearchLogsScroll:
     @mock.patch(f"{TRANSPORT}.make_tracked_session")
@@ -148,6 +156,9 @@ class TestSearchLogsScroll:
         # State is saved after each yielded batch that has a following cursor (never after the last).
         saved_ids = [c.args[0].scroll_id for c in manager.save_state.call_args_list]
         assert saved_ids == ["s1", "s2"]
+        # The sync session must register the token for redaction (X-API-TOKEN isn't in the
+        # transport's auth-header denylist).
+        assert mock_session.call_args.kwargs["redact_values"] == ("token",)
 
     @mock.patch(f"{TRANSPORT}.make_tracked_session")
     def test_resumes_from_saved_scroll_cursor(self, mock_session: mock.MagicMock) -> None:
