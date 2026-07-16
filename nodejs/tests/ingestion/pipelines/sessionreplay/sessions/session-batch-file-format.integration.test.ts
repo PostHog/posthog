@@ -256,10 +256,11 @@ describe('session recording integration', () => {
                 throw new Error('extract step returned a non-ok result')
             }
             const { session, data } = extracted.value
-            if (recorder.admit(session, data.eventCount) !== 'admitted') {
+            const admission = recorder.admit(session, data.eventCount)
+            if (!admission.admitted) {
                 throw new Error('message was not admitted')
             }
-            recorder.recordSessionData(session, data)
+            admission.session.recordSessionData(data)
         }
 
         // Flush and get metadata

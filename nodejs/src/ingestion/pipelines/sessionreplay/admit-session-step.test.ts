@@ -3,7 +3,10 @@ import { DateTime } from 'luxon'
 import { PipelineResultType } from '~/ingestion/framework/results'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
-import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
+import {
+    AdmittedSession,
+    SessionBatchRecorder,
+} from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 
 import { AdmitSessionStepInput, createAdmitSessionStep } from './admit-session-step'
@@ -17,6 +20,7 @@ jest.mock('~/ingestion/pipelines/sessionreplay/metrics', () => ({
 
 describe('createAdmitSessionStep', () => {
     let mockBatchRecorder: jest.Mocked<SessionBatchRecorder>
+    let mockAdmittedSession: AdmittedSession
 
     const createParsedMessage = (): ParsedMessageData => ({
         metadata: {
@@ -71,12 +75,17 @@ describe('createAdmitSessionStep', () => {
     beforeEach(() => {
         jest.clearAllMocks()
 
+        mockAdmittedSession = {
+            recordSessionData: jest.fn().mockReturnValue(1),
+            recordSessionLogs: jest.fn().mockResolvedValue(undefined),
+            recordSessionFeatures: jest.fn(),
+        }
         mockBatchRecorder = {
-            admit: jest.fn().mockReturnValue('admitted'),
+            admit: jest.fn().mockReturnValue({ admitted: true, session: mockAdmittedSession }),
         } as unknown as jest.Mocked<SessionBatchRecorder>
     })
 
-    it('should admit the message with its event count and pass the input through', async () => {
+    it('should admit the message with its event count and stamp the record handle on the element', async () => {
         const step = createAdmitSessionStep({
             isDebugLoggingEnabled: () => false,
         })
@@ -87,12 +96,12 @@ describe('createAdmitSessionStep', () => {
         expect(mockBatchRecorder.admit).toHaveBeenCalledWith(input.session, 7)
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
-            expect(result.value).toBe(input)
+            expect(result.value).toEqual({ ...input, admittedSession: mockAdmittedSession })
         }
     })
 
-    it('should drop a refused message with the verdict as the reason', async () => {
-        mockBatchRecorder.admit.mockReturnValue('session_rate_limited')
+    it('should drop a refused message with the refusal reason', async () => {
+        mockBatchRecorder.admit.mockReturnValue({ admitted: false, reason: 'session_rate_limited' })
         const step = createAdmitSessionStep({
             isDebugLoggingEnabled: () => false,
         })

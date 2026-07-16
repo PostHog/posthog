@@ -226,12 +226,13 @@ describe('SessionBatchRecorder', () => {
             throw new Error('extract steps returned a non-ok result')
         }
         const { session, data } = extracted.value
-        if (recorder.admit(session, data.eventCount) !== 'admitted') {
+        const admission = recorder.admit(session, data.eventCount)
+        if (!admission.admitted) {
             return 0
         }
-        const bytesWritten = recorder.recordSessionData(session, data)
-        await recorder.recordSessionLogs(session, extractedLogs.value.logs)
-        recorder.recordSessionFeatures(session, message.message)
+        const bytesWritten = admission.session.recordSessionData(data)
+        await admission.session.recordSessionLogs(extractedLogs.value.logs)
+        admission.session.recordSessionFeatures(message.message)
         return bytesWritten
     }
 
@@ -1948,26 +1949,6 @@ describe('SessionBatchRecorder', () => {
 
             expect(bytes1).toBeGreaterThan(0)
             expect(bytes2).toBe(0)
-        })
-    })
-
-    describe('admission contract', () => {
-        it('should throw when recording a message that was not admitted', async () => {
-            const message = createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }])
-            const extracted = await extractDataStep({
-                team: message.team,
-                parsedMessage: message.message,
-                retentionPeriod: '30d',
-                sessionKey: createMockSessionKey(),
-            })
-            if (!isOkResult(extracted)) {
-                throw new Error('extract step returned a non-ok result')
-            }
-            const { session, data } = extracted.value
-
-            expect(() => recorder.recordSessionData(session, data)).toThrow('was not admitted')
-            await expect(recorder.recordSessionLogs(session, emptyLogs)).rejects.toThrow('was not admitted')
-            expect(() => recorder.recordSessionFeatures(session, message.message)).toThrow('was not admitted')
         })
     })
 })

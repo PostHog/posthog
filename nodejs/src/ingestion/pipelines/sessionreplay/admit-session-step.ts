@@ -5,10 +5,16 @@ import { ExtractSessionDataStepOutput } from '~/ingestion/pipelines/sessionrepla
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
+import { AdmittedSession } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { ValueMatcher } from '~/types'
 
 export interface AdmitSessionStepInput extends SessionBatchContext, ExtractSessionDataStepOutput {
     parsedMessage: ParsedMessageData
+}
+
+export interface AdmitSessionStepOutput {
+    /** The admitted session's record handle — the downstream record steps' only way to record. */
+    admittedSession: AdmittedSession
 }
 
 export interface AdmitSessionStepConfig {
@@ -18,12 +24,13 @@ export interface AdmitSessionStepConfig {
 /**
  * Creates a step that asks the batch recorder to admit the message into the session batch,
  * enforcing the per-session-per-batch rate limit and the team/key consistency checks, and creating
- * the session's batch entry on first sight. A refused message is dropped here, so the downstream
- * record steps only ever see admitted messages.
+ * the session's batch entry on first sight. A refused message is dropped here; an admitted one
+ * carries the session's record handle forward, so the downstream record steps can only run on
+ * admitted messages and in any order.
  */
 export function createAdmitSessionStep<T extends AdmitSessionStepInput>(
     config: AdmitSessionStepConfig
-): ProcessingStep<T, T> {
+): ProcessingStep<T, T & AdmitSessionStepOutput> {
     const { isDebugLoggingEnabled } = config
 
     return function admitSessionStep(input) {
@@ -49,10 +56,10 @@ export function createAdmitSessionStep<T extends AdmitSessionStepInput>(
 
         SessionRecordingIngesterMetrics.observeSessionInfo(parsedMessage.metadata.rawSize)
 
-        const verdict = sessionBatchRecorder.admit(session, data.eventCount)
-        if (verdict !== 'admitted') {
-            return Promise.resolve(drop(verdict))
+        const admission = sessionBatchRecorder.admit(session, data.eventCount)
+        if (!admission.admitted) {
+            return Promise.resolve(drop(admission.reason))
         }
-        return Promise.resolve(ok(input))
+        return Promise.resolve(ok({ ...input, admittedSession: admission.session }))
     }
 }

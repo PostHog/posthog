@@ -29,6 +29,8 @@ interface SessionBatchEntry {
     featureRecorder: SessionFeatureRecorder
     sessionKey: SessionKey
     retentionPeriod: RetentionPeriod
+    /** The record handle admit hands out for this session, created once with the entry. */
+    handle: AdmittedSession
 }
 
 /**
@@ -46,14 +48,41 @@ export interface SessionRef {
 }
 
 /**
- * Outcome of {@link SessionBatchRecorder.admit}. The refusal verdicts double as pipeline drop
- * reasons.
+ * Handle to a session admitted into the current batch, returned by
+ * {@link SessionBatchRecorder.admit}. Carries the record methods bound to that session's
+ * recorders — holding one is the proof of admission, so the methods need no ordering contract
+ * between them and can be called in any order.
  */
-export type SessionAdmissionVerdict =
-    | 'admitted'
-    | 'session_rate_limited'
-    | 'session_team_id_mismatch'
-    | 'session_key_mismatch'
+export interface AdmittedSession {
+    /**
+     * Folds one message's precomputed session data (from the extract-session-data step) into the
+     * session's block.
+     *
+     * @returns The raw bytes written (without compression).
+     */
+    recordSessionData(data: SerializedSessionData): number
+    /**
+     * Folds one message's precomputed console log data (from the extract-console-logs step) into
+     * the session.
+     */
+    recordSessionLogs(logs: ExtractedConsoleLogs): Promise<void>
+    /**
+     * Feeds one message's parsed events into the session's feature extraction. Takes the parsed
+     * message rather than precomputed data: feature extraction is a sequential state machine
+     * across a session's messages, so it can't be computed per message upfront. Extraction
+     * failures are logged and swallowed — features are best-effort and must not fail the
+     * recording.
+     */
+    recordSessionFeatures(message: ParsedMessageData): void
+}
+
+/**
+ * Outcome of {@link SessionBatchRecorder.admit}: the admitted session's record handle, or a
+ * refusal whose reason doubles as the pipeline drop reason.
+ */
+export type SessionAdmission =
+    | { admitted: true; session: AdmittedSession }
+    | { admitted: false; reason: 'session_rate_limited' | 'session_team_id_mismatch' | 'session_key_mismatch' }
 
 /**
  * Manages the recording of a batch of session recordings:
@@ -125,10 +154,10 @@ export class SessionBatchRecorder {
      * Decides whether a message may be recorded into the batch, creating the session's batch entry
      * on first sight. Enforces the per-session-per-batch rate limit — charging the precomputed
      * event count and evicting the session's already-buffered data when the limit trips — and the
-     * team/key consistency checks against the existing entry. Only admitted messages may be fed to
-     * the record methods.
+     * team/key consistency checks against the existing entry. An admitted message gets the
+     * session's {@link AdmittedSession} record handle, the only way to record into the batch.
      */
-    public admit(session: SessionRef, eventCount: number): SessionAdmissionVerdict {
+    public admit(session: SessionRef, eventCount: number): SessionAdmission {
         const { teamId, sessionId, partition } = session
 
         const isEventAllowed = this.rateLimiter.handleMessage(teamId, sessionId, eventCount)
@@ -152,7 +181,7 @@ export class SessionBatchRecorder {
                 })
             }
 
-            return 'session_rate_limited'
+            return { admitted: false, reason: 'session_rate_limited' }
         }
 
         const existingBatchState = this.sessions.get(teamId, sessionId)
@@ -166,7 +195,7 @@ export class SessionBatchRecorder {
                     newTeamId: teamId,
                     batchId: this.batchId,
                 })
-                return 'session_team_id_mismatch'
+                return { admitted: false, reason: 'session_team_id_mismatch' }
             }
 
             if (!existingSessionKey.encryptedKey.equals(session.sessionKey.encryptedKey)) {
@@ -175,97 +204,83 @@ export class SessionBatchRecorder {
                     teamId,
                     batchId: this.batchId,
                 })
-                return 'session_key_mismatch'
+                return { admitted: false, reason: 'session_key_mismatch' }
             }
 
-            return 'admitted'
+            return { admitted: true, session: existingBatchState.handle }
         }
 
-        this.sessions.set(teamId, sessionId, {
-            sessionBlockRecorder: new SnappySessionRecorder(sessionId, teamId, this.batchId),
-            consoleLogRecorder: new SessionConsoleLogRecorder(sessionId, teamId, this.batchId, this.consoleLogStore),
-            featureRecorder: new SessionFeatureRecorder(
-                sessionId,
-                teamId,
-                this.batchId,
-                this.featuresRolloutPercentage
-            ),
+        const entry = this.createEntry(session)
+        this.sessions.set(teamId, sessionId, entry)
+        return { admitted: true, session: entry.handle }
+    }
+
+    /**
+     * Builds a session's batch entry together with its record handle. The handle closes over the
+     * entry's recorders, so its methods can only ever touch the session they were admitted for.
+     */
+    private createEntry(session: SessionRef): SessionBatchEntry {
+        const { teamId, sessionId, partition } = session
+
+        const sessionBlockRecorder = new SnappySessionRecorder(sessionId, teamId, this.batchId)
+        const consoleLogRecorder = new SessionConsoleLogRecorder(sessionId, teamId, this.batchId, this.consoleLogStore)
+        const featureRecorder = new SessionFeatureRecorder(
+            sessionId,
+            teamId,
+            this.batchId,
+            this.featuresRolloutPercentage
+        )
+
+        const handle: AdmittedSession = {
+            recordSessionData: (data: SerializedSessionData): number => {
+                const bytesWritten = sessionBlockRecorder.recordSessionData(data)
+                this._size += bytesWritten
+
+                logger.debug('🔁', 'session_batch_recorder_recorded_message', {
+                    partition,
+                    sessionId,
+                    teamId,
+                    bytesWritten,
+                    totalSize: this._size,
+                })
+
+                return bytesWritten
+            },
+            recordSessionLogs: async (logs: ExtractedConsoleLogs): Promise<void> => {
+                await consoleLogRecorder.recordSessionLogs(logs)
+            },
+            recordSessionFeatures: (message: ParsedMessageData): void => {
+                // Features derive from `eventsByWindowId`, which is empty on native-anonymizer
+                // messages — skip the recorder (which throws on pre-serialized input) rather than
+                // catch it per message.
+                if (message.preSerialized) {
+                    return
+                }
+                try {
+                    featureRecorder.recordMessage(message)
+                } catch (e) {
+                    logger.warn('🔁', 'session_feature_recorder_error', {
+                        error: String(e),
+                        sessionId,
+                        teamId,
+                        partition,
+                        batchId: this.batchId,
+                    })
+                    captureException(e, {
+                        tags: { sessionId, teamId: String(teamId), partition: String(partition) },
+                    })
+                }
+            },
+        }
+
+        return {
+            sessionBlockRecorder,
+            consoleLogRecorder,
+            featureRecorder,
             sessionKey: session.sessionKey,
             retentionPeriod: session.retentionPeriod,
-        })
-        return 'admitted'
-    }
-
-    /**
-     * Folds one message's precomputed session data (from the extract-session-data step) into the
-     * session's block. The message must have been admitted via {@link admit}.
-     *
-     * @returns The raw bytes written (without compression).
-     */
-    public recordSessionData(session: SessionRef, data: SerializedSessionData): number {
-        const entry = this.getAdmittedEntry(session)
-
-        const bytesWritten = entry.sessionBlockRecorder.recordSessionData(data)
-        this._size += bytesWritten
-
-        logger.debug('🔁', 'session_batch_recorder_recorded_message', {
-            partition: session.partition,
-            sessionId: session.sessionId,
-            teamId: session.teamId,
-            bytesWritten,
-            totalSize: this._size,
-        })
-
-        return bytesWritten
-    }
-
-    /**
-     * Folds one message's precomputed console log data (from the extract-console-logs step) into
-     * the session. The message must have been admitted via {@link admit}.
-     */
-    public async recordSessionLogs(session: SessionRef, logs: ExtractedConsoleLogs): Promise<void> {
-        await this.getAdmittedEntry(session).consoleLogRecorder.recordSessionLogs(logs)
-    }
-
-    /**
-     * Feeds one message's parsed events into the session's feature extraction. Takes the parsed
-     * message rather than precomputed data: feature extraction is a sequential state machine across
-     * a session's messages, so it can't be computed per message upfront. The message must have been
-     * admitted via {@link admit}. Extraction failures are logged and swallowed — features are
-     * best-effort and must not fail the recording.
-     */
-    public recordSessionFeatures(session: SessionRef, message: ParsedMessageData): void {
-        const entry = this.getAdmittedEntry(session)
-
-        // Features derive from `eventsByWindowId`, which is empty on native-anonymizer messages —
-        // skip the recorder (which throws on pre-serialized input) rather than catch it per message.
-        if (message.preSerialized) {
-            return
+            handle,
         }
-        try {
-            entry.featureRecorder.recordMessage(message)
-        } catch (e) {
-            const { teamId, sessionId, partition } = session
-            logger.warn('🔁', 'session_feature_recorder_error', {
-                error: String(e),
-                sessionId,
-                teamId,
-                partition,
-                batchId: this.batchId,
-            })
-            captureException(e, { tags: { sessionId, teamId: String(teamId), partition: String(partition) } })
-        }
-    }
-
-    /** The record methods only run on admitted messages — reaching one without a prior admit is a bug. */
-    private getAdmittedEntry(session: SessionRef): SessionBatchEntry {
-        const entry = this.sessions.get(session.teamId, session.sessionId)
-        if (!entry) {
-            throw new Error(
-                `Message for session ${session.sessionId} (team ${session.teamId}) was not admitted into the batch`
-            )
-        }
-        return entry
     }
 
     /**

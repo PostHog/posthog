@@ -11,7 +11,12 @@ export { createParseMessageStep, type ParseMessageStepInput, type ParseMessageSt
 
 export { createTeamFilterStep, type TeamFilterStepInput, type TeamFilterStepOutput } from './team-filter-step'
 
-export { createAdmitSessionStep, type AdmitSessionStepConfig, type AdmitSessionStepInput } from './admit-session-step'
+export {
+    createAdmitSessionStep,
+    type AdmitSessionStepConfig,
+    type AdmitSessionStepInput,
+    type AdmitSessionStepOutput,
+} from './admit-session-step'
 
 export { createRecordSessionDataStep, type RecordSessionDataStepInput } from './record-session-data-step'
 

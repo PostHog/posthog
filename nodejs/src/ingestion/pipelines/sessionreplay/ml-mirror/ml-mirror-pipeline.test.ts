@@ -109,10 +109,14 @@ describe('ml-mirror-pipeline', () => {
 
         recordMock = jest.fn().mockReturnValue(1)
         mockBatchRecorder = {
-            admit: jest.fn().mockReturnValue('admitted'),
-            recordSessionData: recordMock,
-            recordSessionLogs: jest.fn().mockResolvedValue(undefined),
-            recordSessionFeatures: jest.fn(),
+            admit: jest.fn().mockReturnValue({
+                admitted: true,
+                session: {
+                    recordSessionData: recordMock,
+                    recordSessionLogs: jest.fn().mockResolvedValue(undefined),
+                    recordSessionFeatures: jest.fn(),
+                },
+            }),
             getRetention: jest.fn().mockReturnValue(undefined),
         } as unknown as jest.Mocked<SessionBatchRecorder>
 
@@ -232,7 +236,7 @@ describe('ml-mirror-pipeline', () => {
     // The fused step emits pre-serialized JSONL lines of [windowId, event]; the serialize step
     // passes them through as the session data's single chunk.
     function recordedEvents(): [string, any][] {
-        const lines: Buffer = recordMock.mock.calls[0][1].chunks[0]
+        const lines: Buffer = recordMock.mock.calls[0][0].chunks[0]
         return lines
             .toString()
             .split('\n')

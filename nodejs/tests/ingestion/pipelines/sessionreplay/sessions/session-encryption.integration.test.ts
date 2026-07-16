@@ -121,12 +121,13 @@ describe('session recording encryption integration', () => {
             throw new Error('extract steps returned a non-ok result')
         }
         const { session, data } = extracted.value
-        if (recorder.admit(session, data.eventCount) !== 'admitted') {
+        const admission = recorder.admit(session, data.eventCount)
+        if (!admission.admitted) {
             return 0
         }
-        const bytesWritten = recorder.recordSessionData(session, data)
-        await recorder.recordSessionLogs(session, extractedLogs.value.logs)
-        recorder.recordSessionFeatures(session, message.message)
+        const bytesWritten = admission.session.recordSessionData(data)
+        await admission.session.recordSessionLogs(extractedLogs.value.logs)
+        admission.session.recordSessionFeatures(message.message)
         return bytesWritten
     }
 
