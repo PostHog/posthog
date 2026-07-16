@@ -364,6 +364,7 @@ the row lists both.
 | qualaroo                  | HTTP                        | requests                                                        | ✅                          |
 | recurly                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ramp                      | HTTP                        | requests                                                        | ✅                          |
+| rapid7_insightvm          | HTTP                        | requests                                                        | ✅                          |
 | recharge                  | HTTP                        | requests                                                        | ✅                          |
 | recruitee                 | HTTP                        | requests                                                        | ✅                          |
 | reddit_ads                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -824,7 +825,6 @@ doesn't conflict with concurrent PRs.
 - quickbooks
 - railway
 - railz
-- rapid7_insightvm
 - raygun
 - razorpay
 - rb2b
