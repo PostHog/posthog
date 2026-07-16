@@ -13,6 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
+import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
@@ -173,17 +174,67 @@ describe('dashboardSubscribeNudgeLogic', () => {
         expect(Object.keys(dashboardSubscribeNudgeStoreLogic.values.viewLog)).toEqual([String(DASHBOARD_ID)])
     })
 
-    it('is not a candidate and fetches nothing when the org lacks the subscriptions feature', async () => {
-        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER) // no available features
+    describe('free-tier subscription limit', () => {
+        beforeEach(() => {
+            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER) // no available features -> free tier
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_SUBSCRIBE_NUDGE]: 'test' })
+        })
 
+        it.each([
+            [0, true],
+            [SubscriptionFreeTierLimit.COUNT - 1, true],
+            [SubscriptionFreeTierLimit.COUNT, false],
+        ])('with %i existing team subscriptions, nudges=%s', async (teamCount, nudges) => {
+            mockSubscriptionsList.mockImplementation((_teamId: string, params?: Record<string, unknown>) =>
+                Promise.resolve(params?.dashboard ? { count: 0, results: [] } : { count: teamCount, results: [] })
+            )
+
+            await expectLogic(logic, () => {
+                recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
+            }).toFinishAllListeners()
+
+            // On success the flow marks the dashboard notified (isCandidate flips false again),
+            // so assert the observable outcomes rather than intermediate selector state.
+            expect(logic.values.isWithinSubscriptionLimit).toBe(nudges)
+            expect(nudgePostCount).toBe(nudges ? 1 : 0)
+            expect(capturesOf('dashboard subscribe nudge shown')).toHaveLength(nudges ? 1 : 0)
+        })
+
+        it('fails closed and reports the failure when the count fetch errors', async () => {
+            silenceKeaLoadersErrors()
+            mockSubscriptionsList.mockImplementation((_teamId: string, params?: Record<string, unknown>) =>
+                params?.dashboard
+                    ? Promise.resolve({ count: 0, results: [] })
+                    : Promise.reject(new Error('network down'))
+            )
+
+            await expectLogic(logic, () => {
+                recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
+            }).toFinishAllListeners()
+            resumeKeaLoadersErrors()
+
+            expect(logic.values.isWithinSubscriptionLimit).toBe(false)
+            expect(logic.values.showNudge).toBe(false)
+            expect(nudgePostCount).toBe(0)
+            const failures = capturesOf('dashboard subscribe nudge check failed')
+            expect(failures).toHaveLength(1)
+            expect(failures[0][1]).toMatchObject({
+                dashboard_id: DASHBOARD_ID,
+                step: 'limit',
+                error_message: 'network down',
+            })
+        })
+    })
+
+    it('never fetches the team-wide count for orgs with the subscriptions feature', async () => {
         await expectLogic(logic, () => {
             recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
         }).toFinishAllListeners()
 
-        expect(logic.values.isCandidate).toBe(false)
-        expect(logic.values.showNudge).toBe(false)
-        expect(mockSubscriptionsList).not.toHaveBeenCalled()
-        expect(nudgePostCount).toBe(0)
+        const teamWideCalls = mockSubscriptionsList.mock.calls.filter(
+            ([, params]: [string, Record<string, unknown> | undefined]) => !params?.dashboard
+        )
+        expect(teamWideCalls).toHaveLength(0)
     })
 
     describe('feature flag exposure gating and notification delivery', () => {

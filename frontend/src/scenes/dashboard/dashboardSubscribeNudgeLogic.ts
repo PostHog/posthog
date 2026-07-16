@@ -17,6 +17,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, DashboardPlacement } from '~/types'
 
 import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
+import { isFreeTierCreateAtLimit } from 'products/subscriptions/frontend/components/Subscriptions/views/EditSubscription'
 import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
 
 import type { dashboardSubscribeNudgeLogicType } from './dashboardSubscribeNudgeLogicType'
@@ -50,8 +51,9 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
         ],
     })),
     loaders(({ props }) => ({
-        // Whether this dashboard already has a subscription. null = not checked yet. Fetched only for
-        // candidate dashboards, so the vast majority of dashboard views trigger no request at all.
+        // Whether this dashboard already has a subscription. null = not checked yet. Only fetched
+        // once every free, local check has passed (`isCandidate`: repeat views, not already
+        // nudged/dismissed, subscribable dashboard) — most dashboard views make no request at all.
         // `load` prefix + initKea's ERROR_FILTER_ALLOW_LIST keep a failed background check from
         // toasting at a user who never asked for anything.
         hasExistingSubscription: [
@@ -71,6 +73,20 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
                     })
                     breakpoint?.()
                     return (response.count ?? 0) > 0
+                },
+            },
+        ],
+        // Team-wide subscription count, fetched only for free-tier candidates: those orgs can
+        // create subscriptions until SubscriptionFreeTierLimit.COUNT, and nudging someone already
+        // at the limit would push them straight into the create-form paywall.
+        teamSubscriptionCount: [
+            null as number | null,
+            {
+                loadTeamSubscriptionCount: async (_?: unknown, breakpoint?: BreakPointFunction) => {
+                    // limit=1 keeps the payload tiny; `count` reflects the team's full total.
+                    const response = await subscriptionsList(String(getCurrentTeamId()), { limit: 1 })
+                    breakpoint?.()
+                    return response.count ?? 0
                 },
             },
         ],
@@ -104,15 +120,18 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
             (s) => [s.notifiedDashboardIds, (_, props) => props.dashboardId],
             (notifiedDashboardIds, dashboardId): boolean => notifiedDashboardIds.includes(dashboardId),
         ],
-        // Excludes shared/public/embedded placements and paywalled orgs — the nudge only makes sense
-        // where "set up a subscription" is an action the viewer can actually take.
+        // Excludes shared/public/embedded placements — the nudge only makes sense where "set up a
+        // subscription" is an action the viewer can actually take. Free-tier orgs are NOT excluded
+        // here: they can create subscriptions up to SubscriptionFreeTierLimit.COUNT, so their gate
+        // is the count check in `isWithinSubscriptionLimit` instead.
         isDashboardEligible: [
-            (s) => [s.dashboard, s.canEditDashboard, s.placement, s.hasAvailableFeature],
-            (dashboard, canEditDashboard, placement, hasAvailableFeature): boolean =>
-                !!dashboard &&
-                canEditDashboard &&
-                placement === DashboardPlacement.Dashboard &&
-                hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS),
+            (s) => [s.dashboard, s.canEditDashboard, s.placement],
+            (dashboard, canEditDashboard, placement): boolean =>
+                !!dashboard && canEditDashboard && placement === DashboardPlacement.Dashboard,
+        ],
+        hasSubscriptionsFeature: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS),
         ],
         // Cheap half of eligibility: needs no API data, so the existing-subscription fetch only
         // happens for dashboards that pass this first.
@@ -121,9 +140,20 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
             (isPastViewThreshold, isSuppressed, isNotified, isDashboardEligible): boolean =>
                 isPastViewThreshold && !isSuppressed && !isNotified && isDashboardEligible,
         ],
+        // Paid orgs are never limited. Free-tier orgs must have room under the free-tier cap —
+        // and unlike EditSubscription (where a null count fails open because the user explicitly
+        // asked and the backend is the hard gate), a proactive nudge fails closed on an unknown
+        // count: don't advertise an action we can't confirm they can complete.
+        isWithinSubscriptionLimit: [
+            (s) => [s.hasSubscriptionsFeature, s.teamSubscriptionCount],
+            (hasSubscriptionsFeature, teamSubscriptionCount): boolean =>
+                hasSubscriptionsFeature ||
+                (teamSubscriptionCount !== null && !isFreeTierCreateAtLimit(teamSubscriptionCount)),
+        ],
         isEligible: [
-            (s) => [s.isCandidate, s.hasExistingSubscription],
-            (isCandidate, hasExistingSubscription): boolean => isCandidate && hasExistingSubscription === false,
+            (s) => [s.isCandidate, s.hasExistingSubscription, s.isWithinSubscriptionLimit],
+            (isCandidate, hasExistingSubscription, isWithinSubscriptionLimit): boolean =>
+                isCandidate && hasExistingSubscription === false && isWithinSubscriptionLimit,
         ],
         // CRITICAL: `featureFlags[...]` is a proxy access that reports the flag's exposure event the
         // first time it's read. Only touch it once `isEligible` is true, so the experiment's exposure
@@ -140,13 +170,18 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
             actions.recordDashboardView(props.dashboardId)
         },
         recordDashboardView: ({ dashboardId }) => {
-            if (
-                dashboardId === props.dashboardId &&
-                values.isCandidate &&
-                values.hasExistingSubscription === null &&
-                !values.hasExistingSubscriptionLoading
-            ) {
+            if (dashboardId !== props.dashboardId || !values.isCandidate) {
+                return
+            }
+            if (values.hasExistingSubscription === null && !values.hasExistingSubscriptionLoading) {
                 actions.loadExistingSubscription()
+            }
+            if (
+                !values.hasSubscriptionsFeature &&
+                values.teamSubscriptionCount === null &&
+                !values.teamSubscriptionCountLoading
+            ) {
+                actions.loadTeamSubscriptionCount()
             }
         },
         loadExistingSubscriptionSuccess: ({ hasExistingSubscription }) => {
@@ -161,6 +196,17 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
             posthog.capture('dashboard subscribe nudge check failed', {
                 dashboard_id: props.dashboardId,
                 step: 'check',
+                error_name: errorObject?.name,
+                error_status: errorObject?.status,
+                error_message: error,
+            })
+        },
+        loadTeamSubscriptionCountFailure: ({ error, errorObject }) => {
+            // A failed count check silently excludes a free-tier user (fail closed) — capture it so
+            // the readout can tell that apart from genuinely being at the limit.
+            posthog.capture('dashboard subscribe nudge check failed', {
+                dashboard_id: props.dashboardId,
+                step: 'limit',
                 error_name: errorObject?.name,
                 error_status: errorObject?.status,
                 error_message: error,
@@ -205,8 +251,14 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
     afterMount(({ actions, values }) => {
         // Covers dashboards already past the threshold from earlier sessions; new views route
         // through the recordDashboardView listener instead.
-        if (values.isCandidate && values.hasExistingSubscription === null) {
+        if (!values.isCandidate) {
+            return
+        }
+        if (values.hasExistingSubscription === null) {
             actions.loadExistingSubscription()
+        }
+        if (!values.hasSubscriptionsFeature && values.teamSubscriptionCount === null) {
+            actions.loadTeamSubscriptionCount()
         }
     }),
 ])
