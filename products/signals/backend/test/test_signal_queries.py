@@ -9,12 +9,12 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
-from products.signals.backend.temporal.signal_queries import (
+from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     ReportSignalMeta,
-    fetch_signals_for_report_sync,
     fetch_source_products_for_reports,
 )
+from products.signals.backend.temporal.signal_queries import fetch_signals_for_report_sync
 
 _MODEL_TABLE = f"distributed_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
 _EMBEDDING = [0.0] * 1536

@@ -30,14 +30,14 @@ from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_dir
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
 from posthog.hogql.property import property_to_expr
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 from posthog.hogql.test.utils import (
     execute_hogql_query_with_timings,
     pretty_print_in_tests,
     pretty_print_response_in_tests,
 )
 
-from posthog.errors import InternalCHQueryError
+from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -320,15 +320,26 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results[0][2], "bla")
             self.assertEqual(response.results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
 
-    def test_execute_hogql_query_rejects_non_direct_connection_id(self):
+    @parameterized.expand(
+        [
+            # No direct engine exists for the type at all.
+            ("no_engine_for_type", ExternalDataSourceType.STRIPE, True),
+            # Engine exists, but the per-source direct-query toggle is off.
+            ("direct_query_disabled", ExternalDataSourceType.POSTGRES, False),
+        ]
+    )
+    def test_execute_hogql_query_rejects_non_capable_connection_id(
+        self, _name: str, source_type: str, direct_query_enabled: bool
+    ):
         selected_source = ExternalDataSource.objects.create(
             source_id="selected-upstream-source",
             connection_id="selected-connection",
             destination_id="destination-1",
             team=self.team,
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.STRIPE,
+            source_type=source_type,
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=direct_query_enabled,
             prefix="stripe",
         )
         with self.assertRaises(ExposedHogQLError) as error:
@@ -384,6 +395,18 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(str(error.exception), INVALID_CONNECTION_ID_ERROR)
+        mock_sync_execute.assert_not_called()
+
+    @patch("posthog.hogql.query.sync_execute")
+    def test_execute_clickhouse_query_short_circuits_on_empty_sql(self, mock_sync_execute):
+        # Empty SQL (None prepared AST) used to trip a bare assert; direct callers need empty results.
+        executor = HogQLQueryExecutor(query="select 1", team=self.team)
+        executor.clickhouse_sql = ""
+
+        executor._execute_clickhouse_query()
+
+        self.assertEqual(executor.results, [])
+        self.assertEqual(executor.types, [])
         mock_sync_execute.assert_not_called()
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -2130,3 +2153,41 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.error, "debug failure")
         self.assertEqual(response.clickhouse, "")
         mock_sync_execute.assert_not_called()
+
+    def test_transient_s3_error_is_retried_once(self):
+        transient_error = CHQueryErrorS3Error("S3 error occurred.", code=499)
+        with (
+            patch(
+                "posthog.hogql.query.sync_execute", side_effect=[transient_error, ([(1,)], [("1", "UInt8")])]
+            ) as mock_sync_execute,
+            patch("posthog.hogql.query.sleep") as mock_sleep,
+        ):
+            response = execute_hogql_query("SELECT 1", team=self.team)
+
+        self.assertEqual(response.results, [(1,)])
+        self.assertEqual(mock_sync_execute.call_count, 2)
+        mock_sleep.assert_called_once()
+
+    def test_transient_s3_error_raises_after_retry_fails(self):
+        transient_error = CHQueryErrorS3Error("S3 error occurred.", code=499)
+        with (
+            patch("posthog.hogql.query.sync_execute", side_effect=transient_error) as mock_sync_execute,
+            patch("posthog.hogql.query.sleep"),
+        ):
+            with self.assertRaises(CHQueryErrorS3Error):
+                execute_hogql_query("SELECT 1", team=self.team)
+
+        self.assertEqual(mock_sync_execute.call_count, 2)
+
+    def test_non_transient_errors_are_not_retried(self):
+        with (
+            patch(
+                "posthog.hogql.query.sync_execute", side_effect=InternalCHQueryError("Unknown error.", code=1000)
+            ) as mock_sync_execute,
+            patch("posthog.hogql.query.sleep") as mock_sleep,
+        ):
+            with self.assertRaises(InternalCHQueryError):
+                execute_hogql_query("SELECT 1", team=self.team)
+
+        self.assertEqual(mock_sync_execute.call_count, 1)
+        mock_sleep.assert_not_called()

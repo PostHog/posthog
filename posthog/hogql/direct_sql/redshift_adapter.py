@@ -8,6 +8,7 @@ from sqlparse import tokens as sqlparse_tokens
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
+from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.postgres_adapter import postgres_error_to_message, postgres_oid_to_clickhouse_type
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
@@ -103,7 +104,8 @@ class RedshiftAdapter:
         from products.warehouse_sources.backend.facade.source_management import RedshiftSource, SourceRegistry
         from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
-        if not source.is_direct_redshift:
+        # Capability, not access_method: a synced source with the direct-query toggle on is valid too.
+        if not (is_direct_capable(source) and source.direct_engine == self.engine):
             raise ExposedHogQLError("Invalid direct Redshift connection.")
 
         redshift_source = cast(RedshiftSource, SourceRegistry.get_source(ExternalDataSourceType.REDSHIFT))

@@ -56,6 +56,10 @@ GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS = 30 * 24 * 60 * 60
 class GoogleAdsSource(
     ResumableSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, GoogleAdsResumeConfig], OAuthMixin
 ):
+    supported_versions = ("v23",)
+    default_version = "v23"
+    api_docs_url = "https://developers.google.com/google-ads/api/docs/release-notes"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GOOGLEADS
@@ -344,6 +348,18 @@ class GoogleAdsSource(
                     False,
                     "Your Google Ads connection is no longer available — it may have been disconnected. "
                     "Please reconnect your Google Ads account.",
+                )
+            # A gRPC PERMISSION_DENIED ("The caller does not have permission") means the connected Google
+            # login can't access this customer ID — the wrong customer/manager (MCC) account, or access
+            # that was never granted. list_accessible_customers raises it as a raw _InactiveRpcError whose
+            # str() is a protobuf dump (with a per-request peer IP) the user can't act on, so surface an
+            # actionable prompt instead of leaking it, mirroring the MCC USER_PERMISSION_DENIED message.
+            if "PERMISSION_DENIED" in error_message or "caller does not have permission" in error_message:
+                return (
+                    False,
+                    "PostHog doesn't have permission to access this Google Ads account. Verify the "
+                    "customer ID (and manager account, if using an MCC) is accessible to the connected "
+                    "Google login, then reconnect your Google Ads account.",
                 )
             # A transient Google-side blip (INTERNAL / UNAVAILABLE) stringifies as a raw gRPC status and
             # protobuf failure dump the user can't act on. The sync rides these out in-process; here on

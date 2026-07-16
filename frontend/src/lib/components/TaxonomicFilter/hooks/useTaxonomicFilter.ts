@@ -35,6 +35,7 @@ import {
     SelectedProperties,
     SelectingKeyOnly,
     SimpleOption,
+    TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
@@ -346,6 +347,20 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         return substantive.length === 1 ? substantive[0] : null
     }, [groupTypes])
 
+    // Recent/pinned items the sole substantive group floats to the top of its own list.
+    // Memoised so getGroupListInput hands useGroupList a stable array reference: getLocalOverride
+    // builds a fresh array on every call (filterRecentsForContext maps/filters), which would
+    // otherwise churn useGroupList's `items` memo every render and drive Combobox's Fetcher
+    // items effect into a setState loop (Maximum update depth exceeded).
+    const soleGroupPromoteRecent = useMemo<TaxonomicDefinitionTypes[] | undefined>(
+        () => (soleSubstantiveGroupType ? getLocalOverride(TaxonomicFilterGroupType.RecentFilters) : undefined),
+        [soleSubstantiveGroupType, getLocalOverride]
+    )
+    const soleGroupPromotePinned = useMemo<TaxonomicDefinitionTypes[] | undefined>(
+        () => (soleSubstantiveGroupType ? getLocalOverride(TaxonomicFilterGroupType.PinnedFilters) : undefined),
+        [soleSubstantiveGroupType, getLocalOverride]
+    )
+
     // ---- search query (controlled / uncontrolled) ---------------------------
     const [internalSearchQuery, setInternalSearchQuery] = useState(initialSearchQuery ?? '')
     const isSearchControlled = controlledSearchQuery !== undefined
@@ -526,8 +541,8 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             // The sole substantive group carries recents/pinned inline (no leading tabs).
             ...(group.type === soleSubstantiveGroupType
                 ? {
-                      promoteRecentItemsToTop: getLocalOverride(TaxonomicFilterGroupType.RecentFilters),
-                      promotePinnedItemsToTop: getLocalOverride(TaxonomicFilterGroupType.PinnedFilters),
+                      promoteRecentItemsToTop: soleGroupPromoteRecent,
+                      promotePinnedItemsToTop: soleGroupPromotePinned,
                   }
                 : {}),
         }),
@@ -543,6 +558,8 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             autoSelectItem,
             getLocalOverride,
             soleSubstantiveGroupType,
+            soleGroupPromoteRecent,
+            soleGroupPromotePinned,
         ]
     )
 

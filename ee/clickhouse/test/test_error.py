@@ -82,6 +82,50 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
         ),
         (
             ServerException(
+                "Code: 499. DB::Exception: Unable to parse ExceptionName: InvalidRange Message: The requested range is not satisfiable: (in file/uri some-bucket/mongo/users.6.parquet): While executing ParquetV3BlockInputFormat: While executing ReadFromObjectStorage. Stack trace:\n\n0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x00000000141cccd0",
+                code=499,
+            ),
+            "CHQueryErrorS3FileChangedDuringRead",
+            "A file backing a data warehouse table changed while the query was reading it (some-bucket/mongo/users.6.parquet). "
+            "Retry the query. If you manage these files yourself, avoid overwriting files in place: "
+            "upload new files and delete old ones instead.",
+            499,
+            "CHQueryErrorS3Error",
+        ),
+        (
+            ServerException(
+                "Code: 117. DB::Exception: Not a Parquet file (wrong magic bytes at the end of file): (in file/uri some-bucket/mongo/users.52.parquet): While executing ParquetV3BlockInputFormat. Stack trace:\n\n0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x00000000141cccd0",
+                code=117,
+            ),
+            "CHQueryErrorS3FileChangedDuringRead",
+            "A file backing a data warehouse table changed while the query was reading it (some-bucket/mongo/users.52.parquet). "
+            "Retry the query. If you manage these files yourself, avoid overwriting files in place: "
+            "upload new files and delete old ones instead.",
+            117,
+            "CHQueryErrorIncorrectData",
+        ),
+        (
+            ServerException(
+                "DB::Exception: Cannot read all data. Bytes read: 5. Bytes expected: 100.",
+                code=117,
+            ),
+            "CHQueryErrorIncorrectData",
+            "Code: 117.\nDB::Exception: Cannot read all data. Bytes read: 5. Bytes expected: 100.",
+            117,
+            "CHQueryErrorIncorrectData",
+        ),
+        (
+            ServerException(
+                "Code: 467. DB::Exception: Cannot parse boolean value here: 'null', should be 'true' or 'false' controlled by setting bool_true_representation and bool_false_representation: while converting 'null' to Bool. Stack trace:\n\n0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x00000000141cccd0",
+                code=467,
+            ),
+            "CHQueryErrorCannotParseBool",
+            "Cannot parse boolean value here: 'null', should be 'true' or 'false' controlled by setting bool_true_representation and bool_false_representation: while converting 'null' to Bool.",
+            467,
+            "CHQueryErrorCannotParseBool",
+        ),
+        (
+            ServerException(
                 "Code: 43. DB::Exception: Illegal type String of argument of function toInt64.",
                 code=43,
             ),

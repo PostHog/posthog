@@ -1,3 +1,5 @@
+import { expectLogic } from 'kea-test-utils'
+
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 
 import { useMocks } from '~/mocks/jest'
@@ -54,5 +56,13 @@ describe('errorTrackingIssueSceneLogic', () => {
         mutate(logic)
 
         expect(logic.values.eventsQueryKey).not.toBe(initialKey)
+    })
+
+    it('handles an empty initial event query result', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadInitialEvent('2026-01-01T00:00:00Z')
+        })
+            .toDispatchActions(['loadInitialEventSuccess'])
+            .toMatchValues({ initialEvent: null })
     })
 })

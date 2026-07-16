@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.dependencies import get_authenticated_user, resolve_plan_and_quota
+from llm_gateway.rate_limiting.billable_credits_throttle import bucket_block_applies
 from llm_gateway.rate_limiting.cost_throttles import CostStatus, UserCostBurstThrottle, UserCostSustainedThrottle
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
@@ -36,6 +37,10 @@ class CostLimitStatus(BaseModel):
 
 class AiCreditsStatus(BaseModel):
     exhausted: bool
+    # Org-level bucket spend this billing period. None means unknown (unsynced
+    # org, resolver fail-open) — clients must not render None as $0.
+    used_usd: float | None = None
+    limit_usd: float | None = None
 
 
 class UsageResponse(BaseModel):
@@ -46,6 +51,7 @@ class UsageResponse(BaseModel):
     ai_credits: AiCreditsStatus
     is_rate_limited: bool
     is_pro: bool
+    code_usage_subscribed: bool = False
     billing_period_end: datetime | None = None
 
 
@@ -77,7 +83,6 @@ async def get_usage(
         product=product,
     )
     now = datetime.now(tz=UTC)
-    ai_credits_exhausted = quota_status.limited
 
     context = ThrottleContext(
         user=user,
@@ -85,9 +90,17 @@ async def get_usage(
         end_user_id=str(user.user_id),
         plan_key=plan_info.plan_key,
         seat_created_at=plan_info.seat_created_at,
+        seat_missing=plan_info.seat_missing,
+        code_usage_billed=quota_status.code_usage_billing_active,
         billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
-        ai_credits_exhausted=ai_credits_exhausted,
+        credits_exhausted=quota_status.limited,
     )
+    # The product's own credit bucket (resolve_plan_and_quota resolves per bucket;
+    # always unlimited for unbilled products), reported under the legacy `ai_credits`
+    # response field — clients read `ai_credits.exhausted` regardless of bucket. Run
+    # through the same decision as the request-path throttle: clients gate on this
+    # response, so it must never disagree with what enforcement would do.
+    credits_exhausted = bucket_block_applies(context)
 
     burst_status: CostLimitStatus | None = None
     sustained_status: CostLimitStatus | None = None
@@ -130,9 +143,14 @@ async def get_usage(
         user_id=user.user_id,
         burst=burst_status,
         sustained=sustained_status,
-        ai_credits=AiCreditsStatus(exhausted=ai_credits_exhausted),
-        is_rate_limited=burst_status.exceeded or sustained_status.exceeded or ai_credits_exhausted,
+        ai_credits=AiCreditsStatus(
+            exhausted=credits_exhausted,
+            used_usd=quota_status.used_usd,
+            limit_usd=quota_status.limit_usd,
+        ),
+        is_rate_limited=burst_status.exceeded or sustained_status.exceeded or credits_exhausted,
         is_pro=is_pro_plan(plan_info.plan_key),
+        code_usage_subscribed=quota_status.code_usage_billing_active,
         billing_period_end=billing_period_end,
     )
 

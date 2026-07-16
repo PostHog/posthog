@@ -32,6 +32,7 @@ import type {
     _MetricSeriesApi,
     MetricAnomalyDirectionEnumApi,
 } from 'products/metrics/frontend/generated/api.schemas'
+import { canCreateMetricsInsight, canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { formatSeriesName, seriesColor } from './metricsSeries'
@@ -235,7 +236,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         pendingAddToDashboard: [
             false,
             {
-                addToDashboard: () => true,
+                addToDashboard: (state) => (canCreateMetricsInsight() ? true : state),
                 openAddToDashboardModal: () => false,
                 saveAsInsightFailure: () => false,
             },
@@ -280,7 +281,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             lemonToast.error(`Failed to save insight: ${error}`)
         },
         addToDashboard: () => {
-            if (!values.metricsQueryNode) {
+            if (!canCreateMetricsInsight() || !values.metricsQueryNode) {
                 return
             }
             // Re-clicking with an unchanged query reuses the saved insight instead
@@ -332,6 +333,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             [] as { key: string; label: string }[],
             {
                 loadAttributeKeyOptions: async (_, breakpoint) => {
+                    if (!canViewMetrics()) {
+                        return []
+                    }
                     await breakpoint(300)
                     const dateFrom = resolveDate(values.dateFrom) ?? undefined
                     const dateTo = resolveDate(values.dateTo) ?? undefined
@@ -350,6 +354,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             [] as MetricsViewerSeries[],
             {
                 fetchQueryResults: async (_, breakpoint) => {
+                    if (!canViewMetrics()) {
+                        return []
+                    }
                     const trimmedName = values.metricName.trim()
                     if (!trimmedName) {
                         return []
@@ -389,6 +396,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             null as QueryBasedInsightModel | null,
             {
                 saveAsInsight: async () => {
+                    if (!canCreateMetricsInsight()) {
+                        return null
+                    }
                     const query = values.metricsQueryNode
                     if (!query) {
                         return null
@@ -417,6 +427,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             {
                 clearAnomaly: () => null,
                 fetchAnomaly: async (_, breakpoint) => {
+                    if (!canViewMetrics()) {
+                        return null
+                    }
                     const trimmedName = values.metricName.trim()
                     const fromISO = resolveDate(values.dateFrom)
                     if (!trimmedName || !fromISO) {

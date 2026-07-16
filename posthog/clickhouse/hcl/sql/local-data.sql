@@ -125,6 +125,7 @@ CREATE TABLE posthog.distributed_system_processes (
   os_user String,
   client_hostname String,
   client_name String,
+  client_agent LowCardinality(String),
   client_revision UInt64,
   client_version_major UInt64,
   client_version_minor UInt64,

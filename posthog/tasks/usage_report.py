@@ -1,6 +1,7 @@
 import os
 import gzip
 import json
+import uuid
 import base64
 import logging
 import dataclasses
@@ -53,7 +54,7 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.billing import get_replay_vision_credits_by_team
-from products.signals.backend.billing import get_signals_billing_credits_by_team
+from products.signals.backend.billing import credited_refund_credits_for_org, get_signals_billing_credits_by_team
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
     SurveyEventProperties,
@@ -240,6 +241,11 @@ class UsageReportCounters:
     web_events_count_in_period: int
     web_lite_events_count_in_period: int
     node_events_count_in_period: int
+
+    # MCP usage overlaps billable event and per-SDK totals.
+    mcp_tool_call_events_count_in_period: int
+
+    # SDK usage (continued)
     openclaw_events_count_in_period: int
     posthog_pi_events_count_in_period: int
     posthog_ai_events_count_in_period: int
@@ -543,6 +549,39 @@ def _execute_split_query(
         return _combine_team_count_results(all_results)
     else:
         return combine_results_func(all_results)
+
+
+def _execute_calendar_aligned_split_query(
+    begin: datetime,
+    end: datetime,
+    query_template: str,
+    params: dict,
+    num_splits: int,
+) -> list[tuple[int, int]]:
+    total_days = (end.date() - begin.date()).days
+    split_boundaries = {begin, end}
+
+    for split_index in range(1, num_splits):
+        day_offset = (total_days * split_index + num_splits - 1) // num_splits
+        split_boundary = begin.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=day_offset)
+        if begin < split_boundary < end:
+            split_boundaries.add(split_boundary)
+
+    ordered_boundaries = sorted(split_boundaries)
+    all_results = []
+    for split_begin, split_end in zip(ordered_boundaries, ordered_boundaries[1:]):
+        split_params = params | {"begin": split_begin, "end": split_end}
+        all_results.append(
+            sync_execute(
+                query_template,
+                split_params,
+                workload=Workload.OFFLINE,
+                settings=CH_BILLING_SETTINGS,
+                ch_user=ClickHouseUser.BILLING,
+            )
+        )
+
+    return _combine_team_count_results(all_results)
 
 
 def _combine_team_count_results(results_list: list) -> list[tuple[int, int]]:
@@ -866,6 +905,21 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             params={},
             num_splits=12,
             combine_results_func=combine_event_metrics_results,
+        )
+        metrics["mcp_tool_call_events"] = _execute_calendar_aligned_split_query(
+            begin=begin,
+            end=end,
+            query_template="""
+            SELECT
+                team_id,
+                uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))) AS count
+            FROM events
+            PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
+            WHERE event = '$mcp_tool_call'
+            GROUP BY team_id
+            """,
+            params={},
+            num_splits=12,
         )
         ai_counts_by_metric, node_subtractions = _get_ai_sub_sdk_event_metric_counts(
             begin=begin,
@@ -1577,6 +1631,18 @@ def get_teams_with_signals_credits_used_in_period(
     Outcome-based, not LLM spend: see `products/signals/backend/billing.py`.
     """
     return get_signals_billing_credits_by_team(begin, end)
+
+
+def get_signals_credited_refund_credits_for_org(
+    organization_id: str | uuid.UUID, begin: datetime, end: datetime
+) -> int:
+    """Credits returned via credited-path signals PR refunds in `[begin, end)` for one org.
+
+    Input to the quota-limiting offset — see `products/signals/backend/billing.py`. Re-exported
+    from this posthog-layer module (like the usage query above) because the module boundaries
+    allow posthog → products.signals but not ee → products.signals.
+    """
+    return credited_refund_credits_for_org(organization_id, begin, end)
 
 
 @timed_log()
@@ -2375,6 +2441,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_web_events_count_in_period": all_metrics["web_events"],
         "teams_with_web_lite_events_count_in_period": all_metrics["web_lite_events"],
         "teams_with_node_events_count_in_period": all_metrics["node_events"],
+        "teams_with_mcp_tool_call_events_count_in_period": all_metrics["mcp_tool_call_events"],
         "teams_with_openclaw_events_count_in_period": all_metrics["openclaw_events"],
         "teams_with_posthog_pi_events_count_in_period": all_metrics["posthog_pi_events"],
         "teams_with_posthog_ai_events_count_in_period": all_metrics["posthog_ai_events"],
@@ -2742,6 +2809,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         web_events_count_in_period=all_data["teams_with_web_events_count_in_period"].get(team.id, 0),
         web_lite_events_count_in_period=all_data["teams_with_web_lite_events_count_in_period"].get(team.id, 0),
         node_events_count_in_period=all_data["teams_with_node_events_count_in_period"].get(team.id, 0),
+        mcp_tool_call_events_count_in_period=all_data["teams_with_mcp_tool_call_events_count_in_period"].get(
+            team.id, 0
+        ),
         openclaw_events_count_in_period=all_data["teams_with_openclaw_events_count_in_period"].get(team.id, 0),
         posthog_pi_events_count_in_period=all_data["teams_with_posthog_pi_events_count_in_period"].get(team.id, 0),
         posthog_ai_events_count_in_period=all_data["teams_with_posthog_ai_events_count_in_period"].get(team.id, 0),

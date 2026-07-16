@@ -924,39 +924,6 @@ def process_scheduled_changes() -> None:
 
 
 @shared_task(ignore_result=True)
-def sync_insight_cache_states_task() -> None:
-    from posthog.caching.insight_caching_state import sync_insight_cache_states
-
-    sync_insight_cache_states()
-
-
-@shared_task(
-    ignore_result=True,
-    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
-    retry_backoff=10,
-    retry_backoff_max=30,
-    max_retries=3,
-    retry_jitter=True,
-    queue=CeleryQueue.LONG_RUNNING.value,
-)
-def update_cache_task(caching_state_id: UUID) -> None:
-    from posthog.caching.insight_cache import update_cache
-
-    update_cache(caching_state_id)
-
-
-@shared_task(ignore_result=True)
-def sync_insight_caching_state(
-    team_id: int,
-    insight_id: Optional[int] = None,
-    dashboard_tile_id: Optional[int] = None,
-) -> None:
-    from posthog.caching.insight_caching_state import sync_insight_caching_state
-
-    sync_insight_caching_state(team_id, insight_id, dashboard_tile_id)
-
-
-@shared_task(ignore_result=True)
 def calculate_decide_usage() -> None:
     from products.feature_flags.backend.flag_analytics import (
         capture_usage_for_all_teams as capture_decide_usage_for_all_teams,
@@ -1632,7 +1599,7 @@ def sync_user_product_lists_for_new_team(team_id: int) -> None:
     Sync UserProductList for all users who have access to a new team.
     Called during project creation to avoid request timeouts for large organizations.
     """
-    from posthog.models.file_system.user_product_list import backfill_user_product_list_for_new_user
+    from posthog.models.file_system.user_product_list import add_default_products_for_user
     from posthog.models.team import Team
 
     try:
@@ -1649,6 +1616,6 @@ def sync_user_product_lists_for_new_team(team_id: int) -> None:
     )
 
     for user in users:
-        backfill_user_product_list_for_new_user(user, team)
+        add_default_products_for_user(user, team)
 
     logger.info("sync_user_product_lists_for_new_team: Completed", team_id=team_id)

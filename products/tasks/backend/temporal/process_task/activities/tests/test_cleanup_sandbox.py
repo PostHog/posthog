@@ -1,5 +1,6 @@
 import os
 import time
+import uuid
 import threading
 
 import pytest
@@ -43,7 +44,8 @@ def test_cleanup_sandbox_requests_agent_server_shutdown_when_completing_stream(a
 
 
 @pytest.mark.django_db
-def test_cleanup_sandbox_does_not_complete_stream_when_destroy_fails(activity_environment, mocker):
+def test_cleanup_sandbox_retries_when_final_destroy_fails(activity_environment, mocker):
+    run_id = str(uuid.uuid4())
     sandbox = mocker.Mock(id="sandbox-123")
     sandbox.destroy.side_effect = RuntimeError("destroy failed")
     mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
@@ -51,14 +53,15 @@ def test_cleanup_sandbox_does_not_complete_stream_when_destroy_fails(activity_en
         "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete"
     )
 
-    async_to_sync(activity_environment.run)(
-        cleanup_sandbox,
-        CleanupSandboxInput(
-            sandbox_id="sandbox-123",
-            run_id="run-123",
-            complete_stream_on_cleanup=True,
-        ),
-    )
+    with pytest.raises(RuntimeError, match="destroy failed"):
+        async_to_sync(activity_environment.run)(
+            cleanup_sandbox,
+            CleanupSandboxInput(
+                sandbox_id="sandbox-123",
+                run_id=run_id,
+                complete_stream_on_cleanup=True,
+            ),
+        )
 
     sandbox.destroy.assert_called_once_with()
     sandbox.execute.assert_not_called()
@@ -67,6 +70,7 @@ def test_cleanup_sandbox_does_not_complete_stream_when_destroy_fails(activity_en
 
 @pytest.mark.django_db
 def test_cleanup_sandbox_completes_stream_when_requested(activity_environment, mocker):
+    run_id = str(uuid.uuid4())
     sandbox = mocker.Mock(id="sandbox-123")
     mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
     publish_complete = mocker.patch(
@@ -77,19 +81,19 @@ def test_cleanup_sandbox_completes_stream_when_requested(activity_environment, m
         cleanup_sandbox,
         CleanupSandboxInput(
             sandbox_id="sandbox-123",
-            run_id="run-123",
+            run_id=run_id,
             complete_stream_on_cleanup=True,
         ),
     )
 
     sandbox.execute.assert_not_called()
     sandbox.destroy.assert_called_once_with()
-    publish_complete.assert_called_once_with("run-123", False)
+    publish_complete.assert_called_once_with(run_id, False)
 
 
 @pytest.mark.django_db
 def test_cleanup_sandbox_writes_real_completion_sentinel_when_requested(activity_environment, mocker):
-    run_id = "run-real-stream-complete"
+    run_id = str(uuid.uuid4())
     stream_key = get_task_run_stream_key(run_id)
     sandbox = mocker.Mock(id="sandbox-123")
     mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
@@ -114,6 +118,7 @@ def test_cleanup_sandbox_writes_real_completion_sentinel_when_requested(activity
 
 @pytest.mark.django_db
 def test_cleanup_sandbox_completes_stream_when_sandbox_is_already_gone(activity_environment, mocker):
+    run_id = str(uuid.uuid4())
     mocker.patch.object(
         Sandbox,
         "get_by_id",
@@ -131,12 +136,12 @@ def test_cleanup_sandbox_completes_stream_when_sandbox_is_already_gone(activity_
         cleanup_sandbox,
         CleanupSandboxInput(
             sandbox_id="sandbox-123",
-            run_id="run-123",
+            run_id=run_id,
             complete_stream_on_cleanup=True,
         ),
     )
 
-    publish_complete.assert_called_once_with("run-123", False)
+    publish_complete.assert_called_once_with(run_id, False)
 
 
 @pytest.mark.skipif(

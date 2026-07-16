@@ -303,7 +303,7 @@ export const clustersLogic = kea<clustersLogicType>([
                     breakpoint()
 
                     const matched = new Set<string>()
-                    for (const row of response.results || []) {
+                    for (const row of response?.results || []) {
                         const id = (row as unknown[])[0]
                         if (typeof id === 'string' && id) {
                             matched.add(id)
@@ -344,7 +344,7 @@ export const clustersLogic = kea<clustersLogicType>([
                         }
                     )
 
-                    return (response.results || []).map((row: string[]) => ({
+                    return (response?.results || []).map((row: string[]) => ({
                         runId: row[0],
                         windowEnd: row[1],
                         label: dayjs(row[2]).format('MMM D, YYYY h:mm A'),
@@ -385,7 +385,7 @@ export const clustersLogic = kea<clustersLogicType>([
                         { queryParams: { modifiers: { convertToProjectTimezone: false } } }
                     )
 
-                    if (!response.results?.length) {
+                    if (!response?.results?.length) {
                         return null
                     }
 

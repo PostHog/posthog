@@ -463,13 +463,6 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
-    # insight cache key varies with team id
-    query = re.sub(
-        r"WHERE \(\"posthog_insightcachingstate\".\"cache_key\" = 'cache_\w{32}'",
-        """WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_THE_CACHE_KEY'""",
-        query,
-    )
-
     # replace Savepoint numbers
     query = re.sub(r"SAVEPOINT \".+\"", "SAVEPOINT _snapshot_", query)
 

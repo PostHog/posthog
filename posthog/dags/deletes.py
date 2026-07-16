@@ -832,7 +832,12 @@ def deletes_job():
     request_job=deletes_job,
 )
 def run_deletes_after_squash(context):
-    return dagster.RunRequest(run_key=None)
+    # mutation waits can span hours, so allow more transient failures per host before failing the
+    # weekly deletes run
+    return dagster.RunRequest(
+        run_key=None,
+        run_config={"resources": {"cluster": {"config": {"retry_max_attempts": 20}}}},
+    )
 
 
 @dagster.op

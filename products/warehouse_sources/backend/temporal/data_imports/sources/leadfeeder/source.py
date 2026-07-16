@@ -49,7 +49,6 @@ class LeadfeederSource(ResumableSource[LeadfeederSourceConfig, LeadfeederResumeC
             category=DataWarehouseSourceCategory.CRM,
             label="Leadfeeder",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             keywords=["dealfront"],
             caption="""Enter your Leadfeeder (Dealfront) API token to pull your website visitor and lead data into the PostHog Data warehouse.
 

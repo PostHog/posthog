@@ -44,6 +44,7 @@ import {
     IconPlay,
     IconPlaylist,
     IconPlug,
+    IconPullRequest,
     IconReceipt,
     IconRetention,
     IconRewindPlay,
@@ -356,6 +357,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     visual_review: {
         icon: <IconApp />,
+    },
+    code_review: {
+        icon: <IconPullRequest />,
     },
     exports: {
         icon: <IconDownload />,

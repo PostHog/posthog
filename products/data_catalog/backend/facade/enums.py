@@ -12,6 +12,13 @@ from enum import StrEnum
 # follows the steps. JSX object references inside the markdown are a future expansion.
 MARKDOWN_DEFINITION_KIND = "MarkdownDefinition"
 
+# Query kinds an executable metric definition may take, split by how they run. Validation maps each
+# kind to its posthog.schema model; execution wraps node kinds in a single-series TrendsQuery (they
+# have no query runner of their own); the API picks query throttles from the same split.
+HOGQL_DEFINITION_KIND = "HogQLQuery"
+NODE_DEFINITION_KINDS = ("EventsNode", "ActionsNode", "DataWarehouseNode")
+INSIGHT_DEFINITION_KINDS = ("TrendsQuery", "FunnelsQuery")
+
 
 class MetricStatus(StrEnum):
     """Persisted lifecycle state of a metric. ``drifted`` is computed at read time, never stored."""
@@ -25,3 +32,19 @@ class CreatedSource(StrEnum):
 
     USER = "user"
     AI_GENERATED = "ai_generated"
+
+
+class CertificationStatus(StrEnum):
+    """Human-vouched trust mark on a warehouse table or view."""
+
+    PROPOSED = "proposed"
+    CERTIFIED = "certified"
+    DEPRECATED = "deprecated"
+
+
+class RelationshipStatus(StrEnum):
+    """Review state of a proposed join between two warehouse tables."""
+
+    PROPOSED = "proposed"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"

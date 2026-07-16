@@ -1,7 +1,7 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import SourceFieldOauthAccountSelectConfig, SourceFieldOauthConfig
+from posthog.schema import ReleaseStatus, SourceFieldOauthAccountSelectConfig, SourceFieldOauthConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source import BingAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils import BingAdsResumeConfig
@@ -32,7 +32,7 @@ class TestBingAdsSource:
 
         assert config.name.value == "BingAds"
         assert config.label == "Bing Ads"
-        assert config.releaseStatus == "beta"
+        assert config.releaseStatus == ReleaseStatus.GA
         assert config.iconPath == "/static/services/bing-ads.svg"
         assert len(config.fields) == 2
 

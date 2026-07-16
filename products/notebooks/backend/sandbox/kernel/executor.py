@@ -1,4 +1,4 @@
-"""Owns the ipykernel child and runs Python nodes through it (Journey 4, arch build step 2).
+"""Owns the ipykernel child and runs kernel nodes through it (Journeys 4/5, arch build steps 2+5).
 
 Sandbox-only: this is the one module that imports `jupyter_client` and drives a live
 kernel, both of which exist only in the notebook sandbox image — so it is exercised there,
@@ -7,7 +7,7 @@ in test_kernel_bootstrap). Everything network/credential-bearing stays in this p
 kernel receives only local file paths and node code, never a token (division of labor in
 sql_v2_kernel_architecture.md).
 
-Flow for a Python node:
+Flow for a kernel node (python or duckdb — the kernel branches on node.type):
   1. materialize each HogQL input — the server streams the full CH result to a local Arrow
      file keyed by query_hash (reused when the upstream query is unchanged);
   2. hand the kernel `_ph.run_node(payload)` (paths only) and read back the envelope it writes;
@@ -15,10 +15,12 @@ Flow for a Python node:
 """
 
 import os
+import glob
 import json
 import time
 import queue
 import shutil
+import hashlib
 import threading
 from typing import Any
 
@@ -46,13 +48,23 @@ class KernelExecutor:
         self._km: KernelManager | None = None
         self._kc: Any = None
         self._lock = threading.Lock()
+        # The run currently executing a cell in the kernel, so an interrupt for a queued or
+        # already-finished run can never SIGINT somebody else's cell. Written while holding
+        # _lock; read lock-free from the HTTP handler thread (a stale read is benign; the
+        # worst case is a missed/late SIGINT, and the cancel event still stops the run).
+        self._active_run_id: str | None = None
 
-    def run_python_node(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def run_kernel_node(self, payload: dict[str, Any], cancel_event: threading.Event | None = None) -> dict[str, Any]:
         with self._lock:  # a kernel has one namespace — concurrent runs are meaningless
+            # Cancelled while queued behind another run: never touch the kernel.
+            if cancel_event is not None and cancel_event.is_set():
+                return envelope.from_python_execution(status="interrupted", error=envelope.INTERRUPTED_MESSAGE)
             try:
                 self._ensure_kernel()
-                inputs = self._materialize_inputs(payload)
+                inputs = self._materialize_inputs(payload, cancel_event)
                 return self._invoke_run_node(payload, inputs)
+            except data_plane.DataPlaneInterrupted:
+                return envelope.from_python_execution(status="interrupted", error=envelope.INTERRUPTED_MESSAGE)
             except data_plane.DataPlaneError as exc:
                 return envelope.from_python_execution(status="error", error=str(exc))
             except Exception as exc:  # noqa: BLE001 — a run must always yield a callback envelope
@@ -61,6 +73,13 @@ class KernelExecutor:
     def interrupt(self) -> None:
         if self._km is not None:
             self._km.interrupt_kernel()
+
+    def interrupt_for_run(self, run_id: str) -> bool:
+        """SIGINT the kernel only if `run_id` is the run executing a cell right now."""
+        if run_id and run_id == self._active_run_id and self._km is not None:
+            self._km.interrupt_kernel()
+            return True
+        return False
 
     def restart(self) -> None:
         with self._lock:
@@ -96,25 +115,46 @@ class KernelExecutor:
         if status != "ok":
             raise RuntimeError("failed to initialize the kernel session")
 
-    def _materialize_inputs(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+    def _materialize_inputs(
+        self, payload: dict[str, Any], cancel_event: threading.Event | None = None
+    ) -> list[dict[str, Any]]:
         """Fetch each HogQL input to a local Arrow file; return the kernel-facing input specs (paths only)."""
         kernel_inputs: list[dict[str, Any]] = []
         for spec in payload.get("inputs") or []:
+            if cancel_event is not None and cancel_event.is_set():
+                raise data_plane.DataPlaneInterrupted("Run interrupted.")
             name = spec["name"]
             if spec.get("kind") == "local":
                 kernel_inputs.append({"name": name, "kind": "local"})
                 continue
-            frame_path = os.path.join(self._frames_dir, f"{spec['query_hash']}.arrow")
-            if not os.path.exists(frame_path):  # unchanged upstream query → reuse the frame
+            # Keyed by the upstream run_id, so the same run reuses its frame while a re-run (new
+            # run_id) fetches fresh data instead of the stale cached rows. node_id comes from
+            # user-controlled notebook content, so hash it to a filesystem-safe token — a raw
+            # "../x" id would otherwise escape the frames dir on write and in the eviction glob.
+            # run_id is a server-generated UUID.
+            node_token = hashlib.sha256(spec["node_id"].encode()).hexdigest()
+            frame_path = os.path.join(self._frames_dir, f"{node_token}.{spec['run_id']}.arrow")
+            if not os.path.exists(frame_path):
+                self._evict_superseded_frames(node_token, keep=frame_path)
                 data_plane.materialize_query_to_file(
                     payload["data_plane_url"],
                     payload["data_plane_token"],
                     spec["query"],
                     frame_path,
                     limit=_MATERIALIZE_ROW_CAP,
+                    cancel_event=cancel_event,
                 )
             kernel_inputs.append({"name": name, "kind": "hogql", "path": frame_path})
         return kernel_inputs
+
+    def _evict_superseded_frames(self, node_token: str, keep: str) -> None:
+        """Drop this upstream node's older frames so iterating a query doesn't pile up unread frames."""
+        for stale in glob.glob(os.path.join(self._frames_dir, f"{node_token}.*.arrow")):
+            if stale != keep:
+                try:
+                    os.remove(stale)
+                except OSError:
+                    pass  # best-effort: a concurrent run or teardown may have removed it already
 
     def _invoke_run_node(self, payload: dict[str, Any], inputs: list[dict[str, Any]]) -> dict[str, Any]:
         run_id = str(payload.get("run_id") or "run")
@@ -132,12 +172,17 @@ class KernelExecutor:
             if os.path.exists(envelope_path):
                 os.remove(envelope_path)
 
-            status = self._execute(
-                "import json as __j\n"
-                f"with open({payload_path!r}) as __f:\n    __payload = __j.load(__f)\n"
-                "__envelope = _ph.run_node(__payload)\n"
-                f"with open({envelope_path!r}, 'w') as __f:\n    __j.dump(__envelope, __f)\n"
-            )
+            # Only while the cell is actually executing may an interrupt SIGINT the kernel.
+            self._active_run_id = run_id
+            try:
+                status = self._execute(
+                    "import json as __j\n"
+                    f"with open({payload_path!r}) as __f:\n    __payload = __j.load(__f)\n"
+                    "__envelope = _ph.run_node(__payload)\n"
+                    f"with open({envelope_path!r}, 'w') as __f:\n    __j.dump(__envelope, __f)\n"
+                )
+            finally:
+                self._active_run_id = None
             if status != "ok" or not os.path.exists(envelope_path):
                 return envelope.from_python_execution(
                     status="error", error="The kernel did not return a result (it may have crashed — try re-running)."

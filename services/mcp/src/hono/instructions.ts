@@ -7,6 +7,7 @@ import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
+import { ExecHelpCatalog } from '@/tools/exec-help'
 import {
     getRenderableToolNames,
     makeRenderUiSchema,
@@ -109,10 +110,19 @@ export class InstructionsBuilder {
         // un-stripped path.)
         const keepEnvContext = state.clientProfile.isClaudeChatHost()
         const ctx = this.buildContext(state)
+        if (keepEnvContext) {
+            return this.formatter.buildClaudeExecCommandReference(ctx)
+        }
         return this.formatter.buildExecCommandReference(ctx, {
             stripEnvContext: supportsInstructions,
-            keepEnvContext,
         })
+    }
+
+    buildExecHelpCatalog(state: ResolvedState): ExecHelpCatalog | undefined {
+        if (!state.clientProfile.isClaudeChatHost()) {
+            return undefined
+        }
+        return new ExecHelpCatalog(this.formatter.buildClaudeExecHelpEntries(this.buildContext(state)))
     }
 
     buildExecToolDescription(): string {

@@ -1,4 +1,3 @@
-import re
 from datetime import datetime
 from typing import Literal, Optional, cast
 
@@ -19,6 +18,7 @@ from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_hogql_identifier
+from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
@@ -42,15 +42,6 @@ _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
     "JSONExtractFloat": ("Float64", 0.0),
     "JSONExtractBool": ("Bool", 0),
 }
-
-# ISO 8601 datetimes carrying a `T` date/time separator followed by a `Z`/±HH:MM
-# offset suffix. ClickHouse's toDateTime64 uses a strict parser that rejects these,
-# so they must go through parseDateTime64BestEffortOrNull instead.
-_ISO8601_WITH_OFFSET_RE = re.compile(r"\d{4}-\d{2}-\d{2}T.*(Z|[+-]\d{2}:?\d{2})")
-
-
-def _is_iso8601_with_offset(value: str) -> bool:
-    return bool(_ISO8601_WITH_OFFSET_RE.fullmatch(value))
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
@@ -659,22 +650,14 @@ class PropertySwapper(CloningVisitor):
         if isinstance(inner, ast.Constant):
             if isinstance(inner.value, datetime) and inner.value.tzinfo is not None:
                 return expr
-            # ISO 8601 strings carrying a `T` separator followed by a `Z`/offset suffix
-            # (e.g. '2026-05-18T00:00:00.000Z') are preserved upstream so the offset
-            # can be honored (see property.py:_resolve_date_value). toDateTime64 uses
-            # a strict parser that rejects the trailing `Z`, so route these through
-            # HogQL's toDateTime, which lowers a string arg to
-            # parseDateTime64BestEffortOrNull(str, 6, tz) and honors the offset.
-            if isinstance(inner.value, str) and _is_iso8601_with_offset(inner.value):
-                new_call = ast.Call(
-                    name="toDateTime",
-                    args=[inner, ast.Constant(value=tz)],
-                )
-            else:
-                new_call = ast.Call(
-                    name="toDateTime64",
-                    args=[inner, ast.Constant(value=6), ast.Constant(value=tz)],
-                )
+            # ClickHouse's toDateTime64 can't parse 'Z'/offset strings, so parse them in Python instead.
+            if (zoned := parse_zoned_datetime_string(inner.value)) is not None:
+                inner.value = zoned
+                return expr
+            new_call = ast.Call(
+                name="toDateTime64",
+                args=[inner, ast.Constant(value=6), ast.Constant(value=tz)],
+            )
             if isinstance(expr, ast.Alias):
                 return ast.Alias(alias=expr.alias, expr=new_call)
             return new_call

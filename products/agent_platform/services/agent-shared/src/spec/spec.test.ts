@@ -914,6 +914,44 @@ describe('AgentSpecSchema', () => {
         })
     })
 
+    describe('principalsMatch — slack', () => {
+        type S = { kind: 'slack'; workspace_id: string; slack_user_id: string; canonical_agent_user_id?: string }
+        it.each<[string, S, S, boolean]>([
+            [
+                'same workspace + user with no canonical on either side matches (passthrough)',
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U' },
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U' },
+                true,
+            ],
+            [
+                'same workspace + user + same canonical matches',
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U', canonical_agent_user_id: 'C1' },
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U', canonical_agent_user_id: 'C1' },
+                true,
+            ],
+            [
+                'same workspace + user but different canonical does NOT match (rebound identity)',
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U', canonical_agent_user_id: 'C1' },
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U', canonical_agent_user_id: 'C2' },
+                false,
+            ],
+            [
+                'stored has canonical, incoming does not (admission model changed) does NOT match',
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U', canonical_agent_user_id: 'C1' },
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U' },
+                false,
+            ],
+            [
+                'incoming has canonical, stored does not (admission newly enabled) does NOT match',
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U' },
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U', canonical_agent_user_id: 'C1' },
+                false,
+            ],
+        ])('%s', (_label, stored, incoming, expected) => {
+            expect(principalsMatch(stored, incoming)).toBe(expected)
+        })
+    })
+
     describe('principalsMatch — shared_secret', () => {
         type SS = { kind: 'shared_secret'; team_id: number }
         it.each<[string, SS, SS, boolean]>([

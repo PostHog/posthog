@@ -343,4 +343,7 @@ squash_schedule = dagster.ScheduleDefinition(
     cron_schedule=settings.SQUASH_PERSON_OVERRIDES_SCHEDULE,
     execution_timezone="UTC",
     name="squash_person_overrides_schedule",
+    # mutation waits can span hours, so allow more transient failures per host before failing the
+    # weekly run (downstream deletes only trigger on success)
+    run_config={"resources": {"cluster": {"config": {"retry_max_attempts": 20}}}},
 )

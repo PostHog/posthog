@@ -60,7 +60,6 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
         acknowledgeCelebration: (trackKey: string, stage: number) => ({ trackKey, stage }),
         recordInteraction: (kind: InteractionKindEnumApi) => ({ kind }),
         markCelebrated: (key: string) => ({ key }),
-        triggerConfetti: true,
         toggleTrackExpanded: (trackKey: string) => ({ trackKey }),
     }),
     loaders(({ values }) => ({
@@ -85,12 +84,6 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
             [] as string[],
             {
                 markCelebrated: (state, { key }) => (state.includes(key) ? state : [...state, key]),
-            },
-        ],
-        confettiNonce: [
-            0,
-            {
-                triggerConfetti: (state) => state + 1,
             },
         ],
         expandedTracks: [
@@ -197,7 +190,6 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
             pending.forEach((entry) => {
                 actions.acknowledgeCelebration(entry.track_key, entry.stage)
             })
-            actions.triggerConfetti()
         },
         acknowledgeCelebration: async ({ trackKey, stage }) => {
             const track = values.definitions.find((t) => t.key === trackKey)
