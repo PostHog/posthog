@@ -6,7 +6,7 @@ import { PropertyFilterList, type PropertyFilter } from './PropertyFilterList'
 
 // Matches SUPER_CONDITION_INDEX in rust/feature-flags/src/api/types.rs: the early-access
 // enrollment super condition has no position among the zero-based release conditions.
-const SUPER_CONDITION_INDEX = -1
+export const SUPER_CONDITION_INDEX = -1
 
 export interface ConditionAnalysis {
     index: number
@@ -51,7 +51,10 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
     }
 
     const matchedConditionLabel = (): string => {
-        if (flag.reason === 'super_condition_value') {
+        // Reuse the same signal the condition list below uses (a matched entry at the sentinel
+        // index) instead of re-deriving "was this enrollment" from flag.reason separately.
+        const matchedCondition = flag.conditions.find((condition) => condition.matched)
+        if (matchedCondition?.index === SUPER_CONDITION_INDEX) {
             return 'Early access enrollment'
         }
         if (flag.reason === 'holdout_condition_value') {
