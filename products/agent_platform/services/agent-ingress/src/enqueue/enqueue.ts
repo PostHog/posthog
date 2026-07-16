@@ -95,6 +95,11 @@ export interface EnqueueInput {
      * for audit. Defaults to false (owner-only, the fail-closed behaviour).
      */
     bypassOwnerAcl?: boolean
+    /**
+     * Prepare per-session dependencies before making the session claimable.
+     * Chat uses this to write credentials before a worker can claim the row.
+     */
+    prepareSession?: (sessionId: string) => Promise<void>
 }
 
 export type EnqueueOutcome =
@@ -133,6 +138,7 @@ async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Pro
     if (input.idempotencyKey) {
         const existing = await deps.queue.findByIdempotencyKey(input.application.id, input.idempotencyKey)
         if (existing) {
+            await input.prepareSession?.(existing.id)
             return { kind: 'created', sessionId: existing.id, isResume: false }
         }
     }
@@ -161,6 +167,7 @@ async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Pro
                     existingPrincipalDisplay: principalDisplay(existing.principal),
                 }
             }
+            await input.prepareSession?.(existing.id)
             await deps.queue.appendPendingInput(existing.id, input.seed)
             await deps.queue.update(existing.id, { state: 'queued' })
             return { kind: 'resumed', sessionId: existing.id, isResume: true }
@@ -189,6 +196,7 @@ async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Pro
         updated_at: new Date().toISOString(),
     }
     try {
+        await input.prepareSession?.(session.id)
         await deps.queue.enqueue(session)
     } catch (err) {
         // Race-window safety net: between the `findByIdempotencyKey` check
@@ -200,6 +208,7 @@ async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Pro
         if (input.idempotencyKey && isUniqueViolation(err)) {
             const existing = await deps.queue.findByIdempotencyKey(input.application.id, input.idempotencyKey)
             if (existing) {
+                await input.prepareSession?.(existing.id)
                 return { kind: 'created', sessionId: existing.id, isResume: false }
             }
         }

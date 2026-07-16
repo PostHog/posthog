@@ -118,6 +118,7 @@ async function runHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatRunBodySchema>>
                 kind: 'chat',
                 ...(supportedClientTools?.length ? { supported_client_tools: supportedClientTools } : {}),
             },
+            prepareSession: (sessionId) => deps.broker.write(sessionId, ctx.credentials),
         }
     )
     if (outcome.kind === 'elevation_required') {
@@ -129,10 +130,6 @@ async function runHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatRunBodySchema>>
         })
         return
     }
-    // Write per-session auth materials into the broker keyed by the freshly
-    // minted session id. Tools resolve through this at call time; nothing
-    // token-bearing lands on the session row.
-    await deps.broker.write(outcome.sessionId, ctx.credentials)
     res.json({
         ok: true,
         session_id: outcome.sessionId,
@@ -195,6 +192,9 @@ async function sendHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatSendBodySchema
             return
         }
     }
+    // Refresh credentials before re-queueing so a worker can never claim this
+    // turn in the gap between the state transition and the broker write.
+    await deps.broker.write(sessionId, ctx.credentials)
     if (client_tool_result) {
         const payload = client_tool_result.error
             ? { call_id: client_tool_result.call_id, error: client_tool_result.error }
@@ -217,10 +217,6 @@ async function sendHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatSendBodySchema
         })
     }
     await deps.queue.update(sessionId, { state: 'queued' })
-    // Refresh broker creds with whatever the client just supplied — OAuth
-    // tokens may have rotated since /run, and the worker may have evicted the
-    // prior entry.
-    await deps.broker.write(sessionId, ctx.credentials)
     res.json({ ok: true })
 }
 
