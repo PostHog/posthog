@@ -137,6 +137,9 @@ Your credentials need the **repository**, **pullrequest**, **pipeline**, and **a
         return {
             "401 Client Error: Unauthorized for url: https://api.bitbucket.org": "Your Bitbucket credentials are invalid or have been revoked. Check your email and API token (or access token), then reconnect.",
             "403 Client Error: Forbidden for url: https://api.bitbucket.org": "Your Bitbucket token is missing a read scope needed to sync this data. Grant the repository, pullrequest, pipeline, and account read scopes, then reconnect.",
+            # Off-origin pagination/resume URL rejected by the transport's origin pin —
+            # deterministic until the bad resume state expires, so don't retry into it.
+            "Refusing to fetch non-Bitbucket URL": "Bitbucket returned an unexpected pagination URL. Please retry the sync; if the problem persists, contact support.",
             # Deterministic config errors from _get_auth — retrying can't fix them.
             "Missing Bitbucket access token": "No Bitbucket access token is configured. Please update the source configuration.",
             "Missing Atlassian account email or API token": "The Atlassian account email or API token is missing. Please update the source configuration.",

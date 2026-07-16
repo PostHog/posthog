@@ -104,6 +104,17 @@ def _increment_page_url(url: str, current_page: int) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
+def _ensure_bitbucket_url(url: str) -> str:
+    """Refuse to fetch anything off the Bitbucket API origin. Pagination `next` URLs come
+    from response bodies and are persisted in resume state, so without this pin a tampered
+    response or poisoned resume state could point the credentialed session (Basic auth or
+    Bearer token) at an arbitrary host and exfiltrate the customer's credentials."""
+    parts = urlsplit(url)
+    if parts.scheme != "https" or parts.netloc != "api.bitbucket.org":
+        raise ValueError(f"Refusing to fetch non-Bitbucket URL: {url}")
+    return url
+
+
 @retry(
     retry=retry_if_exception_type(
         (
@@ -120,7 +131,7 @@ def _increment_page_url(url: str, current_page: int) -> str:
     reraise=True,
 )
 def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict[str, Any]:
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+    response = session.get(_ensure_bitbucket_url(url), timeout=REQUEST_TIMEOUT_SECONDS)
 
     if response.status_code == 429 or response.status_code >= 500:
         raise BitbucketRetryableError(f"Bitbucket API error (retryable): status={response.status_code}, url={url}")

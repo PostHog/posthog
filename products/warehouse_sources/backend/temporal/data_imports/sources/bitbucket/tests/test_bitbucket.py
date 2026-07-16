@@ -152,6 +152,35 @@ def test_top_level_rows_follow_next_and_save_state_after_yield():
     manager.save_state.assert_called_once_with(BitbucketResumeConfig(next_url="https://api.bitbucket.org/page2"))
 
 
+@pytest.mark.parametrize(
+    "poisoned_url",
+    [
+        "https://evil.example.com/2.0/repositories/ws",
+        "http://api.bitbucket.org/2.0/repositories/ws",  # https only
+    ],
+)
+def test_fetch_page_rejects_off_origin_urls_without_sending_credentials(poisoned_url):
+    # `next` URLs come from response bodies and resume state; following one off-origin
+    # would hand the credentialed session to an arbitrary host
+    session = mock.Mock()
+
+    with pytest.raises(ValueError, match="Refusing to fetch non-Bitbucket URL"):
+        bitbucket._fetch_page(session, poisoned_url, mock.Mock())
+
+    session.get.assert_not_called()
+
+
+def test_poisoned_resume_state_is_not_fetched():
+    manager = _manager(BitbucketResumeConfig(next_url="https://evil.example.com/steal-token"))
+    session = mock.Mock()
+
+    with mock.patch.object(bitbucket, "_make_session", return_value=session):
+        with pytest.raises(ValueError, match="Refusing to fetch non-Bitbucket URL"):
+            list(get_rows(BitbucketAuth(), "ws", "repositories", mock.Mock(), manager))
+
+    session.get.assert_not_called()
+
+
 def test_top_level_rows_resume_from_saved_url():
     manager = _manager(BitbucketResumeConfig(next_url="https://api.bitbucket.org/resume-page"))
     session = _session_returning(_response({"values": [{"uuid": "{r3}"}]}))
