@@ -1175,7 +1175,7 @@ def _save_cohort_outcomes(
 
 def _save_staged_per_alert(
     staged: list[tuple[_DispatchedAlert, list[str], LogsAlertEvent | None]],
-    loaded_updated_at: dict[uuid.UUID, datetime],
+    loaded_updated_at: dict[uuid.UUID, datetime | None],
 ) -> tuple[list[_DispatchedAlert], list[_DispatchedAlert], list[_DispatchedAlert]]:
     """Fallback path used when `bulk_update` raises `IntegrityError`.
 
