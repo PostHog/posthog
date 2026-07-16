@@ -47,6 +47,7 @@ export interface CdcStatus {
     publication_exists?: boolean
     lag_bytes?: number | null
     published_tables?: string[]
+    schedule_paused?: boolean
 }
 
 const REFRESH_INTERVAL = 5000

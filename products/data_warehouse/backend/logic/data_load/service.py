@@ -36,6 +36,7 @@ from posthog.temporal.common.schedule import (
     a_update_schedule,
     create_schedule,
     delete_schedule,
+    describe_schedule,
     pause_schedule,
     schedule_exists,
     trigger_schedule,
@@ -595,6 +596,23 @@ def unpause_cdc_extraction_schedule(source_id: str) -> None:
         if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
             return
         raise
+
+
+@async_to_sync
+async def is_cdc_extraction_schedule_paused(source_id: str) -> bool:
+    """Whether the source's CDC extraction schedule exists and is currently paused.
+
+    A missing schedule reads as not paused — there is nothing to resume.
+    """
+    schedule_id = _get_cdc_extraction_schedule_id(source_id)
+    temporal = await async_connect()
+    try:
+        desc = await describe_schedule(temporal, schedule_id=schedule_id)
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return False
+        raise
+    return desc.schedule.state.paused
 
 
 @async_to_sync

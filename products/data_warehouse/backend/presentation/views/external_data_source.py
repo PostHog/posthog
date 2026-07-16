@@ -85,6 +85,7 @@ from products.data_warehouse.backend.facade.api import (
     github_repositories_for_job_inputs,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
+    is_cdc_extraction_schedule_paused,
     is_custom_source_ai_builder_enabled_for_team,
     is_multi_schema_capable_sql_source,
     is_xmin_enabled_for_team,
@@ -99,6 +100,7 @@ from products.data_warehouse.backend.facade.api import (
     sync_discover_schemas_schedule,
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
+    unpause_cdc_extraction_schedule,
     upsert_direct_mysql_table,
     upsert_direct_postgres_table,
     upsert_direct_redshift_table,
@@ -4083,6 +4085,81 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         return Response(status=status.HTTP_200_OK, data={"success": True, "schemas_reset": schemas_reset})
 
     @action(methods=["POST"], detail=True)
+    def resume_cdc(self, request: Request, *arg: Any, **kwargs: Any):
+        """Resume a CDC source whose extraction schedule was paused by a non-retryable
+        failure that left the replication slot intact (bad credentials, SSL/host errors).
+
+        Once the user has fixed the root cause, this re-probes the source DB — confirming
+        the connection now succeeds and the slot/publication still exist — then unpauses the
+        extraction schedule so streaming resumes from where it left off. No re-snapshot, so
+        it's the cheap counterpart to Repair CDC. If the slot/publication are actually gone
+        (``cdc_broken``, or a live probe showing them missing), resume is refused — only
+        Repair CDC can recreate them, at the cost of a full re-sync.
+        """
+        instance: ExternalDataSource = self.get_object()
+
+        adapter, err = self._get_cdc_adapter_or_400(instance)
+        if err is not None:
+            return err
+        assert adapter is not None  # narrowed by _get_cdc_adapter_or_400
+
+        cdc_config = adapter.parse_cdc_config(instance)
+        if not cdc_config.enabled:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "CDC is not enabled on this source."},
+            )
+
+        # A broken source has lost its slot/publication — resuming would just re-fail on the
+        # next tick. Route the user to Repair CDC, which recreates them (and re-syncs).
+        broken = ExternalDataSchema.objects.filter(
+            source=instance,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+        ).exclude(deleted=True)
+        if any((schema.sync_type_config or {}).get("cdc_broken") for schema in broken):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "The replication slot or publication was lost. Use Repair CDC to recreate it."},
+            )
+
+        # Re-probe the source: this both re-validates the connection (a still-wrong password
+        # raises here) and confirms the slot/publication survive, so we never unpause straight
+        # back into the same deterministic failure.
+        try:
+            live_status = adapter.get_status(instance)
+        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": f"Could not connect to source to resume CDC — check the credentials and try again: {e}"
+                },
+            )
+        except Exception as e:
+            capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to source to resume CDC: {e}"},
+            )
+
+        if live_status.get("slot_exists") is False or live_status.get("publication_exists") is False:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "The replication slot or publication is missing. Use Repair CDC to recreate it."},
+            )
+
+        try:
+            unpause_cdc_extraction_schedule(str(instance.id))
+        except Exception as e:
+            capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not resume CDC: {e}"},
+            )
+
+        return Response(status=status.HTTP_200_OK, data={"success": True})
+
+    @action(methods=["POST"], detail=True)
     def update_cdc_settings(self, request: Request, *arg: Any, **kwargs: Any):
         """Update CDC tuning fields without enabling/disabling.
 
@@ -4182,6 +4259,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "publication_name": cdc_config.publication_name,
                 "lag_warning_threshold_mb": cdc_config.lag_warning_threshold_mb,
                 "lag_critical_threshold_mb": cdc_config.lag_critical_threshold_mb,
+                # Paused-but-slot-intact means a non-retryable failure stopped the schedule; the UI
+                # offers Resume (vs Repair) so the user can restart without a full re-sync.
+                "schedule_paused": is_cdc_extraction_schedule_paused(str(instance.id)),
                 **live_status,
             },
         )

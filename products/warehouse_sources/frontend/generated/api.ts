@@ -679,6 +679,35 @@ export const externalDataSourcesRepairCdcCreate = async (
     })
 }
 
+export const getExternalDataSourcesResumeCdcCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/resume_cdc/`
+}
+
+/**
+ * Resume a CDC source whose extraction schedule was paused by a non-retryable
+ * failure that left the replication slot intact (bad credentials, SSL/host errors).
+ *
+ * Once the user has fixed the root cause, this re-probes the source DB — confirming
+ * the connection now succeeds and the slot/publication still exist — then unpauses the
+ * extraction schedule so streaming resumes from where it left off. No re-snapshot, so
+ * it's the cheap counterpart to Repair CDC. If the slot/publication are actually gone
+ * (``cdc_broken``, or a live probe showing them missing), resume is refused — only
+ * Repair CDC can recreate them, at the cost of a full re-sync.
+ */
+export const externalDataSourcesResumeCdcCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesResumeCdcCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceSerializersApi),
+    })
+}
+
 export const getExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/external_data_sources/${id}/revenue_analytics_config/`
 }

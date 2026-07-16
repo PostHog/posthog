@@ -6010,6 +6010,7 @@ const api = {
             publication_exists?: boolean
             lag_bytes?: number | null
             published_tables?: string[]
+            schedule_paused?: boolean
         }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('cdc_status').get()
         },
