@@ -15,8 +15,8 @@ use crate::modes::notifications::types::NotificationIssue;
 use crate::modes::processing::fingerprinting::FingerprintRecordPart;
 use crate::types::OutputErrProps;
 
-/// SDKs whose fingerprint embeddings we don't generate — their events don't
-/// produce stack traces useful for embedding-based similarity grouping.
+/// SDKs whose fingerprint embeddings we don't generate — they emit too many
+/// distinct issues, so embedding every fingerprint isn't worth the cost.
 const EMBEDDING_DISABLED_LIBS: &[&str] = &["posthog-elixir"];
 
 struct IssueLifecycleInternalEvent<'a, I: NotificationIssue> {
@@ -60,7 +60,7 @@ pub async fn send_new_fingerprint_event<I: NotificationIssue>(
 /// Returns the reason a fingerprint embedding request should be skipped, or
 /// `None` if it should be sent. We don't embed manually-fingerprinted issues
 /// (grouped by the user's own key, so similarity grouping doesn't apply) nor
-/// events from SDKs in `EMBEDDING_DISABLED_LIBS`.
+/// events from SDKs in `EMBEDDING_DISABLED_LIBS` (they emit too many issues).
 fn skip_fingerprint_embedding_reason(output_props: &OutputErrProps) -> Option<&'static str> {
     if output_props
         .fingerprint_record
