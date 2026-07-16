@@ -74,8 +74,7 @@
     <tr><th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd; vertical-align: top;">Notes</th><td style="padding: 8px; border-bottom: 1px solid #ddd;">{{ obj.notes }}</td></tr>
     {% endif %}
     <tr><th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Created by</th><td style="padding: 8px; border-bottom: 1px solid #ddd;">{{ obj.created_by|default:"—" }}</td></tr>
-    <tr><th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Created at</th><td style="padding: 8px; border-bottom: 1px solid #ddd;">{{ obj.created_at }}</td></tr>
-    <tr><th style="text-align: left; padding: 8px;">Requires approval</th><td style="padding: 8px;">{{ obj.requires_approval|yesno:"Yes,No" }}</td></tr>
+    <tr><th style="text-align: left; padding: 8px;">Created at</th><td style="padding: 8px;">{{ obj.created_at }}</td></tr>
 </table>
 
 {% if missing_properties %}
@@ -94,8 +93,35 @@
 </div>
 {% endif %}
 
+{% if can_submit %}
+    {% if will_auto_approve %}
+    <div style="margin: 16px 0; padding: 12px 16px; border: 1px solid #f0ad4e; border-radius: 4px; background: #fcf8e3; color: #8a6d3b;">
+        <strong>This request will be approved automatically.</strong>
+        It's an event removal matching {{ matching_event_count }} events, under the {{ auto_approve_max_events }} limit,
+        so it's small enough to skip ClickHouse Team review. Submitting approves it and queues it for the scheduled
+        deletes job, which drains it in the background rather than running a delete mutation of its own.
+    </div>
+    {% else %}
+    <p style="margin: 16px 0; color: #666;">
+        {{ auto_approval_blocker }}
+        Submitting sends it to the ClickHouse Team for manual approval.
+    </p>
+    {% endif %}
+{% endif %}
+
 <form method="post">
     {% csrf_token %}
+    {% if can_submit and will_auto_approve %}
+    {# Marks that this page offered the opt-out. Without it a page rendered before the request became #}
+    {# eligible would auto-approve on submit, having never shown the operator a checkbox to decline. #}
+    <input type="hidden" name="auto_approve_offered" value="1" />
+    <div style="margin-top: 16px;">
+        <label>
+            <input type="checkbox" name="requires_approval" />
+            Do not auto-approve. Send this to the ClickHouse Team for manual review instead.
+        </label>
+    </div>
+    {% endif %}
     <div style="margin-top: 20px; display: flex; gap: 10px; align-items: center;">
         <input type="submit" value="Confirm &amp; Submit" class="default" style="padding: 10px 15px;"{% if not can_submit %} disabled{% endif %} />
         <a href="{% url 'admin:posthog_datadeletionrequest_change' obj.pk %}" style="padding: 10px 15px;">Back</a>

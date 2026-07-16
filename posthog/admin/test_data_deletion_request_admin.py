@@ -13,7 +13,12 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.admin.admins.data_deletion_request_admin import EDITABLE_FIELDS, DataDeletionRequestAdmin, dagster_run_url
+from posthog.admin.admins.data_deletion_request_admin import (
+    EDITABLE_FIELDS,
+    DataDeletionRequestAdmin,
+    auto_approval_blocker,
+    dagster_run_url,
+)
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
 
 
@@ -312,13 +317,30 @@ class TestDataDeletionRequestAdminSubmitView(BaseTest):
             status=RequestStatus.DRAFT,
         )
 
-    def _call_submit(self, request: DataDeletionRequest, method: str = "POST"):
+    def _call_submit(self, request: DataDeletionRequest, method: str = "POST", data: dict | None = None):
         path = f"/admin/posthog/datadeletionrequest/{request.pk}/submit/"
-        http_request = self.factory.post(path) if method == "POST" else self.factory.get(path)
+        http_request = self.factory.post(path, data or {}) if method == "POST" else self.factory.get(path)
         http_request.user = self.user
         _attach_messages(http_request)
         with patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse):
             return self.admin.submit_view(http_request, str(request.pk))
+
+    def _auto_approvable_request(self, count: int = 1_000, **kwargs):
+        # Aware datetimes throughout: submit_view loads the request from the DB, so the blocker always
+        # compares against aware values in production.
+        now = timezone.now()
+        fields = {
+            "team_id": self.team.id,
+            "request_type": RequestType.EVENT_REMOVAL,
+            "events": ["$pageview"],
+            "start_time": now - timedelta(days=7),
+            "end_time": now - timedelta(minutes=1),
+            "status": RequestStatus.DRAFT,
+            "count": count,
+            "stats_calculated_at": now,
+            **kwargs,
+        }
+        return DataDeletionRequest.objects.create(**fields)
 
     def test_submit_with_properties_only_succeeds(self):
         request = self._property_removal_request(properties=["$ip"])
@@ -369,6 +391,102 @@ class TestDataDeletionRequestAdminSubmitView(BaseTest):
         self.assertTrue(resp_ok.context_data["can_submit"])
         self.assertFalse(resp_empty.context_data["can_submit"])
         self.assertTrue(resp_empty.context_data["missing_properties"])
+
+    @parameterized.expand(
+        [
+            (
+                "property_removal",
+                {"request_type": RequestType.PROPERTY_REMOVAL, "properties": ["$ip"]},
+                "event removal",
+            ),
+            ("no_stats", {"count": None, "stats_calculated_at": None}, "No ClickHouse stats"),
+            ("stale_stats", {"stats_calculated_at": timezone.now() - timedelta(hours=25)}, "more than 24 hours"),
+            ("count_missing", {"count": None}, "matching event count"),
+            ("count_at_limit", {"count": 100_000}, "at or above"),
+            ("count_over_limit", {"count": 200_000}, "at or above"),
+            # An open-ended range keeps matching events after approval, so the count that cleared the
+            # threshold can't bound what the deferred job eventually deletes.
+            ("future_end_time", {"end_time": timezone.now() + timedelta(days=7)}, "in the future"),
+        ]
+    )
+    def test_auto_approval_blocker_explains_why(self, _name, overrides, expected_fragment):
+        blocker = auto_approval_blocker(self._auto_approvable_request(**overrides))
+        assert blocker is not None
+        self.assertIn(expected_fragment, blocker)
+
+    def test_submit_auto_approves_small_event_removal_as_deferred(self):
+        request = self._auto_approvable_request(count=1_000)
+
+        response = self._call_submit(request, data={"auto_approve_offered": "1"})
+
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.APPROVED)
+        self.assertTrue(request.approved)
+        self.assertEqual(request.approved_by, self.user)
+        self.assertIsNotNone(request.approved_at)
+        self.assertEqual(request.execution_mode, ExecutionMode.DEFERRED)
+        self.assertFalse(request.requires_approval)
+
+    @parameterized.expand(
+        [
+            # Ticking the opt-out keeps an otherwise-eligible request on the manual path.
+            ("opted_out", {"count": 1_000}, {"auto_approve_offered": "1", "requires_approval": "on"}),
+            # Eligibility is recomputed server-side, so a POST claiming the offer can't beat the limit.
+            ("over_limit", {"count": 200_000}, {"auto_approve_offered": "1"}),
+            # The page never offered the opt-out (it rendered while ineligible), so a request that has
+            # since become eligible must not approve behind the operator's back.
+            ("offer_not_rendered", {"count": 1_000}, {}),
+        ]
+    )
+    def test_submit_falls_back_to_pending(self, _name, overrides, post_data):
+        request = self._auto_approvable_request(**overrides)
+
+        response = self._call_submit(request, data=post_data)
+
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.PENDING)
+        self.assertFalse(request.approved)
+        # Reaching PENDING means a human must approve, so the changelist filter has to show it.
+        self.assertTrue(request.requires_approval)
+
+    def test_submit_does_not_auto_approve_when_stats_changed_concurrently(self):
+        # The view decides from the snapshot it loaded. Another operator broadening the criteria clears
+        # the stats and resets to draft, which a status-only guard would happily approve against.
+        obj = self._auto_approvable_request(count=1_000)
+        stale_snapshot = DataDeletionRequest.objects.get(pk=obj.pk)
+        DataDeletionRequest.objects.filter(pk=obj.pk).update(
+            count=None, stats_calculated_at=None, delete_all_events=True, events=[]
+        )
+
+        http_request = self.factory.post(
+            f"/admin/posthog/datadeletionrequest/{obj.pk}/submit/", {"auto_approve_offered": "1"}
+        )
+        http_request.user = self.user
+        _attach_messages(http_request)
+        with (
+            patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse),
+            patch.object(self.admin, "get_object", return_value=stale_snapshot),
+        ):
+            response = self.admin.submit_view(http_request, str(obj.pk))
+
+        self.assertEqual(response.status_code, 302)
+        obj.refresh_from_db()
+        self.assertEqual(obj.status, RequestStatus.DRAFT)
+        self.assertFalse(obj.approved)
+
+    def test_submit_get_exposes_auto_approval_context(self):
+        eligible = self._auto_approvable_request(count=1_000)
+        blocked = self._auto_approvable_request(count=200_000)
+
+        resp_eligible = self._call_submit(eligible, method="GET")
+        resp_blocked = self._call_submit(blocked, method="GET")
+
+        self.assertTrue(resp_eligible.context_data["will_auto_approve"])
+        self.assertIsNone(resp_eligible.context_data["auto_approval_blocker"])
+        self.assertFalse(resp_blocked.context_data["will_auto_approve"])
+        self.assertIn("at or above", resp_blocked.context_data["auto_approval_blocker"])
 
 
 @freeze_time("2025-01-15 12:00:00")

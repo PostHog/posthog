@@ -341,9 +341,12 @@ class DataDeletionRequest(UUIDModel):
     # Approval workflow
     requires_approval = models.BooleanField(
         default=True,
-        help_text="ClickHouse deletes are heavyweight mutations that can degrade query performance "
-        "and increase disk usage while running. Approval ensures deletes are scheduled "
-        "during low-traffic windows to avoid impacting production workloads.",
+        help_text="Force manual ClickHouse Team approval, opting out of auto-approval. "
+        "ClickHouse deletes are heavyweight mutations that can degrade query performance "
+        "and increase disk usage while running, so approval ensures they are scheduled "
+        "during low-traffic windows. Small event_removal requests are cheap enough to skip "
+        "that review, so the submit page auto-approves them unless this is set. Written by "
+        "the submit page only.",
     )
     approved = models.BooleanField(default=False)
     approved_by = models.ForeignKey(

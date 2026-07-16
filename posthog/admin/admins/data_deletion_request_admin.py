@@ -1,9 +1,10 @@
 import ast
+from datetime import timedelta
 
 from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
-from django.http import HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils import timezone
@@ -42,6 +43,14 @@ CRITERIA_FIELDS = {
 }
 CLICKHOUSE_TEAM_GROUP = "ClickHouse Team"
 
+# An event removal below this many events is cheap enough that a dedicated ClickHouse Team review buys
+# nothing — the submit page approves it itself, always deferred so the scheduled deletes_job drains it
+# alongside everything else rather than running a mutation of its own.
+AUTO_APPROVE_MAX_EVENTS = 100_000
+# Stats are cleared whenever criteria change, but nothing ages them out, and an open-ended time range
+# keeps matching new events. Past this age the count is no longer evidence of anything.
+AUTO_APPROVE_MAX_STATS_AGE = timedelta(hours=24)
+
 PERSON_REMOVAL_FIELDS = (
     "person_uuids",
     "person_distinct_ids",
@@ -67,7 +76,6 @@ EDITABLE_FIELDS = (
     "person_properties",
     "hogql_predicate",
     "notes",
-    "requires_approval",
 )
 
 # Dagster Cloud deployment slug per PostHog cloud environment. The admin runs on web pods, which
@@ -427,6 +435,39 @@ def fetch_deletion_stats(obj: DataDeletionRequest, *, user_id: int | None = None
     return fetch_event_deletion_stats(obj, user_id=user_id)
 
 
+def auto_approval_blocker(obj: DataDeletionRequest) -> str | None:
+    """Why this request can't be auto-approved on submit, or None when it can.
+
+    The returned sentence is rendered to the operator on the submit page, so each one names the
+    condition that failed and what to do about it. The ``requires_approval`` opt-out is deliberately
+    not checked here: it's the submitter's choice rather than a property of the request, so the page
+    can still explain that the request *would* qualify.
+    """
+    if obj.request_type != RequestType.EVENT_REMOVAL:
+        return f"Only event removal requests can be auto-approved. This is a {obj.get_request_type_display()} request."
+    now = timezone.now()
+    # A range that hasn't closed yet keeps matching newly ingested events, so the count that cleared the
+    # threshold says nothing about how much the deferred job will actually delete when it drains later.
+    if obj.end_time is not None and obj.end_time > now:
+        return (
+            f"The time range ends {obj.end_time:%Y-%m-%d %H:%M} UTC, in the future. Matching events are still "
+            "arriving, so the count can grow after approval. Set an end time in the past to qualify."
+        )
+    if obj.stats_calculated_at is None:
+        return "No ClickHouse stats have been fetched yet. Fetch stats on the request page to qualify."
+    max_age_hours = int(AUTO_APPROVE_MAX_STATS_AGE.total_seconds() // 3600)
+    if now - obj.stats_calculated_at > AUTO_APPROVE_MAX_STATS_AGE:
+        return (
+            f"Stats were calculated {obj.stats_calculated_at:%Y-%m-%d %H:%M} UTC, more than {max_age_hours} hours "
+            "ago. Refresh them on the request page to qualify."
+        )
+    if obj.count is None:
+        return "Stats don't include a matching event count. Refresh them on the request page to qualify."
+    if obj.count >= AUTO_APPROVE_MAX_EVENTS:
+        return f"{obj.count:,} matching events is at or above the {AUTO_APPROVE_MAX_EVENTS:,} auto-approval limit."
+    return None
+
+
 @admin.register(DataDeletionRequest)
 class DataDeletionRequestAdmin(admin.ModelAdmin):
     form = DataDeletionRequestForm
@@ -490,7 +531,6 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "person_properties",
                     "hogql_predicate",
                     "notes",
-                    "requires_approval",
                 ),
             },
         ),
@@ -764,6 +804,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             obj.person_drop_profiles or obj.person_drop_events or obj.person_drop_recordings
         )
         can_submit = not (missing_properties or missing_person_selectors or missing_person_drop_flag)
+        blocker = auto_approval_blocker(obj)
 
         if request.method == "POST":
             if missing_properties:
@@ -784,20 +825,17 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "Cannot submit: person removal request requires at least one drop flag (profiles/events/recordings).",
                 )
                 return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
-            updated = DataDeletionRequest.objects.filter(
-                pk=obj.pk,
-                status=RequestStatus.DRAFT,
-            ).update(
-                status=RequestStatus.PENDING,
-                updated_at=timezone.now(),
-            )
-            if not updated:
-                messages.error(request, "Request is no longer in draft status.")
-                return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
-            obj.refresh_from_db()
-            self.log_change(request, obj, "Submitted: status changed from draft to pending.")
-            messages.success(request, "Request submitted and is now pending.")
-            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+            # Three things must line up to auto-approve, and each can only veto:
+            #   - the page actually offered the choice (a stale page whose request has since become
+            #     eligible must not approve behind an operator who was shown "goes to review"),
+            #   - the submitter didn't tick the opt-out (the checkbox only posts when ticked),
+            #   - the request is *still* eligible, recomputed here so a hand-crafted POST can't
+            #     talk its way past the threshold.
+            offered = bool(request.POST.get("auto_approve_offered"))
+            opted_out = bool(request.POST.get("requires_approval"))
+            if offered and not opted_out and blocker is None:
+                return self._submit_auto_approved(request, obj)
+            return self._submit_for_approval(request, obj)
 
         context = {
             **self.admin_site.each_context(request),
@@ -807,10 +845,83 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             "missing_person_drop_flag": missing_person_drop_flag,
             "is_person_removal": obj.request_type == RequestType.PERSON_REMOVAL,
             "can_submit": can_submit,
+            "auto_approval_blocker": blocker,
+            "will_auto_approve": blocker is None,
+            # Thousands separators are applied here — django.contrib.humanize isn't installed.
+            "auto_approve_max_events": f"{AUTO_APPROVE_MAX_EVENTS:,}",
+            "matching_event_count": f"{obj.count:,}" if obj.count is not None else "0",
             "opts": self.model._meta,
             "title": f"Submit deletion request {obj.pk}",
         }
         return TemplateResponse(request, "admin/posthog/datadeletionrequest/submit.html", context)
+
+    def _submit_for_approval(self, request: HttpRequest, obj: DataDeletionRequest) -> HttpResponse:
+        """Submit for manual ClickHouse Team review — the request didn't qualify, or the submitter opted out.
+
+        ``requires_approval`` is True either way: it means "a human must approve this", which is exactly
+        what reaching PENDING means. Leaving it False here would hide the request from the changelist's
+        "requires approval" filter — on precisely the requests a reviewer needs to find.
+        """
+        updated = DataDeletionRequest.objects.filter(
+            pk=obj.pk,
+            status=RequestStatus.DRAFT,
+        ).update(
+            status=RequestStatus.PENDING,
+            requires_approval=True,
+            updated_at=timezone.now(),
+        )
+        if not updated:
+            messages.error(request, "Request is no longer in draft status.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+        obj.refresh_from_db()
+        self.log_change(request, obj, "Submitted: status changed from draft to pending.")
+        messages.success(request, "Request submitted and is now pending.")
+        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+    def _submit_auto_approved(self, request: HttpRequest, obj: DataDeletionRequest) -> HttpResponse:
+        """Submit and approve in one step, deferred, for a small event removal.
+
+        Skips PENDING entirely: the same status-guarded update that leaves DRAFT also records the
+        approval, so there's no window where the request sits unapproved.
+
+        The update is guarded on the stats the approval was granted on, not just on DRAFT. A concurrent
+        criteria edit resets the request to DRAFT *and* clears its stats, which would otherwise satisfy a
+        status-only guard and approve criteria nobody has ever counted.
+        """
+        updated = DataDeletionRequest.objects.filter(
+            pk=obj.pk,
+            status=RequestStatus.DRAFT,
+            count=obj.count,
+            stats_calculated_at=obj.stats_calculated_at,
+        ).update(
+            status=RequestStatus.APPROVED,
+            requires_approval=False,
+            approved=True,
+            approved_by=request.user,
+            approved_at=timezone.now(),
+            execution_mode=ExecutionMode.DEFERRED,
+            updated_at=timezone.now(),
+        )
+        if not updated:
+            messages.error(
+                request,
+                "Request changed while you were submitting it — it's no longer a draft, or its criteria "
+                "and stats have moved. Review it and submit again.",
+            )
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+        obj.refresh_from_db()
+        self.log_change(
+            request,
+            obj,
+            f"Submitted and auto-approved (deferred): {obj.count:,} matching events, "
+            f"under the {AUTO_APPROVE_MAX_EVENTS:,} limit.",
+        )
+        messages.success(
+            request,
+            f"Request auto-approved: {obj.count:,} matching events is under the "
+            f"{AUTO_APPROVE_MAX_EVENTS:,} limit. It will be queued for the scheduled deletes job.",
+        )
+        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
     def fetch_stats_view(self, request, object_id):
         obj = self.get_object(request, object_id)
