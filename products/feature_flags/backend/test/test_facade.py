@@ -1,6 +1,9 @@
+from copy import deepcopy
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AvailableFeature
@@ -12,6 +15,12 @@ from products.feature_flags.backend.facade.api import (
     archive_flag,
     flag_disable_requires_approval,
     ship_variant,
+)
+from products.feature_flags.backend.facade.filters import (
+    group_cohort_restriction_blocker,
+    groups_carry_restriction_marker,
+    restrict_groups_to_cohort,
+    strip_group_cohort_restriction,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -217,3 +226,76 @@ class TestRollOutVariant:
         assert result["groups"][1:] == [{"properties": [], "rollout_percentage": 100}]
         assert result["payloads"] == current_filters["payloads"]
         assert result["aggregation_group_type_index"] == 1
+
+
+MARKER_KWARGS = {"marker_key": "restricted", "cohort_key": "restricted_cohort", "marker_note": "Restricted."}
+
+
+class TestFilterTransforms:
+    def test_restrict_then_strip_round_trips(self):
+        original = {
+            "groups": [
+                {"properties": [{"key": "email", "type": "person", "value": "@posthog.com"}], "rollout_percentage": 50},
+                {"properties": [], "rollout_percentage": 100, "description": "User prose"},
+            ],
+            "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+        }
+        pristine = deepcopy(original)
+
+        restricted = restrict_groups_to_cohort(original, 42, **MARKER_KWARGS)
+
+        assert all(group["restricted"] is True for group in restricted["groups"])
+        assert all(group["restricted_cohort"] == 42 for group in restricted["groups"])
+        assert all(group["properties"][-1]["value"] == 42 for group in restricted["groups"])
+        assert restricted["groups"][0]["description"] == "Restricted."
+        assert restricted["groups"][1]["description"] == "Restricted. User prose"
+        assert original == pristine
+
+        stripped, cohort_ids = strip_group_cohort_restriction(restricted, **MARKER_KWARGS)
+
+        # Exact round-trip, including restored absence of the added description key —
+        # and the shared cohort id reported once, not per group.
+        assert stripped == pristine
+        assert cohort_ids == [42]
+
+    def test_strip_leaves_unstamped_groups_and_user_cohort_conditions_untouched(self):
+        user_cohort = {"key": "id", "type": "cohort", "value": 7, "operator": "in"}
+        filters = {
+            "groups": [
+                {
+                    "properties": [user_cohort, {"key": "id", "type": "cohort", "value": 42, "operator": "in"}],
+                    "restricted": True,
+                    "restricted_cohort": 42,
+                    "description": "Restricted.",
+                },
+                {"properties": [user_cohort], "rollout_percentage": 100},
+            ]
+        }
+
+        stripped, cohort_ids = strip_group_cohort_restriction(filters, **MARKER_KWARGS)
+
+        assert cohort_ids == [42]
+        assert stripped["groups"][0] == {"properties": [user_cohort]}
+        assert stripped["groups"][1] == filters["groups"][1]
+
+    @parameterized.expand(
+        [
+            ("all_stamped", [{"restricted": True}, {"restricted": True}], True),
+            ("one_unstamped", [{"restricted": True}, {}], False),
+            ("empty_groups", [], False),
+        ]
+    )
+    def test_groups_carry_restriction_marker(self, _name: str, groups: list[dict], expected: bool):
+        assert groups_carry_restriction_marker({"groups": groups}, marker_key="restricted") is expected
+
+    @parameterized.expand(
+        [
+            ("group_aggregation_wins", {"aggregation_group_type_index": 1, "holdout": {"id": 1}}, "group_aggregation"),
+            ("holdout", {"holdout_groups": [{}], "groups": [{}]}, "holdout"),
+            ("super_groups", {"super_groups": [{}], "groups": [{}]}, "super_groups"),
+            ("no_groups", {"groups": []}, "no_groups"),
+            ("plain_groups_ok", {"groups": [{"properties": []}]}, None),
+        ]
+    )
+    def test_group_cohort_restriction_blocker(self, _name: str, filters: dict, expected: str | None):
+        assert group_cohort_restriction_blocker(filters) == expected

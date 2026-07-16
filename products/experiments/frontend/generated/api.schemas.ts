@@ -1449,6 +1449,8 @@ export interface ExperimentWriteApi {
     readonly status: ExperimentStatusEnumApi
     /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
     readonly is_legacy: boolean
+    /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
+    readonly can_freeze_exposure: boolean
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -1555,6 +1557,8 @@ export interface ExperimentApi {
     readonly status: ExperimentStatusEnumApi
     /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
     readonly is_legacy: boolean
+    /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
+    readonly can_freeze_exposure: boolean
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -1657,6 +1661,8 @@ export interface PatchedExperimentWriteApi {
     readonly status?: ExperimentStatusEnumApi
     /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
     readonly is_legacy?: boolean
+    /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
+    readonly can_freeze_exposure?: boolean
     /**
      * The effective access level the user has for this object
      * @nullable
