@@ -29,7 +29,7 @@ from django.db.models import (
     Value,
 )
 from django.db.models.functions import Cast
-from django.http import StreamingHttpResponse
+from django.http.response import HttpResponseBase
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
@@ -2328,7 +2328,7 @@ class DashboardsViewSet(
         ],
     )
     @action(methods=["GET"], detail=True, url_path="stream_tiles")
-    def stream_tiles(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
+    def stream_tiles(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
         """Stream dashboard metadata and tiles via Server-Sent Events. Sends metadata first, then tiles as they are rendered."""
         dashboard = self.get_object()  # This will raise 404 if not found - let it bubble up normally
 
@@ -2340,9 +2340,11 @@ class DashboardsViewSet(
         metadata_serializer = DashboardMetadataSerializer(dashboard, context=self.get_serializer_context())
         metadata_data = metadata_serializer.data
 
-        # Create serializer context for tiles
+        # Create serializer context for tiles. Tiles are rendered with SafeJSONRenderer below,
+        # so raw cached results (orjson.Fragment) are safe even though the negotiated renderer
+        # is the SSE one.
         context = self.get_serializer_context()
-        context.update({"dashboard": dashboard})
+        context.update({"dashboard": dashboard, "raw_results_supported": True})
 
         # Get tiles with proper prefetch
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
@@ -2769,6 +2771,9 @@ class DashboardsViewSet(
 
         context = self.get_serializer_context()
         context["dashboard"] = dashboard
+        # _format_insight_for_llm consumes results as Python data, so raw cached
+        # result bytes (orjson.Fragment) must not be used here.
+        context["require_parsed_results"] = True
 
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
             Prefetch(

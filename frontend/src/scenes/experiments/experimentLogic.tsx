@@ -619,10 +619,12 @@ export interface experimentLogicActions {
     } // eventUsageLogic
     reportExperimentCreated: (
         experiment: Experiment,
-        metadata?: {
-            creation_source?: string
-            has_linked_flag?: boolean
-        }
+        metadata?:
+            | {
+                  creation_source?: string
+                  has_linked_flag?: boolean
+              }
+            | undefined
     ) => {
         experiment: Experiment
         metadata:
@@ -646,10 +648,7 @@ export interface experimentLogicActions {
         cohort: CohortType
         experiment: Experiment
     } // eventUsageLogic
-    reportExperimentHoldoutAssigned: ({
-        experimentId,
-        holdoutId,
-    }: {
+    reportExperimentHoldoutAssigned: (args_0: {
         experimentId: ExperimentIdType
         holdoutId: ExperimentHoldoutType['id']
     }) => {
@@ -683,15 +682,17 @@ export interface experimentLogicActions {
     reportExperimentMetricsRefreshed: (
         experiment: Experiment,
         forceRefresh: boolean,
-        context?: {
-            auto_refresh_enabled?: boolean
-            auto_refresh_interval?: number
-            previous_refresh_age_ms?: number | null
-            previous_refresh_id?: string | null
-            previous_refresh_state?: string | null
-            previous_refresh_triggered_by?: string | null
-            triggered_by: 'auto-refresh' | 'manual'
-        }
+        context?:
+            | {
+                  auto_refresh_enabled?: boolean
+                  auto_refresh_interval?: number
+                  previous_refresh_age_ms?: number | null
+                  previous_refresh_id?: string | null
+                  previous_refresh_state?: string | null
+                  previous_refresh_triggered_by?: string | null
+                  triggered_by: 'auto-refresh' | 'manual'
+              }
+            | undefined
     ) => {
         context:
             | {
@@ -725,14 +726,14 @@ export interface experimentLogicActions {
     } // eventUsageLogic
     reportExperimentTimeseriesRecalculated: (
         experimentId: ExperimentIdType,
-        metric: ExperimentMetric
+        metric: ExperimentMetricUnion
     ) => {
         experimentId: ExperimentIdType
         metric: ExperimentMetricUnion
     } // eventUsageLogic
     reportExperimentTimeseriesViewed: (
         experimentId: ExperimentIdType,
-        metric: ExperimentMetric
+        metric: ExperimentMetricUnion
     ) => {
         experimentId: ExperimentIdType
         metric: ExperimentMetricUnion

@@ -35,7 +35,7 @@ export interface sessionsSceneLogicActions {
     setSavedQueryForTab: (
         tabId: string | undefined,
         sceneKey: string,
-        query: Node | null
+        query: Node<Record<string, any>> | null
     ) => {
         query: Node<Record<string, any>> | null
         sceneKey: string

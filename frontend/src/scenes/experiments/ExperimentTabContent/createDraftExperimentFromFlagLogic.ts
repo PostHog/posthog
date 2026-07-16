@@ -26,10 +26,12 @@ export interface createDraftExperimentFromFlagLogicValues {
 export interface createDraftExperimentFromFlagLogicActions {
     reportExperimentCreated: (
         experiment: Experiment,
-        metadata?: {
-            creation_source?: string
-            has_linked_flag?: boolean
-        }
+        metadata?:
+            | {
+                  creation_source?: string
+                  has_linked_flag?: boolean
+              }
+            | undefined
     ) => {
         experiment: Experiment
         metadata:
