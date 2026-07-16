@@ -8,7 +8,6 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
@@ -75,12 +74,17 @@ class LLMPrompt(UUIDModel):
     deleted = models.BooleanField(default=False)
 
 
-class LLMPromptLabel(TeamScopedRootMixin, UUIDModel):
+class LLMPromptLabel(UUIDModel):
     """A movable pointer from a name (e.g. "production") to exactly one version of a prompt.
 
     Version rows are immutable; releasing a version means pointing a label at it and
     rolling back means pointing it back. The (team, prompt_name, name) uniqueness is
     what keeps fetch-by-label single-valued.
+
+    Deliberately not on TeamScopedRootMixin: LLMPrompt stores raw (possibly child-env)
+    team ids, and the mixin's canonical-team rewrite would put labels in a different
+    team-space than the prompt rows they point into. Migrate to fail-closed scoping
+    together with LLMPrompt.
     """
 
     class Meta:

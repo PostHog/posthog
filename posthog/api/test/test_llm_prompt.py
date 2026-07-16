@@ -1021,7 +1021,7 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["version"] == 2
         assert self._resolve_labels_by_version("my-prompt") == {1: [], 2: ["production"]}
-        assert LLMPromptLabel.objects.for_team(self.team.id, canonical=True).count() == 1
+        assert LLMPromptLabel.objects.filter(team=self.team).count() == 1
 
     def test_version_can_hold_multiple_labels(self):
         self.create_prompt_version(version=1)
@@ -1072,7 +1072,7 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         response = self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/archive/")
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert LLMPromptLabel.objects.for_team(self.team.id, canonical=True).count() == 0
+        assert LLMPromptLabel.objects.filter(team=self.team).count() == 0
 
     def test_label_writes_forbidden_for_read_only_personal_api_key(self):
         self.create_prompt_version(version=1)
