@@ -46,6 +46,12 @@ class BitbucketSource(ResumableSource[BitbucketSourceConfig, BitbucketResumeConf
         return ExternalDataSourceType.BITBUCKET
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # The stored token is sent to api.bitbucket.org/2.0/.../<workspace>, so retargeting
+        # the workspace must force re-entry of the secret.
+        return ["workspace"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BITBUCKET,

@@ -50,6 +50,10 @@ def test_source_type():
     assert BitbucketSource().source_type == ExternalDataSourceType.BITBUCKET
 
 
+def test_connection_host_fields_force_secret_reentry_on_workspace_change():
+    assert BitbucketSource().connection_host_fields == ["workspace"]
+
+
 @pytest.mark.parametrize(
     "endpoint,supports_incremental",
     [
