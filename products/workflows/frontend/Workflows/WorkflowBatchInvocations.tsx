@@ -10,7 +10,6 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { HogInvocations } from 'scenes/hog-functions/invocations/HogInvocations'
-import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { OccurrencesList } from './hogflows/steps/components/OccurrencesList'
@@ -80,17 +79,6 @@ function BatchRunInvocations({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlow
                 />
             </div>
             <div className="flex flex-col gap-2">
-                <SectionHeading>Audience resolution</SectionHeading>
-                <LogsViewer
-                    sourceType="hog_flow"
-                    sourceId={job.id}
-                    groupByInstanceId
-                    instanceLabel="batch job"
-                    renderMessage={workflow ? (m) => renderWorkflowLogMessage(workflow, m) : undefined}
-                />
-            </div>
-            <div className="flex flex-col gap-2">
-                <SectionHeading>Invocations</SectionHeading>
                 <HogInvocations
                     id={hogFlowId}
                     functionKind="hog_flow"
