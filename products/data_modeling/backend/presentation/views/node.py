@@ -29,9 +29,11 @@ from products.warehouse_sources.backend.facade.models import sync_frequency_inte
 
 
 class NodeSuspensionEntrySerializer(serializers.Serializer):
-    at = serializers.DateTimeField(help_text="When the node was suspended.")
-    reason = serializers.CharField(help_text="Error from the failing run that triggered the suspension.")
-    job_id = serializers.CharField(help_text="ID of the data modeling job whose failure triggered the suspension.")
+    at = serializers.DateTimeField(allow_null=True, help_text="When the node was suspended, if available.")
+    reason = serializers.CharField(
+        allow_null=True, help_text="Error from the failing run that triggered the suspension, if available."
+    )
+    job_id = serializers.CharField(allow_null=True, help_text="ID of the triggering data modeling job, if available.")
 
 
 class NodeSerializer(serializers.ModelSerializer):
@@ -103,7 +105,20 @@ class NodeSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.DictField(child=NodeSuspensionEntrySerializer(), allow_null=True))
     def get_suspended(self, node: Node) -> dict[str, Any] | None:
-        return (node.properties or {}).get("system", {}).get("suspended") or None
+        suspended = (node.properties or {}).get("system", {}).get("suspended")
+        if not isinstance(suspended, dict):
+            return None
+
+        normalized_suspensions = {
+            str(engine): self._normalize_suspension_entry(entry) for engine, entry in suspended.items() if entry
+        }
+        return normalized_suspensions or None
+
+    @staticmethod
+    def _normalize_suspension_entry(entry: Any) -> dict[str, Any]:
+        if not isinstance(entry, dict):
+            return {"at": None, "reason": None, "job_id": None}
+        return {"at": entry.get("at"), "reason": entry.get("reason"), "job_id": entry.get("job_id")}
 
     def get_sync_interval(self, node: Node) -> str | None:
         if node.saved_query:

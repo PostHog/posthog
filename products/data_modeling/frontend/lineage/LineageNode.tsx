@@ -93,15 +93,21 @@ function StatusDot({ status }: { status?: DataModelingJobStatus }): JSX.Element 
     )
 }
 
-function SuspendedTag({ suspended }: { suspended: NonNullable<LineageNodeShape['suspended']> }): JSX.Element {
+export function SuspendedTag({ suspended }: { suspended: NonNullable<LineageNodeShape['suspended']> }): JSX.Element {
     return (
         <Tooltip
             title={
                 <div className="space-y-1">
                     {Object.entries(suspended).map(([engine, entry]) => (
                         <div key={engine}>
-                            Suspended after repeated failed runs (<TZLabel time={entry.at} />
-                            ): {entry.reason}
+                            {entry.at && entry.reason ? (
+                                <>
+                                    Suspended after repeated failed runs (<TZLabel time={entry.at} />
+                                    ): {entry.reason}
+                                </>
+                            ) : (
+                                'Suspended (details unavailable)'
+                            )}
                         </div>
                     ))}
                 </div>

@@ -35971,12 +35971,21 @@ export namespace Schemas {
     }
 
     export interface NodeSuspensionEntry {
-      /** When the node was suspended. */
-      at: string;
-      /** Error from the failing run that triggered the suspension. */
-      reason: string;
-      /** ID of the data modeling job whose failure triggered the suspension. */
-      job_id: string;
+      /**
+         * When the node was suspended, if available.
+         * @nullable
+         */
+      at: string | null;
+      /**
+         * Error from the failing run that triggered the suspension, if available.
+         * @nullable
+         */
+      reason: string | null;
+      /**
+         * ID of the triggering data modeling job, if available.
+         * @nullable
+         */
+      job_id: string | null;
     }
 
     /**

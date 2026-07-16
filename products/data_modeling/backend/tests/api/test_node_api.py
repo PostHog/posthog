@@ -130,6 +130,18 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(response.json()["suspended"])
 
+    def test_node_response_normalizes_legacy_suspension_state(self):
+        self.view_node.properties = {"system": {"suspended": {"duckdb": True}}}
+        self.view_node.save()
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["suspended"],
+            {"duckdb": {"at": None, "reason": None, "job_id": None}},
+        )
+
     def test_dag_ids_action(self):
         another_dag = DAG.objects.create(team=self.team, name="another_dag")
         Node.objects.create(
