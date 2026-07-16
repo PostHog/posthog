@@ -189,6 +189,7 @@ def _visible_table_names(database: "Database") -> list[str]:
 
 # Per-column statistics surfaced into information_schema.columns: (null_fraction, min_value, max_value).
 _ColumnStats = tuple[Optional[float], Optional[str], Optional[str]]
+_RelationshipProvenanceKey = tuple[str, str, str, str, str]
 
 
 def _warehouse_metadata(
@@ -448,6 +449,8 @@ class _Introspection:
         self.views = set(database.get_view_names())
         self.row_counts, self.view_row_counts, self.column_stats = _warehouse_metadata(context.team_id)
         self.table_descriptions = TableDescriptions.load(context.team_id)
+        self._collected: Optional[tuple[list[list[Any]], list[list[Any]], list[list[Any]]]] = None
+        self._relationship_provenance_keys: list[Optional[_RelationshipProvenanceKey]] = []
         # Resolved `SELECT * FROM <table>` scope per table, so expression columns can be typed without
         # re-resolving the table once per expression.
         self._table_scope_cache: dict[str, Optional[ast.SelectQueryType]] = {}
@@ -517,6 +520,9 @@ class _Introspection:
         return (None, None, None)
 
     def collect(self) -> tuple[list[list[Any]], list[list[Any]], list[list[Any]]]:
+        if self._collected is not None:
+            return self._collected
+
         table_rows: list[list[Any]] = []
         column_rows: list[list[Any]] = []
         relationship_rows: list[list[Any]] = []
@@ -536,9 +542,38 @@ class _Introspection:
             row_count = self._row_count(name, table, table_type)
             table_rows.append([name, table_schema, name, table_type, self._table_description(table), row_count])
 
-            self._collect_fields(name, table_schema, table_type, table, table.fields, column_rows, relationship_rows)
+            self._collect_fields(
+                name,
+                table_schema,
+                table_type,
+                table,
+                table.fields,
+                column_rows,
+                relationship_rows,
+                self._relationship_provenance_keys,
+            )
 
-        return table_rows, column_rows, relationship_rows
+        self._collected = (table_rows, column_rows, relationship_rows)
+        return self._collected
+
+    def table_rows(self) -> list[list[Any]]:
+        table_rows, _, _ = self.collect()
+        certifications = _catalog_certifications(self.context, self.allowed_tables)
+        return [[*row, certifications.get(row[2])] for row in table_rows]
+
+    def column_rows(self) -> list[list[Any]]:
+        _, column_rows, _ = self.collect()
+        return column_rows
+
+    def relationship_rows(self) -> list[list[Any]]:
+        _, _, relationship_rows = self.collect()
+        accepted_relationships = _catalog_accepted_relationships(self.context, self.allowed_tables)
+        enriched_rows: list[list[Any]] = []
+        for row, provenance_key in zip(relationship_rows, self._relationship_provenance_keys, strict=True):
+            confidence, reasoning = accepted_relationships.get(provenance_key, (None, None))
+            enriched_rows.append([*row[:7], confidence, reasoning])
+        enriched_rows.extend(_catalog_proposed_relationships(self.context, self.allowed_tables))
+        return enriched_rows
 
     def _collect_fields(
         self,
@@ -549,6 +584,7 @@ class _Introspection:
         fields: dict[str, FieldOrTable],
         column_rows: list[list[Any]],
         relationship_rows: list[list[Any]],
+        relationship_provenance_keys: list[Optional[_RelationshipProvenanceKey]],
         *,
         prefix: str = "",
         ordinal_start: int = 1,
@@ -590,8 +626,12 @@ class _Introspection:
                         ".".join(str(x) for x in field.to_field) if field.to_field else None,
                         "lazy_join",
                         field.resolver,
+                        "active",
+                        None,
+                        None,
                     ]
                 )
+                relationship_provenance_keys.append(_relationship_provenance_key(table_name, field_name, field))
             elif isinstance(field, FieldTraverser):
                 relationship_rows.append(
                     [
@@ -601,8 +641,12 @@ class _Introspection:
                         ".".join(str(x) for x in field.chain),
                         "field_traverser",
                         None,
+                        "active",
+                        None,
+                        None,
                     ]
                 )
+                relationship_provenance_keys.append(None)
             elif isinstance(field, VirtualTable):
                 # Surface nested virtual-table columns as `parent.child` columns.
                 column_rows.append(
@@ -630,6 +674,7 @@ class _Introspection:
                     field.fields,
                     column_rows,
                     relationship_rows,
+                    relationship_provenance_keys,
                     prefix=f"{qualified}.",
                     ordinal_start=ordinal,
                 )
@@ -637,9 +682,25 @@ class _Introspection:
         return ordinal
 
 
-def _introspect(
+def _relationship_provenance_key(
+    table_name: str, field_name: str, field: LazyJoin
+) -> Optional[_RelationshipProvenanceKey]:
+    resolver_params = field.resolver_params
+    source_table_key = resolver_params.get("source_table_key")
+    joining_table_name = resolver_params.get("joining_table_name")
+    joining_table_key = resolver_params.get("joining_table_key")
+    if (
+        not isinstance(source_table_key, str)
+        or not isinstance(joining_table_name, str)
+        or not isinstance(joining_table_key, str)
+    ):
+        return None
+    return (table_name, field_name, source_table_key, joining_table_name, joining_table_key)
+
+
+def _introspection(
     context: "HogQLContext", allowed_tables: Optional[frozenset[str]] = None
-) -> tuple[list[list[Any]], list[list[Any]], list[list[Any]]]:
+) -> Optional[_Introspection]:
     """Introspect the database once per (query, pushdown filter), reusing the result across tables.
 
     A query that joins several information_schema tables would otherwise rebuild the full
@@ -652,9 +713,7 @@ def _introspect(
         cache = context.information_schema_introspection = {}
     if allowed_tables not in cache:
         database = context.database
-        cache[allowed_tables] = (
-            _Introspection(database, context, allowed_tables).collect() if database is not None else ([], [], [])
-        )
+        cache[allowed_tables] = _Introspection(database, context, allowed_tables) if database is not None else None
     return cache[allowed_tables]
 
 
@@ -667,6 +726,7 @@ _TABLES_COLUMNS: list[tuple[str, str]] = [
     ("table_type", _STRING),
     ("description", _NULLABLE_STRING),
     ("row_count", _NULLABLE_INTEGER),
+    ("certification", _NULLABLE_STRING),
 ]
 
 _COLUMNS_COLUMNS: list[tuple[str, str]] = [
@@ -691,6 +751,9 @@ _RELATIONSHIPS_COLUMNS: list[tuple[str, str]] = [
     ("target_column", _NULLABLE_STRING),
     ("relationship_kind", _STRING),
     ("via", _NULLABLE_STRING),
+    ("status", _STRING),
+    ("confidence", _NULLABLE_FLOAT),
+    ("reasoning", _NULLABLE_STRING),
 ]
 
 _DATA_TYPES: list[tuple[str, str]] = [
@@ -819,6 +882,147 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
         return []
 
 
+def _catalog_certifications(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> dict[str, str]:
+    """Map each certified/deprecated table or view name to its certification status (fail-soft).
+
+    Certifications live directly on the table/view, so no backing-table remap is needed. Soft-deleted
+    targets are excluded (their marks read as absent).
+    """
+    team_id = context.team_id
+    if team_id is None or not _can_read_catalog(context):
+        return {}
+    from products.data_catalog.backend.facade.enums import CertificationStatus  # noqa: PLC0415
+    from products.data_catalog.backend.facade.models import TableCertification  # noqa: PLC0415
+
+    try:
+        result: dict[str, str] = {}
+        certs = TableCertification.objects.for_team(team_id).filter(
+            status__in=(CertificationStatus.CERTIFIED, CertificationStatus.DEPRECATED)
+        )
+        table_certs = (
+            certs.filter(table__isnull=False)
+            .exclude(table__deleted=True)
+            .exclude(table__external_data_source__deleted=True)
+        )
+        view_certs = certs.filter(saved_query__isnull=False).exclude(saved_query__deleted=True)
+        if allowed is not None:
+            table_certs = table_certs.filter(table__name__in=allowed)
+            view_certs = view_certs.filter(saved_query__name__in=allowed)
+        for name, status in table_certs.values_list("table__name", "status"):
+            result[name] = status
+        for name, status in view_certs.values_list("saved_query__name", "status"):
+            result[name] = status
+        return result
+    except Exception:
+        logger.exception("information_schema: failed to load certifications", team_id=team_id)
+        return {}
+
+
+def _catalog_table_visible(context: "HogQLContext", table_name: str) -> bool:
+    database = context.database
+    if database is None or _references_denied_table([table_name], database._denied_tables):
+        return False
+    try:
+        return database.has_table(table_name) and database.get_table(table_name) is not None
+    except Exception:
+        return False
+
+
+def _catalog_proposed_relationships(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
+    """Proposed/rejected relationship proposals, surfaced as proposed_join rows (fail-soft).
+
+    Accepted proposals are not returned here: they already exist as real lazy_join rows, enriched with
+    their confidence/reasoning via `_catalog_accepted_relationships`.
+    """
+    team_id = context.team_id
+    if team_id is None or not _can_read_catalog(context):
+        return []
+    from products.data_catalog.backend.facade.enums import RelationshipStatus  # noqa: PLC0415
+    from products.data_catalog.backend.facade.models import RelationshipProposal  # noqa: PLC0415
+
+    try:
+        proposals = RelationshipProposal.objects.for_team(team_id).exclude(status=RelationshipStatus.ACCEPTED)
+        if allowed is not None:
+            proposals = proposals.filter(source_table_name__in=allowed)
+        rows: list[list[Any]] = []
+        for source_table, source_key, target_table, target_key, status, confidence, reasoning in proposals.values_list(
+            "source_table_name",
+            "source_table_key",
+            "joining_table_name",
+            "joining_table_key",
+            "status",
+            "confidence",
+            "reasoning",
+        ):
+            if not _catalog_table_visible(context, source_table) or not _catalog_table_visible(context, target_table):
+                continue
+            rows.append(
+                [
+                    source_table,
+                    source_key,
+                    target_table,
+                    target_key,
+                    "proposed_join",
+                    None,
+                    status,
+                    confidence,
+                    reasoning or None,
+                ]
+            )
+        return rows
+    except Exception:
+        logger.exception("information_schema: failed to load relationship proposals", team_id=team_id)
+        return []
+
+
+def _catalog_accepted_relationships(
+    context: "HogQLContext", allowed: Optional[frozenset[str]]
+) -> dict[_RelationshipProvenanceKey, tuple[Optional[float], Optional[str]]]:
+    """Accepted proposals keyed by their active created join's full identity (fail-soft)."""
+    team_id = context.team_id
+    if team_id is None or not _can_read_catalog(context):
+        return {}
+    from products.data_catalog.backend.facade.enums import RelationshipStatus  # noqa: PLC0415
+    from products.data_catalog.backend.facade.models import RelationshipProposal  # noqa: PLC0415
+
+    try:
+        accepted = RelationshipProposal.objects.for_team(team_id).filter(
+            status=RelationshipStatus.ACCEPTED,
+            created_join__isnull=False,
+            created_join__deleted=False,
+        )
+        if allowed is not None:
+            accepted = accepted.filter(created_join__source_table_name__in=allowed)
+        result: dict[_RelationshipProvenanceKey, tuple[Optional[float], Optional[str]]] = {}
+        for (
+            source_table,
+            field_name,
+            source_key,
+            target_table,
+            target_key,
+            confidence,
+            reasoning,
+        ) in accepted.values_list(
+            "created_join__source_table_name",
+            "created_join__field_name",
+            "created_join__source_table_key",
+            "created_join__joining_table_name",
+            "created_join__joining_table_key",
+            "confidence",
+            "reasoning",
+        ):
+            if not _catalog_table_visible(context, source_table) or not _catalog_table_visible(context, target_table):
+                continue
+            result[(source_table, field_name, source_key, target_table, target_key)] = (
+                confidence,
+                reasoning or None,
+            )
+        return result
+    except Exception:
+        logger.exception("information_schema: failed to load accepted relationships", team_id=team_id)
+        return {}
+
+
 def _string_field(name: str, nullable: bool = False, description: Optional[str] = None) -> StringDatabaseField:
     return StringDatabaseField(name=name, nullable=nullable, description=description)
 
@@ -853,11 +1057,17 @@ class InformationSchemaTablesTable(LazyTable):
             nullable=True,
             description="Approximate row count; only populated for data warehouse tables and views, NULL otherwise.",
         ),
+        "certification": _string_field(
+            "certification",
+            nullable=True,
+            description="Trust mark: 'certified' (prefer this source), 'deprecated' (avoid it), or NULL (unmarked).",
+        ),
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
         allowed = _pushdown_table_filter(node, "table_name")
-        table_rows, _, _ = _introspect(context, allowed)
+        introspection = _introspection(context, allowed)
+        table_rows = introspection.table_rows() if introspection is not None else []
         return _rows_select(context, "tables", _TABLES_COLUMNS, table_rows, allowed)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
@@ -936,7 +1146,8 @@ class InformationSchemaColumnsTable(LazyTable):
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
         allowed = _pushdown_table_filter(node, "table_name")
-        _, column_rows, _ = _introspect(context, allowed)
+        introspection = _introspection(context, allowed)
+        column_rows = introspection.column_rows() if introspection is not None else []
         return _rows_select(context, "columns", _COLUMNS_COLUMNS, column_rows, allowed)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
@@ -948,8 +1159,9 @@ class InformationSchemaColumnsTable(LazyTable):
 
 class InformationSchemaRelationshipsTable(LazyTable):
     description: str = (
-        "Joinable relationships between tables (lazy joins and field traversers); one row per "
-        "relationship. Use it to discover how to join from one table to another in HogQL."
+        "Joinable relationships between tables; one row per relationship. Active joins (lazy_join / "
+        "field_traverser) plus reviewed catalog join proposals (relationship_kind='proposed_join'). "
+        "Prefer active joins; a 'rejected' proposal was reviewed and should not be used."
     )
     fields: dict[str, FieldOrTable] = {
         "source_table": _string_field(
@@ -963,16 +1175,34 @@ class InformationSchemaRelationshipsTable(LazyTable):
             "target_column", nullable=True, description="Column (or field path) on the target table that is joined to."
         ),
         "relationship_kind": _string_field(
-            "relationship_kind", nullable=False, description="Kind of relationship: 'lazy_join' or 'field_traverser'."
+            "relationship_kind",
+            nullable=False,
+            description="'lazy_join', 'field_traverser', or 'proposed_join' (a reviewed catalog proposal).",
         ),
         "via": _string_field(
-            "via", nullable=True, description="Internal resolver backing a lazy join, NULL for field traversers."
+            "via", nullable=True, description="Internal resolver backing a lazy join, NULL otherwise."
+        ),
+        "status": _string_field(
+            "status",
+            nullable=False,
+            description="'active' for real joins; 'proposed'/'rejected' for catalog proposals not yet promoted.",
+        ),
+        "confidence": FloatDatabaseField(
+            name="confidence",
+            nullable=True,
+            description="Discovery confidence for a proposed join or the accepted proposal behind an active join, 0-1.",
+        ),
+        "reasoning": _string_field(
+            "reasoning",
+            nullable=True,
+            description="Why a join was proposed; retained on the active join after acceptance.",
         ),
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
         allowed = _pushdown_table_filter(node, "source_table")
-        _, _, relationship_rows = _introspect(context, allowed)
+        introspection = _introspection(context, allowed)
+        relationship_rows = introspection.relationship_rows() if introspection is not None else []
         return _rows_select(context, "relationships", _RELATIONSHIPS_COLUMNS, relationship_rows, allowed)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
