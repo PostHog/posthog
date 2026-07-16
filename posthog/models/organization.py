@@ -234,6 +234,23 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="When True, in-app callouts inviting members to enable AI training are shown.",
     )
     enforce_2fa = models.BooleanField(null=True, blank=True)
+
+    # ---- SSO enablement (SAML/SCIM/ID-JAG) ----
+    # Manual overrides, independent of whether a linked IdentityProviderConfig is fully filled in.
+    # db_default is required alongside default: rust/feature-flags inserts organizations via raw
+    # SQL with an explicit column list, so these NOT NULL columns need a real Postgres-level default.
+    is_saml_enabled = models.BooleanField(
+        default=False, db_default=False, help_text="Whether SAML SSO is manually enabled for this organization."
+    )
+    is_scim_enabled = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Whether SCIM provisioning is manually enabled for this organization.",
+    )
+    is_id_jag_enabled = models.BooleanField(
+        default=False, db_default=False, help_text="Whether ID-JAG (XAA) is manually enabled for this organization."
+    )
+
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
     members_can_create_projects = models.BooleanField(
         default=False,
