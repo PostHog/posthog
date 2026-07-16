@@ -564,6 +564,7 @@ SPECTACULAR_SETTINGS = {
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
         "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
         "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
+        "BatchImportStatusEnum": "products.managed_migrations.backend.models.batch_imports.BatchImport.Status",
         "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
         # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
         "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",

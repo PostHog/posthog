@@ -59,6 +59,19 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
     def config(self) -> "BatchImportConfigBuilder":
         return self._config_builder
 
+    @property
+    def is_trial(self) -> bool:
+        """Whether this job is a trial run (parses and stores browsable results
+        instead of capturing events). Derived from the sink type — trials have
+        no dedicated column."""
+        return ((self.import_config or {}).get("sink") or {}).get("type") == "trial_s3"
+
+    def trial_progress(self) -> dict | None:
+        """The worker-owned trial progress (records_emitted, pages_written,
+        running summary) from the state JSON, or None before the worker has
+        flushed any."""
+        return (self.state or {}).get("trial")
+
     def parts_progress(self) -> tuple[int, int, dict | None]:
         """Summarize worker part state: (done_count, total_count, first_unfinished_part).
 
@@ -330,6 +343,13 @@ class BatchImportConfigBuilder:
 
     def to_noop(self) -> Self:
         self.batch_import.import_config["sink"] = {"type": "noop"}
+        return self
+
+    def to_trial_output(self, record_limit: int) -> Self:
+        """Trial run: parse and transform only, writing browsable results to the
+        worker-configured trial bucket instead of capturing events. Stops after
+        record_limit source records (the worker clamps it again)."""
+        self.batch_import.import_config["sink"] = {"type": "trial_s3", "record_limit": record_limit}
         return self
 
     def with_import_events(self, import_events: bool = True) -> Self:

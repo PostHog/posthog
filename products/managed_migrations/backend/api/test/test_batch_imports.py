@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages import get_messages
@@ -11,6 +12,7 @@ from django.test import RequestFactory
 
 from parameterized import parameterized
 
+from products.managed_migrations.backend import trial_storage
 from products.managed_migrations.backend.admin.batch_imports import BatchImportAdmin
 from products.managed_migrations.backend.models.batch_imports import BatchImport, BatchImportConfigBuilder, ContentType
 
@@ -944,3 +946,184 @@ class TestBatchImportAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["attr"], "endpoint_url")
+
+
+class TestBatchImportTrialAPI(APIBaseTest):
+    S3_PAYLOAD = {
+        "source_type": "s3",
+        "content_type": "captured",
+        "s3_bucket": "test-bucket",
+        "s3_region": "us-east-1",
+        "s3_prefix": "data/",
+        "access_key": "test-key",
+        "secret_key": "test-secret",
+    }
+
+    def _create_import(self, status=BatchImport.Status.RUNNING, is_trial=False, state=None) -> BatchImport:
+        sink = {"type": "trial_s3", "record_limit": 100} if is_trial else {"type": "capture", "send_rate": 1000}
+        return BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"source": {"type": "s3"}, "sink": sink},
+            secrets={"access_key": "k", "secret_key": "s"},
+            status=status,
+            state=state,
+        )
+
+    def test_create_trial_sets_trial_sink_and_limit(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {**self.S3_PAYLOAD, "is_trial": True, "trial_record_limit": 500},
+        )
+
+        self.assertEqual(response.status_code, 201, response.json())
+        batch_import = BatchImport.objects.get(id=response.json()["id"])
+        self.assertEqual(batch_import.import_config["sink"], {"type": "trial_s3", "record_limit": 500})
+        self.assertTrue(response.json()["is_trial"])
+        self.assertEqual(response.json()["trial_record_limit"], 500)
+
+    @parameterized.expand([("zero", 0), ("above_max", 50_001)])
+    def test_trial_record_limit_out_of_bounds_is_rejected(self, _name, limit):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {**self.S3_PAYLOAD, "is_trial": True, "trial_record_limit": limit},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], "trial_record_limit")
+
+    def test_trial_allowed_while_real_import_is_running(self):
+        self._create_import(is_trial=False)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {**self.S3_PAYLOAD, "is_trial": True},
+        )
+
+        self.assertEqual(response.status_code, 201, response.json())
+
+    def test_real_import_allowed_while_trial_is_running(self):
+        self._create_import(is_trial=True)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations", self.S3_PAYLOAD)
+
+        self.assertEqual(response.status_code, 201, response.json())
+
+    def test_second_trial_is_blocked_while_one_is_running(self):
+        existing = self._create_import(is_trial=True)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {**self.S3_PAYLOAD, "is_trial": True},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("trial", response.json()["error"])
+        self.assertIn(str(existing.id), response.json()["detail"])
+
+    def test_trial_records_rejects_non_trial_imports(self):
+        batch_import = self._create_import(is_trial=False)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/trial_records")
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_trial_records_returns_page_with_progress_metadata(self):
+        trial_state = {
+            "parts": [],
+            "trial": {
+                "records_emitted": 4,
+                "pages_written": 2,
+                "summary": {"source_records": 4, "dropped_records": 1},
+            },
+        }
+        batch_import = self._create_import(status=BatchImport.Status.COMPLETED, is_trial=True, state=trial_state)
+        records = [{"seq": 2, "source": {"event": "a"}, "outputs": [], "error": None}]
+
+        with patch(
+            "products.managed_migrations.backend.api.batch_imports.trial_storage.read_trial_page",
+            return_value=records,
+        ) as mock_read:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/trial_records?page=1"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "records": records,
+                "page": 1,
+                "total_pages": 2,
+                "total_records": 4,
+                "summary": {"source_records": 4, "dropped_records": 1},
+            },
+        )
+        mock_read.assert_called_once_with(self.team.id, str(batch_import.id), 1)
+
+    def test_trial_records_page_out_of_range_is_404(self):
+        batch_import = self._create_import(
+            status=BatchImport.Status.COMPLETED,
+            is_trial=True,
+            state={"parts": [], "trial": {"records_emitted": 4, "pages_written": 2, "summary": {}}},
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/trial_records?page=2"
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["total_pages"], 2)
+
+    def test_trial_records_expired_results_are_410(self):
+        batch_import = self._create_import(
+            status=BatchImport.Status.COMPLETED,
+            is_trial=True,
+            state={"parts": [], "trial": {"records_emitted": 4, "pages_written": 2, "summary": {}}},
+        )
+
+        with patch(
+            "products.managed_migrations.backend.api.batch_imports.trial_storage.read_trial_page",
+            side_effect=trial_storage.TrialResultsUnavailable("gone"),
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/trial_records"
+            )
+
+        self.assertEqual(response.status_code, 410)
+
+    def test_promote_creates_real_import_with_capture_sink_and_copied_secrets(self):
+        trial = self._create_import(status=BatchImport.Status.COMPLETED, is_trial=True)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{trial.id}/promote")
+
+        self.assertEqual(response.status_code, 201, response.json())
+        promoted = BatchImport.objects.get(id=response.json()["id"])
+        self.assertNotEqual(promoted.id, trial.id)
+        self.assertEqual(promoted.import_config["sink"], {"type": "capture", "send_rate": 1000})
+        self.assertEqual(promoted.import_config["source"], trial.import_config["source"])
+        self.assertEqual(promoted.secrets, trial.secrets)
+        self.assertEqual(promoted.status, BatchImport.Status.RUNNING)
+        self.assertFalse(response.json()["is_trial"])
+
+    @parameterized.expand(
+        [
+            ("not_a_trial", False, BatchImport.Status.COMPLETED),
+            ("not_completed", True, BatchImport.Status.RUNNING),
+        ]
+    )
+    def test_promote_rejects_ineligible_jobs(self, _name, is_trial, job_status):
+        batch_import = self._create_import(status=job_status, is_trial=is_trial)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/promote")
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_promote_blocked_while_real_import_is_running(self):
+        trial = self._create_import(status=BatchImport.Status.COMPLETED, is_trial=True)
+        self._create_import(is_trial=False)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{trial.id}/promote")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Cannot create a new batch import", response.json()["error"])

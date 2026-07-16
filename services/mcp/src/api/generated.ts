@@ -12281,6 +12281,36 @@ export namespace Schemas {
       readonly import_config: unknown;
     }
 
+    /**
+     * @nullable
+     */
+    export type BatchImportResponseCreatedBy = { [key: string]: unknown } | null;
+
+    /**
+     * Serializer for BatchImport responses that matches frontend expectations
+     */
+    export interface BatchImportResponse {
+      readonly id: string;
+      readonly source_type: string;
+      readonly content_type: string;
+      status?: BatchImportStatusEnum;
+      readonly display_status: string;
+      /** @nullable */
+      readonly start_date: string | null;
+      /** @nullable */
+      readonly end_date: string | null;
+      /** @nullable */
+      readonly created_by: BatchImportResponseCreatedBy;
+      readonly created_at: string;
+      /** @nullable */
+      status_message: string | null;
+      state?: unknown;
+      /** Whether this job is a trial run (stores browsable results instead of ingesting). */
+      readonly is_trial: boolean;
+      /** @nullable */
+      readonly trial_record_limit: number | null;
+    }
+
     export type EventPropFilterTypeEnum = typeof EventPropFilterTypeEnum[keyof typeof EventPropFilterTypeEnum];
 
 
@@ -62347,6 +62377,22 @@ export namespace Schemas {
       target_language?: string;
     }
 
+    /**
+     * One page of trial-run results, proxied from the trial output store.
+     */
+    export interface TrialRecordsResponse {
+      /** Trial records in source order: each has seq (global index), source (the original source event), outputs (the event(s) it would produce), and error (why it would be dropped, if it would be). */
+      records: unknown[];
+      /** Zero-based index of this page. */
+      page: number;
+      /** Number of result pages written so far. */
+      total_pages: number;
+      /** Number of source records processed so far. */
+      total_records: number;
+      /** Running aggregates: output event name counts, error counts, dropped/skipped totals, timestamp range. */
+      summary: unknown;
+    }
+
     export interface UpdateAppInput {
       /** New name for the app. */
       name?: string;
@@ -76181,6 +76227,13 @@ export namespace Schemas {
       Paused: 'paused',
       Running: 'running',
     } as const;
+
+    export type ManagedMigrationsTrialRecordsRetrieveParams = {
+    /**
+     * Zero-based results page index (see total_pages in the response).
+     */
+    page?: number;
+    };
 
     export type MarketingAnalyticsDataSourcesRetrieveParams = {
     /**

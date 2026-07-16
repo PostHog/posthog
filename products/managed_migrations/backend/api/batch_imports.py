@@ -1,9 +1,11 @@
 import uuid
+from copy import deepcopy
 from datetime import timedelta
+from typing import cast
 
 import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -14,7 +16,45 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.user import User
 
-from products.managed_migrations.backend.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
+from products.managed_migrations.backend import trial_storage
+from products.managed_migrations.backend.models.batch_imports import (
+    BatchImport,
+    BatchImportConfigBuilder,
+    ContentType,
+    DateRangeExportSource,
+)
+
+TRIAL_RECORD_LIMIT_DEFAULT = 1_000
+TRIAL_RECORD_LIMIT_MAX = 50_000
+
+
+class BatchImportTrialOptionsMixin(serializers.Serializer):
+    """Write-only trial options shared by every create serializer."""
+
+    is_trial = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        default=False,
+        help_text="Run a trial instead of a real import: parse and transform up to trial_record_limit source records and store browsable results, without ingesting any events.",
+    )
+    trial_record_limit = serializers.IntegerField(
+        write_only=True,
+        required=False,
+        default=TRIAL_RECORD_LIMIT_DEFAULT,
+        min_value=1,
+        max_value=TRIAL_RECORD_LIMIT_MAX,
+        help_text=f"Maximum number of source records to process in a trial run (1 to {TRIAL_RECORD_LIMIT_MAX}). Ignored unless is_trial is set.",
+    )
+
+
+def _apply_output_sink(config_builder: BatchImportConfigBuilder, validated_data: dict) -> None:
+    """Point the job at its output: the trial results bucket for trial runs, capture otherwise."""
+    if validated_data.get("is_trial"):
+        config_builder.to_trial_output(
+            record_limit=validated_data.get("trial_record_limit", TRIAL_RECORD_LIMIT_DEFAULT)
+        )
+    else:
+        config_builder.to_capture(send_rate=1000)
 
 
 class BatchImportSerializer(serializers.ModelSerializer):
@@ -78,7 +118,7 @@ class BatchImportSerializer(serializers.ModelSerializer):
         return None
 
 
-class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
+class BatchImportS3SourceCreateSerializer(BatchImportTrialOptionsMixin, BatchImportSerializer):
     """Serializer for creating BatchImports with config builder methods"""
 
     content_type = serializers.ChoiceField(
@@ -129,6 +169,8 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             "import_events",
             "generate_identify_events",
             "generate_group_identify_events",
+            "is_trial",
+            "trial_record_limit",
         ]
         read_only_fields = [
             "id",
@@ -172,13 +214,13 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
                 .with_generate_group_identify_events(validated_data.get("generate_group_identify_events", False))
             )
 
-        config_builder.to_capture(send_rate=1000)
+        _apply_output_sink(config_builder, validated_data)
 
         batch_import.save()
         return batch_import
 
 
-class BatchImportS3GzipSourceCreateSerializer(BatchImportSerializer):
+class BatchImportS3GzipSourceCreateSerializer(BatchImportTrialOptionsMixin, BatchImportSerializer):
     """Serializer for creating BatchImports with S3 gzipped JSONL source"""
 
     content_type = serializers.ChoiceField(
@@ -229,6 +271,8 @@ class BatchImportS3GzipSourceCreateSerializer(BatchImportSerializer):
             "import_events",
             "generate_identify_events",
             "generate_group_identify_events",
+            "is_trial",
+            "trial_record_limit",
         ]
         read_only_fields = [
             "id",
@@ -272,13 +316,13 @@ class BatchImportS3GzipSourceCreateSerializer(BatchImportSerializer):
                 .with_generate_group_identify_events(validated_data.get("generate_group_identify_events", False))
             )
 
-        config_builder.to_capture(send_rate=1000)
+        _apply_output_sink(config_builder, validated_data)
 
         batch_import.save()
         return batch_import
 
 
-class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
+class BatchImportDateRangeSourceCreateSerializer(BatchImportTrialOptionsMixin, BatchImportSerializer):
     """Serializer for creating BatchImports with date range source (mixpanel, amplitude, etc.)"""
 
     start_date = serializers.DateTimeField(write_only=True, required=True)
@@ -331,6 +375,8 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
             "import_events",
             "generate_identify_events",
             "generate_group_identify_events",
+            "is_trial",
+            "trial_record_limit",
         ]
         read_only_fields = [
             "id",
@@ -410,7 +456,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
                     .with_generate_group_identify_events(validated_data.get("generate_group_identify_events", True))
                 )
 
-            config_builder.to_capture(send_rate=1000)
+            _apply_output_sink(config_builder, validated_data)
 
             batch_import.save()
             return batch_import
@@ -428,6 +474,10 @@ class BatchImportResponseSerializer(serializers.ModelSerializer):
     content_type = serializers.SerializerMethodField()
     status_message = serializers.CharField(source="display_status_message", allow_null=True)
     display_status = serializers.SerializerMethodField()
+    is_trial = serializers.BooleanField(
+        read_only=True, help_text="Whether this job is a trial run (stores browsable results instead of ingesting)."
+    )
+    trial_record_limit = serializers.SerializerMethodField()
 
     class Meta:
         model = BatchImport
@@ -443,29 +493,36 @@ class BatchImportResponseSerializer(serializers.ModelSerializer):
             "created_at",
             "status_message",
             "state",
+            "is_trial",
+            "trial_record_limit",
         ]
 
+    @extend_schema_field({"type": "string"})
     def get_source_type(self, obj):
         """Extract source type from import_config"""
         source = obj.import_config.get("source", {})
         return source.get("type", "s3")
 
+    @extend_schema_field({"type": "string", "nullable": True})
     def get_start_date(self, obj):
         """Extract start date from import_config"""
         source = obj.import_config.get("source", {})
         return source.get("start")
 
+    @extend_schema_field({"type": "string", "nullable": True})
     def get_end_date(self, obj):
         """Extract end date from import_config"""
         source = obj.import_config.get("source", {})
         return source.get("end")
 
+    @extend_schema_field({"type": "string"})
     def get_content_type(self, obj):
         """Extract content type from import_config"""
         data_format = obj.import_config.get("data_format", {})
         content = data_format.get("content", {})
         return content.get("type", "captured")
 
+    @extend_schema_field({"type": "object", "nullable": True})
     def get_created_by(self, obj):
         if obj.created_by_id:
             try:
@@ -475,10 +532,34 @@ class BatchImportResponseSerializer(serializers.ModelSerializer):
                 return None
         return None
 
+    @extend_schema_field({"type": "string"})
     def get_display_status(self, obj):
         if obj.status == BatchImport.Status.RUNNING and obj.lease_id is None:
             return "waiting_to_start"
         return obj.status
+
+    @extend_schema_field({"type": "integer", "nullable": True})
+    def get_trial_record_limit(self, obj):
+        """The trial's source-record cap from the sink config; null for real imports."""
+        if not obj.is_trial:
+            return None
+        return obj.import_config.get("sink", {}).get("record_limit")
+
+
+class TrialRecordsResponseSerializer(serializers.Serializer):
+    """One page of trial-run results, proxied from the trial output store."""
+
+    records = serializers.ListField(
+        child=serializers.JSONField(),
+        help_text="Trial records in source order: each has seq (global index), source (the original source event), outputs (the event(s) it would produce), and error (why it would be dropped, if it would be).",
+    )
+    page = serializers.IntegerField(help_text="Zero-based index of this page.")
+    total_pages = serializers.IntegerField(help_text="Number of result pages written so far.")
+    total_records = serializers.IntegerField(help_text="Number of source records processed so far.")
+    summary = serializers.JSONField(
+        allow_null=True,
+        help_text="Running aggregates: output event name counts, error counts, dropped/skipped totals, timestamp range.",
+    )
 
 
 class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -529,43 +610,70 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = BatchImportResponseSerializer(queryset, many=True)
         return Response({"results": serializer.data})
 
-    def create(self, request: Request, **kwargs) -> Response:
-        """Create a new managed migration/batch import."""
-        existing_running_import = BatchImport.objects.filter(
-            team_id=self.team_id, status=BatchImport.Status.RUNNING
-        ).first()
+    def _running_import_conflict(self, is_trial: bool) -> Response | None:
+        """One running job per team and per kind: a trial only conflicts with
+        another running trial, a real import only with another real import, so
+        users can trial their next migration while one is ingesting.
 
-        if existing_running_import:
+        The kind check runs in Python (a team has at most a handful of running
+        rows): a JSON-path exclude() would silently drop rows whose config has
+        no sink key at all, letting a running legacy-shaped import go unnoticed.
+        """
+        running = BatchImport.objects.filter(team_id=self.team_id, status=BatchImport.Status.RUNNING)
+        conflict = next((job for job in running if job.is_trial == is_trial), None)
+        if conflict is None:
+            return None
+        if is_trial:
             return Response(
                 {
-                    "error": "Cannot create a new batch import while another import is already running for this organization.",
-                    "detail": f"Please wait for the current import (ID: {existing_running_import.id}) to complete or pause it before starting a new one.",
+                    "error": "Cannot create a new trial run while another trial is already running for this project.",
+                    "detail": f"Please wait for the current trial (ID: {conflict.id}) to complete before starting a new one.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        return Response(
+            {
+                "error": "Cannot create a new batch import while another import is already running for this organization.",
+                "detail": f"Please wait for the current import (ID: {conflict.id}) to complete or pause it before starting a new one.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        migration = serializer.save()
-
-        source_type = request.data.get("source_type", "unknown")
-        content_type = request.data.get("content_type", "unknown")
-
+    def _capture_batch_import_created(self, request: Request, migration: BatchImport, properties: dict) -> None:
         distinct_id = (
             request.user.distinct_id
             if request.user.is_authenticated and request.user.distinct_id
             else str(uuid.uuid4())
         )
-
         posthoganalytics.capture(
             "batch import created",
             distinct_id=distinct_id,
             properties={
                 "batch_import_id": migration.id,
-                "source_type": source_type,
-                "content_type": content_type,
                 "team_id": self.team_id,
+                "is_trial": migration.is_trial,
                 "$process_person_profile": False,
+                **properties,
+            },
+        )
+
+    def create(self, request: Request, **kwargs) -> Response:
+        """Create a new managed migration/batch import."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        conflict = self._running_import_conflict(is_trial=serializer.validated_data.get("is_trial", False))
+        if conflict:
+            return conflict
+
+        migration = serializer.save()
+
+        self._capture_batch_import_created(
+            request,
+            migration,
+            {
+                "source_type": request.data.get("source_type", "unknown"),
+                "content_type": request.data.get("content_type", "unknown"),
             },
         )
 
@@ -616,3 +724,81 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return Response({"status": "resumed"})
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "page", int, description="Zero-based results page index (see total_pages in the response)."
+            )
+        ],
+        responses={200: TrialRecordsResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True)
+    def trial_records(self, request: Request, **kwargs) -> Response:
+        """Fetch one page of a trial run's results (source event paired with its would-be output events)."""
+        batch_import = self.get_object()
+
+        if not batch_import.is_trial:
+            return Response({"error": "This import is not a trial run"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            page = int(request.query_params.get("page", "0"))
+        except ValueError:
+            return Response({"error": "page must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
+        if page < 0:
+            return Response({"error": "page must be non-negative"}, status=status.HTTP_400_BAD_REQUEST)
+
+        trial = batch_import.trial_progress() or {}
+        total_pages = trial.get("pages_written", 0)
+        if page >= total_pages:
+            return Response(
+                {"error": f"Page {page} does not exist", "total_pages": total_pages},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            records = trial_storage.read_trial_page(batch_import.team_id, str(batch_import.id), page)
+        except trial_storage.TrialResultsUnavailable:
+            return Response(
+                {"error": "Trial results have expired and are no longer available"},
+                status=status.HTTP_410_GONE,
+            )
+
+        return Response(
+            {
+                "records": records,
+                "page": page,
+                "total_pages": total_pages,
+                "total_records": trial.get("records_emitted", 0),
+                "summary": trial.get("summary"),
+            }
+        )
+
+    @extend_schema(request=None, responses={201: BatchImportResponseSerializer})
+    @action(methods=["POST"], detail=True)
+    def promote(self, request: Request, **kwargs) -> Response:
+        """Start the real import from a completed trial run, reusing its source config and credentials."""
+        trial = self.get_object()
+
+        if not trial.is_trial:
+            return Response({"error": "Only trial runs can be promoted"}, status=status.HTTP_400_BAD_REQUEST)
+        if trial.status != BatchImport.Status.COMPLETED:
+            return Response({"error": "Only completed trial runs can be promoted"}, status=status.HTTP_400_BAD_REQUEST)
+
+        conflict = self._running_import_conflict(is_trial=False)
+        if conflict:
+            return conflict
+
+        import_config = deepcopy(trial.import_config)
+        import_config["sink"] = {"type": "capture", "send_rate": 1000}
+
+        migration = BatchImport.objects.create(
+            team_id=self.team_id,
+            created_by_id=cast(User, request.user).pk,
+            import_config=import_config,
+            secrets=trial.secrets,
+        )
+
+        self._capture_batch_import_created(request, migration, {"promoted_from_trial_id": str(trial.id)})
+
+        return Response(BatchImportResponseSerializer(migration).data, status=status.HTTP_201_CREATED)
