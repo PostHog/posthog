@@ -59,6 +59,13 @@ export type { BoxRect } from './core/types'
 export { BoxPlotTooltip } from './charts/BoxPlot/BoxPlotTooltip'
 export type { BoxPlotTooltipProps } from './charts/BoxPlot/BoxPlotTooltip'
 
+// Heatmap
+export { Heatmap } from './charts/Heatmap/Heatmap'
+export type { HeatmapCellDatum, HeatmapConfig, HeatmapProps } from './charts/Heatmap/Heatmap'
+export { HeatmapTooltip } from './charts/Heatmap/HeatmapTooltip'
+export type { HeatmapRowMeta, HeatmapTooltipContext, HeatmapTooltipProps } from './charts/Heatmap/HeatmapTooltip'
+export type { HeatmapColorScale } from './charts/Heatmap/heatmap-layout'
+
 // Slope chart
 export { SlopeChart } from './charts/SlopeChart/SlopeChart'
 export type {
