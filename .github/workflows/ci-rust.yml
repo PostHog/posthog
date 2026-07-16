@@ -280,8 +280,7 @@ jobs:
                       echo "No affected crates — skipping build"
                   else
                       echo "Building affected crates: $crates"
-                      read -r -a crate_args <<< "$crates"
-                      cargo build "${crate_args[@]}" --locked --release
+                      cargo build $crates --locked --release
                       find target/release/ -maxdepth 1 -executable -type f -exec strip {} +
                   fi
 
