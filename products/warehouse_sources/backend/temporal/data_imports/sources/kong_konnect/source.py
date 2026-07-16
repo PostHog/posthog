@@ -142,7 +142,9 @@ How far back the initial sync can reach depends on your Konnect plan's Advanced 
     def validate_credentials(
         self, config: KongKonnectSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        region = config.region or DEFAULT_REGION
+        # `region` is typed as a Literal with a default, but job_inputs come from user-supplied JSON,
+        # so guard against values outside the known set at runtime.
+        region = config.region
         if region not in REGION_BASE_URLS:
             return False, f"Unknown region '{region}'. Choose one of: {', '.join(REGION_BASE_URLS)}."
 
@@ -162,7 +164,7 @@ How far back the initial sync can reach depends on your Konnect plan's Advanced 
     ) -> SourceResponse:
         return kong_konnect_source(
             api_token=config.api_token,
-            region=config.region or DEFAULT_REGION,
+            region=config.region,
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
@@ -174,12 +176,8 @@ How far back the initial sync can reach depends on your Konnect plan's Advanced 
         )
 
 
-def _coerce_lookback_days(raw: object) -> int:
-    """Form inputs arrive as strings; fall back to the default when unset or unparseable."""
-    if raw in (None, ""):
+def _coerce_lookback_days(value: int | None) -> int:
+    """The config converter parses form strings to int; fall back to the default when unset or non-positive."""
+    if value is None or value <= 0:
         return DEFAULT_INITIAL_LOOKBACK_DAYS
-    try:
-        value = int(raw)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return DEFAULT_INITIAL_LOOKBACK_DAYS
-    return value if value > 0 else DEFAULT_INITIAL_LOOKBACK_DAYS
+    return value

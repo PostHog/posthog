@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KongKonnectSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konnect import source as source_module
@@ -39,9 +39,18 @@ class TestSourceConfig:
     def test_fields_and_requiredness(self) -> None:
         fields = {f.name: f for f in KongKonnectSource().get_source_config.fields}
         assert set(fields) == {"api_token", "region", "lookback_days"}
-        assert fields["api_token"].required is True
-        assert fields["region"].required is True
-        assert fields["lookback_days"].required is False
+
+        api_token = fields["api_token"]
+        assert isinstance(api_token, SourceFieldInputConfig)
+        assert api_token.required is True
+
+        region = fields["region"]
+        assert isinstance(region, SourceFieldSelectConfig)
+        assert region.required is True
+
+        lookback_days = fields["lookback_days"]
+        assert isinstance(lookback_days, SourceFieldInputConfig)
+        assert lookback_days.required is False
 
 
 class TestGetSchemas:
@@ -87,15 +96,13 @@ class TestCoerceLookbackDays:
     @parameterized.expand(
         [
             ("none", None, DEFAULT_INITIAL_LOOKBACK_DAYS),
-            ("empty", "", DEFAULT_INITIAL_LOOKBACK_DAYS),
-            ("string_number", "7", 7),
-            ("int", 90, 90),
-            ("garbage", "abc", DEFAULT_INITIAL_LOOKBACK_DAYS),
-            ("non_positive", 0, DEFAULT_INITIAL_LOOKBACK_DAYS),
+            ("positive", 90, 90),
+            ("zero", 0, DEFAULT_INITIAL_LOOKBACK_DAYS),
+            ("negative", -3, DEFAULT_INITIAL_LOOKBACK_DAYS),
         ]
     )
-    def test_coerce(self, _name: str, raw: object, expected: int) -> None:
-        assert _coerce_lookback_days(raw) == expected
+    def test_coerce(self, _name: str, value: int | None, expected: int) -> None:
+        assert _coerce_lookback_days(value) == expected
 
 
 class TestSourceForPipeline:
