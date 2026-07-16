@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { DashboardType, QueryBasedInsightModel } from '~/types'
 
 import type { Node } from '../../queries/schema/schema-general'
 import type { DashboardType, QueryBasedInsightModel } from '../../types'
@@ -171,7 +172,13 @@ export const duplicateDashboardLogic = kea<duplicateDashboardLogicType>([
         hideDuplicateDashboardModal: () => {
             actions.resetDuplicateDashboard()
         },
-        [dashboardsModel.actionTypes.duplicateDashboardSuccess]: ({ dashboard, payload }) => {
+        [dashboardsModel.actionTypes.duplicateDashboardSuccess]: ({
+            dashboard,
+            payload,
+        }: {
+            dashboard: DashboardType<QueryBasedInsightModel>
+            payload?: Pick<DuplicateDashboardForm, 'duplicateTiles' | 'show'>
+        }) => {
             actions.hideDuplicateDashboardModal()
 
             if (!payload?.duplicateTiles) {

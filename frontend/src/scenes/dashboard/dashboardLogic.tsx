@@ -1850,7 +1850,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } as DashboardType<QueryBasedInsightModel>
                 },
                 [dashboardsModel.actionTypes.tileMovedToDashboard]: (state, { tile, dashboardId }) => {
-                    if (state?.id === dashboardId) {
+                    if (state && state.id === dashboardId) {
                         return {
                             ...state,
                             tiles: [...state.tiles, tile],
@@ -1860,7 +1860,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
                 [dashboardsModel.actionTypes.updateDashboardInsight]: (
                     state,
-                    { insight, extraDashboardIds, sourceDashboardId }
+                    {
+                        insight,
+                        extraDashboardIds,
+                        sourceDashboardId,
+                    }: {
+                        insight: QueryBasedInsightModel
+                        extraDashboardIds?: number[]
+                        sourceDashboardId?: number
+                    }
                 ) => {
                     if (sourceDashboardId != null && sourceDashboardId !== props.id) {
                         // Insight payload is from another dashboard's refresh; merged query/date range must not leak here.
@@ -3164,7 +3172,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.applyPendingInsertion()
             }
         },
-        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, extraDashboardIds, sourceDashboardId }) => {
+        [dashboardsModel.actionTypes.updateDashboardInsight]: ({
+            insight,
+            extraDashboardIds,
+            sourceDashboardId,
+        }: {
+            insight: QueryBasedInsightModel
+            extraDashboardIds?: number[]
+            sourceDashboardId?: number
+        }) => {
             if (sourceDashboardId != null && sourceDashboardId !== props.id) {
                 // Same rationale as the reducer: ignore refresh payloads scoped to another dashboard.
                 return
