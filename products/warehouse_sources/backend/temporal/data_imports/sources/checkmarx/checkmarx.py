@@ -49,6 +49,18 @@ class CheckmarxResumeConfig:
     scan_id: str | None = None
 
 
+def _make_session(api_key: str) -> requests.Session:
+    """Tracked session hardened for this source's traffic.
+
+    Sample capture is disabled: responses carry customer vulnerability findings, repository URLs,
+    and attack-vector details that the name-based scrubbers can't sanitise, so they must never
+    reach the HTTP sample bucket. The API key is registered for value-based redaction, and
+    redirects are refused so the token POST body (which carries the key) can never be re-sent to
+    a redirect target — no Checkmarx One endpoint we call legitimately redirects.
+    """
+    return make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False)
+
+
 def get_region_hosts(region: str) -> tuple[str, str]:
     """Return (api_base_url, iam_base_url) for a Checkmarx One region."""
     hosts = CHECKMARX_REGION_HOSTS.get(region)
@@ -322,7 +334,7 @@ def get_rows(
     api_base_url, iam_base_url = get_region_hosts(region)
     # One session reused across every page (and, for fan-out, every scan) so urllib3 keeps the
     # connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    session = _make_session(api_key)
     auth = CheckmarxAuth(session, iam_base_url, tenant_name, api_key)
 
     from_date = _build_incremental_value(config, should_use_incremental_field, db_incremental_field_last_value)
@@ -363,7 +375,7 @@ def validate_credentials(tenant_name: str, region: str, api_key: str) -> tuple[b
     except ValueError as e:
         return False, str(e)
 
-    session = make_tracked_session()
+    session = _make_session(api_key)
     auth = CheckmarxAuth(session, iam_base_url, tenant_name, api_key)
 
     try:

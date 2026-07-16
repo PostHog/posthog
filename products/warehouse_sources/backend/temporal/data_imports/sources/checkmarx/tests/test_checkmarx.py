@@ -317,7 +317,7 @@ class TestCheckmarx:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
             return_value=session,
-        ):
+        ) as mock_session_factory:
             list(
                 get_rows(
                     tenant_name="my-tenant",
@@ -332,6 +332,9 @@ class TestCheckmarx:
         _url, _params, headers = session.get_calls[0]
         assert headers["Authorization"] == "Bearer jwt-token"
         assert headers["Accept"] == "application/json; version=1.0"
+        # Responses carry customer vulnerability data and the token POST body carries the API key:
+        # the session must stay excluded from sample capture, redact the key, and refuse redirects.
+        mock_session_factory.assert_called_once_with(redact_values=("key",), allow_redirects=False, capture=False)
 
     # ---- fan-out over scans ----
 
