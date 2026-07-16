@@ -35,9 +35,13 @@ class FrillResumeConfig:
 def _make_session(api_key: str) -> requests.Session:
     # The key rides in the Authorization header; register it for redaction so it can never
     # land in tracked HTTP logs/samples regardless of where the API echoes it.
+    # `capture=False`: Frill responses carry arbitrary user-authored feedback — idea/comment
+    # bodies and private internal notes — that the generic name-based scrubber can't anonymize,
+    # so keep those bodies out of the shared HTTP sample store (still metered and logged).
     return make_tracked_session(
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
         redact_values=(api_key,),
+        capture=False,
     )
 
 

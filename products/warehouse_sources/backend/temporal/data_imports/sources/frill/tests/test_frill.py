@@ -189,7 +189,7 @@ class TestGetRows:
         assert calls[0][0] == f"{FRILL_BASE_URL}{FRILL_ENDPOINTS[endpoint].path}"
         assert calls[0][1].get(param) == value
 
-    def test_session_carries_bearer_auth_and_redacts_key(self) -> None:
+    def test_session_carries_bearer_auth_redacts_key_and_disables_capture(self) -> None:
         manager = _manager()
 
         with patch(
@@ -201,6 +201,9 @@ class TestGetRows:
         _, kwargs = MockSession.call_args
         assert kwargs["headers"]["Authorization"] == "Bearer secret"
         assert kwargs["redact_values"] == ("secret",)
+        # Frill responses carry user-authored feedback/notes the scrubber can't anonymize, so
+        # sample capture must stay off to keep that content out of the shared HTTP sample store.
+        assert kwargs["capture"] is False
 
 
 class TestCommentsFanOut:
