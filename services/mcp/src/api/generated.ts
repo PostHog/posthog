@@ -95,27 +95,6 @@ export namespace Schemas {
       human_readable_error?: string | null;
     }
 
-    export interface APIQueryQuotaLimitExtra {
-      /** ISO 8601 timestamp when API query access resets for the current billing period. */
-      billing_period_end: string;
-    }
-
-    export interface APIQueryQuotaLimitResponse {
-      /** Stable error category. Always `quota_limited` for this response. */
-      type: string;
-      /** Stable error code. Always `quota_limit_exceeded` for this response. */
-      code: string;
-      /** Customer-facing explanation of the API query limit. */
-      detail: string;
-      /**
-         * Always null because the error is not tied to an input field.
-         * @nullable
-         */
-      attr: string | null;
-      /** Billing-period metadata. Omitted when the reset timestamp is unavailable. */
-      extra?: APIQueryQuotaLimitExtra;
-    }
-
     export interface AccessControlFilterWarning {
       /** Human-readable warning shown to the user */
       message: string;
@@ -51566,6 +51545,27 @@ export namespace Schemas {
       issue_url: string;
       /** Branch the pull request was opened from. */
       branch: string;
+    }
+
+    export interface QueryQuotaLimitExtra {
+      /** ISO 8601 timestamp when query access resets for the current billing period. */
+      billing_period_end: string;
+    }
+
+    export interface QueryQuotaLimitResponse {
+      /** Stable error category. Always `quota_limited` for this response. */
+      type: string;
+      /** Stable error code. Always `quota_limit_exceeded` for this response. */
+      code: string;
+      /** Customer-facing explanation of the query usage limit. */
+      detail: string;
+      /**
+         * Always null because the error is not tied to an input field.
+         * @nullable
+         */
+      attr: string | null;
+      /** Billing-period metadata. Omitted when the reset timestamp is unavailable. */
+      extra?: QueryQuotaLimitExtra;
     }
 
     export type QueryRequestVariablesOverride = {[key: string]: { [key: string]: unknown }} | null;
