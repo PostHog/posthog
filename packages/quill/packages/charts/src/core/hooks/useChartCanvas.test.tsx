@@ -1,5 +1,4 @@
 import { act, render } from '@testing-library/react'
-import React from 'react'
 
 import type { ChartDimensions, ChartMargins } from '../types'
 import { useChartCanvas } from './useChartCanvas'
