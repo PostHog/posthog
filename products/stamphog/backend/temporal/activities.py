@@ -221,6 +221,9 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     reviews = client.get_pr_reviews(repo, pull_request.pr_number)
     # Top-level discussion comments are blocker context (a maintainer's "please hold").
     discussion = client.get_pr_discussion(repo, pull_request.pr_number)
+    # Inline review threads (GraphQL-only) carry a maintainer's unresolved "do not merge" that the
+    # top-level discussion misses; fails closed on truncation/errors, same as get_pr_discussion.
+    review_threads = client.get_pr_review_threads(repo, pull_request.pr_number)
     # Head-commit check runs let the engine's migration gate see a passing "Migration risk" check.
     check_runs = client.get_check_runs(repo, run.head_sha)
 
@@ -239,6 +242,7 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
         "files": files,
         "reviews": reviews,
         "discussion": discussion,
+        "review_threads": review_threads,
         "check_runs": check_runs,
         "pr_reactions": client.get_pr_reactions(repo, pull_request.pr_number),
         "policy_files": policy_files,
@@ -275,16 +279,30 @@ def dismiss_stale_approvals(input: StamphogReviewInput) -> dict:
     # pending — if it refuses, an earlier same-head approval must not keep the PR mergeable. The
     # sweep's same-head exclusion remains for the skip paths, where no new review will run and the
     # current-head approval is still the delivered verdict.
-    dismissed = dismiss_stale_approvals_for_head(
-        input.team_id,
-        pull_request,
-        repo_config,
-        "",
-        message="A new stamphog review started for this PR — the fresh verdict replaces this approval.",
-    )
+    message = "A new stamphog review started for this PR — the fresh verdict replaces this approval."
+    dismissed = dismiss_stale_approvals_for_head(input.team_id, pull_request, repo_config, "", message=message)
 
-    activity.logger.info(f"Dismissed {dismissed} stale approval(s) for run {run.id} (pr #{pull_request.pr_number})")
-    return {"dismissed": dismissed}
+    # Belt-and-braces GitHub-side sweep: the DB sweep above keys off posted_review_id, so an approval
+    # this App left on GitHub with NO ReviewRun row carrying its id (a run that approved but crashed
+    # before persisting, or any other drift) is invisible to it and would stand forever. Ask GitHub for
+    # our own still-active approvals and dismiss every one, regardless of head — the same all-heads
+    # semantic the DB sweep uses at workflow start. Identity fails closed without a configured app slug
+    # (list_own_active_approvals returns nothing), and dismiss_pr_review swallows 422, so re-dismissing an
+    # already-retracted review (e.g. one the DB sweep just handled) is an idempotent no-op.
+    client = StamphogGitHubClient(repo_config.installation_id)
+    github_dismissed = 0
+    for review in client.list_own_active_approvals(repo_config.repository, pull_request.pr_number):
+        review_id = _comment_id(review)
+        if review_id is None:
+            continue
+        client.dismiss_pr_review(repo_config.repository, pull_request.pr_number, review_id, message)
+        github_dismissed += 1
+
+    activity.logger.info(
+        f"Dismissed {dismissed} DB-tracked + {github_dismissed} GitHub-side stale approval(s) "
+        f"for run {run.id} (pr #{pull_request.pr_number})"
+    )
+    return {"dismissed": dismissed, "github_dismissed": github_dismissed}
 
 
 @activity.defn
@@ -344,6 +362,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     files = output.get("files", [])
     reviews = output.get("reviews", [])
     discussion = output.get("discussion", [])
+    review_threads = output.get("review_threads", [])
     check_runs = output.get("check_runs", [])
     pr_reactions = output.get("pr_reactions", [])
     policy_files = output.get("policy_files", {})
@@ -384,6 +403,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         files=files,
         reviews=reviews,
         discussion=discussion,
+        review_threads=review_threads,
         check_runs=check_runs,
         pr_reactions=pr_reactions,
         author_pr_numbers=author_pr_numbers,
@@ -546,12 +566,30 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         # Idempotent under Temporal at-least-once retries: the id is persisted the moment GitHub
         # accepts the review, so a retry after any later crash skips re-approving.
         if run.posted_review_id is None:
-            body = _neutralize_active_markdown(_scrub_credentials(parsed.review_body or _approve_comment(parsed)))
-            review = client.post_approve_review(repo, pull_request.pr_number, body, run.head_sha)
-            run.posted_review_id = _comment_id(review)
+            # Adopt-before-post: a prior attempt could have posted the approval to GitHub, then crashed
+            # BEFORE the immediate-persist below — leaving an approval with no DB trace that the
+            # posted_review_id-keyed sweep can never see. Re-posting would stack a SECOND standing
+            # approval. So first ask GitHub whether we already have an active APPROVE pinned to exactly
+            # this head; adopt its id instead of posting again if so. Identity fails closed without a
+            # configured app slug (list_own_active_approvals returns nothing), so we never adopt another
+            # bot's review off a fuzzy match — we post fresh, same as before.
+            adopted_review_id: int | None = None
+            for review in client.list_own_active_approvals(repo, pull_request.pr_number):
+                if (review.get("commit_id") or "") != run.head_sha:
+                    continue
+                adopted_review_id = _comment_id(review)
+                if adopted_review_id is not None:
+                    break
+            if adopted_review_id is not None:
+                run.posted_review_id = adopted_review_id
+            else:
+                body = _neutralize_active_markdown(_scrub_credentials(parsed.review_body or _approve_comment(parsed)))
+                review = client.post_approve_review(repo, pull_request.pr_number, body, run.head_sha)
+                run.posted_review_id = _comment_id(review)
             # Persist the id immediately, outside the conditional terminal save below: if that save
             # loses to a supersession or this activity crashes, this row is the only record the
-            # approval exists — the orphan-dismissal paths and the stale-approval sweep need it.
+            # approval exists — the orphan-dismissal paths and the stale-approval sweep need it. The
+            # adopted id must be persisted exactly the same way as a freshly posted one.
             ReviewRun.objects.for_team(input.team_id).filter(id=run.id).update(
                 posted_review_id=run.posted_review_id, updated_at=timezone.now()
             )

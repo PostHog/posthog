@@ -425,6 +425,28 @@ class TestDigestChannelAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert channel.enabled is False
         assert DigestChannel.objects.unscoped().filter(id=channel.id).exists()
 
+    def test_update_cannot_change_audience_key(self) -> None:
+        # audience_key anchors the digest bucket and its opt-out tombstone. A PATCH that re-pointed it
+        # would re-open an audience someone opted out of, so it's create-only — ignored on update while
+        # other fields (here slack_channel_name) still change.
+        integration = Integration.objects.create(
+            team_id=self.team.id, kind="slack", config={}, sensitive_config={"access_token": "x"}
+        )
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/stamphog/digest_channels/",
+            {"audience_key": "team-x", "slack_integration_id": integration.id, "slack_channel_id": "C1"},
+            format="json",
+        ).json()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/stamphog/digest_channels/{created['id']}/",
+            {"audience_key": "team-evil", "slack_channel_name": "renamed"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert body["audience_key"] == "team-x"
+        assert body["slack_channel_name"] == "renamed"
+
     def test_duplicate_audience_is_a_400_not_a_500(self) -> None:
         # team_id is injected in perform_create, so DRF can't pre-validate the unique
         # (team, audience_key) constraint — the IntegrityError must surface as a validation error.

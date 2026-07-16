@@ -3,16 +3,20 @@ import json
 import pytest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
+
+from parameterized import parameterized
 
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary
 from products.stamphog.backend.logic.digest_config import load_repo_digest_config
-from products.stamphog.backend.logic.github_client import StamphogGitHubError
+from products.stamphog.backend.logic.github_client import StamphogGitHubClient, StamphogGitHubError
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation, parse_reviewer_output
 from products.stamphog.backend.logic.slack_digest import _build_blocks, _build_fallback_text
 from products.stamphog.backend.models import StamphogRepoConfig
 from products.stamphog.backend.temporal import activities as activities_module
 from products.stamphog.backend.temporal.registry import ACTIVITIES
+from products.stamphog.backend.tests import fakes
+from products.stamphog.backend.tests.conftest import _generate_app_private_key
 
 # The gate/policy engine now lives in tools/pr-approval-agent and is covered by its
 # own suite (test_gates.py, test_policy.py); it runs inside the sandbox rather than
@@ -88,16 +92,21 @@ class ParseReviewerOutputTests(SimpleTestCase):
 
 
 class BuildReviewerInvocationTests(SimpleTestCase):
-    def test_reviews_are_threaded_into_the_context(self) -> None:
+    def test_reviews_and_review_threads_are_threaded_into_the_context(self) -> None:
         # The hosted reviewer must receive prior PR reviews so the engine's prerequisite gate can block
-        # on an active CHANGES_REQUESTED. If reviews were dropped from the context the reviewer would run
-        # review-blind and could approve over a maintainer's block.
+        # on an active CHANGES_REQUESTED, and inline review threads so a maintainer's unresolved "do not
+        # merge" reaches the prompt. If either were dropped from the context the reviewer would run
+        # partly blind and could approve over a block it never saw.
         reviews = [{"user": {"login": "maintainer"}, "state": "CHANGES_REQUESTED"}]
+        review_threads = [
+            {"is_resolved": False, "is_outdated": False, "path": "a.py", "comments": [{"author": "m", "body": "hold"}]}
+        ]
         invocation = build_reviewer_invocation(
             pr={"number": 1},
             files=[],
             reviews=reviews,
             discussion=[],
+            review_threads=review_threads,
             check_runs=[],
             pr_reactions=[],
             author_pr_numbers=[],
@@ -109,6 +118,7 @@ class BuildReviewerInvocationTests(SimpleTestCase):
         )
         context = json.loads(invocation.context_json)
         assert context["reviews"] == reviews
+        assert context["review_threads"] == review_threads
 
 
 class SlackDigestEscapingTests(SimpleTestCase):
@@ -156,6 +166,95 @@ class DigestConfigFetchTests(SimpleTestCase):
             client_cls.return_value.get_default_branch_file.side_effect = StamphogGitHubError("503 from GitHub")
             with pytest.raises(StamphogGitHubError):
                 load_repo_digest_config(config)
+
+
+_GH = "products.stamphog.backend.logic.github_client"
+
+
+class GetPrReviewThreadsTests(SimpleTestCase):
+    def _fetch(self, graphql_response: fakes.FakeResponse) -> list[dict]:
+        # Stub the network boundary (github_request): the access-token mint is answered so the client's
+        # _request machinery runs for real, and every /graphql call returns the scripted response.
+        def fake_request(method: str, url: str, **kwargs: object) -> fakes.FakeResponse:
+            if url.endswith("/access_tokens"):
+                return fakes.FakeResponse(201, json_data={"token": "t", "expires_at": "2999-01-01T00:00:00Z"})
+            return graphql_response
+
+        with (
+            override_settings(STAMPHOG_GITHUB_APP_ID="1", STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key()),
+            patch(f"{_GH}.github_request", fake_request),
+            patch(f"{_GH}.remember_observed_core_limit", lambda *a, **k: None),
+            patch(f"{_GH}.raise_if_github_rate_limited", lambda *a, **k: None),
+        ):
+            return StamphogGitHubClient("123").get_pr_review_threads("acme/widgets", 5)
+
+    def _threads_page(self, nodes: list[dict], *, has_next: bool) -> fakes.FakeResponse:
+        payload = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {"pageInfo": {"hasNextPage": has_next, "endCursor": "c"}, "nodes": nodes}
+                    }
+                }
+            }
+        }
+        return fakes.FakeResponse(200, json_data=payload)
+
+    def test_parses_lean_shape_and_trims_body(self) -> None:
+        # The lean shape must carry the author identity triple — the engine's author-trust gate needs
+        # it, or an untrusted external commenter could plant a fake maintainer hold in the prompt.
+        node = fakes.review_thread_node(
+            path="src/util.py",
+            comments=[("maintainer", "x" * 5000)],
+            is_resolved=True,
+            is_outdated=False,
+            line=42,
+            author_association="MEMBER",
+            author_typename="User",
+        )
+        threads = self._fetch(self._threads_page([node], has_next=False))
+        assert threads == [
+            {
+                "is_resolved": True,
+                "is_outdated": False,
+                "path": "src/util.py",
+                "line": 42,
+                "comments": [
+                    {
+                        "author": "maintainer",
+                        "author_association": "MEMBER",
+                        "author_is_bot": False,
+                        "body": "x" * 4000,
+                    }
+                ],
+            }
+        ]
+
+    @parameterized.expand(
+        [
+            ("graphql_errors", fakes.FakeResponse(200, json_data={"errors": [{"message": "no access"}]})),
+            ("http_failure", fakes.FakeResponse(500, text="boom")),
+        ]
+    )
+    def test_fails_closed(self, _name: str, response: fakes.FakeResponse) -> None:
+        # A silently truncated or errored thread list reads as "no blockers" to the reviewer, the one
+        # wrong answer here — every failure mode must raise, exactly like get_pr_discussion.
+        with pytest.raises(StamphogGitHubError):
+            self._fetch(response)
+
+    def test_comment_page_overflow_fails_closed(self) -> None:
+        # A thread with more comments than one fetch window would silently lose its tail — and a
+        # maintainer's hold could be comment 51. Must raise, matching the Action's escalation.
+        node = fakes.review_thread_node(
+            path="src/util.py", comments=[("maintainer", "hold")], comments_have_next_page=True
+        )
+        with pytest.raises(StamphogGitHubError):
+            self._fetch(self._threads_page([node], has_next=False))
+
+    def test_page_cap_fails_closed(self) -> None:
+        # A PR whose threads never stop paginating must raise rather than review a truncated list.
+        with pytest.raises(StamphogGitHubError):
+            self._fetch(self._threads_page([], has_next=True))
 
 
 class TemporalRegistryTests(SimpleTestCase):

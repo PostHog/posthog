@@ -25,7 +25,7 @@ export const ResolutionSourceEnumApi = {
 export interface DigestChannelApi {
     readonly id: string
     /**
-     * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'.
+     * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone.
      * @maxLength 255
      */
     audience_key: string
@@ -72,7 +72,7 @@ export interface PaginatedDigestChannelListApi {
 export interface PatchedDigestChannelApi {
     readonly id?: string
     /**
-     * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'.
+     * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone.
      * @maxLength 255
      */
     audience_key?: string

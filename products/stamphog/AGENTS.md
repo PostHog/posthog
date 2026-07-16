@@ -20,9 +20,18 @@ head-changing event must retract standing approvals itself:
   `_retract_stale_approvals_on_skip`.
 - `post_verdict` persists `posted_review_id` the moment GitHub accepts the review, and any path
   that abandons the run _after_ posting (lost terminal save, superseded/head-moved guards on
-  retry) dismisses its own orphan (`_dismiss_orphaned_approval`).
+  retry) dismisses its own orphan (`_dismiss_orphaned_approval`). Before posting it also
+  ADOPTS-then-persists: if this App already has an active APPROVE pinned to exactly `run.head_sha`
+  on GitHub (a prior attempt that posted, then crashed before the immediate persist), it takes that
+  review's id instead of stacking a second approval the DB-keyed sweep could never see.
 - The sweep in [`logic/approvals.py`](backend/logic/approvals.py) keys off `posted_review_id`
   alone — filtering on a saved verdict would miss crashed runs' orphans.
+- `dismiss_stale_approvals` also runs a GitHub-side belt-and-braces sweep after the DB sweep: it
+  lists this App's still-active APPROVED reviews and dismisses every one regardless of head, catching
+  an orphan that has no `ReviewRun` row at all (the DB sweep is blind to it). Both write-adjacent
+  paths (this sweep and `post_verdict`'s adopt) identify "ours" via the exact `<slug>[bot]` login and
+  do NOTHING when `STAMPHOG_GITHUB_APP_SLUG` is unset — a fuzzy "any Bot" match must never dismiss or
+  adopt another bot's review.
 
 ## Supersession and terminal states
 

@@ -344,6 +344,17 @@ class ReviewRunSerializer(serializers.ModelSerializer):
 
 
 class DigestChannelSerializer(serializers.ModelSerializer):
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        # audience_key is the bucket this channel is bound to. Editing it on an existing row re-points
+        # the channel at a different audience — and can effectively re-open an audience a human opted out
+        # of, since the disabled tombstone row keying off the old audience_key would no longer match.
+        # Create-only, same pattern as the repo config's provider/repository identity fields.
+        # self.instance is set only for updates (schema generation and creates leave it None).
+        if self.instance is not None:
+            fields["audience_key"].read_only = True
+        return fields
+
     resolution_source = serializers.ChoiceField(
         choices=[(s.value, s.name) for s in ChannelResolutionSource],
         read_only=True,
@@ -372,7 +383,12 @@ class DigestChannelSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "last_digest_at", "created_at", "updated_at"]
         extra_kwargs = {
-            "audience_key": {"help_text": "Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'."},
+            "audience_key": {
+                "help_text": (
+                    "Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable "
+                    "after creation — it anchors the audience and its opt-out tombstone."
+                )
+            },
             "slack_integration_id": {
                 "help_text": "ID of the team's Slack integration used to post the digest.",
             },

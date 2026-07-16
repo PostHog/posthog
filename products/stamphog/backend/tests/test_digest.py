@@ -5,9 +5,13 @@ from typing import Any
 
 import pytest
 from freezegun import freeze_time
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from django.db import transaction
+from django.db import (
+    Error as DatabaseError,
+    transaction,
+)
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from posthog.models.scoping import team_scope
@@ -123,6 +127,60 @@ def test_proof_of_post_persists_metadata_for_reclaim(team) -> None:
     assert run.status == DigestRunStatus.COMPLETED
     assert run.pr_count == 2
     assert run.summary  # the summary rode along with the proof-of-post, not just the message ts
+
+
+@pytest.mark.parametrize(
+    "fail_times,expect_raise",
+    [(2, False), (3, True)],
+    ids=["retries_then_succeeds", "exhausts_and_propagates"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_proof_of_post_write_retries_transient_db_error(team, fail_times: int, expect_raise: bool) -> None:
+    # The proof-of-post write is the dedup proof: once Slack accepts, only slack_message_ts stops the
+    # reclaim sweeper from re-sending. A transient DB blip there must be retried (not taken at face
+    # value) or it converts into a duplicate Slack post. Slack is posted exactly once regardless; if the
+    # write never lands, the exception propagates with the PRs still linked to the PENDING run — the
+    # existing crash-window semantics the reclaim sweeper then handles.
+    channel_id = _seed_channel_and_prs(team.id, pr_count=2)
+    attempts = {"n": 0}
+    real_update = QuerySet.update
+
+    def flaky_update(self: Any, **kwargs: Any) -> int:
+        # Target only the proof-of-post write: it sets slack_message_ts but, unlike the completion
+        # write, carries no status/posted_at.
+        is_proof = "slack_message_ts" in kwargs and "status" not in kwargs and "posted_at" not in kwargs
+        if is_proof:
+            attempts["n"] += 1
+            if attempts["n"] <= fail_times:
+                raise DatabaseError("transient db blip")
+        return real_update(self, **kwargs)
+
+    post = MagicMock(return_value="1234.5")
+    sleeps: list[float] = []
+    with (
+        patch("products.stamphog.backend.tasks.digest.post_digest", post),
+        patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
+        patch("products.stamphog.backend.tasks.digest.time.sleep", side_effect=lambda s: sleeps.append(s)),
+        patch.object(QuerySet, "update", flaky_update),
+    ):
+        if expect_raise:
+            with pytest.raises(DatabaseError):
+                send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
+        else:
+            send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
+
+    assert post.call_count == 1  # Slack posted exactly once either way
+    with team_scope(team.id):
+        run = DigestRun.objects.get()
+        linked = PullRequest.objects.filter(digest_run_id=run.id).count()
+    if expect_raise:
+        assert run.status == DigestRunStatus.PENDING  # never finalized
+        assert linked == 2  # PRs stay linked to the PENDING run for the reclaim sweeper
+        assert len(sleeps) == fail_times - 1  # slept between the 3 attempts, not after the last
+    else:
+        assert run.status == DigestRunStatus.COMPLETED
+        assert run.pr_count == 2
+        assert len(sleeps) == fail_times
 
 
 # ---- Finding 2: a channel's digest must never post to Slack twice ------------------------------

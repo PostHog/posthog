@@ -25,7 +25,9 @@ export const StamphogDigestChannelsCreateBody = /* @__PURE__ */ zod.object({
     audience_key: zod
         .string()
         .max(stamphogDigestChannelsCreateBodyAudienceKeyMax)
-        .describe("Opaque digest bucket this channel receives, e.g. 'repo:PostHog\/posthog'."),
+        .describe(
+            "Opaque digest bucket this channel receives, e.g. 'repo:PostHog\/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone."
+        ),
     slack_integration_id: zod
         .number()
         .min(stamphogDigestChannelsCreateBodySlackIntegrationIdMin)
@@ -59,7 +61,9 @@ export const StamphogDigestChannelsUpdateBody = /* @__PURE__ */ zod.object({
     audience_key: zod
         .string()
         .max(stamphogDigestChannelsUpdateBodyAudienceKeyMax)
-        .describe("Opaque digest bucket this channel receives, e.g. 'repo:PostHog\/posthog'."),
+        .describe(
+            "Opaque digest bucket this channel receives, e.g. 'repo:PostHog\/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone."
+        ),
     slack_integration_id: zod
         .number()
         .min(stamphogDigestChannelsUpdateBodySlackIntegrationIdMin)
@@ -94,7 +98,9 @@ export const StamphogDigestChannelsPartialUpdateBody = /* @__PURE__ */ zod.objec
         .string()
         .max(stamphogDigestChannelsPartialUpdateBodyAudienceKeyMax)
         .optional()
-        .describe("Opaque digest bucket this channel receives, e.g. 'repo:PostHog\/posthog'."),
+        .describe(
+            "Opaque digest bucket this channel receives, e.g. 'repo:PostHog\/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone."
+        ),
     slack_integration_id: zod
         .number()
         .min(stamphogDigestChannelsPartialUpdateBodySlackIntegrationIdMin)

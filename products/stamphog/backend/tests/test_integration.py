@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from posthog.models import OAuthAccessToken, Team
@@ -27,6 +28,7 @@ from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
     StamphogReviewInput,
     dismiss_stale_approvals,
+    fetch_review_context,
     list_in_flight_reviewer_bots,
     mark_review_failed,
     post_verdict,
@@ -415,6 +417,175 @@ def test_dismiss_stale_approvals(
         assert prior.approval_dismissed_at is not None  # untouched
     else:
         assert prior.approval_dismissed_at is None
+
+
+@pytest.mark.parametrize(
+    "slug,review_login,review_type,review_state,expect_github_dismissed",
+    [
+        ("stamphog", "stamphog[bot]", "Bot", "APPROVED", True),
+        # Slug unset: write-adjacent decisions must not act on a fuzzy "any Bot" match, so nothing.
+        ("", "stamphog[bot]", "Bot", "APPROVED", False),
+        # A foreign bot's approval is not ours to dismiss.
+        ("stamphog", "other-app[bot]", "Bot", "APPROVED", False),
+        # An already-inactive (dismissed) review is not active, so nothing to do.
+        ("stamphog", "stamphog[bot]", "Bot", "DISMISSED", False),
+    ],
+    ids=["orphan_swept", "slug_unset_no_op", "foreign_bot_untouched", "already_dismissed_untouched"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_dismiss_stale_approvals_github_side_sweep(
+    team,
+    stamphog_chain: StamphogChain,
+    slug: str,
+    review_login: str,
+    review_type: str,
+    review_state: str,
+    expect_github_dismissed: bool,
+) -> None:
+    # The DB sweep keys off posted_review_id, so an approval this App left on GitHub with NO ReviewRun
+    # row carrying its id is an invisible orphan that stands forever. The GitHub-side belt-and-braces
+    # sweep must dismiss our own still-active approval — and only ours, and only with a configured slug.
+    repo_config = _repo_config(team.id)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=130, author_login="devex-dev"
+    )
+    current = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha-new", status=ReviewRunStatus.QUEUED
+    )
+    # An active approval on GitHub with no ReviewRun.posted_review_id pointing at it — the orphan.
+    stamphog_chain.recorder.pr_reviews[(REPO, 130)] = [
+        {
+            "id": 6161,
+            "state": review_state,
+            "commit_id": "sha-old",
+            "user": {"login": review_login, "type": review_type},
+        }
+    ]
+
+    with override_settings(STAMPHOG_GITHUB_APP_SLUG=slug):
+        result = _run_activity(
+            dismiss_stale_approvals, StamphogReviewInput(review_run_id=str(current.id), team_id=team.id)
+        )
+
+    dismissals = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "dismiss_review"]
+    if expect_github_dismissed:
+        assert [d["review_id"] for d in dismissals] == [6161]
+        assert result["github_dismissed"] == 1
+    else:
+        assert dismissals == []
+        assert result["github_dismissed"] == 0
+
+
+@pytest.mark.parametrize(
+    "slug,review_state,review_commit_matches,review_login,review_type,expect_adopt",
+    [
+        ("stamphog", "APPROVED", True, "stamphog[bot]", "Bot", True),
+        # Approval at a different commit doesn't cover this head — post fresh.
+        ("stamphog", "APPROVED", False, "stamphog[bot]", "Bot", False),
+        # A non-bot or wrong-login author isn't ours — post fresh.
+        ("stamphog", "APPROVED", True, "someone", "User", False),
+        ("stamphog", "APPROVED", True, "other-app[bot]", "Bot", False),
+        # A dismissed review is not active — post fresh.
+        ("stamphog", "DISMISSED", True, "stamphog[bot]", "Bot", False),
+        # Slug unset: never adopt off a fuzzy match — post fresh.
+        ("", "APPROVED", True, "stamphog[bot]", "Bot", False),
+    ],
+    ids=[
+        "adopt_own_active_approval_at_head",
+        "different_commit_posts_fresh",
+        "non_bot_posts_fresh",
+        "wrong_login_bot_posts_fresh",
+        "dismissed_posts_fresh",
+        "slug_unset_posts_fresh",
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_post_verdict_adopts_own_orphan_approval_instead_of_reposting(
+    team,
+    stamphog_chain: StamphogChain,
+    slug: str,
+    review_state: str,
+    review_commit_matches: bool,
+    review_login: str,
+    review_type: str,
+    expect_adopt: bool,
+) -> None:
+    # A prior post_verdict attempt could have posted the approval to GitHub, then crashed before
+    # persisting posted_review_id. On retry, re-posting would stack a SECOND standing approval the
+    # DB-keyed sweep can never see. So post_verdict must adopt an existing active APPROVE pinned to
+    # exactly this head instead of posting again — but only when it's provably ours (exact bot login,
+    # active state, matching commit), else it posts fresh.
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    head_sha = "sha131a"
+    recorder.register_pr(REPO, 131, _pr_object(131, "devex-dev", head_sha), _pr_files())
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=131, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha=head_sha,
+        status=ReviewRunStatus.REVIEWING,
+        output={"reviewer_raw": fakes.approved_engine_output().splitlines()[-1]},
+    )
+    recorder.pr_reviews[(REPO, 131)] = [
+        {
+            "id": 4242,
+            "state": review_state,
+            "commit_id": head_sha if review_commit_matches else "some-other-sha",
+            "user": {"login": review_login, "type": review_type},
+        }
+    ]
+
+    with override_settings(STAMPHOG_GITHUB_APP_SLUG=slug):
+        result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    assert result == {"verdict": str(ReviewVerdict.APPROVED)}
+    approvals = [w for w in recorder.github_writes if w["kind"] == "approve_review"]
+    run.refresh_from_db()
+    assert run.status == ReviewRunStatus.COMPLETED
+    assert run.verdict == ReviewVerdict.APPROVED
+    if expect_adopt:
+        assert approvals == []  # adopted the existing approval, never posted a second
+        assert run.posted_review_id == 4242
+    else:
+        assert len(approvals) == 1
+        assert run.posted_review_id == approvals[0]["id"]
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_fetch_review_context_carries_inline_review_threads(team, stamphog_chain: StamphogChain) -> None:
+    # A maintainer's unresolved inline "do not merge" lives only on the GraphQL review-threads surface;
+    # fetch_review_context must carry it onto run.output so the sandbox reviewer sees the blocker.
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    head_sha = "sha132a"
+    recorder.register_pr(REPO, 132, _pr_object(132, "devex-dev", head_sha), _pr_files())
+    recorder.review_threads[(REPO, 132)] = [
+        fakes.review_thread_node(path="src/util.py", comments=[("maintainer", "do not merge")], is_resolved=False)
+    ]
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=132, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha=head_sha, status=ReviewRunStatus.QUEUED
+    )
+
+    _run_activity(fetch_review_context, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    run.refresh_from_db()
+    assert run.output["review_threads"] == [
+        {
+            "is_resolved": False,
+            "is_outdated": False,
+            "path": "src/util.py",
+            "line": 1,
+            "comments": [
+                {"author": "maintainer", "author_association": "MEMBER", "author_is_bot": False, "body": "do not merge"}
+            ],
+        }
+    ]
 
 
 @pytest.mark.parametrize(

@@ -129,6 +129,8 @@ class GitHubRecorder:
         self.prs: dict[tuple[str, int], dict] = {}
         self.pr_files: dict[tuple[str, int], list[dict]] = {}
         self.pr_reviews: dict[tuple[str, int], list[dict]] = {}
+        # (repo, number) -> GraphQL reviewThreads node dicts for get_pr_review_threads; default none.
+        self.review_threads: dict[tuple[str, int], list[dict]] = {}
         # Pre-existing issue comments a GET returns (e.g. a user-planted sticky marker to exercise the
         # bot-identity filter in upsert_sticky_comment). Empty by default — most tests post fresh.
         self.issue_comments: dict[tuple[str, int], list[dict]] = {}
@@ -230,7 +232,25 @@ class GitHubRecorder:
         return FakeResponse(200, text=content, headers={"Content-Type": "text/plain; charset=utf-8"})
 
     def _graphql(self, body: dict) -> FakeResponse:
-        login = str(((body.get("variables") or {}).get("login")) or "")
+        query = str(body.get("query") or "")
+        variables = body.get("variables") or {}
+        # Two GraphQL callers share /graphql: get_pr_review_threads and get_user_team_slugs. Route by
+        # the query's shape (only the review-threads query mentions reviewThreads).
+        if "reviewThreads" in query:
+            repo = f"{variables.get('owner', '')}/{variables.get('name', '')}"
+            number = int(variables.get("pr") or 0)
+            nodes = self.review_threads.get((repo, number), [])
+            data = {
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "reviewThreads": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes}
+                        }
+                    }
+                }
+            }
+            return FakeResponse(200, json_data=data)
+        login = str(variables.get("login") or "")
         slugs = self.teams_by_login.get(login, [])
         data = {"data": {"organization": {"teams": {"nodes": [{"slug": s} for s in slugs]}}}}
         return FakeResponse(200, json_data=data)
@@ -248,6 +268,11 @@ class GitHubRecorder:
         self.github_writes.append(
             {"kind": "dismiss_review", "repo": repo, "number": number, "review_id": review_id, "body": body or {}}
         )
+        # Reflect the dismissal in the reviews list like real GitHub does (state -> DISMISSED), so a
+        # subsequent get_pr_reviews / list_own_active_approvals no longer sees it as active.
+        for review in self.pr_reviews.get((repo, number), []):
+            if review.get("id") == review_id:
+                review["state"] = "DISMISSED"
         return FakeResponse(200, json_data={})
 
 
@@ -256,6 +281,37 @@ def _extract(query: str, prefix: str) -> str:
         if token.startswith(prefix):
             return token[len(prefix) :]
     return ""
+
+
+def review_thread_node(
+    *,
+    path: str,
+    comments: list[tuple[str, str]],
+    is_resolved: bool = False,
+    is_outdated: bool = False,
+    line: int | None = 1,
+    author_association: str = "MEMBER",
+    author_typename: str = "User",
+    comments_have_next_page: bool = False,
+) -> dict[str, Any]:
+    """Build one GraphQL reviewThreads node (what get_pr_review_threads parses), from (author, body) pairs."""
+    return {
+        "isResolved": is_resolved,
+        "isOutdated": is_outdated,
+        "path": path,
+        "line": line,
+        "comments": {
+            "pageInfo": {"hasNextPage": comments_have_next_page},
+            "nodes": [
+                {
+                    "author": {"login": author, "__typename": author_typename},
+                    "authorAssociation": author_association,
+                    "body": body,
+                }
+                for author, body in comments
+            ],
+        },
+    }
 
 
 def noop_remember_observed_core_limit(*args: Any, **kwargs: Any) -> None:
