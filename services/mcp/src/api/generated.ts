@@ -5369,6 +5369,13 @@ export namespace Schemas {
       value?: number | string | null;
     }
 
+    export interface ConversionGoalWarning {
+      /** Human-readable warning shown to the user, e.g. a conversion goal skipped because its table is missing columns */
+      message: string;
+      /** Tells warning kinds apart in the shared `warnings` list */
+      type?: 'conversion_goal';
+    }
+
     export interface Response18 {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -5391,8 +5398,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+      /** Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning)[] | null;
     }
 
     export type Response19Results = {[key: string]: MarketingAnalyticsItem};
@@ -5414,8 +5421,8 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+      /** Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning)[] | null;
     }
 
     export interface Response20 {
@@ -5440,8 +5447,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+      /** Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning)[] | null;
     }
 
     export interface VolumeBucket {
@@ -6821,8 +6828,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+      /** Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning)[] | null;
     }
 
     export interface MarketingAnalyticsTableQuery {
@@ -6887,8 +6894,8 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+      /** Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning)[] | null;
     }
 
     export interface MarketingAnalyticsAggregatedQuery {
@@ -6948,8 +6955,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+      /** Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning)[] | null;
     }
 
     export interface NonIntegratedConversionsTableQuery {
@@ -51702,8 +51709,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+      /** Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning)[] | null;
     }
 
     export type QueryResponseAlternative37Results = {[key: string]: MarketingAnalyticsItem};
@@ -51725,8 +51732,8 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+      /** Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning)[] | null;
     }
 
     export interface QueryResponseAlternative38 {
@@ -51751,8 +51758,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+      /** Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning)[] | null;
     }
 
     export interface QueryResponseAlternative39 {
@@ -52201,8 +52208,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+      /** Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning)[] | null;
     }
 
     export type QueryResponseAlternative58Results = {[key: string]: MarketingAnalyticsItem};
@@ -52224,8 +52231,8 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+      /** Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning)[] | null;
     }
 
     export interface QueryResponseAlternative59 {
@@ -52250,8 +52257,8 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+      /** Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning)[] | null;
     }
 
     export interface QueryResponseAlternative60 {
