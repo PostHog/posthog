@@ -753,7 +753,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     def retrieve(self, request, *args, **kwargs):
         """Get single ticket and mark as read by team."""
         instance = self.get_object()
-        if instance.unread_team_count > 0:
+        # Marking as read is a write to shared team state - gate it by editor access so a
+        # viewer can't clear the team's unread indicator just by opening a ticket.
+        can_edit = self.user_access_control.check_access_level_for_object(instance, required_level="editor")
+        if can_edit and instance.unread_team_count > 0:
             instance.unread_team_count = 0
             instance.save(update_fields=["unread_team_count"])
             # Invalidate cache since unread count changed
@@ -1032,8 +1035,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         """
         Get total unread ticket count for the team.
 
-        Returns the sum of unread_team_count for all non-resolved tickets.
-        Cached in Redis for 30 seconds, invalidated on changes.
+        Returns the sum of unread_team_count for all non-resolved tickets visible to the
+        caller. The team-wide Redis cache (30s TTL, invalidated on changes) is only used for
+        callers without object-level ticket restrictions, since it holds one unscoped total
+        per team - serving it to a restricted member would leak counts for tickets they can't
+        see.
         """
         team_id = self.team_id
 
@@ -1041,22 +1047,23 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         if not self.team.conversations_enabled:
             return Response({"count": 0})
 
-        # Try cache first
-        cached_count = get_cached_unread_count(team_id)
-        if cached_count is not None:
-            return Response({"count": cached_count})
+        uac = self.user_access_control
+        is_restricted = bool(uac.blocked_resource_ids_by_scope.get("ticket")) or not uac.has_resource_access("ticket")
+
+        if not is_restricted:
+            cached_count = get_cached_unread_count(team_id)
+            if cached_count is not None:
+                return Response({"count": cached_count})
 
         # Query database - only non-resolved tickets with unread messages
-        result = (
-            Ticket.objects.filter(team_id=team_id)
-            .exclude(status="resolved")
-            .filter(unread_team_count__gt=0)
-            .aggregate(total=Sum("unread_team_count"))
-        )
-        count = result["total"] or 0
+        queryset = Ticket.objects.filter(team_id=team_id).exclude(status="resolved").filter(unread_team_count__gt=0)
+        if is_restricted:
+            queryset = uac.filter_queryset_by_access_level(queryset)
 
-        # Cache the result
-        set_cached_unread_count(team_id, count)
+        count = queryset.aggregate(total=Sum("unread_team_count"))["total"] or 0
+
+        if not is_restricted:
+            set_cached_unread_count(team_id, count)
 
         return Response({"count": count})
 
