@@ -20,6 +20,10 @@ pub enum Destination {
     HeatmapMain,
     ClientIngestionWarning,
     AiEvents,
+    /// Overflow lane for `AiEvents`. Only produced when the AI overflow
+    /// valve (`AI_EVENTS_OVERFLOW_TOPIC`) is armed; overflow on the AI lane
+    /// lands here, never on the analytics `Overflow` destination.
+    AiEventsOverflow,
 }
 
 impl Destination {
@@ -47,6 +51,7 @@ impl Destination {
             Self::HeatmapMain => "heatmap_main",
             Self::ClientIngestionWarning => "client_ingestion_warning",
             Self::AiEvents => "ai_events",
+            Self::AiEventsOverflow => "ai_events_overflow",
         }
     }
 }
@@ -67,6 +72,7 @@ mod destination_tests {
         assert!(!Destination::HeatmapMain.is_analytics_pipeline());
         assert!(!Destination::ClientIngestionWarning.is_analytics_pipeline());
         assert!(!Destination::AiEvents.is_analytics_pipeline());
+        assert!(!Destination::AiEventsOverflow.is_analytics_pipeline());
         assert!(!Destination::Overflow.is_analytics_pipeline());
         assert!(!Destination::Dlq.is_analytics_pipeline());
         assert!(!Destination::Drop.is_analytics_pipeline());
@@ -98,6 +104,7 @@ mod destination_tests {
                 "client_ingestion_warning",
             ),
             (Destination::AiEvents, "ai_events"),
+            (Destination::AiEventsOverflow, "ai_events_overflow"),
         ];
 
         let mut seen = std::collections::HashSet::new();

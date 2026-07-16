@@ -109,6 +109,11 @@ pub struct Config {
     /// per-sink env: setup injects the deployment-level `AI_EVENTS_TOPIC` into
     /// every sink config, overwriting whatever the env parse produced.
     pub topic_ai: Option<String>,
+
+    /// Optional overflow topic for the AI lane. Like `topic_ai`, injected at
+    /// setup from the deployment-level `AI_EVENTS_OVERFLOW_TOPIC`; unset
+    /// means the pipeline never produces `Destination::AiEventsOverflow`.
+    pub topic_ai_overflow: Option<String>,
 }
 
 const VALID_ACKS: &[&str] = &["0", "1", "-1", "all"];
@@ -164,6 +169,7 @@ impl Config {
             Destination::HeatmapMain => Some(&self.topic_heatmap),
             Destination::ClientIngestionWarning => Some(&self.topic_client_ingestion_warning),
             Destination::AiEvents => self.topic_ai.as_deref(),
+            Destination::AiEventsOverflow => self.topic_ai_overflow.as_deref(),
             Destination::Custom(t) => Some(t.as_str()),
             Destination::Drop => None,
         }
@@ -399,6 +405,20 @@ mod tests {
         let cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
         assert_eq!(cfg.topic_ai, None);
         assert_eq!(cfg.topic_for(&Destination::AiEvents), None);
+        assert_eq!(cfg.topic_ai_overflow, None);
+        assert_eq!(cfg.topic_for(&Destination::AiEventsOverflow), None);
+    }
+
+    #[test]
+    fn topic_ai_overflow_present_resolves_destination() {
+        // Set the field directly, mirroring how setup injects
+        // AI_EVENTS_OVERFLOW_TOPIC into sink configs after env loading.
+        let mut cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
+        cfg.topic_ai_overflow = Some("ai_events_overflow".to_string());
+        assert_eq!(
+            cfg.topic_for(&Destination::AiEventsOverflow),
+            Some("ai_events_overflow")
+        );
     }
 
     #[test]

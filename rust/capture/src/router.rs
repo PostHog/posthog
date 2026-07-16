@@ -90,6 +90,10 @@ pub struct State {
     /// kafka sink) and the v1 pipeline (via `Destination::AiEvents`, mapped
     /// via the `topic_ai` injected into each sink config at setup).
     pub ai_routing: AiRouting,
+    /// Whether the AI overflow valve is armed (`AI_EVENTS_OVERFLOW_TOPIC` is
+    /// set). Gates overflow stamping for the AI lane in both pipelines: when
+    /// false, AI events never overflow (pre-overflow behavior).
+    pub ai_events_overflow_enabled: bool,
     pub capture_v1_scatter_gather_min_batch: usize,
     pub ai_gateway_signing_secret: Option<String>,
 }
@@ -162,6 +166,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     capture_v1_scatter_gather_min_batch: usize,
     ai_gateway_signing_secret: Option<String>,
     ai_routing: AiRouting,
+    ai_events_overflow_enabled: bool,
 ) -> Router {
     let state = State {
         sink,
@@ -190,6 +195,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         capture_v1_scatter_gather_min_batch,
         ai_gateway_signing_secret,
         ai_routing,
+        ai_events_overflow_enabled,
     };
 
     // Very permissive CORS policy, as old SDK versions

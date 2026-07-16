@@ -88,6 +88,7 @@ pub async fn process_batch(
             service,
             &context.api_token,
             context.server_received_at.timestamp(),
+            state.ai_events_overflow_enabled,
             &mut events,
         )
         .await;
@@ -98,7 +99,12 @@ pub async fn process_batch(
     // Overflow and global rate limit are independent checks on different axes:
     // overflow reroutes bursting keys; global rate limit disables person processing.
     if let Some(ref limiter) = state.overflow_limiter {
-        apply_overflow_stamping(limiter, context, &mut events);
+        apply_overflow_stamping(
+            limiter,
+            context,
+            state.ai_events_overflow_enabled,
+            &mut events,
+        );
     }
 
     if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
@@ -522,12 +528,19 @@ fn apply_historical_rerouting(
 fn apply_overflow_stamping(
     limiter: &OverflowLimiter,
     ctx: &RequestContext,
+    ai_events_overflow_enabled: bool,
     events: &mut [WrappedEvent],
 ) {
     for event in events.iter_mut() {
-        if event.destination != Destination::AnalyticsMain {
-            continue;
-        }
+        // Each overflowing lane keeps its own overflow destination, so an
+        // overflowing AI event lands on AI overflow, never analytics
+        // overflow. The AI lane only participates when the AI overflow valve
+        // (AI_EVENTS_OVERFLOW_TOPIC) is armed.
+        let overflow_destination = match event.destination {
+            Destination::AnalyticsMain => Destination::Overflow,
+            Destination::AiEvents if ai_events_overflow_enabled => Destination::AiEventsOverflow,
+            _ => continue,
+        };
         if event.result == EventResult::Drop {
             continue;
         }
@@ -536,14 +549,14 @@ fn apply_overflow_stamping(
 
         match limiter.is_limited(&key) {
             OverflowLimiterResult::ForceLimited => {
-                event.destination = Destination::Overflow;
+                event.destination = overflow_destination;
                 // Disables person processing AND nulls partition key at sink.
                 event.force_disable_person_processing = true;
                 metrics::counter!(CAPTURE_V1_OVERFLOW_ROUTED, "reason" => "force_limited")
                     .increment(1);
             }
             OverflowLimiterResult::Limited => {
-                event.destination = Destination::Overflow;
+                event.destination = overflow_destination;
                 if !limiter.should_preserve_locality() {
                     // Nulls partition key at sink -- spreads across partitions.
                     event.force_disable_person_processing = true;
@@ -560,6 +573,7 @@ async fn apply_restrictions(
     service: &EventRestrictionService,
     token: &str,
     now_ts: i64,
+    ai_events_overflow_enabled: bool,
     events: &mut [WrappedEvent],
 ) {
     for event in events.iter_mut() {
@@ -598,14 +612,25 @@ async fn apply_restrictions(
         }
 
         // Priority: overflow < custom topic < DLQ (DLQ wins, applied last)
-        // Overflow only applies to AnalyticsMain: AnalyticsHistorical must never
-        // overflow (legacy sink invariant). Today this stage runs before
-        // historical rerouting so the destination is always AnalyticsMain here;
-        // the explicit guard makes the invariant ordering-independent.
-        if applied.force_overflow() && event.destination == Destination::AnalyticsMain {
-            event.destination = Destination::Overflow;
-            metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "force_overflow")
-                .increment(1);
+        // Overflow only applies to the overflowing lanes: AnalyticsMain, and
+        // AiEvents once the AI overflow valve is armed (each rerouting to its
+        // own overflow destination). AnalyticsHistorical must never overflow
+        // (legacy sink invariant). Today this stage runs before historical
+        // rerouting so an analytics event is always AnalyticsMain here; the
+        // explicit guard makes the invariant ordering-independent.
+        let force_overflow_destination = match event.destination {
+            Destination::AnalyticsMain => Some(Destination::Overflow),
+            Destination::AiEvents if ai_events_overflow_enabled => {
+                Some(Destination::AiEventsOverflow)
+            }
+            _ => None,
+        };
+        if applied.force_overflow() {
+            if let Some(destination) = force_overflow_destination {
+                event.destination = destination;
+                metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "force_overflow")
+                    .increment(1);
+            }
         }
         if let Some(topic) = applied.redirect_to_topic() {
             event.destination = Destination::Custom(topic.to_string());
@@ -1504,7 +1529,7 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
 
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
@@ -1530,7 +1555,7 @@ mod tests {
         ];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
 
         for ev in &events {
             assert_eq!(ev.result, EventResult::Drop);
@@ -1555,7 +1580,7 @@ mod tests {
         let mut events = vec![malformed, wrapped_event("$pageview", "user-valid")];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
 
         // malformed event stays Drop with original destination, not re-evaluated
         let mal = find_by_did(&events, &malformed_did);
@@ -1582,11 +1607,50 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
 
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
         assert_eq!(ev.destination, Destination::Overflow);
+    }
+
+    /// A ForceOverflow restriction reroutes a diverted AI event to the AI
+    /// overflow destination when the valve is armed, and (as before the
+    /// valve existed) leaves it untouched when not.
+    #[rstest::rstest]
+    #[case::armed(true, Destination::AiEventsOverflow)]
+    #[case::unarmed(false, Destination::AiEvents)]
+    #[tokio::test]
+    async fn restrictions_force_overflow_ai_events_gated_on_valve(
+        #[case] ai_events_overflow_enabled: bool,
+        #[case] expected_destination: Destination,
+    ) {
+        let service = restriction_service(
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::ForceOverflow,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut events = vec![wrapped_event("$ai_generation", "user-1")];
+        events[0].destination = Destination::AiEvents;
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(
+            &service,
+            "phc_token",
+            now_ts,
+            ai_events_overflow_enabled,
+            &mut events,
+        )
+        .await;
+
+        let ev = find_by_did(&events, "user-1");
+        assert_eq!(ev.result, EventResult::Ok);
+        assert_eq!(ev.destination, expected_destination);
     }
 
     #[tokio::test]
@@ -1604,7 +1668,7 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
 
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
@@ -1626,7 +1690,7 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
 
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
@@ -1651,7 +1715,7 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
 
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
@@ -1686,7 +1750,7 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
 
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
@@ -1708,7 +1772,7 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
 
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
@@ -1781,7 +1845,7 @@ mod tests {
         let mut events = vec![ev];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
 
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, expected_dest);
@@ -1808,7 +1872,7 @@ mod tests {
         events[1].destination = Destination::ExceptionErrorTracking;
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
 
         // Analytics event gets dropped by analytics-pipeline restriction
         assert_eq!(events[0].result, EventResult::Drop);
@@ -1843,7 +1907,7 @@ mod tests {
         events[0].destination = Destination::ExceptionErrorTracking;
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
 
         assert_eq!(
             events[0].result,
@@ -1872,7 +1936,7 @@ mod tests {
         events[0].destination = Destination::ExceptionErrorTracking;
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
 
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(
@@ -1899,7 +1963,7 @@ mod tests {
         events[0].destination = Destination::ExceptionErrorTracking;
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
 
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, Destination::ExceptionErrorTracking);
@@ -1923,7 +1987,7 @@ mod tests {
         events[0].destination = Destination::ExceptionErrorTracking;
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
 
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, Destination::Dlq);
@@ -1946,7 +2010,7 @@ mod tests {
         events[0].destination = Destination::ExceptionErrorTracking;
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
 
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(
@@ -1979,7 +2043,7 @@ mod tests {
         events[0].destination = Destination::ExceptionErrorTracking;
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
 
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, Destination::Dlq);
@@ -2464,7 +2528,7 @@ mod tests {
         ];
         let now_ts = Utc::now().timestamp();
 
-        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
 
         assert_eq!(
             distinct_id_sequence(&events),
@@ -2548,7 +2612,7 @@ mod tests {
             EventRestrictionService::new(vec![Pipeline::Analytics], StdDuration::from_secs(300));
         service.update(RestrictionManager::new()).await;
         let now_ts = Utc::now().timestamp();
-        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        apply_restrictions(&service, "phc_token", now_ts, false, &mut events).await;
         assert_eq!(
             distinct_id_sequence(&events),
             expected,
@@ -2595,7 +2659,7 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let limiter = overflow_limiter(100, 100, None);
 
-        apply_overflow_stamping(&limiter, &ctx, &mut events);
+        apply_overflow_stamping(&limiter, &ctx, false, &mut events);
 
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
         assert!(!events[0].force_disable_person_processing);
@@ -2608,7 +2672,7 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let limiter = overflow_limiter(100, 100, Some("phc_tok:user-1"));
 
-        apply_overflow_stamping(&limiter, &ctx, &mut events);
+        apply_overflow_stamping(&limiter, &ctx, false, &mut events);
 
         assert_eq!(events[0].destination, Destination::Overflow);
         assert!(events[0].force_disable_person_processing);
@@ -2621,7 +2685,7 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let limiter = overflow_limiter(100, 100, Some("phc_tok"));
 
-        apply_overflow_stamping(&limiter, &ctx, &mut events);
+        apply_overflow_stamping(&limiter, &ctx, false, &mut events);
 
         assert_eq!(events[0].destination, Destination::Overflow);
         assert!(events[0].force_disable_person_processing);
@@ -2638,7 +2702,7 @@ mod tests {
             wrapped_event("$pageview", "user-1"),
         ];
 
-        apply_overflow_stamping(&limiter, &ctx, &mut events);
+        apply_overflow_stamping(&limiter, &ctx, false, &mut events);
 
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
         assert!(!events[0].force_disable_person_processing);
@@ -2656,7 +2720,7 @@ mod tests {
             wrapped_event("$pageview", "user-1"),
         ];
 
-        apply_overflow_stamping(&limiter, &ctx, &mut events);
+        apply_overflow_stamping(&limiter, &ctx, false, &mut events);
 
         assert_eq!(events[1].destination, Destination::Overflow);
         assert!(
@@ -2672,7 +2736,7 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         events[0].destination = Destination::AnalyticsHistorical;
 
-        apply_overflow_stamping(&limiter, &ctx, &mut events);
+        apply_overflow_stamping(&limiter, &ctx, false, &mut events);
 
         assert_eq!(
             events[0].destination,
@@ -2688,9 +2752,57 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         events[0].result = EventResult::Drop;
 
-        apply_overflow_stamping(&limiter, &ctx, &mut events);
+        apply_overflow_stamping(&limiter, &ctx, false, &mut events);
 
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
+    }
+
+    /// The AI lane converts to its own overflow destination under the same
+    /// conditions as AnalyticsMain, but only when the AI overflow valve
+    /// (AI_EVENTS_OVERFLOW_TOPIC) is armed; unarmed it is never touched.
+    #[rstest::rstest]
+    #[case::armed(true, Destination::AiEventsOverflow, true)]
+    #[case::unarmed(false, Destination::AiEvents, false)]
+    fn overflow_ai_events_gated_on_valve(
+        #[case] ai_events_overflow_enabled: bool,
+        #[case] expected_destination: Destination,
+        #[case] expected_force_disable: bool,
+    ) {
+        let mut ctx = test_utils::test_context();
+        ctx.api_token = "phc_tok".to_string();
+        let limiter = overflow_limiter(100, 100, Some("phc_tok:user-1"));
+        let mut events = vec![wrapped_event("$ai_generation", "user-1")];
+        events[0].destination = Destination::AiEvents;
+
+        apply_overflow_stamping(&limiter, &ctx, ai_events_overflow_enabled, &mut events);
+
+        assert_eq!(events[0].destination, expected_destination);
+        assert_eq!(
+            events[0].force_disable_person_processing,
+            expected_force_disable
+        );
+    }
+
+    #[test]
+    fn overflow_ai_events_rate_limited_preserves_locality_when_configured() {
+        let mut ctx = test_utils::test_context();
+        ctx.api_token = "phc_tok".to_string();
+        let limiter = overflow_limiter_preserving(1, 1);
+        let mut events = vec![
+            wrapped_event("$ai_generation", "user-1"),
+            wrapped_event("$ai_generation", "user-1"),
+        ];
+        events[0].destination = Destination::AiEvents;
+        events[1].destination = Destination::AiEvents;
+
+        apply_overflow_stamping(&limiter, &ctx, true, &mut events);
+
+        assert_eq!(events[0].destination, Destination::AiEvents);
+        assert_eq!(events[1].destination, Destination::AiEventsOverflow);
+        assert!(
+            !events[1].force_disable_person_processing,
+            "preserve_locality=true means person processing stays enabled"
+        );
     }
     // =========================================================================
     // apply_gateway_provenance tests — the verify→billing wiring

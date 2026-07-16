@@ -404,6 +404,13 @@ pub struct KafkaConfig {
     /// `Destination::AiEvents`) divert `$ai_*` events here instead of the
     /// analytics main topic. Setup also injects it into every v1 sink config.
     pub ai_events_topic: Option<String>,
+    /// Optional overflow topic for the AI lane (env: `AI_EVENTS_OVERFLOW_TOPIC`).
+    /// Unset means AI events never overflow (the pre-overflow behavior). When
+    /// set, the AI lane participates in the same overflow limiter and
+    /// restriction-driven force_overflow as the analytics main lane, rerouting
+    /// here instead of the analytics overflow topic. Settable in advance of
+    /// the AI routing mode, so no startup validation ties it to the mode.
+    pub ai_events_overflow_topic: Option<String>,
     #[envconfig(default = "false")]
     pub kafka_tls: bool,
     #[envconfig(default = "")]

@@ -86,6 +86,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
         kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
         ai_events_topic: None,
+        ai_events_overflow_topic: None,
         kafka_traces_topic: "ingestion_traces".to_string(),
         kafka_metrics_topic: "ingestion_metrics".to_string(),
         kafka_tls: false,

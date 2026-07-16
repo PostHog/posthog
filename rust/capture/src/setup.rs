@@ -373,9 +373,18 @@ pub async fn build_components(
         "invalid configuration: AI_EVENTS_TOPIC must be set when AI_EVENTS_TOPIC_MODE is not primary (got {:?})",
         config.ai_events_topic_mode,
     );
+    // The AI overflow valve: settable in advance of the routing mode (or
+    // absent), so it is deliberately not validated against it.
+    let ai_events_overflow_enabled = config
+        .kafka
+        .ai_events_overflow_topic
+        .as_deref()
+        .is_some_and(|t| !t.is_empty());
     info!(
         ai_routing = ?ai_routing,
         ai_events_topic = ?config.kafka.ai_events_topic,
+        ai_events_overflow_topic = ?config.kafka.ai_events_overflow_topic,
+        ai_events_overflow_enabled,
         "AI events topic routing policy"
     );
 
@@ -419,6 +428,7 @@ pub async fn build_components(
         config.capture_v1_scatter_gather_min_batch,
         config.ai_gateway_signing_secret.clone(),
         ai_routing,
+        ai_events_overflow_enabled,
     );
 
     info!(
@@ -469,9 +479,10 @@ fn parse_token_allowlist(csv: &str) -> HashSet<String> {
         .collect()
 }
 
-/// Builds the v1 sink router. The dedicated `$ai_*` topic is deployment-level
-/// config (`AI_EVENTS_TOPIC`), so it is injected into every sink config here;
-/// the overwrite is unconditional so a stray per-sink `TOPIC_AI` env var
+/// Builds the v1 sink router. The dedicated `$ai_*` topics are
+/// deployment-level config (`AI_EVENTS_TOPIC` and `AI_EVENTS_OVERFLOW_TOPIC`),
+/// so they are injected into every sink config here; the overwrite is
+/// unconditional so a stray per-sink `TOPIC_AI`/`TOPIC_AI_OVERFLOW` env var
 /// cannot diverge from the shared policy.
 fn create_v1_sink_router(
     config: &Config,
@@ -486,6 +497,7 @@ fn create_v1_sink_router(
 
     for cfg in sinks_cfg.configs.values_mut() {
         cfg.kafka.topic_ai = config.kafka.ai_events_topic.clone();
+        cfg.kafka.topic_ai_overflow = config.kafka.ai_events_overflow_topic.clone();
     }
 
     let mut sink_map: HashMap<crate::v1::sinks::SinkName, Box<dyn crate::v1::sinks::sink::Sink>> =

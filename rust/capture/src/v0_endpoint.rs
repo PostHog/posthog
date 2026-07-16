@@ -77,6 +77,7 @@ pub async fn event(
                 state.global_rate_limiter_token_distinctid.clone(),
                 state.overflow_limiter.clone(),
                 &state.ai_routing,
+                state.ai_events_overflow_enabled,
                 events,
                 &context,
             )
