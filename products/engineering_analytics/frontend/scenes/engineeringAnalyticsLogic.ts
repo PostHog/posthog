@@ -675,7 +675,9 @@ export interface engineeringAnalyticsLogicValues {
     repo: string | null
     runFailureLogsByRun: Record<number, RunFailureLogsApi>
     runFailureLogsByRunLoading: boolean
+    scopeRepo: string | null
     search: string
+    selectedScope: string | null
     showPrOnlyBrokenTests: boolean
     sourceId: string | null
     sourceOptions: {
@@ -877,6 +879,13 @@ export interface engineeringAnalyticsLogicActions {
     setRepo: (repo: string | null) => {
         repo: string | null
     }
+    setScope: (
+        sourceId: string | null,
+        scopeRepo: string | null
+    ) => {
+        scopeRepo: string | null
+        sourceId: string | null
+    }
     setSearch: (search: string) => {
         search: string
     }
@@ -994,11 +1003,16 @@ export interface engineeringAnalyticsLogicMeta {
         hiddenBrokenTestCount: (brokenTests: BrokenTestRow[]) => number
         visibleBrokenTests: (brokenTests: BrokenTestRow[], showPrOnlyBrokenTests: boolean) => BrokenTestRow[]
         hasMultipleSources: (githubSources: GitHubSourceApi[]) => boolean
-        activeSource: (githubSources: GitHubSourceApi[], sourceId: string | null) => GitHubSourceApi | null
+        activeSource: (
+            githubSources: GitHubSourceApi[],
+            sourceId: string | null,
+            scopeRepo: any
+        ) => GitHubSourceApi | null
         sourceOptions: (githubSources: GitHubSourceApi[]) => {
             label: string
             value: string
         }[]
+        selectedScope: (githubSources: GitHubSourceApi[], sourceId: string | null, scopeRepo: any) => string | null
     }
 }
 
@@ -1624,7 +1638,11 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             // the first entry with that id.
             activeSource: [
                 (s) => [s.githubSources, s.sourceId, s.scopeRepo],
-                (githubSources: GitHubSourceApi[], sourceId: string | null, scopeRepo): GitHubSourceApi | null => {
+                (
+                    githubSources: GitHubSourceApi[],
+                    sourceId: string | null,
+                    scopeRepo: string | null
+                ): GitHubSourceApi | null => {
                     if (!sourceId) {
                         // A repo-only scope (?repo with no ?source) resolves across sources — label that
                         // repo. Otherwise prefer the first *synced* repo, matching the repo the backend
@@ -1662,7 +1680,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             // first entry, else null (unpicked → placeholder + backend default).
             selectedScope: [
                 (s) => [s.githubSources, s.sourceId, s.scopeRepo],
-                (githubSources, sourceId, scopeRepo): string | null => {
+                (githubSources: GitHubSourceApi[], sourceId: string | null, scopeRepo): string | null => {
                     if (!sourceId) {
                         // A repo-only scope (?repo, no ?source) highlights that repo across sources; an
                         // unscoped page highlights nothing (placeholder shows the default label).
