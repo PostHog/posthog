@@ -6,6 +6,29 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+// A `fetch()` that fails at the transport layer — the request never reached the server (client
+// offline, DNS failure, aborted navigation, ad blocker / browser extension) — throws a `TypeError`
+// whose message differs by engine. `handleFetch` rewraps these as an `ApiError` with no HTTP
+// `status`, so we match on the message rather than the type.
+const NETWORK_ERROR_MESSAGE_FRAGMENTS = [
+    'Failed to fetch',
+    'NetworkError when attempting to fetch resource',
+    'Load failed',
+]
+
+/**
+ * Whether an error is a transport-level fetch failure — a client-side network condition (offline,
+ * DNS, aborted navigation, blocked by an extension) rather than an application defect. Requires the
+ * absence of an HTTP status so a genuine error carrying one is never misclassified as network noise.
+ */
+export function isNetworkError(error: { status?: number; message?: string } | null | undefined): boolean {
+    if (!error || error.status !== undefined) {
+        return false
+    }
+    const message = error.message ?? ''
+    return NETWORK_ERROR_MESSAGE_FRAGMENTS.some((fragment) => message.includes(fragment))
+}
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null
