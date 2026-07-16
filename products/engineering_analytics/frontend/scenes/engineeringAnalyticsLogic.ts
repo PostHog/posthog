@@ -1626,10 +1626,15 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (s) => [s.githubSources, s.sourceId, s.scopeRepo],
                 (githubSources: GitHubSourceApi[], sourceId: string | null, scopeRepo): GitHubSourceApi | null => {
                     if (!sourceId) {
-                        // Unscoped: label the first *synced* repo, matching the repo the backend resolves
-                        // by default (it skips still-backfilling repos) — else the header names repo A
-                        // while the loaders read repo B.
-                        return githubSources.find((source) => source.synced) ?? githubSources[0] ?? null
+                        // A repo-only scope (?repo with no ?source) resolves across sources — label that
+                        // repo. Otherwise prefer the first *synced* repo, matching the repo the backend
+                        // resolves by default (it skips still-backfilling repos), else the first entry.
+                        return (
+                            (scopeRepo && githubSources.find((source) => source.repo === scopeRepo)) ||
+                            githubSources.find((source) => source.synced) ||
+                            githubSources[0] ||
+                            null
+                        )
                     }
                     const ofSource = githubSources.filter((source) => source.id === sourceId)
                     // Explicit repo wins; otherwise (a bookmarked `?source=` with no `?repo`) prefer the
@@ -1659,7 +1664,10 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (s) => [s.githubSources, s.sourceId, s.scopeRepo],
                 (githubSources, sourceId, scopeRepo): string | null => {
                     if (!sourceId) {
-                        return null
+                        // A repo-only scope (?repo, no ?source) highlights that repo across sources; an
+                        // unscoped page highlights nothing (placeholder shows the default label).
+                        const byRepo = scopeRepo && githubSources.find((source) => source.repo === scopeRepo)
+                        return byRepo ? scopeToValue(byRepo.id, byRepo.repo) : null
                     }
                     // Mirror activeSource: with no explicit repo, prefer the synced entry so the picker
                     // highlights the repo the loaders actually read — else it shows an unsynced repo whose

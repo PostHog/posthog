@@ -166,9 +166,13 @@ tools:
             pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific repo — omitting repo
             on a multi-repo source reads the source's default repo, not the one you picked. With a single source/repo
             you can skip it — the other tools default to the oldest connected source. The prefix also names the
-            underlying warehouse tables (prefix + github_pull_requests / github_workflow_runs / github_workflow_jobs),
-            which you can query directly with SQL or save as SQL insights and subscriptions when the named tools don't
-            fit (timestamps land as strings; parse with parseDateTimeBestEffort).
+            underlying warehouse tables, which you can query directly with SQL or save as SQL insights and
+            subscriptions when the named tools don't fit. The source's original repo uses bare names (prefix +
+            github_pull_requests / github_workflow_runs / github_workflow_jobs); every other repo of a multi-repo
+            source is repo-qualified — the name `owner/repo.endpoint` is flattened for the table (each '/' becomes
+            '_' and each '.' becomes '__', lower-cased), e.g. posthog/posthog.com's pull_requests is prefix +
+            github_posthog_posthog__com__pull_requests — so pick the table for the repo you mean (timestamps land as
+            strings; parse with parseDateTimeBestEffort).
         feature_flag: engineering-analytics
     engineering-analytics-team-ci-activity:
         operation: engineering_analytics_team_ci_activity
