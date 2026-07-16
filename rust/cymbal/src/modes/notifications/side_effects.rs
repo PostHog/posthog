@@ -152,12 +152,14 @@ pub async fn send_issue_reopened_internal_event<I: NotificationIssue>(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn send_issue_spiking_internal_event<I: NotificationIssue>(
     producer: &FutureProducer<KafkaContext>,
     internal_events_topic: &str,
     notification_id: Uuid,
     issue: &I,
     fingerprint: &str,
+    detected_at: DateTime<Utc>,
     computed_baseline: f64,
     current_bucket_value: f64,
 ) -> Result<(), UnhandledError> {
@@ -183,9 +185,10 @@ pub async fn send_issue_spiking_internal_event<I: NotificationIssue>(
     event
         .insert_prop("fingerprint", fingerprint)
         .expect("insert_prop for fingerprint should never fail");
-    // Spikes are detected on live traffic, so "now" is a good anchor for finding example events.
+    // Spikes are detected on live traffic, so detection time is a good anchor for finding
+    // example events.
     event
-        .insert_prop("exception_timestamp", Utc::now())
+        .insert_prop("exception_timestamp", detected_at)
         .expect("insert_prop for exception_timestamp should never fail");
 
     let iter = [InternalEvent {

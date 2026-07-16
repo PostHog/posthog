@@ -116,11 +116,14 @@ pub async fn handle_issue_spiking(
         event_properties,
     } = issue;
 
+    let detected_at = spike_detection_time(meta.notification_id);
+
     match persist_spike_event(
         context,
         meta.notification_id,
         meta.team_id,
         issue_id,
+        detected_at,
         computed_baseline,
         current_bucket_value,
     )
@@ -155,6 +158,7 @@ pub async fn handle_issue_spiking(
         meta.notification_id,
         &issue,
         &event_properties.fingerprint,
+        detected_at,
         computed_baseline,
         current_bucket_value,
     )
@@ -191,15 +195,29 @@ fn issue_from_notification(
     }
 }
 
+// When the spike was detected, not when this consumer processed the notification. The
+// notification_id is a UUIDv7 minted in notification_meta() on the processing side, in the same
+// call stack as spike detection, so its embedded timestamp survives any consumer lag. Falls back
+// to now() for legacy payloads where serde defaulted the id at consume time.
+fn spike_detection_time(notification_id: Uuid) -> DateTime<Utc> {
+    notification_id
+        .get_timestamp()
+        .and_then(|ts| {
+            let (secs, nanos) = ts.to_unix();
+            DateTime::from_timestamp(secs as i64, nanos)
+        })
+        .unwrap_or_else(Utc::now)
+}
+
 async fn persist_spike_event(
     context: &NotificationsContext,
     notification_id: Uuid,
     team_id: i32,
     issue_id: Uuid,
+    detected_at: DateTime<Utc>,
     computed_baseline: f64,
     current_bucket_value: f64,
 ) -> Result<PersistSpikeEventResult, UnhandledError> {
-    let now = Utc::now();
     let result = sqlx::query(
         r#"WITH existing_issue AS (
                SELECT 1 FROM posthog_errortrackingissue
@@ -214,7 +232,7 @@ async fn persist_spike_event(
     .bind(notification_id)
     .bind(team_id)
     .bind(issue_id)
-    .bind(now)
+    .bind(detected_at)
     .bind(computed_baseline)
     .bind(current_bucket_value as i32)
     .execute(&context.posthog_pool)
@@ -249,4 +267,29 @@ fn parse_notification_timestamp(event_timestamp: &str, event_uuid: Uuid) -> Date
         );
         Utc::now()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::{NoContext, Timestamp};
+
+    #[test]
+    fn spike_detection_time_recovers_the_v7_mint_instant() {
+        let minted = DateTime::parse_from_rfc3339("2026-07-16T10:30:00.123Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let ts = Timestamp::from_unix(
+            NoContext,
+            minted.timestamp() as u64,
+            minted.timestamp_subsec_nanos(),
+        );
+        let notification_id = Uuid::new_v7(ts);
+
+        // UUIDv7 stores millisecond precision, so compare at that granularity.
+        assert_eq!(
+            spike_detection_time(notification_id).timestamp_millis(),
+            minted.timestamp_millis()
+        );
+    }
 }
