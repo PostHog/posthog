@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional
@@ -450,6 +451,46 @@ def get_user_mcp_server_configs(
             )
         )
 
+    return configs
+
+
+def build_imported_mcp_server_configs(
+    imported_servers: list[dict[str, Any]] | None,
+    existing_names: Iterable[str],
+) -> list[McpServerConfig]:
+    """Sandbox configs for client-imported MCP servers (TaskRun.imported_mcp_servers).
+
+    Entries whose name collides with an already-resolved server (the PostHog MCP
+    or an MCP Store installation) are dropped — existing servers win. Malformed
+    entries are skipped rather than failing the launch; the shape was validated
+    at run creation, so this only guards against drift in stored data.
+    """
+    taken = set(existing_names)
+    configs: list[McpServerConfig] = []
+    for server in imported_servers or []:
+        if not isinstance(server, dict):
+            continue
+        name = server.get("name")
+        url = server.get("url")
+        if not isinstance(name, str) or not name or not isinstance(url, str) or not url:
+            continue
+        if name in taken:
+            continue
+        taken.add(name)
+        server_type = server.get("type")
+        headers = [
+            {"name": header["name"], "value": header["value"]}
+            for header in server.get("headers") or []
+            if isinstance(header, dict) and isinstance(header.get("name"), str) and isinstance(header.get("value"), str)
+        ]
+        configs.append(
+            McpServerConfig(
+                type=server_type if server_type in ("http", "sse") else "http",
+                name=name,
+                url=url,
+                headers=headers,
+            )
+        )
     return configs
 
 

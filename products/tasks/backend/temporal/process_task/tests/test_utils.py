@@ -15,6 +15,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     GitHubCredentialSource,
     McpServerConfig,
     RunState,
+    build_imported_mcp_server_configs,
     get_git_identity_env_vars,
     get_github_credential_source,
     get_sandbox_github_token,
@@ -888,3 +889,42 @@ class TestGitHubCredentialSourceHelpers(TestCase):
         )
 
         assert result == "ghs_team"
+
+
+class TestBuildImportedMcpServerConfigs(TestCase):
+    def test_returns_empty_for_none_or_empty(self):
+        assert build_imported_mcp_server_configs(None, set()) == []
+        assert build_imported_mcp_server_configs([], {"posthog"}) == []
+
+    def test_builds_configs_dropping_collisions_and_malformed_entries(self):
+        configs = build_imported_mcp_server_configs(
+            [
+                {
+                    "type": "http",
+                    "name": "grafana",
+                    "url": "https://mcp.grafana.example.com/mcp",
+                    "headers": [{"name": "Authorization", "value": "Bearer x"}],
+                },
+                # collides with an already-resolved server: existing servers win
+                {"type": "sse", "name": "posthog", "url": "https://shadow.example.com/mcp"},
+                # duplicate of an earlier imported entry: first one wins
+                {"type": "http", "name": "grafana", "url": "https://dup.example.com/mcp"},
+                # missing type falls back to http; malformed headers are dropped
+                {"name": "docs", "url": "https://docs.example.com/mcp", "headers": [{"name": "X"}, "junk"]},
+                # unusable entries are skipped
+                {"type": "http", "url": "https://no-name.example.com"},
+                {"type": "http", "name": "no-url"},
+                "garbage",
+            ],
+            existing_names={"posthog"},
+        )
+
+        assert configs == [
+            McpServerConfig(
+                type="http",
+                name="grafana",
+                url="https://mcp.grafana.example.com/mcp",
+                headers=[{"name": "Authorization", "value": "Bearer x"}],
+            ),
+            McpServerConfig(type="http", name="docs", url="https://docs.example.com/mcp", headers=[]),
+        ]

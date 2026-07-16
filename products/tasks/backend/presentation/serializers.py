@@ -19,6 +19,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
+from posthog.security.url_validation import is_url_allowed
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import (
@@ -1502,7 +1503,74 @@ class StreamReadTokenResponseSerializer(serializers.Serializer):
     )
 
 
-class TaskRunCreateRequestSerializer(serializers.Serializer):
+MAX_IMPORTED_MCP_SERVERS = 20
+MAX_IMPORTED_MCP_SERVER_NAME_LENGTH = 64
+MAX_IMPORTED_MCP_HEADER_VALUE_LENGTH = 4096
+MAX_IMPORTED_MCP_SERVERS_BYTES = 32768
+# Names already taken by servers the sandbox always gets; imported entries must not shadow them.
+RESERVED_IMPORTED_MCP_SERVER_NAMES = {"posthog"}
+
+
+class ImportedMcpServerHeaderSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=256)
+    value = serializers.CharField(
+        max_length=MAX_IMPORTED_MCP_HEADER_VALUE_LENGTH, allow_blank=True, trim_whitespace=False
+    )
+
+
+class ImportedMcpServerSerializer(serializers.Serializer):
+    """One client-imported MCP server, in the agent server's --mcpServers entry shape."""
+
+    type = serializers.ChoiceField(choices=["http", "sse"])
+    name = serializers.CharField(max_length=MAX_IMPORTED_MCP_SERVER_NAME_LENGTH)
+    url = serializers.URLField(max_length=2048)
+    headers = ImportedMcpServerHeaderSerializer(many=True, required=False, default=list)
+
+    def validate_url(self, value: str) -> str:
+        # The client classifies public vs private hosts for UX, but that is not a
+        # security boundary: the sandbox egresses from PostHog infrastructure, so a
+        # private URL here is a user-controlled SSRF vector. Re-check server-side.
+        allowed, reason = is_url_allowed(value)
+        if not allowed:
+            raise serializers.ValidationError(reason or "URL is not allowed.")
+        return value
+
+
+class ImportedMcpServersFieldMixin(serializers.Serializer):
+    """Adds the write-only imported_mcp_servers field shared by both run-creation serializers."""
+
+    imported_mcp_servers = ImportedMcpServerSerializer(
+        many=True,
+        required=False,
+        allow_null=True,
+        default=None,
+        write_only=True,
+        help_text=(
+            "Local url-based MCP servers from the creating client (PostHog Code) to make "
+            "available inside the cloud sandbox. Header values are treated as credentials: "
+            "stored encrypted and never returned by the API."
+        ),
+    )
+
+    def validate_imported_mcp_servers(self, value):
+        if not value:
+            return None
+        if len(value) > MAX_IMPORTED_MCP_SERVERS:
+            raise serializers.ValidationError(f"At most {MAX_IMPORTED_MCP_SERVERS} imported MCP servers are allowed.")
+        seen: set[str] = set()
+        for server in value:
+            name = server["name"]
+            if name.lower() in RESERVED_IMPORTED_MCP_SERVER_NAMES:
+                raise serializers.ValidationError(f"'{name}' is a reserved MCP server name.")
+            if name in seen:
+                raise serializers.ValidationError(f"Duplicate MCP server name: '{name}'.")
+            seen.add(name)
+        if len(json.dumps(value)) > MAX_IMPORTED_MCP_SERVERS_BYTES:
+            raise serializers.ValidationError("Imported MCP servers payload is too large.")
+        return value
+
+
+class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, serializers.Serializer):
     """Request body for creating a new task run"""
 
     PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]
@@ -1689,7 +1757,7 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         return attrs
 
 
-class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
+class TaskRunBootstrapCreateRequestSerializer(ImportedMcpServersFieldMixin, serializers.Serializer):
     """Request body for creating a task run without starting execution yet."""
 
     PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]

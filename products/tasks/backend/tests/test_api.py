@@ -1813,6 +1813,117 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_run_endpoint_persists_imported_mcp_servers_outside_state(self, mock_workflow):
+        task = self.create_task()
+        servers = [
+            {
+                "type": "http",
+                "name": "grafana",
+                "url": "https://mcp.grafana.example.com/mcp",
+                "headers": [{"name": "Authorization", "value": "Bearer abc"}],
+            },
+            {"type": "sse", "name": "docs", "url": "https://docs.example.com/mcp", "headers": []},
+        ]
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "mode": "interactive",
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-4-5",
+                "imported_mcp_servers": servers,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task_run = TaskRun.objects.get(id=response.json()["id"])
+        self.assertEqual(task_run.imported_mcp_servers, servers)
+        # Header values are credentials: never echoed back, never in the plain state JSON.
+        self.assertNotIn("imported_mcp_servers", response.json())
+        self.assertNotIn("imported_mcp_servers", task_run.state)
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_persists_imported_mcp_servers(self, mock_workflow):
+        task = self.create_task()
+        servers = [{"type": "http", "name": "grafana", "url": "https://mcp.grafana.example.com/mcp", "headers": []}]
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"runtime_adapter": "claude", "model": "claude-sonnet-4-5", "imported_mcp_servers": servers},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task_run = task.runs.latest("created_at")
+        self.assertEqual(task_run.imported_mcp_servers, servers)
+        self.assertNotIn("imported_mcp_servers", task_run.state)
+
+    # FORCE_URL_VALIDATION exercises the real SSRF guard; otherwise is_url_allowed short-circuits in tests.
+    @override_settings(FORCE_URL_VALIDATION=True)
+    def test_create_run_endpoint_rejects_private_imported_mcp_server_urls(self):
+        task = self.create_task()
+        for url in ("http://192.168.1.4:8000/mcp", "http://10.0.0.5/mcp", "http://localhost:3001/mcp"):
+            response = self.client.post(
+                f"/api/projects/@current/tasks/{task.id}/runs/",
+                {
+                    "environment": "cloud",
+                    "imported_mcp_servers": [{"type": "http", "name": "internal", "url": url, "headers": []}],
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, url)
+            self.assertIn("imported_mcp_servers", json.dumps(response.json()))
+        self.assertEqual(task.runs.count(), 0)
+
+    @parameterized.expand(
+        [
+            (
+                "reserved_name",
+                [{"type": "http", "name": "posthog", "url": "https://a.example.com", "headers": []}],
+            ),
+            (
+                "duplicate_names",
+                [
+                    {"type": "http", "name": "dup", "url": "https://a.example.com", "headers": []},
+                    {"type": "http", "name": "dup", "url": "https://b.example.com", "headers": []},
+                ],
+            ),
+            (
+                "too_many_servers",
+                [
+                    {"type": "http", "name": f"server-{i}", "url": "https://a.example.com", "headers": []}
+                    for i in range(21)
+                ],
+            ),
+            (
+                "oversized_header_value",
+                [
+                    {
+                        "type": "http",
+                        "name": "big",
+                        "url": "https://a.example.com",
+                        "headers": [{"name": "Authorization", "value": "x" * 5000}],
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_create_run_endpoint_rejects_invalid_imported_mcp_servers(self, _name, servers):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {"environment": "cloud", "imported_mcp_servers": servers},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(task.runs.count(), 0)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_run_endpoint_caches_user_github_token(self, mock_workflow):
         integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
         task = Task.objects.create(

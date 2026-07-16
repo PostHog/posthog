@@ -2877,6 +2877,7 @@ def bootstrap_task_run(
     github_user_token = validated_data.get("github_user_token")
     initial_permission_mode = validated_data.get("initial_permission_mode")
     home_quick_action = validated_data.get("home_quick_action")
+    imported_mcp_servers = validated_data.get("imported_mcp_servers")
     if run_source == RunSource.SIGNAL_REPORT:
         pr_authorship_mode = PrAuthorshipMode.BOT
 
@@ -2974,6 +2975,11 @@ def bootstrap_task_run(
         "Creating task run for task %s with mode=%s, branch=%s, environment=%s", task.id, mode, branch, environment
     )
     run = task.create_run(environment=environment, mode=mode, branch=branch, extra_state=extra_state)
+
+    if imported_mcp_servers:
+        # Kept out of `state` (a plain JSONField) because header values carry credentials.
+        run.imported_mcp_servers = imported_mcp_servers
+        run.save(update_fields=["imported_mcp_servers", "updated_at"])
 
     if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
         cache_github_user_token(str(run.id), github_user_token)
@@ -4104,6 +4110,7 @@ def run_task(
     reasoning_effort = validated_data.get("reasoning_effort")
     github_user_token = validated_data.get("github_user_token")
     initial_permission_mode = validated_data.get("initial_permission_mode")
+    imported_mcp_servers = validated_data.get("imported_mcp_servers")
     if run_source == RunSource.SIGNAL_REPORT:
         pr_authorship_mode = PrAuthorshipMode.BOT
 
@@ -4279,6 +4286,11 @@ def run_task(
 
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
     task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+
+    if imported_mcp_servers:
+        # Kept out of `state` (a plain JSONField) because header values carry credentials.
+        task_run.imported_mcp_servers = imported_mcp_servers
+        task_run.save(update_fields=["imported_mcp_servers", "updated_at"])
 
     if pending_user_artifact_ids:
         _attach_staged_artifacts_to_run(
