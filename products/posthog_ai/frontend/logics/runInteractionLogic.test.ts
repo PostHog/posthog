@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -496,6 +497,36 @@ describe('runInteractionLogic', () => {
         // The failed send re-stages 'first' in front of 'second', preserving order, and toasts.
         expect(lemonToast.error).toHaveBeenCalled()
         expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'first\n\nsecond' }])
+    })
+
+    // The tasks run backend has no server-side consent check, so a follow-up (or a fresh-run send on a
+    // terminal run) must be blocked client-side before it reaches `tasksRunsCommandCreate` /
+    // `tasksRunCreate`. Uses a distinct `runId` key so the logic is built (and connects to
+    // `aiConsentLogic`) after the selector is stubbed.
+    it('blocks composerForm.submit and sends nothing when consent is not accepted', async () => {
+        const consent = aiConsentLogic()
+        consent.mount()
+        jest.spyOn(consent.selectors, 'dataProcessingAccepted').mockReturnValue(false)
+
+        const blockedRunId = 'run-blocked'
+        const blockedStream = runStreamLogic({ streamKey: blockedRunId })
+        blockedStream.mount()
+        const blockedLogic = runInteractionLogic({ taskId: TASK_ID, runId: blockedRunId, onRunStarted })
+        blockedLogic.mount()
+
+        blockedLogic.actions.setComposerFormValues({ draft: 'ship it' })
+        await expectLogic(blockedLogic, () => {
+            blockedLogic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+        expect(tasksRunCreate).not.toHaveBeenCalled()
+        expect(blockedLogic.values.consentBlocked).toBe(true)
+
+        blockedLogic.unmount()
+        blockedStream.unmount()
+        consent.unmount()
+        jest.restoreAllMocks()
     })
 
     it('no-ops on submit with an empty draft', async () => {
