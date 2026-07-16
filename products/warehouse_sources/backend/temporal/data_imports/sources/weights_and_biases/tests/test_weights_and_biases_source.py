@@ -107,6 +107,16 @@ class TestWeightsAndBiasesSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("wb-key", None)
 
+    @mock.patch(f"{_SOURCE_MODULE}.validate_wandb_credentials")
+    def test_validate_credentials_rejects_non_https_host_before_api_call(self, mock_validate):
+        config = WeightsAndBiasesSourceConfig(api_key="wb-key", entity="acme", host="http://acme.wandb.io")
+
+        is_valid, error_message = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is False
+        assert error_message is not None and "https" in error_message
+        mock_validate.assert_not_called()
+
     def test_get_resumable_source_manager_binds_resume_config(self):
         manager = self.source.get_resumable_source_manager(mock.MagicMock())
 

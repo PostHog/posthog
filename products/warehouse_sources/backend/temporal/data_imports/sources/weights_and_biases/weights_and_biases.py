@@ -9,6 +9,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.security.url_validation import is_url_allowed
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -165,8 +167,10 @@ _VIEWER_QUERY = "query Viewer { viewer { id username } }"
 
 def _get_session(api_key: str) -> requests.Session:
     # Raw GraphQL authenticates with HTTP basic auth, username "api" — the same credentials
-    # `wandb login` writes to .netrc for the official SDK.
-    session = make_tracked_session(redact_values=(api_key,))
+    # `wandb login` writes to .netrc for the official SDK. Redirects are disabled as
+    # defense-in-depth: the host is validated up front, and W&B's GraphQL API responds
+    # directly, so pinning traffic to the validated host closes a redirect-based SSRF path.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
     session.auth = ("api", api_key)
     return session
 
@@ -186,7 +190,15 @@ def _graphql_url(host: str | None) -> str:
         raise WeightsAndBiasesConfigError(
             "The Weights & Biases host must use https (for example https://acme.wandb.io)."
         )
-    return f"{base}/graphql"
+    url = f"{base}/graphql"
+    # Defense-in-depth SSRF check (the Smokescreen egress proxy is the load-bearing control): a
+    # custom host is user-supplied, so reject localhost, cloud-metadata, internal domains and
+    # private IPs before any request leaves the worker. Runs at credential validation and again
+    # on every sync, since both build the URL here.
+    allowed, reason = is_url_allowed(url)
+    if not allowed:
+        raise WeightsAndBiasesConfigError(f"The Weights & Biases host is not allowed: {reason}")
+    return url
 
 
 def validate_host(host: str | None) -> None:

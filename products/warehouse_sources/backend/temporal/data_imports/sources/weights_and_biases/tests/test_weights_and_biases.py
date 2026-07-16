@@ -81,7 +81,10 @@ class TestGraphQLUrl:
             ("acme.wandb.io", "https://acme.wandb.io/graphql"),
         ],
     )
-    def test_host_normalization(self, host, expected):
+    # is_url_allowed runs real DNS when DEBUG=False (as in CI); the fake hosts here aren't SSRF
+    # cases, so allow them deterministically.
+    @mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None))
+    def test_host_normalization(self, _mock_allowed, host, expected):
         assert _graphql_url(host) == expected
 
     @pytest.mark.parametrize("host", ["http://acme.wandb.io", "http://api.wandb.ai", "ftp://acme.wandb.io"])
@@ -91,6 +94,15 @@ class TestGraphQLUrl:
             _graphql_url(host)
         with pytest.raises(WeightsAndBiasesConfigError, match="https"):
             validate_host(host)
+
+    @mock.patch(f"{_MODULE}.is_url_allowed", return_value=(False, "blocked: private IP"))
+    def test_ssrf_blocked_host_is_rejected(self, _mock_allowed):
+        # A custom host resolving to an internal/metadata address must be refused before any
+        # request leaves the worker (defense-in-depth over the Smokescreen egress proxy).
+        with pytest.raises(WeightsAndBiasesConfigError, match="not allowed"):
+            _graphql_url("https://internal.example")
+        with pytest.raises(WeightsAndBiasesConfigError, match="not allowed"):
+            validate_host("https://internal.example")
 
 
 class TestFormatTimestamp:
@@ -126,8 +138,9 @@ class TestValidateCredentials:
         mock_session.return_value.post.side_effect = Exception("boom")
         assert validate_credentials("key", None) is False
 
+    @mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None))
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_session_uses_basic_auth_with_api_username(self, mock_session):
+    def test_session_uses_basic_auth_with_api_username(self, mock_session, _mock_allowed):
         mock_session.return_value.post.return_value = _ok_response({"data": {"viewer": {"id": "abc"}}})
 
         validate_credentials("secret-key", "https://acme.wandb.io")
