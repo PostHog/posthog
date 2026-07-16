@@ -306,6 +306,7 @@ export interface SignalReportRefundResponseApi {
  * * `health_checks` - health_checks
  * * `replay_vision` - replay_vision
  * * `wizard` - wizard
+ * * `analytics` - analytics
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -325,6 +326,7 @@ export const SignalSourceProductApi = {
     HealthChecks: 'health_checks',
     ReplayVision: 'replay_vision',
     Wizard: 'wizard',
+    Analytics: 'analytics',
 } as const
 
 /**
@@ -344,6 +346,7 @@ export const SignalSourceProductApi = {
  * * `health_issue` - health_issue
  * * `scanner_finding` - scanner_finding
  * * `setup_review` - setup_review
+ * * `anomaly_investigation` - anomaly_investigation
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
 
@@ -364,6 +367,7 @@ export const SignalSourceTypeApi = {
     HealthIssue: 'health_issue',
     ScannerFinding: 'scanner_finding',
     SetupReview: 'setup_review',
+    AnomalyInvestigation: 'anomaly_investigation',
 } as const
 
 export type ProblemTypeEnumApi = (typeof ProblemTypeEnumApi)[keyof typeof ProblemTypeEnumApi]
@@ -594,6 +598,33 @@ export interface ReplayVisionScannerFindingSignalExtraApi {
     recording_active_seconds?: number | null
 }
 
+/**
+ * * `true_positive` - true_positive
+ * * `false_positive` - false_positive
+ * * `inconclusive` - inconclusive
+ */
+export type InvestigationVerdictEnumApi = (typeof InvestigationVerdictEnumApi)[keyof typeof InvestigationVerdictEnumApi]
+
+export const InvestigationVerdictEnumApi = {
+    TruePositive: 'true_positive',
+    FalsePositive: 'false_positive',
+    Inconclusive: 'inconclusive',
+} as const
+
+export interface AnalyticsAnomalyInvestigationSignalExtraApi {
+    alert_id: string
+    alert_name: string
+    alert_check_id: string
+    insight_id: string
+    detector_type: string
+    verdict: InvestigationVerdictEnumApi
+    url: string
+    insight_name?: string | null
+    insight_short_id?: string | null
+    triggered_dates?: string[] | null
+    notebook_short_id?: string | null
+}
+
 export type HealthCheckSignalExtraSeverityEnumApi =
     (typeof HealthCheckSignalExtraSeverityEnumApi)[keyof typeof HealthCheckSignalExtraSeverityEnumApi]
 
@@ -638,6 +669,7 @@ export type SignalExtraApi =
     | SignalsScoutSignalExtraApi
     | LogsAlertStateChangeSignalExtraApi
     | ReplayVisionScannerFindingSignalExtraApi
+    | AnalyticsAnomalyInvestigationSignalExtraApi
     | HealthCheckSignalExtraApi
     | WizardSetupReviewSignalExtraApi
 
@@ -693,7 +725,8 @@ export interface SignalNodeApi {
      * * `logs` - logs
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
-     * * `wizard` - wizard */
+     * * `wizard` - wizard
+     * * `analytics` - analytics */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -712,7 +745,8 @@ export interface SignalNodeApi {
      * * `alert_state_change` - alert_state_change
      * * `health_issue` - health_issue
      * * `scanner_finding` - scanner_finding
-     * * `setup_review` - setup_review */
+     * * `setup_review` - setup_review
+     * * `anomaly_investigation` - anomaly_investigation */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
     source_id: string
@@ -1100,7 +1134,7 @@ export interface PatchedSignalScoutConfigApi {
  *
  * The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
  * row yet at response time — the bridge row is created once the run's first turn starts.
- * Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+ * Poll the scout's runs (`scout-runs-list`) to see the resulting run and its findings.
  */
 export interface SignalScoutManualRunApi {
     /** The `signals-scout-*` skill that was dispatched. */
@@ -1915,11 +1949,11 @@ export interface SignalScoutRunDetailApi {
  */
 export interface SuggestedReviewerApi {
     /**
-     * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `signals-scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.
+     * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.
      * @maxLength 200
      */
     github_login?: string
-    /** PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
+    /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
     user_uuid?: string
 }
 
@@ -1982,7 +2016,7 @@ export const AutonomyPriorityEnumApi = {
 
 /**
  * One finding a scout run emitted to the inbox — the persisted, queryable record of
- * *what* the run surfaced, returned by `signals-scout-runs-emissions-list`. The emitted text
+ * *what* the run surfaced, returned by `scout-runs-emissions-list`. The emitted text
  * lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
  * back into the underlying signal store.
  */
@@ -2375,6 +2409,7 @@ export interface ForgetResponseApi {
  * * `endpoints` - Endpoints
  * * `replay_vision` - Replay Vision
  * * `wizard` - Setup wizard
+ * * `analytics` - Product analytics
  */
 export type SignalSourceConfigSourceProductEnumApi =
     (typeof SignalSourceConfigSourceProductEnumApi)[keyof typeof SignalSourceConfigSourceProductEnumApi]
@@ -2395,6 +2430,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
     Endpoints: 'endpoints',
     ReplayVision: 'replay_vision',
     Wizard: 'wizard',
+    Analytics: 'analytics',
 } as const
 
 /**
@@ -2413,6 +2449,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
  * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
  * * `scanner_finding` - Scanner finding
  * * `setup_review` - Setup review
+ * * `anomaly_investigation` - Anomaly investigation
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -2433,6 +2470,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
     ScannerFinding: 'scanner_finding',
     SetupReview: 'setup_review',
+    AnomalyInvestigation: 'anomaly_investigation',
 } as const
 
 export interface SignalSourceConfigApi {

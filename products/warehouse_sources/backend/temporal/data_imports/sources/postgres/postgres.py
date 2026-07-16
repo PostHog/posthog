@@ -219,6 +219,16 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # ("password authentication failed", "SASL authentication failed"), and exclude the volatile
     # millisecond value.
     "authentication did not complete within",
+    # pgcat (a Rust Postgres pooler) refuses to hand out a backend when every server in the pool is
+    # currently banned/down — a failed health check bans a server and pgcat auto-unbans it after
+    # `ban_time` — reporting it as SQLSTATE 58000 ("could not get connection from the pool -
+    # AllServersDown"), which psycopg maps to OperationalError. It's transient by construction (a
+    # banned server rejoins once it passes a health check, or the ban expires), the pgcat analog of
+    # Supavisor's ECHECKOUT* pool-checkout failures above, so a fresh reconnect recovers. It can land
+    # on the first discovery query (`SELECT version()` in `_is_duckdb_connection`), so the discovery
+    # retry must catch it. Match the stable prefix + reason and leave pgcat's non-transient reasons
+    # (e.g. BadConfig) to surface.
+    "could not get connection from the pool - allserversdown",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
@@ -349,24 +359,54 @@ def _is_connection_limit_error(error: BaseException) -> bool:
     return any(substring in message for substring in _CONNECTION_LIMIT_ERROR_SUBSTRINGS)
 
 
+# Connect-time "server not ready" refusals: PostgreSQL rejects a *new* connection with SQLSTATE
+# 57P03 (cannot_connect_now) while it is still coming up — a primary or standby booting ("the
+# database system is starting up"), a server replaying WAL after a crash ("the database system is
+# in recovery mode"), or a hot standby that has accepted the connection attempt but not yet reached
+# a consistent recovery point ("the database system is not yet accepting connections", DETAIL
+# "Consistent recovery state has not been yet reached"). All are transient: the server begins
+# accepting connections within seconds once startup/recovery completes, so a fresh connect after a
+# short backoff succeeds. libpq surfaces these as a bare OperationalError at connect time (no
+# SQLSTATE-mapped subclass), so match on the stable message. Deliberately NOT the permanent
+# hot-standby-disabled refusal — that reads "the database system is not accepting connections"
+# (no "yet") with DETAIL "Hot standby mode is disabled" and stays non-retryable (see source.py's
+# `get_non_retryable_errors`); none of the substrings below appear in it.
+_SERVER_STARTING_UP_ERROR_SUBSTRINGS = (
+    "the database system is starting up",
+    "the database system is not yet accepting connections",
+    "the database system is in recovery mode",
+)
+
+
+def _is_server_starting_up_error(error: BaseException) -> bool:
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    message = " ".join(str(arg) for arg in error.args).lower()
+    return any(substring in message for substring in _SERVER_STARTING_UP_ERROR_SUBSTRINGS)
+
+
 def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
     """Transient connect-path failures the import/read reconnect recovers from in process.
 
-    A mid-stream drop (`_is_connection_dropped_error`), a connect-time timeout, or a connect-time
-    connection-limit refusal (`_is_connection_limit_error`). psycopg raises `ConnectionTimeout`
-    ("connection timeout expired") only while *establishing* a connection, never mid-query, so on the
-    import/read path it's transient: the source was reachable moments earlier in the same sync, and
-    the reconnect just needs retrying. Connection-limit refusals ("sorry, too many clients already",
-    etc.) are likewise transient — a slot frees the moment another connection closes. Used by the
-    read/sync connect retry (`_connect_with_dropped_retry`) and the `offset_chunking` reconnect. The
-    schema-discovery path retries drops and connection-limit refusals too (via
-    `_is_dropped_or_connection_limit`) but deliberately keeps failing fast on connect-time *timeouts*,
-    where a timeout usually means an unreachable host / unconfigured firewall (see `PostgresErrors`
-    and `get_non_retryable_errors`).
+    A mid-stream drop (`_is_connection_dropped_error`), a connect-time timeout, a connect-time
+    connection-limit refusal (`_is_connection_limit_error`), or a connect-time "server not ready"
+    refusal while the source is still starting up / recovering (`_is_server_starting_up_error`).
+    psycopg raises `ConnectionTimeout` ("connection timeout expired") only while *establishing* a
+    connection, never mid-query, so on the import/read path it's transient: the source was reachable
+    moments earlier in the same sync, and the reconnect just needs retrying. Connection-limit
+    refusals ("sorry, too many clients already", etc.) and server-still-starting-up refusals ("the
+    database system is not yet accepting connections", etc.) are likewise transient — a slot frees
+    the moment another connection closes, and the server begins accepting connections once
+    startup/recovery finishes. Used by the read/sync connect retry (`_connect_with_dropped_retry`)
+    and the `offset_chunking` reconnect. The schema-discovery path retries drops, connection-limit
+    refusals and server-startup refusals too (via `_is_dropped_or_connection_limit`) but deliberately
+    keeps failing fast on connect-time *timeouts*, where a timeout usually means an unreachable host /
+    unconfigured firewall (see `PostgresErrors` and `get_non_retryable_errors`).
     """
     return (
         _is_connection_dropped_error(error)
         or _is_connection_limit_error(error)
+        or _is_server_starting_up_error(error)
         or isinstance(error, psycopg.errors.ConnectionTimeout)
     )
 
@@ -374,15 +414,19 @@ def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
 def _is_dropped_or_connection_limit(error: BaseException) -> bool:
     """Transient conditions the background schema-discovery retry recovers from in process.
 
-    A mid-stream drop (`_is_connection_dropped_error`) or a connection-limit refusal
-    (`_is_connection_limit_error`). Both are transient — a slot frees as connections close, and a
-    pooler-cached login failure clears once the upstream has capacity — so discovery retries them on
+    A mid-stream drop (`_is_connection_dropped_error`), a connection-limit refusal
+    (`_is_connection_limit_error`), or a "server not ready" refusal while the source is still
+    starting up / recovering (`_is_server_starting_up_error`). All are transient — a slot frees as
+    connections close, a pooler-cached login failure clears once the upstream has capacity, and the
+    server begins accepting connections once startup/recovery finishes — so discovery retries them on
     a fresh connection instead of failing the activity and surfacing captured error-tracking noise.
     Unlike the read/sync connect path (`_is_dropped_or_connect_timeout`), a connect-time *timeout* is
     deliberately excluded: during discovery a timeout usually means a now-unreachable host, which
     should fail fast rather than burn the retry budget.
     """
-    return _is_connection_dropped_error(error) or _is_connection_limit_error(error)
+    return (
+        _is_connection_dropped_error(error) or _is_connection_limit_error(error) or _is_server_starting_up_error(error)
+    )
 
 
 def _is_recovery_conflict_error(error: BaseException) -> bool:

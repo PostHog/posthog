@@ -12,6 +12,12 @@ The three placeholders inside `inputs` that you must fill at create time are:
 Everything else in the templates below is a HogQL template expression that will be evaluated at fire
 time against the live event — leave the curly-braced segments as-is.
 
+## Contents
+
+- `$error_tracking_issue_created`
+- `$error_tracking_issue_reopened`
+- `$error_tracking_issue_spiking`
+
 ## `$error_tracking_issue_created`
 
 ### Slack — `template-slack`

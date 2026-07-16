@@ -32,6 +32,7 @@ class SignalSourceProduct(StrEnum):
     HEALTH_CHECKS = "health_checks"
     REPLAY_VISION = "replay_vision"
     WIZARD = "wizard"
+    ANALYTICS = "analytics"
 
 
 class SignalSourceType(StrEnum):
@@ -51,6 +52,7 @@ class SignalSourceType(StrEnum):
     HEALTH_ISSUE = "health_issue"
     SCANNER_FINDING = "scanner_finding"
     SETUP_REVIEW = "setup_review"
+    ANOMALY_INVESTIGATION = "anomaly_investigation"
 
 
 # Plain value lists for ENUM_NAME_OVERRIDES in web.py — drf-spectacular hashes ChoiceField
@@ -76,6 +78,7 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.ENDPOINTS: "Endpoints",
     SignalSourceProduct.REPLAY_VISION: "Replay Vision",
     SignalSourceProduct.WIZARD: "Setup wizard",
+    SignalSourceProduct.ANALYTICS: "Product analytics",
 }
 
 # The Django model's `source_product` choices, frozen-equivalent to the prior nested TextChoices so
