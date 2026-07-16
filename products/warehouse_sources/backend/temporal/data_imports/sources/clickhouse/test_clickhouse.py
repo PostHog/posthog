@@ -661,6 +661,8 @@ class TestClickHouseSourceNonRetryableErrors:
             # Transient gateway errors must stay retryable — only 404 is permanent.
             "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 502",
             "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 503",
+            # A 429 rate limit must stay retryable — the correct response is to back off, not stop.
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 429",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
@@ -687,6 +689,8 @@ class TestIsTransientConnectDrop:
             "502 Bad gateway'))) executing HTTP request attempt 1",
             "Tunnel connection failed: 503 Service Unavailable",
             "Tunnel connection failed: 504 Gateway Timeout",
+            # A 429 rate limit is a back-off-and-retry signal, so the connect retries.
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 429",
         ],
     )
     def test_matches_transient_drops(self, message):

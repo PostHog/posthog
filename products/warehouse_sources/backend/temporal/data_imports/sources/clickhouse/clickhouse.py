@@ -112,6 +112,12 @@ _TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
     "Tunnel connection failed: 502",
     "Tunnel connection failed: 503",
     "Tunnel connection failed: 504",
+    # ClickHouse (or a proxy/gateway in front of it) rate-limited the connect
+    # request with HTTP 429. A rate limit is a "back off and retry" signal, not a
+    # deterministic failure, so a fresh attempt after our short backoff can
+    # recover. We match only 429; the deterministic 404 (wrong endpoint) stays in
+    # the source's NonRetryableErrors.
+    "returned response code 429",
 )
 
 
