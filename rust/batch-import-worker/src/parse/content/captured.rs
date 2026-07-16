@@ -90,6 +90,7 @@ pub fn captured_parse_fn(
                 uuid,
                 distinct_id,
                 session_id: None,
+                snapshot_host: None,
                 ip: "127.0.0.1".to_string(),
                 data: serde_json::to_string(&raw)?,
                 now: now.to_rfc3339(), // Ingestion time

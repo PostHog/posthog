@@ -112,6 +112,7 @@ mod tests {
             uuid: Uuid::new_v4(),
             distinct_id: "test_user".to_string(),
             session_id: None,
+            snapshot_host: None,
             ip: "127.0.0.1".to_string(),
             now: "2024-01-01T00:00:00Z".to_string(),
             token: "test_token".to_string(),

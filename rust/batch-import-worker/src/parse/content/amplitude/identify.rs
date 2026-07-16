@@ -69,6 +69,7 @@ pub fn create_identify_event(
         uuid: event_uuid,
         distinct_id: user_id.to_string(),
         session_id: None,
+        snapshot_host: None,
         ip: "127.0.0.1".to_string(), // Default IP for identify events
         data: serde_json::to_string(&raw_event)?,
         now: Utc::now().to_rfc3339(),
