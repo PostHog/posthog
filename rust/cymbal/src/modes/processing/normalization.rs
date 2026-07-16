@@ -100,8 +100,8 @@ fn lib_rules() -> &'static [LibRule] {
                     "posthog-rs" => Some(Version::new(0, 19, 0)),
                     // posthog-php ships the flip in 4.11.0 (PostHog/posthog-php#200).
                     "posthog-php" => Some(Version::new(4, 11, 0)),
-                    // posthog-go ships the flip in 1.19.0 (PostHog/posthog-go#254).
-                    "posthog-go" => Some(Version::new(1, 19, 0)),
+                    // posthog-go ships the flip in 1.20.0 (PostHog/posthog-go#254).
+                    "posthog-go" => Some(Version::new(1, 20, 0)),
                     _ => None,
                 },
             })
@@ -321,9 +321,9 @@ mod test {
 
     #[test]
     fn go_cutoff_gates_normalization_by_version() {
-        // Below the 1.19.0 cutoff (and unparseable versions): crash-first on
+        // Below the 1.20.0 cutoff (and unparseable versions): crash-first on
         // the wire, frames reverse, legacy snapshot returned.
-        for version in [Some("1.18.0"), Some("1.2.3"), Some("devel"), None] {
+        for version in [Some("1.19.0"), Some("1.2.3"), Some("devel"), None] {
             let mut list: ExceptionList =
                 vec![exception_with_frames("Boom", &["main", "boom"])].into();
             let legacy = normalize_wire_order(&mut list, Some("posthog-go"), version);
@@ -332,7 +332,7 @@ mod test {
         }
 
         // At/above the cutoff: canonical on the wire, untouched.
-        for version in ["1.19.0", "1.19.1", "1.20.0", "2.0.0"] {
+        for version in ["1.20.0", "1.20.1", "1.21.0", "2.0.0"] {
             let mut list: ExceptionList =
                 vec![exception_with_frames("Boom", &["main", "boom"])].into();
             let legacy = normalize_wire_order(&mut list, Some("posthog-go"), Some(version));
