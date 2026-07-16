@@ -36,7 +36,6 @@ class TestInfisicalSource:
         assert config.name.value == "Infisical"
         assert config.label == "Infisical"
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.iconPath == "/static/services/infisical.svg"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/infisical"

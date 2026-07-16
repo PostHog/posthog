@@ -104,7 +104,6 @@ In Infisical, create a machine identity under **Organization settings > Access c
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
