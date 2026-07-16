@@ -143,7 +143,9 @@ const filtersToSearchParams = (filters: HogInvocationsFilters): Record<string, s
     [URL_PARAMS.person_uuid]: filters.person_uuid,
 })
 
-const searchParamsToFilters = (searchParams: Record<string, string | undefined>): Partial<HogInvocationsFilters> => {
+export const searchParamsToFilters = (
+    searchParams: Record<string, string | undefined>
+): Partial<HogInvocationsFilters> => {
     const next: Partial<HogInvocationsFilters> = {}
     const dateFrom = searchParams[URL_PARAMS.date_from]
     if (dateFrom) {
@@ -164,8 +166,11 @@ const searchParamsToFilters = (searchParams: Record<string, string | undefined>)
     if (kind === 'invocations' || kind === 'rerun_jobs') {
         next.kind = kind
     }
-    if (searchParams[URL_PARAMS.search]) {
-        next.search = searchParams[URL_PARAMS.search]
+    const search = searchParams[URL_PARAMS.search]
+    if (search) {
+        // kea-router parses a duplicated `?...search=a&...search=b` into an array despite the
+        // typed signature — take the last value so `filters.search` is always a string.
+        next.search = Array.isArray(search) ? search[search.length - 1] : search
     }
     const orderBy = searchParams[URL_PARAMS.order_by]
     if (orderBy === 'first_scheduled' || orderBy === 'latest_scheduled') {
@@ -398,7 +403,7 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
     const optionalErrorKindClause = filters.error_kind?.length
         ? hogql.raw(`AND error_kind IN (${filters.error_kind.map(escapeHogQLString).join(',')})`)
         : hogql.raw('')
-    const trimmedSearch = filters.search?.trim()
+    const trimmedSearch = typeof filters.search === 'string' ? filters.search.trim() : undefined
     const optionalSearchClause = trimmedSearch
         ? hogql.raw(
               `AND (
@@ -496,7 +501,7 @@ async function fetchRunsPage(
     const optionalErrorKindClause = filters.error_kind?.length
         ? hogql.raw(`AND error_kind IN (${filters.error_kind.map(escapeHogQLString).join(', ')})`)
         : hogql.raw('')
-    const trimmedSearch = filters.search?.trim()
+    const trimmedSearch = typeof filters.search === 'string' ? filters.search.trim() : undefined
     const optionalSearchClause = trimmedSearch
         ? hogql.raw(
               `AND (
