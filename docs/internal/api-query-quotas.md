@@ -52,12 +52,12 @@ Materialized endpoints have separate concurrency controls but remain chargeable 
 
 The quota check applies only when a request would start new ClickHouse work:
 
-| Request state | Result while limited |
-| --- | --- |
-| Fresh cached result | Return the cached result |
-| Stale or missing cache with blocking calculation | HTTP 402 |
-| A request that would enqueue async calculation | HTTP 402 without enqueueing work |
-| In-app calculation | Existing behavior; this quota does not apply |
+| Request state                                    | Result while limited                         |
+| ------------------------------------------------ | -------------------------------------------- |
+| Fresh cached result                              | Return the cached result                     |
+| Stale or missing cache with blocking calculation | HTTP 402                                     |
+| A request that would enqueue async calculation   | HTTP 402 without enqueueing work             |
+| In-app calculation                               | Existing behavior; this quota does not apply |
 
 This distinction keeps no-cost cache reads available while preventing new billable reads.
 Quota activation does not cancel a query that is already running or an async task that was enqueued before the organization became limited.
