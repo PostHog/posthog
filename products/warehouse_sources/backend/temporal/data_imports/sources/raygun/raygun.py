@@ -36,6 +36,15 @@ def _get_headers(personal_access_token: str) -> dict[str, str]:
     }
 
 
+def _make_session(personal_access_token: str) -> Any:
+    # `capture=False`: customer and session rows carry end-user PII (externalIdentifier, names,
+    # IP addresses) and application rows carry ingestion API keys — fields the name-based sample
+    # scrubbers can't recognise, so keep response bodies out of HTTP sample storage entirely.
+    # Requests are still metered and logged (status + url). `redact_values` masks the token as
+    # defense in depth.
+    return make_tracked_session(redact_values=(personal_access_token,), capture=False)
+
+
 def validate_token(personal_access_token: str) -> tuple[bool, int | None]:
     """Probe the token against the cheapest scoped endpoint. Returns (is_valid, status_code).
 
@@ -43,7 +52,9 @@ def validate_token(personal_access_token: str) -> tuple[bool, int | None]:
     caller distinguish a bad token (401) from a valid token missing a scope (403)."""
     url = f"{RAYGUN_BASE_URL}/applications?{urlencode({'count': 1})}"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(personal_access_token), timeout=REQUEST_TIMEOUT)
+        response = _make_session(personal_access_token).get(
+            url, headers=_get_headers(personal_access_token), timeout=REQUEST_TIMEOUT
+        )
     except Exception:
         return False, None
     return response.status_code == 200, response.status_code
@@ -172,7 +183,7 @@ def get_rows(
     config = RAYGUN_ENDPOINTS[endpoint]
     headers = _get_headers(personal_access_token)
     # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    session = _make_session(personal_access_token)
 
     if config.fan_out_over_applications:
         yield from _get_fan_out_rows(session, config, headers, logger, resumable_source_manager)

@@ -53,6 +53,9 @@ class TestValidateToken:
         for status, expected in [(200, True), (401, False), (403, False), (500, False)]:
             mock_session.return_value.get.return_value = _response([], status_code=status)
             assert validate_token("tok") == (expected, status)
+        # Response bodies stay out of HTTP sample storage and the token is value-redacted.
+        assert mock_session.call_args.kwargs["capture"] is False
+        assert "tok" in mock_session.call_args.kwargs["redact_values"]
 
     @patch(f"{MODULE}.make_tracked_session")
     def test_network_error_returns_none_status(self, mock_session: MagicMock) -> None:
@@ -84,6 +87,9 @@ class TestTopLevelPagination:
 
         assert [_offset_of(u) for u in session.urls] == [0, 2, 4]
         assert sum(len(page) for page in yielded) == 5
+        # Sync sessions carry PII-bearing bodies, so sample capture must stay off.
+        assert mock_session.call_args.kwargs["capture"] is False
+        assert "tok" in mock_session.call_args.kwargs["redact_values"]
         # State is saved pointing at the next unfetched offset after each non-terminal page only.
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [RaygunResumeConfig(offset=2), RaygunResumeConfig(offset=4)]
