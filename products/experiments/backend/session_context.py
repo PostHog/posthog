@@ -167,8 +167,9 @@ def get_session_experiment_context(
         if experiment_id in batchable_ids and flag_key in flag_evaluations
     }
     # Same width backstop as the candidate cap — each branch experiment adds a union branch, so
-    # (unlike the constant-width default query) non-batchable experiments beyond the cap are
-    # deliberately not queried and forgo the rescue below.
+    # (unlike the constant-width flag-evaluations query) non-batchable experiments beyond the
+    # cap are deliberately not queried: they get no criteria-driven exposure moment, though
+    # flag evaluations still evidence (and rescue) them like any other experiment.
     exposures.update(
         _query_exposure_event_branches(
             team, user, session_id, window_start, window_end, branch_meta[:MAX_CANDIDATE_EXPERIMENTS]
