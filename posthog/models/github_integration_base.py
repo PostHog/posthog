@@ -905,6 +905,9 @@ class GitHubIntegrationBase:
             "base_branch": base.get("ref"),
             "head_sha": head.get("sha"),
             "base_sha": base.get("sha"),
+            # The head branch's repo — for a fork PR this differs from the base repo, so cleanup can tell
+            # a same-repo branch (safe to delete) from a fork's (never touch the base repo's same-named ref).
+            "head_repo": (head.get("repo") or {}).get("full_name"),
             "repository": repo_path,
             "author": user.get("login"),
             "created_at": pr.get("created_at"),
@@ -1065,7 +1068,55 @@ class GitHubIntegrationBase:
                     }
                 )
 
+        # Mark which checks branch protection requires (best-effort — see `_get_required_check_names`).
+        required_names = self._get_required_check_names(repo_path, pr_number)
+        for check in checks:
+            check["is_required"] = check["name"] in required_names
+
         return {"success": True, "checks": checks}
+
+    _PR_REQUIRED_CHECKS_QUERY = """
+    query($owner: String!, $repo: String!, $number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $number) {
+          commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
+            __typename
+            ... on CheckRun { name isRequired(pullRequestNumber: $number) }
+            ... on StatusContext { context isRequired(pullRequestNumber: $number) }
+          } } } } } }
+        }
+      }
+    }
+    """
+
+    def _get_required_check_names(self, repo_path: str, pr_number: int) -> set[str]:
+        """Names of the checks branch protection requires for this PR, via the GraphQL status rollup.
+        Best-effort: an empty set (no protection, or the token can't read it) just means nothing is
+        marked required, so the checks list still renders."""
+        owner, _, repo_name = repo_path.partition("/")
+        try:
+            data = self._gh_graphql(
+                self._PR_REQUIRED_CHECKS_QUERY,
+                {"owner": owner, "repo": repo_name, "number": pr_number},
+                endpoint="/graphql:pullRequestRequiredChecks",
+            )
+        except Exception:
+            logger.warning("GitHubIntegration: required checks fetch failed", repository=repo_path, pr_number=pr_number)
+            return set()
+        pr = ((data or {}).get("repository") or {}).get("pullRequest") or {}
+        nodes = ((pr.get("commits") or {}).get("nodes")) or []
+        if not nodes:
+            return set()
+        rollup = (nodes[0].get("commit") or {}).get("statusCheckRollup") or {}
+        contexts = ((rollup.get("contexts") or {}).get("nodes")) or []
+        required: set[str] = set()
+        for ctx in contexts:
+            if not isinstance(ctx, dict) or not ctx.get("isRequired"):
+                continue
+            name = ctx.get("name") or ctx.get("context")
+            if name:
+                required.add(name)
+        return required
 
     @staticmethod
     def _map_commit_status_state(state: str | None) -> tuple[str, str | None]:
@@ -1417,6 +1468,79 @@ class GitHubIntegrationBase:
             "head_sha": pr.get("headRefOid"),
             "requested_reviewer_logins": reviewer_logins,
             "updated_at": pr.get("updatedAt"),
+        }
+
+    _PR_MERGE_READINESS_QUERY = """
+    query($owner: String!, $repo: String!, $number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        autoMergeAllowed
+        squashMergeAllowed
+        mergeCommitAllowed
+        rebaseMergeAllowed
+        pullRequest(number: $number) {
+          id number state isDraft mergeable mergeStateStatus reviewDecision headRefName headRefOid
+          autoMergeRequest { enabledAt }
+          commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+        }
+      }
+    }
+    """
+
+    @staticmethod
+    def _pick_default_merge_method(repo: dict[str, Any]) -> str | None:
+        """The repo's preferred merge method — squash first (clean history for agent PRs), then a merge
+        commit, then rebase — limited to what the repo allows, so a merge never 422s on a disallowed method."""
+        if repo.get("squashMergeAllowed"):
+            return "squash"
+        if repo.get("mergeCommitAllowed"):
+            return "merge"
+        if repo.get("rebaseMergeAllowed"):
+            return "rebase"
+        return None
+
+    def get_pull_request_merge_readiness(self, repository: str, pr_number: int) -> dict[str, Any]:
+        """Everything the merge UI needs to choose direct-merge vs auto-merge, in one GraphQL call.
+
+        Returns ``{"success": True, "readiness": {...}}`` — the PR node id + head sha (for the auto-merge
+        mutation and the merge sha-guard), mergeability, merge-state status, CI rollup, review decision,
+        whether auto-merge is armed/allowed, and the repo's default merge method. ``{"success": False,
+        "error": ...}`` on a handled failure; rate limits raise ``GitHubRateLimitError``.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        owner, _, repo_name = repo_path.partition("/")
+        data = self._gh_graphql(
+            self._PR_MERGE_READINESS_QUERY,
+            {"owner": owner, "repo": repo_name, "number": pr_number},
+            endpoint="/graphql:pullRequestMergeReadiness",
+        )
+        repo = (data or {}).get("repository") or {}
+        pr = repo.get("pullRequest")
+        if not pr:
+            return {"success": False, "error": f"Pull request not found: {repo_path}#{pr_number}"}
+
+        rollup_nodes = ((pr.get("commits") or {}).get("nodes")) or []
+        rollup_state = (
+            ((rollup_nodes[0].get("commit") or {}).get("statusCheckRollup") or {}).get("state")
+            if rollup_nodes
+            else None
+        )
+        merge_state = pr.get("mergeStateStatus")
+        review_decision = pr.get("reviewDecision")
+        return {
+            "success": True,
+            "readiness": {
+                "node_id": pr.get("id"),
+                "pr_state": self._map_pr_state(pr.get("state"), bool(pr.get("isDraft"))),
+                "mergeable": self._map_mergeable(pr.get("mergeable")),
+                "merge_state_status": merge_state.lower() if isinstance(merge_state, str) else "unknown",
+                "ci_status": self._map_ci_status(rollup_state),
+                "review_decision": review_decision.lower() if isinstance(review_decision, str) else None,
+                "auto_merge_enabled": bool(pr.get("autoMergeRequest")),
+                "auto_merge_allowed": bool(repo.get("autoMergeAllowed")),
+                "merge_method": self._pick_default_merge_method(repo),
+                "head_branch": pr.get("headRefName"),
+                "head_sha": pr.get("headRefOid"),
+            },
         }
 
     def list_repositories(self, *, page: int = 1, per_page: int = 100) -> tuple[list[dict], bool]:

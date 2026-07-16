@@ -44,7 +44,10 @@ function CommentRow({ comment }: { comment: PullRequestCommentApi }): JSX.Elemen
                     )}
                 </div>
                 {comment.body ? (
-                    <LemonMarkdown className="text-sm text-secondary leading-relaxed break-words" disableImages>
+                    <LemonMarkdown
+                        className="text-sm text-secondary leading-relaxed break-words overflow-auto"
+                        disableImages
+                    >
                         {comment.body}
                     </LemonMarkdown>
                 ) : (

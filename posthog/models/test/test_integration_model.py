@@ -1606,13 +1606,26 @@ class TestGitHubIntegrationModel(BaseTest):
         with (
             patch.object(github, "get_pull_request", return_value={"success": True, "head_sha": "abc123f"}),
             patch.object(github, "_installation_authenticated_get", side_effect=fake_get),
+            patch.object(github, "_get_required_check_names", return_value={"unit"}),
         ):
             result = github.get_pull_request_checks("PostHog/posthog", 1)
 
         assert result["success"] is True
         assert result["checks"] == [
-            {"name": "unit", "status": "completed", "conclusion": "failure", "url": "https://github.com/checks/1"},
-            {"name": "buildkite", "status": "completed", "conclusion": "success", "url": "https://bk/1"},
+            {
+                "name": "unit",
+                "status": "completed",
+                "conclusion": "failure",
+                "url": "https://github.com/checks/1",
+                "is_required": True,
+            },
+            {
+                "name": "buildkite",
+                "status": "completed",
+                "conclusion": "success",
+                "url": "https://bk/1",
+                "is_required": False,
+            },
         ]
 
     def test_get_pull_request_checks_follows_pagination(self):

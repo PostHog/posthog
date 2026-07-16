@@ -1,6 +1,7 @@
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from django.conf import settings
 from django.db import models
@@ -432,6 +433,185 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             f"/{comment_id}/reactions/{reaction_id}",
             source="signals_pr_review_comment_reaction_delete",
         )
+
+    @staticmethod
+    def _github_error_message(response: Any, fallback: str) -> str:
+        """GitHub's ``{"message": ...}`` (e.g. 'Pull Request is not mergeable') reads far better than a
+        bare status code — surface it when present, otherwise the fallback."""
+        try:
+            message = (response.json() or {}).get("message")
+        except Exception:
+            message = None
+        return message if isinstance(message, str) and message else fallback
+
+    def merge_pull_request(
+        self, repository: str, pr_number: int, *, merge_method: str = "merge", sha: str | None = None
+    ) -> dict[str, Any]:
+        """Merge a PR immediately as the user (REST ``PUT .../merge``).
+
+        ``merge_method`` is ``merge``/``squash``/``rebase``; ``sha`` (the head commit the caller last
+        saw) guards against merging a branch that moved — GitHub returns 409 if it no longer matches.
+        Returns ``{"success": True, "merged": True, ...}`` or ``{"success": False, "error", "status_code"}``
+        (405 not mergeable, 409 stale head, 403 no write access, 422 method not allowed). Raises
+        :class:`ReauthorizationRequired`/:class:`GitHubRateLimitError` like the review-comment writes.
+        """
+        token = self.get_usable_user_access_token()
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        payload: dict[str, Any] = {"merge_method": merge_method}
+        if sha:
+            payload["sha"] = sha
+        response = github_request(
+            "PUT",
+            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/merge",
+            source="signals_pr_merge",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            installation_id=self.github_installation_id,
+            priority=Priority.CRITICAL,
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/merge",
+            json=payload,
+            timeout=30,
+        )
+        raise_if_github_rate_limited(response)
+        if response.status_code == 200:
+            return {"success": True, "merged": True, "result": response.json()}
+        logger.warning(
+            "UserGitHubIntegration: merge failed",
+            status_code=response.status_code,
+            repository=repo_path,
+            pr_number=pr_number,
+        )
+        return {
+            "success": False,
+            "error": self._github_error_message(
+                response, f"GitHub could not merge the pull request (HTTP {response.status_code})"
+            ),
+            "status_code": response.status_code,
+        }
+
+    def approve_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
+        """Submit an approving review as the user (REST ``POST .../reviews`` with ``event: APPROVE``).
+
+        Used by "Approve and merge" when a required review is the only thing blocking a merge. GitHub
+        rejects approving your own PR (422), which surfaces as ``{"success": False, "error": ...}``.
+        """
+        token = self.get_usable_user_access_token()
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        response = github_request(
+            "POST",
+            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/reviews",
+            source="signals_pr_approve",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            installation_id=self.github_installation_id,
+            priority=Priority.CRITICAL,
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+            json={"event": "APPROVE"},
+            timeout=15,
+        )
+        raise_if_github_rate_limited(response)
+        if response.status_code == 200:
+            return {"success": True, "result": response.json()}
+        logger.warning(
+            "UserGitHubIntegration: approve failed",
+            status_code=response.status_code,
+            repository=repo_path,
+            pr_number=pr_number,
+        )
+        return {
+            "success": False,
+            "error": self._github_error_message(
+                response, f"GitHub could not record the approval (HTTP {response.status_code})"
+            ),
+            "status_code": response.status_code,
+        }
+
+    def _user_graphql(self, query: str, variables: dict[str, Any], *, source: str) -> dict[str, Any]:
+        """POST a GraphQL mutation to GitHub as the user. The shared ``_gh_graphql`` uses the installation
+        token, so auto-merge (which must be attributed to the human) needs its own user-token path. No
+        retry — mutations aren't idempotent."""
+        token = self.get_usable_user_access_token()
+        response = github_request(
+            "POST",
+            "https://api.github.com/graphql",
+            source=source,
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            installation_id=self.github_installation_id,
+            priority=Priority.CRITICAL,
+            json={"query": query, "variables": variables},
+            timeout=15,
+        )
+        raise_if_github_rate_limited(response)
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": self._github_error_message(
+                    response, f"GitHub rejected the request (HTTP {response.status_code})"
+                ),
+                "status_code": response.status_code,
+            }
+        body = response.json()
+        errors = body.get("errors")
+        if errors:
+            message = (errors[0] or {}).get("message") if isinstance(errors, list) and errors else None
+            return {"success": False, "error": message or "GitHub rejected the request.", "status_code": 422}
+        return {"success": True, "data": body.get("data") or {}}
+
+    _ENABLE_AUTO_MERGE_MUTATION = """
+    mutation($prId: ID!, $method: PullRequestMergeMethod!) {
+      enablePullRequestAutoMerge(input: {pullRequestId: $prId, mergeMethod: $method}) {
+        pullRequest { autoMergeRequest { enabledAt } }
+      }
+    }
+    """
+    _DISABLE_AUTO_MERGE_MUTATION = """
+    mutation($prId: ID!) {
+      disablePullRequestAutoMerge(input: {pullRequestId: $prId}) {
+        pullRequest { autoMergeRequest { enabledAt } }
+      }
+    }
+    """
+
+    def enable_pull_request_auto_merge(self, node_id: str, *, merge_method: str = "merge") -> dict[str, Any]:
+        """Arm GitHub-native auto-merge as the user: the PR merges itself once required checks pass.
+        ``node_id`` is the PR's GraphQL id (from the readiness call). ``merge_method`` is REST-cased
+        (merge/squash/rebase); GitHub's enum wants it upper-cased."""
+        return self._user_graphql(
+            self._ENABLE_AUTO_MERGE_MUTATION,
+            {"prId": node_id, "method": merge_method.upper()},
+            source="signals_pr_auto_merge_enable",
+        )
+
+    def disable_pull_request_auto_merge(self, node_id: str) -> dict[str, Any]:
+        """Cancel a previously-armed auto-merge as the user."""
+        return self._user_graphql(
+            self._DISABLE_AUTO_MERGE_MUTATION, {"prId": node_id}, source="signals_pr_auto_merge_disable"
+        )
+
+    def delete_branch(self, repository: str, branch: str) -> dict[str, Any]:
+        """Delete a branch ref as the user (post-merge cleanup). A ref that's already gone (404/422 —
+        e.g. the repo's auto-delete already removed it) counts as success."""
+        token = self.get_usable_user_access_token()
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        # Encode the ref (keeping slashes, which are valid in branch names) so a name like `release#x`
+        # can't smuggle URL fragments/segments and retarget the delete.
+        ref = quote(branch, safe="/")
+        response = github_request(
+            "DELETE",
+            f"https://api.github.com/repos/{repo_path}/git/refs/heads/{ref}",
+            source="signals_pr_branch_delete",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            installation_id=self.github_installation_id,
+            priority=Priority.CRITICAL,
+            endpoint="/repos/{owner}/{repo}/git/refs/heads/{branch}",
+            timeout=15,
+        )
+        raise_if_github_rate_limited(response)
+        if response.status_code in (204, 404, 422):
+            return {"success": True}
+        return {
+            "success": False,
+            "error": self._github_error_message(response, f"Could not delete the branch (HTTP {response.status_code})"),
+            "status_code": response.status_code,
+        }
 
     def _apply_user_token_payload(self, payload: dict[str, Any]) -> None:
         """Write a fresh user token pair + expirations onto the integration row."""
