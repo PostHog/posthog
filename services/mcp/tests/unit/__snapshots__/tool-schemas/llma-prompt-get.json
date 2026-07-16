@@ -7,6 +7,11 @@
             "enum": ["full", "preview", "none"],
             "type": "string"
         },
+        "label": {
+            "description": "Fetch the version this label currently points to, e.g. 'production'. Mutually exclusive with version.",
+            "minLength": 1,
+            "type": "string"
+        },
         "prompt_name": {
             "pattern": "^[^/]+$",
             "type": "string"
