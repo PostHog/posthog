@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 
@@ -35,16 +36,19 @@ function makeSession(overrides: Partial<WizardSessionDTOApi> = {}): WizardSessio
 
 describe('wizardActiveSessionDetectorLogic', () => {
     let logic: ReturnType<typeof wizardActiveSessionDetectorLogic.build>
+    let captureExceptionSpy: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
         mockLatestRetrieve.mockReset()
+        captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockReturnValue('')
         logic = wizardActiveSessionDetectorLogic()
         logic.mount()
     })
 
     afterEach(() => {
         logic?.unmount()
+        captureExceptionSpy.mockRestore()
     })
 
     describe('isSessionActive', () => {
@@ -128,6 +132,30 @@ describe('wizardActiveSessionDetectorLogic', () => {
             .toNotHaveDispatchedActions(['markPermanentlyDisabled'])
             .toMatchValues({ permanentlyDisabled: false })
     })
+
+    // A network-layer `fetch` failure (offline, connection reset, ad blocker, tab throttled,
+    // navigation away) throws `TypeError: Failed to fetch`, which the api client rewraps as an
+    // ApiError with no HTTP status. That's an unactionable blip the next poll self-heals, so it
+    // must not reach error tracking — unlike a genuine server error, which should. Both still
+    // record lastError and leave the detector polling.
+    it.each([
+        { name: 'network-layer failure (statusless ApiError)', error: new ApiError('Failed to fetch'), captures: 0 },
+        { name: 'server error (500)', error: new ApiError('boom', 500), captures: 1 },
+    ])(
+        '$name: sets lastError, keeps polling, captureException called $captures time(s)',
+        async ({ error, captures }) => {
+            mockLatestRetrieve.mockRejectedValue(error)
+
+            await expectLogic(logic, () => {
+                logic.actions.check()
+            })
+                .toDispatchActions(['setLastError'])
+                .toNotHaveDispatchedActions(['markPermanentlyDisabled'])
+                .toMatchValues({ permanentlyDisabled: false })
+
+            expect(captureExceptionSpy).toHaveBeenCalledTimes(captures)
+        }
+    )
 
     it('defers teardown (scheduleMarkInactive) when an active session goes terminal', async () => {
         logic.actions.markActive()

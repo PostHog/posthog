@@ -167,6 +167,18 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                 if (err instanceof Error && err.name === 'AbortError') {
                     return
                 }
+                // A transport-level fetch failure — the request never reached the
+                // server (offline, connection reset, ad blocker, throttled tab,
+                // navigation away) — surfaces as a native `TypeError: Failed to
+                // fetch` that the api client rewraps as an ApiError with no HTTP
+                // status. That's an unactionable network blip, not an app defect,
+                // and the next poll self-heals, so keep it out of error tracking
+                // just like a cancelled fetch. Still record it in lastError for
+                // local state.
+                if (err instanceof ApiError && err.status === undefined) {
+                    actions.setLastError(err.message)
+                    return
+                }
                 if (err instanceof ApiError && err.status !== undefined) {
                     // 401/403 are structural access denials: the user can't or
                     // shouldn't talk to this endpoint. Stop polling permanently
