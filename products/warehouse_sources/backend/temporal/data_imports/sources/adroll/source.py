@@ -14,22 +14,30 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.adroll.adroll import (
+    AdRollResumeConfig,
     adroll_source,
     validate_credentials as validate_adroll_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.adroll.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.adroll.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AdRollSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class AdRollSource(SimpleSource[AdRollSourceConfig]):
+class AdRollSource(ResumableSource[AdRollSourceConfig, AdRollResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v1",)
@@ -99,21 +107,7 @@ Create a personal access token and an app in the [NextRoll developer console](ht
     ) -> list[SourceSchema]:
         # Entity endpoints have no updated_at filter — full refresh. Metrics
         # are GraphQL-only and a follow-up.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: AdRollSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -123,10 +117,20 @@ Create a personal access token and an app in the [NextRoll developer console](ht
 
         return False, "Invalid AdRoll credentials"
 
-    def source_for_pipeline(self, config: AdRollSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AdRollResumeConfig]:
+        return ResumableSourceManager[AdRollResumeConfig](inputs, AdRollResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: AdRollSourceConfig,
+        resumable_source_manager: ResumableSourceManager[AdRollResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return adroll_source(
             client_id=config.client_id,
             personal_access_token=config.personal_access_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
         )
