@@ -1293,11 +1293,12 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
 
 
 class TestHeatmapUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
-    def _create_heatmap(self, team_id: int, timestamp: datetime, count: int = 1) -> None:
+    def _create_heatmap(self, team_id: int, timestamp: datetime, count: int = 1, session_id: str | None = None) -> None:
+        session_ids = [session_id] * count if session_id else [f"sess_{i}" for i in range(count)]
         rows = ", ".join(
-            f"('sess_{i}', {team_id}, 'user_1', '{timestamp.strftime('%Y-%m-%d %H:%M:%S')}', "
+            f"('{heatmap_session_id}', {team_id}, 'user_1', '{timestamp.strftime('%Y-%m-%d %H:%M:%S')}', "
             f"10, 20, 16, 100, 200, false, 'https://example.com', 'click')"
-            for i in range(count)
+            for heatmap_session_id in session_ids
         )
         sync_execute(
             "INSERT INTO sharded_heatmaps "
@@ -1310,7 +1311,12 @@ class TestHeatmapUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroy
 
         # 3 in-period interactions for our team, 1 the day before (out of period),
         # and 2 for another team — only the 3 in-period ones should be counted for our team.
-        self._create_heatmap(self.team.pk, period_start + relativedelta(hours=1), count=3)
+        self._create_heatmap(
+            self.team.pk,
+            period_start + relativedelta(hours=1),
+            count=3,
+            session_id="shared_session",
+        )
         self._create_heatmap(self.team.pk, period_start - relativedelta(hours=1), count=1)
         self._create_heatmap(self.team.pk + 1, period_start + relativedelta(hours=1), count=2)
 
