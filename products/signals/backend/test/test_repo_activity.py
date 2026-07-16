@@ -182,6 +182,7 @@ class TestRebuildRepositoryActivity:
             new_row = SignalRepositoryAreaActivity.objects.get(repository="acme/app", area="products/new")
         # the dead area is refreshed-but-empty: "nobody is active", not "unknown"
         assert old_row.contributors == []
+        assert old_row.refreshed_at is not None
         assert old_row.refreshed_at > timezone.now() - timedelta(minutes=1)
         assert [c["login"] for c in new_row.contributors] == ["alice"]
 
