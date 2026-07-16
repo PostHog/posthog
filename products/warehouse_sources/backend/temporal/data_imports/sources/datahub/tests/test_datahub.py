@@ -1,3 +1,4 @@
+import json
 from typing import Any, Optional
 
 import pytest
@@ -10,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datahub im
 from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.datahub import (
     PAGE_SIZE,
     DatahubHostNotAllowedError,
+    DatahubResponseTooLargeError,
     DatahubResumeConfig,
     DatahubRetryableError,
     _extract_entities,
@@ -32,14 +34,20 @@ def _mock_response(
     status_code: int = 200,
     json_data: Any = None,
     is_redirect: bool = False,
+    raw_body: bytes | None = None,
 ) -> MagicMock:
     response = MagicMock(spec=requests.Response)
     response.status_code = status_code
     response.ok = status_code < 400
     response.is_redirect = is_redirect
     response.is_permanent_redirect = False
-    response.json.return_value = json_data
-    response.text = str(json_data)
+    response.url = BASE_URL
+    # The source streams responses and reads the body via raw.read under a size cap, never
+    # response.json(); feed the encoded body through raw.read (which ignores its byte-count arg).
+    body = raw_body if raw_body is not None else (b"" if json_data is None else json.dumps(json_data).encode())
+    # `raw` is set in Response.__init__, so spec=Response doesn't expose it — attach it ourselves.
+    response.raw = MagicMock()
+    response.raw.read.return_value = body
     response.raise_for_status.side_effect = (
         requests.HTTPError(f"{status_code} Client Error", response=response) if status_code >= 400 else None
     )
@@ -136,6 +144,22 @@ class TestDatahub:
         session.get.return_value = _mock_response(status_code=status_code)
         with pytest.raises(requests.HTTPError):
             _fetch_unwrapped(session, "http://url", None, MagicMock())
+
+    def test_fetch_streams_and_parses_capped_json(self) -> None:
+        # stream=True keeps a hostile unbounded body from being buffered at request time; the
+        # body is then read under a cap and JSON-parsed. Dropping either regresses the SSRF/OOM
+        # guard, so pin both here.
+        session = MagicMock()
+        session.get.return_value = _mock_response(200, {"entities": [{"urn": "u1"}]})
+        result = _fetch_unwrapped(session, "http://url", None, MagicMock())
+        assert result == {"entities": [{"urn": "u1"}]}
+        assert session.get.call_args.kwargs["stream"] is True
+
+    def test_read_capped_bytes_rejects_oversized_body(self) -> None:
+        # A body larger than the cap must raise rather than buffer the whole thing.
+        response = _mock_response(200, raw_body=b"x" * 11)
+        with pytest.raises(DatahubResponseTooLargeError):
+            datahub._read_capped_bytes(response, max_bytes=10)
 
     @parameterized.expand([(301,), (302,), (307,)])
     def test_fetch_refuses_redirects(self, status_code: int) -> None:

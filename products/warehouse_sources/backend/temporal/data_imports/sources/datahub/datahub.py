@@ -1,4 +1,5 @@
 import re
+import json
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
@@ -23,6 +24,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.se
 # while staying far under any Elasticsearch result-window concern (scroll doesn't use windows).
 PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
+# The instance URL is customer-controlled, so a hostile server could stream an unbounded body to
+# exhaust a shared worker. Cap the bytes we buffer: a scroll page of PAGE_SIZE metadata entities
+# stays comfortably under this, while an error body only needs a short human-readable snippet.
+MAX_PAGE_RESPONSE_BYTES = 64 * 1024 * 1024
+MAX_ERROR_SNIPPET_BYTES = 64 * 1024
 # Cheap probe used to confirm the token is genuine: dataPlatform is a small built-in collection
 # (~60 rows) present on every DataHub instance.
 DEFAULT_PROBE_ENTITY = "dataPlatform"
@@ -35,6 +41,10 @@ class DatahubRetryableError(Exception):
 
 
 class DatahubHostNotAllowedError(Exception):
+    pass
+
+
+class DatahubResponseTooLargeError(Exception):
     pass
 
 
@@ -143,6 +153,21 @@ def _extract_entities(data: Any, url: str) -> tuple[list[dict[str, Any]], str | 
     return entities, scroll_id if isinstance(scroll_id, str) and scroll_id else None
 
 
+def _read_capped_bytes(response: requests.Response, max_bytes: int) -> bytes:
+    """Read a ``stream=True`` response body under a byte cap without buffering the whole thing.
+
+    The instance URL is customer-controlled, so a hostile server could return an unbounded (or
+    continuously streamed) body that would exhaust a shared worker if buffered in full. Because
+    the session streams, the body isn't materialised at ``session.get`` time — it's read here.
+    Read one byte past the cap so an oversized body is detected without buffering all of it; the
+    socket read timeout bounds a slow-drip that stays under the cap.
+    """
+    raw = response.raw.read(max_bytes + 1, decode_content=True) if response.raw is not None else b""
+    if len(raw) > max_bytes:
+        raise DatahubResponseTooLargeError(f"DataHub returned an oversized response for {response.url}")
+    return raw
+
+
 @retry(
     retry=retry_if_exception_type((DatahubRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
@@ -155,7 +180,8 @@ def _fetch(
     params: Optional[dict[str, Any]],
     logger: FilteringBoundLogger,
 ) -> Any:
-    response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+    # stream=True so the body isn't buffered at request time — it's read under a byte cap below.
+    response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
 
     # The session never follows redirects: a 3xx would move the sync off the validated host
     # (SSRF), so refuse it rather than silently fetching an empty body.
@@ -166,10 +192,16 @@ def _fetch(
         raise DatahubRetryableError(f"DataHub API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"DataHub API error: status={response.status_code}, body={response.text}, url={url}")
+        logger.error(f"DataHub API error: status={response.status_code}, body={_error_snippet(response)}, url={url}")
         response.raise_for_status()
 
-    return response.json()
+    raw = _read_capped_bytes(response, MAX_PAGE_RESPONSE_BYTES)
+    if not raw:
+        raise DatahubRetryableError(f"DataHub returned an empty response for {url}")
+    try:
+        return json.loads(raw)
+    except ValueError as exc:
+        raise DatahubRetryableError(f"DataHub returned a non-JSON response for {url}") from exc
 
 
 def get_rows(
@@ -253,10 +285,22 @@ def datahub_source(
     )
 
 
+def _error_snippet(response: requests.Response) -> str:
+    # Read only a capped slice of a (streamed) error body for logging — never the whole thing,
+    # which a hostile instance could inflate. Swallow read failures so logging never masks the
+    # real HTTP error.
+    try:
+        return _read_capped_bytes(response, MAX_ERROR_SNIPPET_BYTES).decode("utf-8", "replace")
+    except Exception:
+        return ""
+
+
 def _error_message(response: requests.Response) -> Optional[str]:
     # DataHub error bodies (when present — 401s are empty) carry a human-readable `message`.
+    # Read a capped snippet only: the body is streamed, so an oversized one is never buffered.
     try:
-        body = response.json()
+        raw = _read_capped_bytes(response, MAX_ERROR_SNIPPET_BYTES)
+        body = json.loads(raw) if raw else None
         if isinstance(body, dict) and isinstance(body.get("message"), str):
             return body["message"]
     except Exception:
@@ -292,8 +336,12 @@ def validate_credentials(
     session = _get_session(api_token)
     try:
         # The session never follows redirects: the validated host could 3xx to an internal
-        # address, defeating the host check above (SSRF).
-        response = session.get(_entity_url(base_url, probe_entity), params=_scroll_params(None, count=1), timeout=15)
+        # address, defeating the host check above (SSRF). stream=True so a hostile server can't
+        # exhaust the API worker with an unbounded body — a 200 returns without reading it, and
+        # error snippets are read under a cap.
+        response = session.get(
+            _entity_url(base_url, probe_entity), params=_scroll_params(None, count=1), timeout=15, stream=True
+        )
     except requests.exceptions.RequestException as e:
         return False, f"Could not connect to DataHub: {e}"
 
@@ -343,8 +391,13 @@ def check_endpoint_permissions(
             results[endpoint] = None
             continue
         try:
+            # stream=True so a hostile instance can't exhaust the API worker with an unbounded
+            # body; only a capped error snippet is read below when the status warrants a message.
             response = session.get(
-                _entity_url(base_url, config.entity_type), params=_scroll_params(None, count=1), timeout=15
+                _entity_url(base_url, config.entity_type),
+                params=_scroll_params(None, count=1),
+                timeout=15,
+                stream=True,
             )
         except requests.exceptions.RequestException:
             results[endpoint] = None
