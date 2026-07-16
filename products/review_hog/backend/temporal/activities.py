@@ -336,8 +336,8 @@ class BuildBodyInput:
     run_index: int
     # This turn's survivor ids (`DedupResult.issue_ids`); content reloads from the finding rows.
     issue_ids: list[str]
-    # The acting user's threshold, snapshotted at resolve time. Defaulted so payloads serialized
-    # before the field existed still deserialize (they keep the default consider behavior).
+    # The acting user's threshold, snapshotted at resolve time. Defaulted so pre-field payloads
+    # still deserialize — a missing field takes the current default, not the run's original gate.
     urgency_threshold: str = IssuePriority.CONSIDER.value
 
 
