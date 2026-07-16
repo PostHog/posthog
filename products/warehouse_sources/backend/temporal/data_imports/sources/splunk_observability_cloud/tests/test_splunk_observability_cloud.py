@@ -440,6 +440,33 @@ class TestRedirectHardening:
         assert factory.call_args.kwargs["allow_redirects"] is False
 
 
+class TestSampleCaptureDisabled:
+    # Detector/dashboard/chart response bodies and the SignalFlow program hold arbitrary
+    # customer content the name-based scrubber can't redact. Dropping capture=False (back
+    # to the default) would serialize that tenant content into the HTTP sample bucket.
+    def test_get_rows_disables_capture(self) -> None:
+        with patch(f"{_MODULE}.make_tracked_session") as factory:
+            factory.return_value.get.side_effect = [_json_response(_wrapped([]))]
+            list(
+                get_rows(
+                    realm="us0",
+                    access_token="test-token",
+                    endpoint="detectors",
+                    logger=MagicMock(),
+                    resumable_source_manager=_make_manager(),
+                )
+            )
+        assert factory.call_args.kwargs["capture"] is False
+
+    def test_validate_credentials_disables_capture(self) -> None:
+        with patch(f"{_MODULE}.make_tracked_session") as factory:
+            response = MagicMock()
+            response.status_code = 200
+            factory.return_value.get.return_value = response
+            validate_credentials("us0", "test-token")
+        assert factory.call_args.kwargs["capture"] is False
+
+
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_valid"),

@@ -397,7 +397,9 @@ def get_rows(
     # allow_redirects=False pins every credentialed request to the Splunk hosts:
     # requests only strips `Authorization` on a cross-host redirect, so a followed
     # redirect would replay the X-SF-TOKEN header to whatever host the 3xx names.
-    session = make_tracked_session(redact_values=(access_token,), allow_redirects=False)
+    # capture=False: detector/dashboard/chart response bodies and the SignalFlow
+    # program hold arbitrary customer content the name-based scrubber can't redact.
+    session = make_tracked_session(redact_values=(access_token,), allow_redirects=False, capture=False)
     now_ms = _to_epoch_ms(datetime.now(UTC))
 
     if config.uses_signalflow:
@@ -491,7 +493,8 @@ def validate_credentials(realm: str, access_token: str) -> tuple[bool, str | Non
     try:
         # One cheap probe: /v2/organization answers for any valid API-scoped token.
         # allow_redirects=False so the X-SF-TOKEN header can't be replayed off-host.
-        response = make_tracked_session(redact_values=(access_token,), allow_redirects=False).get(
+        # capture=False: the org response body carries arbitrary customer content.
+        response = make_tracked_session(redact_values=(access_token,), allow_redirects=False, capture=False).get(
             f"{base_url}/v2/organization",
             headers=_get_headers(access_token),
             timeout=10,
