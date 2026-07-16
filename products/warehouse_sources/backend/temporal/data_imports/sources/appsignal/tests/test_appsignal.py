@@ -214,7 +214,7 @@ class TestWindowedRows:
         )
 
         with (
-            mock.patch.object(_fetch_json.retry, "sleep", lambda _: None),
+            mock.patch.object(_fetch_json.retry, "sleep", lambda _: None),  # type: ignore[attr-defined]
             pytest.raises(AppsignalRetryableError) as exc_info,
         ):
             list(get_rows(secret, "app-id", "error_samples", mock.MagicMock(), _make_manager()))
@@ -285,7 +285,7 @@ class TestIncidentRows:
         mock_session.return_value = session
 
         with (
-            mock.patch.object(_fetch_graphql.retry, "sleep", lambda _: None),
+            mock.patch.object(_fetch_graphql.retry, "sleep", lambda _: None),  # type: ignore[attr-defined]
             pytest.raises(AppsignalRetryableError) as exc_info,
         ):
             list(get_rows(secret, "app-id", "exception_incidents", mock.MagicMock(), _make_manager()))
