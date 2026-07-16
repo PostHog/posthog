@@ -99,6 +99,7 @@ import {
     InsightColor,
     InsightModel,
     InsightShortId,
+    IntervalType,
     ProjectTreeRef,
     QueryBasedInsightModel,
     TextModel,
@@ -333,6 +334,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
+        setInterval: (interval: IntervalType | null) => ({ interval }),
         setExternalFilters: (filters: DashboardFilter) => ({ filters }),
         saveEditModeChanges: () => true,
         resetUrlFilters: () => true,
@@ -799,6 +801,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setDates: () => false,
                 setProperties: () => false,
                 setBreakdownFilter: () => false,
+                setInterval: () => false,
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
                 applyFilters: () => true,
@@ -904,7 +907,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } as DashboardType<QueryBasedInsightModel>
                 },
                 [dashboardsModel.actionTypes.tileMovedToDashboard]: (state, { tile, dashboardId }) => {
-                    if (state?.id === dashboardId) {
+                    if (state && state.id === dashboardId) {
                         return {
                             ...state,
                             tiles: [...state.tiles, tile],
@@ -914,7 +917,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
                 [dashboardsModel.actionTypes.updateDashboardInsight]: (
                     state,
-                    { insight, extraDashboardIds, sourceDashboardId }
+                    {
+                        insight,
+                        extraDashboardIds,
+                        sourceDashboardId,
+                    }: {
+                        insight: QueryBasedInsightModel
+                        extraDashboardIds?: number[]
+                        sourceDashboardId?: number
+                    }
                 ) => {
                     if (sourceDashboardId != null && sourceDashboardId !== props.id) {
                         // Insight payload is from another dashboard's refresh; merged query/date range must not leak here.
@@ -1270,6 +1281,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 properties: undefined,
                 breakdown_filter: undefined,
                 explicitDate: undefined,
+                interval: undefined,
             } as DashboardFilter,
             {
                 setDates: (state, { date_from, date_to, explicitDate }) => ({
@@ -1286,12 +1298,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ...state,
                     breakdown_filter,
                 }),
+                setInterval: (state, { interval }) => ({
+                    ...state,
+                    interval,
+                }),
                 resetIntermittentFilters: () => ({
                     date_from: undefined,
                     date_to: undefined,
                     properties: undefined,
                     breakdown_filter: undefined,
                     explicitDate: undefined,
+                    interval: undefined,
                 }),
             },
         ],
@@ -2132,7 +2149,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.applyPendingInsertion()
             }
         },
-        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, extraDashboardIds, sourceDashboardId }) => {
+        [dashboardsModel.actionTypes.updateDashboardInsight]: ({
+            insight,
+            extraDashboardIds,
+            sourceDashboardId,
+        }: {
+            insight: QueryBasedInsightModel
+            extraDashboardIds?: number[]
+            sourceDashboardId?: number
+        }) => {
             if (sourceDashboardId != null && sourceDashboardId !== props.id) {
                 // Same rationale as the reducer: ignore refresh payloads scoped to another dashboard.
                 return
@@ -3008,6 +3033,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
+        setInterval: ({ interval }) => {
+            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'interval', {
+                interval,
+            })
+
+            if (values.canAutoPreview) {
+                actions.refreshDashboardItems({
+                    action: RefreshDashboardItemsAction.Preview,
+                    forceRefresh: false,
+                })
+            }
+        },
         setExternalFilters: () => {
             if (values.tiles.length > 0) {
                 actions.refreshDashboardItems({
@@ -3197,6 +3234,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
             return [
                 currentLocation.pathname,
                 { ...newSearchParams, ...encodeURLFilters(newUrlFilters) },
+                currentLocation.hashParams,
+            ]
+        },
+        setInterval: ({ interval }) => {
+            if (!values.canAutoPreview) {
+                return
+            }
+
+            const { currentLocation } = router.values
+
+            const urlFilters = parseURLFilters(currentLocation.searchParams)
+            const newUrlFilters: DashboardFilter = {
+                ...urlFilters,
+                interval,
+            }
+
+            return [
+                currentLocation.pathname,
+                { ...currentLocation.searchParams, ...encodeURLFilters(newUrlFilters) },
                 currentLocation.hashParams,
             ]
         },
