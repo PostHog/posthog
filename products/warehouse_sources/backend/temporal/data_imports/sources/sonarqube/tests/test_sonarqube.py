@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -271,11 +272,44 @@ class _FakeResponse:
     def __init__(self, status_code: int, payload: Any = None) -> None:
         self.status_code = status_code
         self._payload = payload
+        self.closed = False
 
-    def json(self) -> Any:
-        if isinstance(self._payload, Exception):
-            raise self._payload
-        return self._payload
+    def iter_content(self, chunk_size: int = 1) -> Any:
+        if self._payload is None:
+            return
+        yield json.dumps(self._payload).encode()
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeStream:
+    """Yields caller-supplied byte chunks so `_read_bounded`'s cap can be exercised directly."""
+
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = chunks
+
+    def iter_content(self, chunk_size: int = 1) -> Any:
+        yield from self._chunks
+
+
+class TestReadBounded:
+    @pytest.mark.parametrize(
+        "cap, chunks, expected",
+        [
+            (16, [b"aaaa", b"bbbb"], b"aaaabbbb"),
+            (8, [b"aaaa", b"bbbb"], b"aaaabbbb"),  # exactly at the cap is allowed
+            (0, [], b""),
+        ],
+    )
+    def test_reads_body_within_cap(self, cap, chunks, expected, monkeypatch) -> None:
+        monkeypatch.setattr(sonarqube, "MAX_RESPONSE_BYTES", cap)
+        assert sonarqube._read_bounded(_FakeStream(chunks)) == expected  # type: ignore[arg-type]
+
+    def test_raises_when_body_exceeds_cap(self, monkeypatch) -> None:
+        monkeypatch.setattr(sonarqube, "MAX_RESPONSE_BYTES", 4)
+        with pytest.raises(ValueError):
+            sonarqube._read_bounded(_FakeStream([b"aaaa", b"b"]))  # type: ignore[arg-type]
 
 
 class TestValidateCredentials:

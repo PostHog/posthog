@@ -1,3 +1,4 @@
+import json
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -21,6 +22,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.
 
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRY_ATTEMPTS = 5
+
+# Hard cap on a single decoded response body. A user-configured server could serve an
+# arbitrarily large or highly compressed page; the read timeout only bounds idle socket
+# reads, not total size. Cap the decoded bytes so a misbehaving instance can't exhaust the
+# worker's memory. A legitimate `ps=500` page is well under this.
+MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 
 # Pages we can request per issues window before p*ps breaches SonarQube's 10,000-result ceiling.
 ISSUES_MAX_PAGES = ISSUES_MAX_RESULTS // PAGE_SIZE
@@ -106,6 +113,28 @@ def _extract_paging(data: dict[str, Any]) -> tuple[int, int, int]:
     )
 
 
+def _read_bounded(response: requests.Response) -> bytes:
+    """Read a streamed response body into memory under `MAX_RESPONSE_BYTES` of decoded bytes.
+
+    `iter_content` yields content-decoded chunks, so the running total also caps decompressed
+    size — a small gzip bomb can't blow past the limit. Raises a non-retryable ``ValueError``
+    when the body exceeds the cap.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    for chunk in response.iter_content(chunk_size=1024 * 1024):
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > MAX_RESPONSE_BYTES:
+            raise ValueError(
+                f"SonarQube response exceeded the {MAX_RESPONSE_BYTES // (1024 * 1024)} MiB limit; "
+                "check the configured server URL."
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 @retry(
     retry=retry_if_exception_type((SonarqubeRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
@@ -113,26 +142,31 @@ def _extract_paging(data: dict[str, Any]) -> tuple[int, int, int]:
     reraise=True,
 )
 def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> dict:
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+    # Streamed so the body is read under a byte cap rather than buffered whole by `requests`.
+    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
+    try:
+        # Rate limits are governed by the customer's own instance capacity rather than a vendor quota;
+        # back off and retry on 429 and transient 5xx rather than failing the sync.
+        if response.status_code == 429 or response.status_code >= 500:
+            raise SonarqubeRetryableError(f"SonarQube API error (retryable): status={response.status_code}, url={url}")
 
-    # Rate limits are governed by the customer's own instance capacity rather than a vendor quota;
-    # back off and retry on 429 and transient 5xx rather than failing the sync.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise SonarqubeRetryableError(f"SonarQube API error (retryable): status={response.status_code}, url={url}")
+        # Redirects are disabled at the session level as an SSRF boundary; a 3xx means the configured
+        # server is redirecting elsewhere, which we treat as a configuration error rather than follow.
+        if 300 <= response.status_code < 400:
+            raise ValueError(
+                f"SonarQube server returned an unexpected redirect (status={response.status_code}); "
+                "check the configured server URL."
+            )
 
-    # Redirects are disabled at the session level as an SSRF boundary; a 3xx means the configured
-    # server is redirecting elsewhere, which we treat as a configuration error rather than follow.
-    if 300 <= response.status_code < 400:
-        raise ValueError(
-            f"SonarQube server returned an unexpected redirect (status={response.status_code}); "
-            "check the configured server URL."
-        )
+        body = _read_bounded(response)
 
-    if not response.ok:
-        logger.error(f"SonarQube API error: status={response.status_code}, body={response.text[:500]}, url={url}")
-        response.raise_for_status()
+        if not response.ok:
+            logger.error(f"SonarQube API error: status={response.status_code}, body={body[:500]!r}, url={url}")
+            response.raise_for_status()
 
-    return response.json()
+        return json.loads(body or b"null")
+    finally:
+        response.close()
 
 
 def _iter_simple(
@@ -315,13 +349,17 @@ def validate_credentials(host: str, token: str) -> tuple[bool, int | None]:
     url = _build_url(normalize_base_url(host), "/api/authentication/validate", {})
     try:
         response = make_tracked_session(redact_values=(token,), allow_redirects=False).get(
-            url, headers=_headers(token), timeout=10
+            url, headers=_headers(token), timeout=10, stream=True
         )
     except Exception:
         return False, None
-    if response.status_code != 200:
-        return False, response.status_code
     try:
-        return bool(response.json().get("valid")), response.status_code
-    except Exception:
-        return False, response.status_code
+        if response.status_code != 200:
+            return False, response.status_code
+        try:
+            payload = json.loads(_read_bounded(response) or b"null")
+            return bool(payload.get("valid")), response.status_code
+        except Exception:
+            return False, response.status_code
+    finally:
+        response.close()
