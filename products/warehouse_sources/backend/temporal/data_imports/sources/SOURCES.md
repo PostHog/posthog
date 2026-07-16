@@ -230,6 +230,7 @@ the row lists both.
 | heroku                           | HTTP                        | requests                                                        | ✅                          |
 | hetzner                          | HTTP                        | requests                                                        | ✅                          |
 | hibob                            | HTTP                        | requests                                                        | ✅                          |
+| honeybadger                      | HTTP                        | requests                                                        | ✅                          |
 | honeycomb                        | HTTP                        | requests                                                        | ✅                          |
 | humanitix                        | HTTP                        | requests                                                        | ✅                          |
 | hubplanner                       | HTTP                        | requests                                                        | ✅                          |
@@ -698,6 +699,7 @@ doesn't conflict with concurrent PRs.
 - high_level
 - hightouch
 - honeybadger
+- honeycomb
 - hoorayhr
 - hubplanner
 - humanitix
