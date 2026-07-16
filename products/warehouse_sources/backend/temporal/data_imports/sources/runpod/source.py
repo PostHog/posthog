@@ -68,7 +68,6 @@ Create an API key in your [RunPod console settings](https://console.runpod.io/us
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

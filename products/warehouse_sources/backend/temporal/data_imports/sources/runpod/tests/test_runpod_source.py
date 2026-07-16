@@ -24,7 +24,6 @@ class TestRunPodSourceConfig:
         config = RunPodSource().get_source_config
         assert config.name == SchemaExternalDataSourceType.RUN_POD
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/runpod"
         fields = [f for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert [f.name for f in fields] == ["api_key"]
