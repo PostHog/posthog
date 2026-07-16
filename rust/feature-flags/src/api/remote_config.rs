@@ -15,12 +15,20 @@
 //! feature flag access, even though this endpoint can return decrypted payloads. OAuth
 //! access tokens are also not accepted — any non-`phs_` bearer goes through personal-key
 //! validation and gets 401; only `phs_` and `phx_` credentials work.
+//!
+//! Supports `If-None-Match` conditional requests like `/flags/definitions`, but with a
+//! content-derived ETag: no cache backs this endpoint (the payload is read from Postgres
+//! per request), so the etag is a hash of the exact response body computed after payload
+//! resolution. That makes it caller-dependent by construction — a secret-key caller's
+//! redacted body and a personal-key caller's decrypted body hash to different etags, so a
+//! 304 never validates one credential class's cached body against the other's. A match
+//! saves the body transfer, not the DB read.
 
 use crate::{
     api::{auth, errors::FlagError, flag_definitions},
     database::get_connection_with_metrics,
     flags::flag_payload_decryptor::REDACTED_PAYLOAD_VALUE,
-    metrics::consts::REMOTE_CONFIG_AUTH_COUNTER,
+    metrics::consts::{REMOTE_CONFIG_AUTH_COUNTER, REMOTE_CONFIG_ETAG_COUNTER},
     router::State as AppState,
     team::team_models::Team,
 };
@@ -28,11 +36,12 @@ use axum::{
     debug_handler,
     extract::{Path, Query, State},
     http::{HeaderMap, Method, StatusCode},
-    response::{IntoResponse, Json, Response},
+    response::{IntoResponse, Response},
 };
 use common_metrics::inc;
 use serde::Deserialize;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use tracing::warn;
 
 /// Query params. SDKs pass `?token=phc_...` (the project key) and call this with `@current`
@@ -192,10 +201,63 @@ pub async fn remote_config(
     // Django applies `or None` to the final value and renders None as an empty body, not
     // the JSON literal `null`. Apply the falsy check after decryption so an empty decrypted
     // string nulls out too.
-    match payload.filter(|v| !is_falsy(v)) {
-        Some(v) => Ok(Json(v).into_response()),
-        None => Ok(empty_ok_no_content_type()),
+    let payload = payload.filter(|v| !is_falsy(v));
+
+    // `Value::to_string` produces the same compact JSON `Json(v)` would serialize, so the
+    // etag hashes the exact bytes the client receives (empty payloads hash the empty body).
+    let body = payload.as_ref().map(Value::to_string).unwrap_or_default();
+    let current_etag = compute_etag(&body);
+
+    let client_etag = flag_definitions::extract_etag_from_header(headers.get("if-none-match"));
+    if client_etag.as_deref() == Some(current_etag.as_str()) {
+        inc(
+            REMOTE_CONFIG_ETAG_COUNTER,
+            &[("result".to_string(), "hit".to_string())],
+            1,
+        );
+        return Ok(flag_definitions::not_modified_response(&current_etag));
     }
+    inc(
+        REMOTE_CONFIG_ETAG_COUNTER,
+        &[(
+            "result".to_string(),
+            if client_etag.is_some() {
+                "miss"
+            } else {
+                "none"
+            }
+            .to_string(),
+        )],
+        1,
+    );
+
+    match payload {
+        Some(_) => Ok(json_ok_with_etag(body, &current_etag)),
+        None => Ok(empty_ok_no_content_type(&current_etag)),
+    }
+}
+
+/// Content-derived ETag: sha256 of the exact response body, truncated to 16 hex chars —
+/// the same shape HyperCache's `_compute_etag` produces for `/flags/definitions`, so SDKs
+/// see one etag format across both endpoints.
+fn compute_etag(body: &str) -> String {
+    let digest = Sha256::digest(body.as_bytes());
+    hex::encode(digest)[..16].to_string()
+}
+
+/// 200 with a pre-serialized JSON body plus ETag and Cache-Control headers, mirroring the
+/// sibling endpoint's `ok_response_with_etag`.
+fn json_ok_with_etag(body: String, etag: &str) -> Response {
+    (
+        StatusCode::OK,
+        [
+            ("content-type", "application/json".to_string()),
+            ("etag", flag_definitions::format_weak_etag(etag)),
+            ("cache-control", "private, must-revalidate".to_string()),
+        ],
+        body,
+    )
+        .into_response()
 }
 
 /// Decrypts the stored ciphertext on the personal-key path. Returns `None` when there is no
@@ -223,9 +285,17 @@ fn resolve_decrypted_payload(
 }
 
 /// 200 with an empty body and no Content-Type (NOT a JSON `null`), matching DRF's `Response(None)`:
-/// the renderer emits no bytes and DRF then deletes the Content-Type header.
-fn empty_ok_no_content_type() -> Response {
-    StatusCode::OK.into_response()
+/// the renderer emits no bytes and DRF then deletes the Content-Type header. Still carries the
+/// ETag/Cache-Control pair so a client polling a not-yet-set payload can 304 too.
+fn empty_ok_no_content_type(etag: &str) -> Response {
+    (
+        StatusCode::OK,
+        [
+            ("etag", flag_definitions::format_weak_etag(etag)),
+            ("cache-control", "private, must-revalidate".to_string()),
+        ],
+    )
+        .into_response()
 }
 
 /// Mirrors Python truthiness for `payloads.get("true") or None`. In practice the payload
