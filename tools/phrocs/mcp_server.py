@@ -61,21 +61,14 @@ def _query_phrocs(cmd: dict) -> dict | None:
 
 _NOT_RUNNING = {"error": "phrocs is not running. Start the dev environment with: ./bin/start"}
 
-# Log lines come from a VT emulator render: they can carry ANSI escapes,
-# screen-width padding, and unbounded length (minified JS in vite errors).
-# Clean them up here so MCP clients don't pay tokens for terminal noise.
+# Log lines come from a VT emulator render: they can carry ANSI escapes and
+# screen-width padding (the emulator hard-wraps at terminal width, so length
+# is already bounded). Clean them so MCP clients don't pay tokens for noise.
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
-_MAX_LINE_CHARS = 400
 
 
 def _clean_log_lines(lines: list[str]) -> list[str]:
-    cleaned: list[str] = []
-    for line in lines:
-        line = _ANSI_RE.sub("", line).rstrip()
-        if len(line) > _MAX_LINE_CHARS:
-            line = f"{line[:_MAX_LINE_CHARS]}… [+{len(line) - _MAX_LINE_CHARS} chars]"
-        cleaned.append(line)
-    return _collapse_repeats(cleaned)
+    return _collapse_repeats([_ANSI_RE.sub("", line).rstrip() for line in lines])
 
 
 def _collapse_repeats(lines: list[str]) -> list[str]:
