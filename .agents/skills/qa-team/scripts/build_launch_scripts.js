@@ -126,7 +126,7 @@ function main() {
             () => String(reviewerCount - 1)
         )
     )
-    console.log(`built ${runDir}/launch_first.js and ${runDir}/launch_rest.js for ${reviewerCount} reviewers`)
+    console.info(`built ${runDir}/launch_first.js and ${runDir}/launch_rest.js for ${reviewerCount} reviewers`)
 }
 
 main()
