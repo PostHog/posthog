@@ -9,6 +9,8 @@ production shape — a numeric/datetime property range filter, which materialize
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, cleanup_materialized_columns
 from unittest.mock import patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
@@ -100,6 +102,9 @@ class TestMaterializedRangeRewriteObservability(ClickhouseTestMixin, APIBaseTest
             column_type="Nullable(Float64)",
             property_type=PropertyType.Numeric,
         )
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertEqual(counts, {"skipped": 1})
+            return
         self.assertEqual(counts, {"fired_if_null": 1})
 
     def test_range_over_non_nullable_string_column_records_fired_compare(self):
@@ -111,6 +116,9 @@ class TestMaterializedRangeRewriteObservability(ClickhouseTestMixin, APIBaseTest
             is_nullable=False,
             property_type=None,
         )
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertEqual(counts, {"skipped": 1})
+            return
         self.assertEqual(counts, {"fired_compare": 1})
 
     def test_range_over_unmaterialized_property_records_nothing(self):
@@ -121,6 +129,9 @@ class TestMaterializedRangeRewriteObservability(ClickhouseTestMixin, APIBaseTest
             property_type=PropertyType.Numeric,
             materialized=False,
         )
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertEqual(counts, {"skipped": 1})
+            return
         self.assertEqual(counts, {})
 
     def test_skipped_outcome_flows_through_to_prometheus(self):
