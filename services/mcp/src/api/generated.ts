@@ -38457,6 +38457,11 @@ export namespace Schemas {
       readonly updated_at: string;
       /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
       readonly feedback_themes: FeedbackThemes | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface PaginatedReplayScannerList {
@@ -41600,6 +41605,9 @@ export namespace Schemas {
       prompt_guide?: string;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface VisionAction {
       readonly id: string;
       /**
@@ -41653,6 +41661,11 @@ export namespace Schemas {
       /** User who created the action. */
       readonly created_by: UserBasic | null;
       readonly updated_at: string;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface PaginatedVisionActionList {
@@ -46755,6 +46768,9 @@ export namespace Schemas {
       person_id?: string;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface PatchedReplayScanner {
       readonly id?: string;
       /**
@@ -46826,6 +46842,11 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
       readonly feedback_themes?: FeedbackThemes | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedReviewBlindSpotsConfigSelect {
@@ -49031,6 +49052,9 @@ export namespace Schemas {
       configuration?: unknown;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface PatchedVisionAction {
       readonly id?: string;
       /**
@@ -49084,6 +49108,11 @@ export namespace Schemas {
       /** User who created the action. */
       readonly created_by?: UserBasic | null;
       readonly updated_at?: string;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     /**

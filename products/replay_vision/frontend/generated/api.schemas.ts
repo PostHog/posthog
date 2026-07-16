@@ -243,6 +243,9 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface VisionActionApi {
     readonly id: string
     /**
@@ -312,6 +315,9 @@ export interface PaginatedVisionActionListApi {
     results: VisionActionApi[]
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface PatchedVisionActionApi {
     readonly id?: string
     /**
@@ -738,6 +744,9 @@ export interface FeedbackThemesApi {
     generated_at: string
 }
 
+/**
+ * A Replay Vision scanner: its type, targeting query, and AI configuration.
+ */
 export interface ReplayScannerApi {
     readonly id: string
     /**
@@ -825,6 +834,9 @@ export interface PaginatedReplayScannerListApi {
     results: ReplayScannerApi[]
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface PatchedReplayScannerApi {
     readonly id?: string
     /**
