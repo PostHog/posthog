@@ -17,6 +17,7 @@ use capture::time::TimeSource;
 use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
+use hmac::{Hmac, Mac};
 use integration_utils::{test_lifecycle_handlers, DEFAULT_TEST_TIME};
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
@@ -27,6 +28,7 @@ use opentelemetry_proto::tonic::resource::v1::Resource;
 use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans, Span};
 use prost::Message;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -124,6 +126,7 @@ struct TestClientOptions {
     redis: Option<Arc<MockRedisClient>>,
     event_restriction_service: Option<EventRestrictionService>,
     quota_limiter: Option<CaptureQuotaLimiter>,
+    ai_gateway_signing_secret: Option<String>,
     // Opt-in OverflowLimiter wiring. `None` (default) matches production
     // configs without `OVERFLOW_ENABLED=true` and exercises the no-op branch
     // of `stamp_overflow_reason`.
@@ -186,7 +189,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
-        None,             // ai_gateway_signing_secret
+        options.ai_gateway_signing_secret,
     );
 
     TestClient::new(app)
@@ -221,6 +224,48 @@ async fn send_request_with_client(client: &TestClient, request: &ExportTraceServ
         .await;
 
     resp.status().as_u16()
+}
+
+async fn send_signed_request_with_client(
+    client: &TestClient,
+    request: &ExportTraceServiceRequest,
+    secret: &str,
+) -> u16 {
+    let body = request.encode_to_vec();
+    let signature = sign_gateway_body(secret, &body, DEFAULT_TEST_TIME);
+
+    let resp = client
+        .post(ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", format!("Bearer {}", TOKEN))
+        .header("PostHog-Ai-Gateway-Signature", signature)
+        .header("PostHog-Ai-Gateway-Signed-At", DEFAULT_TEST_TIME)
+        .body(body)
+        .send()
+        .await;
+
+    resp.status().as_u16()
+}
+
+fn sign_gateway_body(secret: &str, body: &[u8], signed_at: &str) -> String {
+    let body_digest = hex::encode(Sha256::digest(body));
+    let fields = [
+        TOKEN,
+        "otel-v1",
+        "application/x-protobuf",
+        "",
+        body_digest.as_str(),
+        signed_at,
+    ];
+    let mut message = Vec::new();
+    for field in fields {
+        message.extend_from_slice(&(field.len() as u32).to_be_bytes());
+        message.extend_from_slice(field.as_bytes());
+    }
+
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+    mac.update(&message);
+    hex::encode(mac.finalize().into_bytes())
 }
 
 fn parse_event_data(event: &ProcessedEvent) -> serde_json::Value {
@@ -333,6 +378,54 @@ async fn test_single_span_produces_one_event() {
     );
     assert_eq!(data["properties"]["$ai_span_id"], "0102030405060708");
     assert_eq!(data["properties"]["$ai_ingestion_source"], "otel");
+}
+
+#[tokio::test]
+async fn test_verified_gateway_batch_stamps_trusted_provenance() {
+    const SECRET: &str = "test-signing-secret";
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            ai_gateway_signing_secret: Some(SECRET.to_string()),
+            ..Default::default()
+        },
+    );
+
+    let status =
+        send_signed_request_with_client(&client, &make_single_span_request(), SECRET).await;
+    assert_eq!(status, 200);
+
+    let events = sink.get_events().await;
+    let data = parse_event_data(&events[0]);
+    assert_eq!(data["properties"]["$ai_gateway_verified"], true);
+    assert_eq!(data["properties"]["$ai_gateway_relay"], true);
+}
+
+#[tokio::test]
+async fn test_unsigned_batch_cannot_forge_gateway_provenance() {
+    let sink = CapturingSink::new();
+    let mut request = make_single_span_request();
+    let attributes = &mut request.resource_spans[0].scope_spans[0].spans[0].attributes;
+    attributes.extend([
+        make_kv("$ai_gateway_verified", any_value::Value::BoolValue(true)),
+        make_kv("$ai_gateway_relay", any_value::Value::BoolValue(true)),
+        make_kv(
+            "$ai_gateway_request_id",
+            any_value::Value::StringValue("forged".to_string()),
+        ),
+    ]);
+
+    let status = send_request(&sink, &request).await;
+    assert_eq!(status, 200);
+
+    let events = sink.get_events().await;
+    let data = parse_event_data(&events[0]);
+    let properties = data["properties"].as_object().unwrap();
+    assert!(!properties.contains_key("$ai_gateway_verified"));
+    assert!(!properties.contains_key("$ai_gateway_relay"));
+    assert!(!properties.contains_key("$ai_gateway_request_id"));
 }
 
 #[tokio::test]
@@ -838,6 +931,60 @@ async fn test_quota_limit_exceeded_returns_400_with_no_events() {
 
     let events = sink.get_events().await;
     assert!(events.is_empty());
+}
+
+#[tokio::test]
+async fn test_verified_gateway_batch_bypasses_scoped_llm_quota() {
+    const SECRET: &str = "test-signing-secret";
+
+    let llm_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::LLMEvents.as_str()
+    );
+    let redis =
+        Arc::new(MockRedisClient::new().zrangebyscore_ret(&llm_key, vec![TOKEN.to_string()]));
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            redis: Some(redis),
+            ai_gateway_signing_secret: Some(SECRET.to_string()),
+            ..Default::default()
+        },
+    );
+
+    let status =
+        send_signed_request_with_client(&client, &make_single_span_request(), SECRET).await;
+    assert_eq!(status, 200);
+    assert_eq!(sink.get_events().await.len(), 1);
+}
+
+#[tokio::test]
+async fn test_verified_gateway_batch_respects_global_event_quota() {
+    const SECRET: &str = "test-signing-secret";
+
+    let global_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::Events.as_str()
+    );
+    let redis =
+        Arc::new(MockRedisClient::new().zrangebyscore_ret(&global_key, vec![TOKEN.to_string()]));
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            redis: Some(redis),
+            ai_gateway_signing_secret: Some(SECRET.to_string()),
+            ..Default::default()
+        },
+    );
+
+    let status =
+        send_signed_request_with_client(&client, &make_single_span_request(), SECRET).await;
+    assert_eq!(status, 400);
+    assert!(sink.get_events().await.is_empty());
 }
 
 #[tokio::test]
