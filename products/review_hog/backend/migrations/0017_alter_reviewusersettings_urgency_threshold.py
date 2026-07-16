@@ -21,13 +21,4 @@ class Migration(migrations.Migration):
                 max_length=20,
             ),
         ),
-        # New default is `consider` ("All issues") — publish every validated finding. The AlterField
-        # above only changes the default for future rows, so flip existing rows too (tiny table, and
-        # the feature has no persisted rows yet). Reverse is a no-op: a hard reset can't restore the
-        # prior per-row values.
-        migrations.RunSQL(
-            sql="UPDATE review_hog_reviewusersettings SET urgency_threshold = 'consider' "
-            "WHERE urgency_threshold <> 'consider';",
-            reverse_sql=migrations.RunSQL.noop,
-        ),
     ]
