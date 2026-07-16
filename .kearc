@@ -5,7 +5,7 @@
   "writePaths": true,
   "inlinePaths": [
     "./frontend/src/scenes/notebooks",
-    "./.kea-inline-batch-01-slot-01",
+    "./frontend/src/lib",
     "./.kea-inline-separator-01",
     "./.kea-inline-separator-01-b",
     "./frontend/src/scenes/StripeConfirmInstall",

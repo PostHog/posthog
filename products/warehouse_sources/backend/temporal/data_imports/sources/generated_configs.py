@@ -1037,7 +1037,9 @@ class CoupaSourceConfig(config.Config):
 
 @config.config
 class CoverallsSourceConfig(config.Config):
-    pass
+    repositories: str
+    service: Literal["github", "gitlab", "bitbucket"] = config.value(default="github")
+    api_token: str | None = None
 
 
 @config.config
