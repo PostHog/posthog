@@ -1,5 +1,6 @@
 import re
 import json
+import time
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -23,6 +24,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.set
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 5
 
+# Hard ceilings on how much of a response body we'll pull into memory and how long we'll spend
+# pulling it. The host is customer-supplied, so a hostile server could otherwise stream an
+# unbounded or slow-drip body and OOM / tie up a shared worker — the socket read timeout only
+# bounds idle gaps, not total bytes or total wall-clock. A single page of the largest endpoint
+# (100 fully-expanded changes) sits comfortably under the byte cap.
+MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+MAX_DOWNLOAD_SECONDS = 120
+DOWNLOAD_CHUNK_BYTES = 64 * 1024
+
 # Anti-XSSI magic prefix Gerrit prepends to every JSON response body.
 XSSI_PREFIX = ")]}'"
 
@@ -39,6 +49,10 @@ class GerritRetryableError(Exception):
 
 
 class GerritHostNotAllowedError(Exception):
+    pass
+
+
+class GerritResponseTooLargeError(Exception):
     pass
 
 
@@ -80,6 +94,32 @@ def parse_gerrit_response(text: str) -> Any:
     if stripped.startswith(XSSI_PREFIX):
         stripped = stripped[len(XSSI_PREFIX) :]
     return json.loads(stripped)
+
+
+def _read_capped_text(response: requests.Response) -> str:
+    """Drain a streamed response body under a byte cap and a wall-clock deadline, then decode to text.
+
+    The request is issued with ``stream=True`` so nothing is buffered until this read. We pull the
+    body in chunks and abort — closing the connection — the moment it exceeds ``MAX_RESPONSE_BYTES``
+    or ``MAX_DOWNLOAD_SECONDS``, so a hostile customer-supplied host can neither OOM nor indefinitely
+    tie up a shared worker with an oversized or slow-drip body.
+    """
+    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_BYTES):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > MAX_RESPONSE_BYTES:
+                raise GerritResponseTooLargeError("Gerrit returned an oversized response body")
+            if time.monotonic() > deadline:
+                raise GerritResponseTooLargeError("Gerrit response body took too long to download")
+            chunks.append(chunk)
+    finally:
+        response.close()
+    return b"".join(chunks).decode(response.encoding or "utf-8", errors="replace")
 
 
 def _api_base(base_url: str, authenticated: bool) -> str:
@@ -204,35 +244,41 @@ def validate_credentials(
     else:
         probe_url = f"{api_base}/config/server/version"
 
+    # stream=True so the body isn't buffered until we drain it under a cap (see _read_capped_text).
     try:
-        response = session.get(probe_url, timeout=10, allow_redirects=False)
+        with session.get(probe_url, timeout=10, allow_redirects=False, stream=True) as response:
+            if response.is_redirect or response.is_permanent_redirect:
+                return False, HOST_NOT_ALLOWED_ERROR
+            if response.status_code == 200:
+                try:
+                    parse_gerrit_response(_read_capped_text(response))
+                except GerritResponseTooLargeError:
+                    return False, (
+                        "Gerrit returned an unexpectedly large response. "
+                        "Check that the instance URL points to your Gerrit instance."
+                    )
+                except (json.JSONDecodeError, ValueError):
+                    return False, (
+                        "Gerrit didn't return a valid API response. "
+                        "Check that the instance URL points to your Gerrit instance."
+                    )
+                return True, None
+            if response.status_code == 401:
+                return False, "Invalid Gerrit username or HTTP password"
+            if response.status_code == 403:
+                # Valid token but missing permission for this probe — let source creation through;
+                # per-schema probes still report it so users can deselect the table.
+                if schema_name is None:
+                    return True, None
+                return False, "Your Gerrit account lacks permission to read this resource"
+
+            return (
+                False,
+                f"Gerrit returned an unexpected response (HTTP {response.status_code}). "
+                "Check that the instance URL points to your Gerrit instance.",
+            )
     except requests.exceptions.RequestException as e:
         return False, _connection_error_message(e)
-
-    if response.is_redirect or response.is_permanent_redirect:
-        return False, HOST_NOT_ALLOWED_ERROR
-    if response.status_code == 200:
-        try:
-            parse_gerrit_response(response.text)
-        except (json.JSONDecodeError, ValueError):
-            return False, (
-                "Gerrit didn't return a valid API response. Check that the instance URL points to your Gerrit instance."
-            )
-        return True, None
-    if response.status_code == 401:
-        return False, "Invalid Gerrit username or HTTP password"
-    if response.status_code == 403:
-        # Valid token but missing permission for this probe — let source creation through;
-        # per-schema probes still report it so users can deselect the table.
-        if schema_name is None:
-            return True, None
-        return False, "Your Gerrit account lacks permission to read this resource"
-
-    return (
-        False,
-        f"Gerrit returned an unexpected response (HTTP {response.status_code}). "
-        "Check that the instance URL points to your Gerrit instance.",
-    )
 
 
 def get_rows(
@@ -275,23 +321,27 @@ def get_rows(
         wait=wait_exponential_jitter(initial=1, max=30),
         reraise=True,
     )
-    def fetch(page_url: str) -> requests.Response:
+    def fetch(page_url: str) -> str:
         # Don't follow redirects: a customer-controlled host could 3xx to an internal address,
-        # bypassing the host check above (SSRF).
-        response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False)
+        # bypassing the host check above (SSRF). stream=True so the body isn't buffered until we
+        # drain it under a cap (see _read_capped_text).
+        with session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False, stream=True) as response:
+            # Gerrit rate limits surface as 429 with an instance-configured window; back off and retry.
+            if response.status_code == 429 or response.status_code >= 500:
+                raise GerritRetryableError(
+                    f"Gerrit API error (retryable): status={response.status_code}, url={page_url}"
+                )
+            if response.is_redirect or response.is_permanent_redirect:
+                raise GerritHostNotAllowedError(
+                    f"Gerrit API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
+                )
+            if not response.ok:
+                logger.error(
+                    f"Gerrit API error: status={response.status_code}, body={_read_capped_text(response)}, url={page_url}"
+                )
+                response.raise_for_status()
 
-        # Gerrit rate limits surface as 429 with an instance-configured window; back off and retry.
-        if response.status_code == 429 or response.status_code >= 500:
-            raise GerritRetryableError(f"Gerrit API error (retryable): status={response.status_code}, url={page_url}")
-        if response.is_redirect or response.is_permanent_redirect:
-            raise GerritHostNotAllowedError(
-                f"Gerrit API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
-            )
-        if not response.ok:
-            logger.error(f"Gerrit API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response
+            return _read_capped_text(response)
 
     while True:
         page_params: dict[str, str | list[str]] = {**params, "n": str(config.page_size)}
@@ -299,8 +349,7 @@ def get_rows(
             page_params["S"] = str(offset)
         url = f"{api_base}{config.path}?{urlencode(page_params, doseq=True)}"
 
-        response = fetch(url)
-        rows, has_more = _rows_from_response(config, parse_gerrit_response(response.text))
+        rows, has_more = _rows_from_response(config, parse_gerrit_response(fetch(url)))
 
         if not rows:
             break

@@ -27,7 +27,15 @@ def _response(*, status_code: int = 200, text: str = "", is_redirect: bool = Fal
     response.is_redirect = is_redirect
     response.is_permanent_redirect = False
     response.text = text
+    response.encoding = "utf-8"
     response.headers = {}
+    # The source reads bodies with stream=True via response.iter_content; hand back the body in one
+    # chunk (empty bodies yield nothing). A fresh iterator per call mirrors requests' behaviour.
+    body = text.encode("utf-8")
+    response.iter_content.side_effect = lambda chunk_size=None: iter([body] if body else [])
+    # Responses are used as context managers (with session.get(...) as response).
+    response.__enter__.return_value = response
+    response.__exit__.return_value = False
     return response
 
 
@@ -260,6 +268,14 @@ class TestGetRows:
         assert "/a/" not in url
         assert "https://gerrit.example.com/changes/" in url
 
+    def test_oversized_response_body_is_rejected(self):
+        body = ")]}'\n" + "[" + ",".join(f'{{"id": "p~{i}"}}' for i in range(50)) + "]"
+        with (
+            mock.patch.object(gerrit_module, "MAX_RESPONSE_BYTES", 8),
+            pytest.raises(gerrit_module.GerritResponseTooLargeError),
+        ):
+            _get_all_rows("changes", [_response(text=body)])
+
     def test_unsafe_host_is_rejected_before_any_request(self):
         session, session_patcher = _patch_session([])
 
@@ -374,6 +390,12 @@ class TestValidateCredentials:
         valid, error = self._validate([_response(text="<html>a login page</html>")])
         assert valid is False
         assert error is not None and "valid API response" in error
+
+    def test_oversized_response_body_is_rejected(self):
+        with mock.patch.object(gerrit_module, "MAX_RESPONSE_BYTES", 8):
+            valid, error = self._validate([_response(text=')]}\'\n{"_account_id": 1, "padding": "xxxxxxxxxx"}')])
+        assert valid is False
+        assert error is not None and "large" in error
 
     def test_username_without_password_is_rejected_without_a_request(self):
         valid, error = self._validate([], http_password=None)
