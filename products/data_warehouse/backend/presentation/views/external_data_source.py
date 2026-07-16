@@ -38,7 +38,6 @@ from posthog.schema import (
     SourceFieldSwitchGroupConfig,
 )
 
-from posthog.hogql.database.database import Database
 from posthog.hogql.direct_sql.capability import direct_capable_source_types
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -1816,13 +1815,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        # Building the full HogQL Database and serializing per-schema table columns is expensive
-        # and only needed when a caller reads `schemas[].table.columns` — which the source list view
-        # never does (it only reads name/row_count). Gate both to single-source reads.
-        include_columns = self.action != "list"
-        context["include_columns"] = include_columns
-        if include_columns:
-            context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
+        # `schemas[].table.columns` is serialized from each table's stored schema metadata, which
+        # never needs the HogQL database — so we don't build one here. Eagerly calling
+        # Database.create_for on every read fanned out into Postgres (sources, saved queries,
+        # org-membership access checks) and, under pgbouncer pool pressure, surfaced as
+        # query_wait_timeout on this endpoint. The list view skips columns entirely.
+        context["include_columns"] = self.action != "list"
 
         return context
 

@@ -1791,8 +1791,17 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(list_table["name"], "Accounts")
         self.assertEqual(list_table["columns"], [])
 
-        # The single-source read still populates columns for the schema detail page.
-        retrieve_payload = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}").json()
+        # The single-source read still populates columns for the schema detail page — but it must do
+        # so from stored schema metadata, without building the full HogQL database. That eager
+        # create_for fan-out is what saturated the Postgres pool and 500'd this endpoint with
+        # query_wait_timeout, so guard against it being reintroduced.
+        with patch(
+            "posthog.hogql.database.database.Database.create_for", side_effect=AssertionError("create_for")
+        ) as mock_create_for:
+            retrieve_payload = self.client.get(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}"
+            ).json()
+        mock_create_for.assert_not_called()
         retrieve_columns = retrieve_payload["schemas"][0]["table"]["columns"]
         self.assertTrue(any(column["key"] == "id" for column in retrieve_columns))
 

@@ -223,19 +223,17 @@ class SimpleTableSerializer(UserAccessControlSerializerMixin, serializers.ModelS
         if not self.context.get("include_columns", True):
             return []
 
-        database = self.context.get("database", None)
         team_id = self.context.get("team_id", None)
 
-        if not database:
-            request = self.context.get("request")
-            database = Database.create_for(
-                team_id=self.context["team_id"],
-                user=cast(User, request.user) if request else None,
-            )
-
+        # Columns come straight from the table's stored schema metadata (`hogql_definition().fields`,
+        # all plain DatabaseFields), so serialize_fields never dereferences the HogQL database here.
+        # Building one just to pass it through fans out into Postgres (sources, saved queries,
+        # org-membership access checks) on every read — the load that saturated the connection pool
+        # and surfaced as query_wait_timeout. Reuse a prebuilt database if a caller supplied one, but
+        # never build it on demand.
         fields = serialize_fields(
             table.hogql_definition().fields,
-            HogQLContext(database=database, team_id=team_id),
+            HogQLContext(database=self.context.get("database"), team_id=team_id),
             table.name_chain,
             table_type="external",
         )

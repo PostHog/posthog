@@ -13,13 +13,10 @@ from rest_framework.exceptions import MethodNotAllowed, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.hogql.database.database import Database
-
 from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerializer, fetch_log_entries
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
-from posthog.models.user import User
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import (
@@ -544,18 +541,13 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if schema.table and schema.table.deleted:
             return None
 
-        # Serializing table columns requires the full HogQL Database, which is expensive to build.
         # Callers that don't need columns (e.g. the source list) set include_columns=False so we skip it.
         include_columns = self.context.get("include_columns", True)
         table_context: dict[str, Any] = {"include_columns": include_columns, "team_id": self.context.get("team_id")}
+        # Pass through a prebuilt HogQL database if a caller supplied one, but never build it here:
+        # SimpleTableSerializer serializes warehouse columns from stored metadata and doesn't need it.
         if include_columns:
-            hogql_context = self.context.get("database", None)
-            if not hogql_context:
-                hogql_context = Database.create_for(
-                    team_id=self.context["team_id"],
-                    user=cast(User, self.context["request"].user),
-                )
-            table_context["database"] = hogql_context
+            table_context["database"] = self.context.get("database")
 
         return SimpleTableSerializer(schema.table, context=table_context).data or None
 
@@ -1328,7 +1320,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
+        # No HogQL database built here — SimpleTableSerializer serializes columns from stored metadata,
+        # so building one per read only fanned out into Postgres under connection-pool pressure.
         # Only the single-schema retrieve embeds the parent-source summary (see ExternalDataSchemaSerializer.get_source).
         context["include_source"] = self.action == "retrieve"
         return context
