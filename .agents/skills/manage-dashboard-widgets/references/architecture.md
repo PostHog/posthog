@@ -119,7 +119,7 @@ Checklist steps: [checklist-new-widget-type.md §7](checklist-new-widget-type.md
 
 Catalog entry in `widget_types/catalog.ts` drives add modal, layouts, headers, previews, and **public/shared placeholder copy** — registry alone is not enough.
 
-Optional catalog `availability` declares project setup prerequisites (e.g. session recording enabled). Gating runs at **tile render** via `WidgetRuntimeAvailabilityGuard`, not in the add modal — see [availability-and-gating.md](availability-and-gating.md).
+Optional catalog `availability` declares project setup prerequisites (exception autocapture, etc.). Gating runs at **tile render** via `WidgetRuntimeAvailabilityGuard`, not in the add modal — see [availability-and-gating.md](availability-and-gating.md).
 
 ## Widget type vs catalog group
 
