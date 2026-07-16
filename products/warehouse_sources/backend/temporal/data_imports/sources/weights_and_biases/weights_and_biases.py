@@ -1,4 +1,5 @@
 import json
+import time
 import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
@@ -30,6 +31,11 @@ MAX_RESPONSE_BYTES = 100 * 1024 * 1024
 # is 5M rows per connection — far beyond any real entity — so a legitimate sync never hits it,
 # while a runaway server can't loop indefinitely or grow the enumerated project list without end.
 MAX_PAGES_PER_CONNECTION = 100_000
+RESPONSE_READ_CHUNK_BYTES = 1024 * 1024
+# Wall-clock ceiling for consuming a single response body. The request timeout is a per-read
+# inactivity limit, so a host that drips a byte before each timeout could hold a worker for the
+# whole import; this bounds total transfer time regardless of drip cadence.
+MAX_TRANSFER_SECONDS = 120
 
 # Advertised incremental field (row column, camelCase as the API returns it) -> the ascending
 # order key the runs connection accepts. Both filter + order verified against the live API.
@@ -221,6 +227,28 @@ def _format_timestamp(value: Any) -> str:
     return str(value)
 
 
+def _read_response_body(response: requests.Response) -> bytes:
+    """Read a streamed response body under both a size cap and a wall-clock transfer deadline.
+
+    The host is customer-controlled, so neither the total size nor the total transfer time can be
+    trusted: read in chunks, aborting if the body exceeds MAX_RESPONSE_BYTES or the wall-clock
+    deadline passes. The deadline closes the slow-drip hole the per-read inactivity timeout leaves.
+    """
+    deadline = time.monotonic() + MAX_TRANSFER_SECONDS
+    buffer = bytearray()
+    while True:
+        if time.monotonic() > deadline:
+            response.close()
+            raise WeightsAndBiasesGraphQLError("Weights & Biases response exceeded the transfer deadline")
+        chunk = response.raw.read(RESPONSE_READ_CHUNK_BYTES, decode_content=True)
+        if not chunk:
+            return bytes(buffer)
+        buffer += chunk
+        if len(buffer) > MAX_RESPONSE_BYTES:
+            response.close()
+            raise WeightsAndBiasesGraphQLError("Weights & Biases API returned an oversized response body")
+
+
 def _execute(
     session: requests.Session,
     url: str,
@@ -237,12 +265,7 @@ def _execute(
         response.close()
         raise WeightsAndBiasesRetryableError(f"Weights & Biases API error (retryable): status={response.status_code}")
 
-    # The host is customer-controlled, so read the body under a cap rather than materialising an
-    # unbounded response into a shared worker. Read one byte past the cap to detect an oversized
-    # body without buffering the whole thing; the request timeout bounds a slowly-streamed one.
-    raw = response.raw.read(MAX_RESPONSE_BYTES + 1, decode_content=True)
-    if len(raw) > MAX_RESPONSE_BYTES:
-        raise WeightsAndBiasesGraphQLError("Weights & Biases API returned an oversized response body")
+    raw = _read_response_body(response)
 
     if not response.ok:
         logger.error(

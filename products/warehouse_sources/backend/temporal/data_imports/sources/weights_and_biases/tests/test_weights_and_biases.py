@@ -48,11 +48,12 @@ def _connection_response(
 
 
 def _ok_response(payload: dict[str, Any]) -> mock.MagicMock:
-    # _execute reads the body via response.raw.read(...) under a size cap, not response.json().
+    # _execute reads the body in chunks via response.raw.read(...) until EOF (empty bytes), under a
+    # size + time cap, not response.json(). One chunk with the payload, then EOF.
     resp = mock.MagicMock()
     resp.status_code = 200
     resp.ok = True
-    resp.raw.read.return_value = json.dumps(payload).encode()
+    resp.raw.read.side_effect = [json.dumps(payload).encode(), b""]
     return resp
 
 
@@ -389,6 +390,17 @@ class TestErrors:
 
         with pytest.raises(WeightsAndBiasesGraphQLError, match="oversized"):
             list(get_rows("key", None, "acme", "projects", mock.MagicMock(), _make_manager()))
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_slow_response_exceeding_transfer_deadline_is_rejected(self, mock_session):
+        # A host that drips bytes to stay under the per-read timeout must still be cut off by the
+        # wall-clock transfer deadline. Advance the clock past the deadline on the first read check.
+        mock_session.return_value.post.return_value = _ok_response({"data": {"models": {"edges": []}}})
+
+        with mock.patch(f"{_MODULE}.time") as mock_time:
+            mock_time.monotonic.side_effect = [0.0, 1e9]
+            with pytest.raises(WeightsAndBiasesGraphQLError, match="deadline"):
+                list(get_rows("key", None, "acme", "projects", mock.MagicMock(), _make_manager()))
 
 
 class TestSourceResponse:
