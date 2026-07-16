@@ -119,9 +119,9 @@ export function DashboardsTable({
                     AccessControlLevel.Editor
                 )
                 return (
-                    // Guarantee the name stays legible on narrow/medium screens: the auto-layout table treats
-                    // the column `width` as a hint only, so a min-width on the cell content is what actually holds.
-                    <div className="min-w-[16rem]">
+                    // A max-width gives `truncate` (white-space: nowrap) something to ellipsize against; without one
+                    // the name grows the auto-layout cell and scrolls the whole table instead of truncating.
+                    <div className="max-w-[40rem]">
                         <LemonTableLink
                             to={urls.dashboard(id)}
                             truncateTitle
