@@ -336,17 +336,8 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if new_value is not None and new_value != getattr(instance, field):
                 raise serializers.ValidationError({field: f"{field} cannot be changed after creation."})
 
-        # Emitters read `config` under `created_by`'s access control, so whoever last *changes*
-        # config must become its authorizer — otherwise an editor could ride the original creator's
-        # broader access. Edits that leave config untouched (e.g. toggling `enabled`) keep
-        # `created_by` as-is, so a config's autonomous-run identity only moves with its authorized
-        # contents.
-        new_config = serializer.validated_data.get("config")
-        reauthorize = new_config is not None and new_config != instance.config
-        save_kwargs = {"created_by": self.request.user} if reauthorize else {}
-
         try:
-            instance = serializer.save(**save_kwargs)
+            instance = serializer.save()
         except IntegrityError:
             raise serializers.ValidationError(
                 {"source_product": "A configuration for this source product and type already exists for this team."}
