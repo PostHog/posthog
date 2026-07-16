@@ -13,11 +13,85 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from typing import Any
+from uuid import UUID
 
 import pytz
 from dateutil.relativedelta import relativedelta
 from pytz.exceptions import AmbiguousTimeError, NonExistentTimeError
 from pytz.tzinfo import BaseTzInfo
+
+DEFAULT_SCHEDULE_INTERVAL_SECONDS = 60
+
+
+def compute_shard_offset_seconds(
+    alert_id: UUID,
+    check_interval_minutes: int,
+    *,
+    schedule_interval_seconds: int = DEFAULT_SCHEDULE_INTERVAL_SECONDS,
+) -> int:
+    """Deterministic per-alert offset within the cadence period.
+
+    Spreads alerts across `cadence / schedule_interval_seconds` slots so cron
+    fires pick up roughly equal slices instead of the whole fleet at once. With
+    a 60s schedule interval and a 5-min cadence, alerts distribute over
+    5 buckets at offsets [0, 60, 120, 180, 240] seconds.
+
+    `alert_id.int` is stable across pod restarts (process-local `hash()` is not).
+    For UUIDv7 IDs, the low bits are the random portion, so the modulus operation
+    produces a uniform distribution.
+    Cadences ≤ schedule interval get 1 shard (no spread possible).
+    """
+    cadence_seconds = check_interval_minutes * 60
+    shard_count = max(1, cadence_seconds // schedule_interval_seconds)
+    shard_index = alert_id.int % shard_count
+    return shard_index * schedule_interval_seconds
+
+
+def advance_next_check_at(
+    current_next_check_at: datetime | None,
+    check_interval_minutes: int,
+    now: datetime,
+    *,
+    shard_offset_seconds: int = 0,
+) -> datetime:
+    """Schedule-relative advancement, snapped to the canonical cadence grid.
+
+    The scheduler cron fires every minute. A sub-minute offset on the returned
+    `next_check_at` (e.g. 12:05:30) makes the cron skip a full tick waiting for
+    it. Snapping to the cadence grid aligns every alert sharing a cadence onto
+    the same canonical grid regardless of when it was created.
+
+    `shard_offset_seconds` shifts the canonical grid per-alert to spread load
+    across cron fires. Existing drifted alerts heal lazily on their next run.
+    """
+    if check_interval_minutes <= 0:
+        raise ValueError(f"check_interval_minutes must be positive, got {check_interval_minutes}")
+    interval = timedelta(minutes=check_interval_minutes)
+
+    if current_next_check_at is None:
+        next_at = now + interval
+    else:
+        next_at = current_next_check_at + interval
+        if next_at <= now:
+            elapsed = (now - next_at).total_seconds()
+            intervals_to_skip = int(elapsed // interval.total_seconds()) + 1
+            next_at += interval * intervals_to_skip
+
+    snapped = _floor_to_cadence_grid(next_at, check_interval_minutes) + timedelta(seconds=shard_offset_seconds)
+    if snapped <= now:
+        snapped += interval
+    return snapped
+
+
+def _floor_to_cadence_grid(timestamp: datetime, cadence_minutes: int) -> datetime:
+    total_minutes = timestamp.hour * 60 + timestamp.minute
+    floored_minutes = (total_minutes // cadence_minutes) * cadence_minutes
+    return timestamp.replace(
+        hour=floored_minutes // 60,
+        minute=floored_minutes % 60,
+        second=0,
+        microsecond=0,
+    )
 
 
 class CalendarInterval(StrEnum):
