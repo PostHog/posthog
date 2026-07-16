@@ -36,11 +36,12 @@ class TestSecureframeSource:
 
         assert [f.name for f in config.fields] == ["region", "api_key", "api_secret"]
 
-    def test_api_secret_field_is_secret_password(self):
+    @pytest.mark.parametrize("field_name", ["api_key", "api_secret"])
+    def test_credential_fields_are_secret_passwords(self, field_name):
+        # Both halves of the credential must be secret so the source serializer never echoes
+        # them back in job_inputs to anyone who can read the source.
         config = self.source.get_source_config
-        secret_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_secret"
-        )
+        secret_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == field_name)
         assert secret_field.type == SourceFieldInputConfigType.PASSWORD
         assert secret_field.secret is True
         assert secret_field.required is True

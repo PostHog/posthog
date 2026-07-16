@@ -80,10 +80,10 @@ You can create an API key and secret in the Secureframe Console under **Your Pro
                     SourceFieldInputConfig(
                         name="api_key",
                         label="API key",
-                        type=SourceFieldInputConfigType.TEXT,
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
-                        secret=False,
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="api_secret",
