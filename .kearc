@@ -4,7 +4,7 @@
   "typesPath": "./frontend/src",
   "writePaths": true,
   "inlinePaths": [
-    "./scenes/notebooks",
+    "./frontend/src/scenes/notebooks",
     "./.kea-inline-batch-01-slot-01",
     "./.kea-inline-separator-01",
     "./.kea-inline-separator-01-b",
