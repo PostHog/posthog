@@ -249,12 +249,19 @@ def _get_single_stack_update_rows(
         rows = [_flatten_update(item, org, project, stack) for item in updates]
 
         if watermark is not None:
+            # Rows without a usable startTime can't be compared to the watermark; keep them rather
+            # than silently drop a new update the API returned untimestamped. Merge dedupes the
+            # re-yielded ones on the primary key, so this costs a rewrite, not duplicate rows.
             kept = [row for row in rows if not isinstance(row.get("startTime"), int) or row["startTime"] >= watermark]
             if kept:
                 yield kept
             start_times = [row["startTime"] for row in rows if isinstance(row.get("startTime"), int)]
             # Newest-first: if this page already reaches below the watermark, every later page is older.
             if start_times and min(start_times) < watermark:
+                return
+            # A full page carrying no usable startTime gives no signal to stop on; bail rather than
+            # walk to the page cap should the API ever return updates without a startTime.
+            if not start_times:
                 return
         else:
             yield rows

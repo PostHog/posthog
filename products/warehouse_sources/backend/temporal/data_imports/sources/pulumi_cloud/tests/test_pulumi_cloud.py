@@ -225,6 +225,32 @@ class TestStackUpdates:
         assert fetched_pages == [1]
         assert [r["startTime"] for r in rows] == list(range(2050, effective_watermark - 1, -1))
 
+    def test_incremental_stops_on_full_page_without_usable_start_times(self) -> None:
+        # If the API ever returns a full page of updates with no usable startTime, the newest-first
+        # stop signal is absent; pagination must bail instead of walking to the page cap. The rows on
+        # that page are still yielded (kept) so an untimestamped update isn't silently dropped.
+        fetched_pages: list[int] = []
+
+        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
+            if url.endswith("/api/user/stacks"):
+                return {"stacks": [_stack_summary("proj", "dev")]}
+            page = (params or {}).get("page", 1)
+            fetched_pages.append(page)
+            # A full page (would otherwise trigger another fetch) with no startTime on any row.
+            return {"updates": [{"updateID": f"u-{page}-{i}", "version": i, "info": {}} for i in range(PAGE_SIZE)]}
+
+        rows = _run_rows(
+            "stack_updates",
+            fake_fetch,
+            _FakeResumableManager(),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=5000,
+            incremental_field="startTime",
+        )
+
+        assert fetched_pages == [1]
+        assert len(rows) == PAGE_SIZE
+
     def test_incremental_without_watermark_walks_full_history(self) -> None:
         pages = [list(range(2 * PAGE_SIZE, PAGE_SIZE, -1)), [50]]
         rows = _run_rows(
