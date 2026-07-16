@@ -293,6 +293,40 @@ describe('tracingDataLogic', () => {
         })
     })
 
+    describe('null API responses', () => {
+        // `api.tracing.*` route through `getJSONOrNull`, which yields null on an empty body, a 204,
+        // or a non-JSON page (gateway timeout). The loaders used to deref `response.hasMore` and
+        // crash; these lock in the null-as-no-results/no-more-pages handling.
+        it('fetchSpans treats a null response as no results and no more pages', async () => {
+            const spy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue(null)
+            logic = mountWithSpans([])
+            await logic.asyncActions.fetchSpans()
+            expect(logic.values.spans).toEqual([])
+            expect(logic.values.hasMoreToLoad).toBe(false)
+            expect(logic.values.nextCursor).toBeNull()
+            spy.mockRestore()
+        })
+
+        it('fetchNextPage keeps loaded spans and stops paging on a null response', async () => {
+            const spy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue(null)
+            logic = mountWithSpans(mockSpans)
+            logic.actions.setHasMoreToLoad(true)
+            await logic.asyncActions.fetchNextPage()
+            expect(logic.values.spans).toEqual(mockSpans)
+            expect(logic.values.hasMoreToLoad).toBe(false)
+            spy.mockRestore()
+        })
+
+        it('loadTraceSpans treats a null response as an empty trace with no more pages', async () => {
+            const spy = jest.spyOn(api.tracing, 'getTrace').mockResolvedValue(null)
+            logic = mountWithSpans([])
+            await logic.asyncActions.loadTraceSpans({ traceId: 'trace-1' })
+            expect(logic.values.traceSpans).toEqual([])
+            expect(logic.values.traceSpansHasMore).toBe(false)
+            spy.mockRestore()
+        })
+    })
+
     describe('sparkline', () => {
         it('re-fetches the sparkline when the view mode changes', async () => {
             const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })

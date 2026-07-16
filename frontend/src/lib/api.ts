@@ -2903,11 +2903,13 @@ const api = {
                 flatSpans?: boolean
             },
             signal?: AbortSignal
+            // Nullable: `create` routes through `getJSONOrNull`, which returns null for an empty
+            // body, a 204, or a non-JSON page (e.g. a gateway timeout). Callers must guard.
         ): Promise<{
             results: Record<string, any>[]
             hasMore: boolean
             nextCursor?: string
-        }> {
+        } | null> {
             return new ApiRequest().tracingSpans().withAction('query').create({ signal, data: { query } })
         },
         async getTrace(
@@ -2919,7 +2921,8 @@ const api = {
                 filterGroup?: PropertyGroupFilter
                 offset?: number
             }
-        ): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextOffset?: number | null }> {
+            // Nullable for the same reason as `listSpans` — `create` can resolve to null.
+        ): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextOffset?: number | null } | null> {
             return new ApiRequest()
                 .tracingSpans()
                 .withAction(`trace/${traceId}`)

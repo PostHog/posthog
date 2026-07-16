@@ -810,6 +810,13 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     )
 
                     actions.setSpansAbortController(null)
+                    // An empty/non-JSON response (204, gateway timeout) resolves to null — treat it
+                    // as no results and no more pages rather than dereferencing null.
+                    if (!response) {
+                        actions.setHasMoreToLoad(false)
+                        actions.setNextCursor(null)
+                        return []
+                    }
                     actions.setHasMoreToLoad(!!response.hasMore)
                     actions.setNextCursor(response.nextCursor ?? null)
                     return response.results as Span[]
@@ -846,6 +853,13 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     )
 
                     actions.setSpansAbortController(null)
+                    // A null response (empty/non-JSON) means no further page — stop paging and keep
+                    // the spans already loaded.
+                    if (!response) {
+                        actions.setHasMoreToLoad(false)
+                        actions.setNextCursor(null)
+                        return values.spans
+                    }
                     actions.setHasMoreToLoad(!!response.hasMore)
                     actions.setNextCursor(response.nextCursor ?? null)
                     return [...values.spans, ...(response.results as Span[])]
@@ -861,6 +875,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                         filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                     })
+                    // A null response (empty/non-JSON) means no spans and no more pages — keep the
+                    // waterfall empty rather than crashing on `response.hasMore`.
+                    if (!response) {
+                        actions.setTracePagination(false, null)
+                        return []
+                    }
                     actions.setTracePagination(!!response.hasMore, response.nextOffset ?? null)
                     return response.results as Span[]
                 },
@@ -877,6 +897,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                         filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                         offset: values.traceSpansNextOffset,
                     })
+                    // A null response (empty/non-JSON) means no further page — stop paging and keep
+                    // the spans already loaded.
+                    if (!response) {
+                        actions.setTracePagination(false, null)
+                        return values.traceSpans
+                    }
                     // Bail if a new trace was opened mid-fetch — appending this stale page to the new
                     // trace's spans would corrupt the waterfall.
                     if (values.traceLoadContext?.traceId !== traceId) {
