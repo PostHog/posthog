@@ -322,13 +322,22 @@ class TestAssessSdkTrafficAlerts(SimpleTestCase):
         # Primary (first) is fresh, so SDK not marked outdated
         assert result.is_outdated is False
 
-    def test_mobile_never_gets_traffic_alerts(self):
+    @parameterized.expand(
+        [
+            ("posthog-ios",),
+            ("posthog-android",),
+            ("posthog-flutter",),
+            ("posthog-react-native",),
+            ("posthog-kmp",),
+        ]
+    )
+    def test_mobile_never_gets_traffic_alerts(self, sdk_type: str):
         # Even at high traffic, mobile SDKs shouldn't trigger traffic alerts (users don't auto-update)
         entries = [
             _entry("2.0.0", 10, days_ago=5, is_latest=True),
             _entry("1.0.0", 90, days_ago=200),
         ]
-        result = assess_sdk("posthog-ios", "2.0.0", entries, now=NOW)
+        result = assess_sdk(sdk_type, "2.0.0", entries, now=NOW)
         assert result is not None
         assert result.outdated_traffic_alerts == []
 

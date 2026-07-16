@@ -23367,7 +23367,11 @@
                 "Automox",
                 "Autumn",
                 "GetStream",
-                "Octolens"
+                "Octolens",
+                "Kajabi",
+                "Shopware",
+                "Dubsado",
+                "Campfire"
             ],
             "type": "string"
         },
@@ -45136,6 +45140,9 @@
         "SourceFieldSelectConfig": {
             "additionalProperties": false,
             "properties": {
+                "caption": {
+                    "type": "string"
+                },
                 "converter": {
                     "$ref": "#/definitions/SourceFieldSelectConfigConverter"
                 },

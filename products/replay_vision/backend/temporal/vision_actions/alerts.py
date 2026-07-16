@@ -24,6 +24,7 @@ from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.vision_action import (
+    AlertDirection,
     AlertFrequency,
     AlertMetric,
     VisionActionRun,
@@ -150,10 +151,13 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
     else:
         metric_value = float(matched_count)
 
-    # No measurable data (e.g. avg over an empty window) can't breach anything — including a
-    # "count lt N" condition, which zero observations WOULD satisfy; count is always measurable (0).
-    # The only condition shape is "metric at or above threshold" — see AlertConfigSerializer.
-    if metric_value is None or metric_value < threshold:
+    # The condition is "metric at or above/below the threshold" (inclusive, per direction — see
+    # AlertConfigSerializer). No measurable data (avg over an empty window) can't breach in either
+    # direction; count is always measurable (0), so a below-direction count alert DOES fire on a
+    # quiet window — that's its "went quiet" meaning.
+    below = alert_config.get("direction") == AlertDirection.BELOW
+    breached = metric_value is not None and (metric_value <= threshold if below else metric_value >= threshold)
+    if not breached:
         return EvaluateAlertResult(
             status=AlertStatus.NOT_BREACHED, observation_count=matched_count, metric_value=metric_value
         )
@@ -279,9 +283,10 @@ def _alert_markdown(
         window_days = alert_config.get("window_days", DEFAULT_ALERT_WINDOW_DAYS)
         metric_label = "average score" if metric == AlertMetric.AVG_SCORE else "matching observations"
         window_label = "24 hours" if window_days == 1 else f"{window_days} days"
+        bound = "at or below" if alert_config.get("direction") == AlertDirection.BELOW else "at or above"
         lines = [
             f"**Alert: {scanner_name}** — {metric_label} over the last {window_label} was "
-            f"{_format_number(metric_value)}, at or above the threshold of {_format_number(threshold)}.",
+            f"{_format_number(metric_value)}, {bound} the threshold of {_format_number(threshold)}.",
             "",
             f"{matched_count} {noun} matched in this window.",
         ]
