@@ -1,7 +1,4 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { useEffect } from 'react'
-
-import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -204,27 +201,12 @@ export const Show: Story = {
     },
 }
 
-// The "PostHog AI" button label is gated on a multivariate experiment flag that DashboardHeader
-// reads via @posthog/react (posthog-js), which the `featureFlags` story parameter doesn't reach —
-// that parameter only seeds kea's featureFlagLogic. So pin the variant on the posthog-js client
-// directly, and clear it on unmount so the override can't leak into the other dashboard stories.
-function pinPostHogAIButtonLabelVariant(variant: 'control' | 'control_b' | 'test'): Meta['decorators'] {
-    return [
-        function WithPostHogAIButtonLabelVariant(Story) {
-            posthog.featureFlags.overrideFeatureFlags({
-                flags: { [FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL]: variant },
-            })
-            useEffect(() => () => posthog.featureFlags.overrideFeatureFlags(false), [])
-            return <Story />
-        },
-    ]
-}
-
 // Multi-viewport snapshots of the dashboard scene from mobile to superwide, so we catch the header
-// layout (and any squishing) across breakpoints. `skipCanvasDraw` is re-declared because per-story
-// `testOptions` replaces the meta-level object rather than merging into it.
+// layout (and any squishing) across breakpoints. The "PostHog AI" button label is gated on a
+// multivariate experiment flag; DashboardHeader reads it through kea, so the `featureFlags`
+// parameter pins the arm. `skipCanvasDraw` is re-declared because per-story `testOptions` replaces
+// the meta-level object rather than merging into it.
 export const ShowWithoutPostHogAIButtonLabel: Story = {
-    decorators: pinPostHogAIButtonLabelVariant('control'),
     parameters: {
         pageUrl: urls.dashboard(BASE_DASHBOARD_ID),
         featureFlags: { [FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL]: 'control' },
@@ -233,7 +215,6 @@ export const ShowWithoutPostHogAIButtonLabel: Story = {
 }
 
 export const ShowWithPostHogAIButtonLabel: Story = {
-    decorators: pinPostHogAIButtonLabelVariant('test'),
     parameters: {
         pageUrl: urls.dashboard(BASE_DASHBOARD_ID),
         featureFlags: { [FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL]: 'test' },

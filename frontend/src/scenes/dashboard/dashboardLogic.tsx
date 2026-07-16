@@ -1635,6 +1635,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.featureFlags],
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION],
         ],
+        postHogAIButtonLabelVariant: [
+            (s) => [s.featureFlags],
+            // Read through kea so Storybook's `featureFlags` parameter can pin the experiment arm;
+            // the @posthog/react hook reads posthog-js, which stories can't seed.
+            (featureFlags): string | boolean | undefined =>
+                featureFlags[FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL],
+        ],
         insightTiles: [
             (s) => [s.tiles],
             (tiles) => tiles.filter((t) => !!t.insight).filter((i) => !i.insight?.deleted),
