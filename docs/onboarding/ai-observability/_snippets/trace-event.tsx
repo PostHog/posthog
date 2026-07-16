@@ -52,6 +52,10 @@ export const TraceEvent = (): JSX.Element => {
                                     whatever grouping makes sense for your application (user sessions, workflows,
                                     conversations, or other logical boundaries).
                                     <br />
+                                    Must contain only letters, numbers, and special characters: <code>-</code>,{' '}
+                                    <code>_</code>, <code>~</code>, <code>.</code>, <code>@</code>, <code>(</code>,{' '}
+                                    <code>)</code>, <code>!</code>, <code>'</code>, <code>:</code>, <code>|</code>
+                                    <br />
                                     Example: <code>session-abc-123</code>, <code>conv-user-456</code>
                                 </p>
                             </td>

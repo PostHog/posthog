@@ -87,7 +87,6 @@ from products.data_warehouse.backend.facade.api import (
     is_cdc_enabled_for_team,
     is_custom_source_ai_builder_enabled_for_team,
     is_multi_schema_capable_sql_source,
-    is_xmin_enabled_for_team,
     reconcile_github_repositories,
     reconcile_mysql_schemas,
     reconcile_postgres_schemas,
@@ -3161,7 +3160,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
         # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
         cdc_enabled = is_cdc_enabled_for_team(self.team)
-        xmin_enabled = is_xmin_enabled_for_team(self.team)
         # xmin is Postgres-only — gate on the source type so the capability never leaks to another SQL source.
         is_postgres = source_type_model == ExternalDataSourceType.POSTGRES
         data = [
@@ -3173,7 +3171,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
                 "cdc_available": schema.supports_cdc if cdc_enabled else None,
-                "xmin_available": schema.supports_xmin if (is_postgres and xmin_enabled) else None,
+                "xmin_available": schema.supports_xmin if is_postgres else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
                 else None,

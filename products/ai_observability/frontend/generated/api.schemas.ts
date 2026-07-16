@@ -1233,11 +1233,11 @@ export interface EvaluationReportSectionApi {
 }
 
 export interface EvaluationReportCitationApi {
-    /** Generation UUID referenced by this citation. */
+    /** Optional generation UUID for generation-target report citations. */
     generation_id?: string
-    /** Trace identifier containing the referenced generation. */
+    /** Identifier of the trace cited by this report. */
     trace_id?: string
-    /** Short explanation of why the generation is cited. */
+    /** Short explanation of why this example is cited. */
     reason?: string
 }
 
@@ -1304,11 +1304,16 @@ export interface EvaluationReportMetricsApi {
 }
 
 export interface EvaluationReportRunContentApi {
+    /** Evaluation target analyzed by this report run. Legacy runs without this field targeted generations.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace */
+    evaluation_target?: EvaluationTargetEnumApi
     /** Agent-generated report headline. */
     title?: string
     /** Ordered narrative sections in the report. */
     sections?: EvaluationReportSectionApi[]
-    /** Trace references grounding findings in the report. */
+    /** References grounding findings in the report. */
     citations?: EvaluationReportCitationApi[]
     /** Structured metrics computed for the report period. */
     metrics?: EvaluationReportMetricsApi | null
