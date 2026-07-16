@@ -180,6 +180,9 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 const resourceToRoute: Partial<Record<APIScopeObject, string>> = {
                     warehouse_view: 'warehouse_saved_queries',
                     early_access_feature: 'early_access_feature',
+                    // `heatmap` is also the scope_object for the read-only aggregate query viewset
+                    // mounted at `heatmaps` — the CRUD viewset with access-control endpoints lives at `saved`.
+                    heatmap: 'saved',
                 }
                 const route = resourceToRoute[resource] ?? `${resource}s`
                 return `api/projects/${currentProjectId}/${route}/${resource_id}/access_controls`

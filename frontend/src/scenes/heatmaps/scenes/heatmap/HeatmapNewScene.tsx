@@ -3,6 +3,7 @@ import { useDebouncedCallback } from 'use-debounce'
 
 import { Spinner } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -17,7 +18,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { HeatmapType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, HeatmapType } from '~/types'
 
 import { heatmapLogic } from './heatmapLogic'
 
@@ -129,22 +130,27 @@ export function HeatmapNewScene(): JSX.Element {
             />
             <SceneDivider />
             <div className="flex gap-2">
-                <LemonButton
-                    className="w-fit"
-                    type="primary"
-                    data-attr="save-heatmap"
-                    onClick={createHeatmap}
-                    loading={false}
-                    disabledReason={
-                        !isDisplayUrlValid || (!!dataUrl && !isBrowserUrlAuthorized)
-                            ? 'Invalid URL or forbidden URL'
-                            : !displayUrl
-                              ? 'URL is required'
-                              : null
-                    }
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.Heatmap}
+                    minAccessLevel={AccessControlLevel.Editor}
                 >
-                    Save
-                </LemonButton>
+                    <LemonButton
+                        className="w-fit"
+                        type="primary"
+                        data-attr="save-heatmap"
+                        onClick={createHeatmap}
+                        loading={false}
+                        disabledReason={
+                            !isDisplayUrlValid || (!!dataUrl && !isBrowserUrlAuthorized)
+                                ? 'Invalid URL or forbidden URL'
+                                : !displayUrl
+                                  ? 'URL is required'
+                                  : null
+                        }
+                    >
+                        Save
+                    </LemonButton>
+                </AccessControlAction>
             </div>
         </SceneContent>
     )

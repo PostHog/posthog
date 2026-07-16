@@ -39,6 +39,8 @@ from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.security.url_validation import is_url_allowed
 from posthog.utils import relative_date_parse_with_delta_mapping
 
@@ -735,7 +737,7 @@ class HeatmapSnapshotMetadataSerializer(serializers.Serializer):
     )
 
 
-class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
+class HeatmapScreenshotResponseSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     snapshots = serializers.SerializerMethodField(
         help_text="Per-width render metadata. Fetch the actual image bytes for a width from the content endpoint."
@@ -760,6 +762,7 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "exception",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -876,7 +879,7 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 snapshot = min(all_snaps, key=lambda s: abs(s.width - requested_width))
 
         if not snapshot:
-            response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
+            response_serializer = HeatmapScreenshotResponseSerializer(screenshot, context=self.get_serializer_context())
             return _finish(
                 response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED),
                 "generating",
@@ -889,7 +892,7 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
             return _finish(http_response, "served")
         elif snapshot.content_location:
-            response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
+            response_serializer = HeatmapScreenshotResponseSerializer(screenshot, context=self.get_serializer_context())
             return _finish(
                 response.Response(
                     {**response_serializer.data, "error": "Content location not implemented yet"},
@@ -900,7 +903,7 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 served_width=snapshot.width,
             )
         else:
-            response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
+            response_serializer = HeatmapScreenshotResponseSerializer(screenshot, context=self.get_serializer_context())
             return _finish(
                 response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED),
                 "generating",
@@ -981,7 +984,9 @@ class SavedHeatmapListResponseSerializer(serializers.Serializer):
     count = serializers.IntegerField(help_text="Total number of saved heatmaps matching the filters.")
 
 
-class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
+class SavedHeatmapViewSet(
+    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet
+):
     scope_object = "heatmap"
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
@@ -1039,9 +1044,12 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         limit = max(1, min(params["limit"], 500))
         offset = max(0, params["offset"])
         count = qs.count()
-        results = qs[offset : offset + limit]
+        # Materialize to a list (rather than passing the queryset slice through) so
+        # UserAccessControlSerializerMixin recognizes it as a batch and preloads object
+        # access controls once, instead of querying per-row.
+        results = list(qs[offset : offset + limit])
 
-        data = HeatmapScreenshotResponseSerializer(results, many=True).data
+        data = HeatmapScreenshotResponseSerializer(results, many=True, context=self.get_serializer_context()).data
         return response.Response({"results": data, "count": count}, status=status.HTTP_200_OK)
 
     @extend_schema(
@@ -1092,7 +1100,8 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         if heatmap_type == SavedHeatmap.Type.SCREENSHOT:
             generate_heatmap_screenshot.delay(screenshot.id)
 
-        return response.Response(HeatmapScreenshotResponseSerializer(screenshot).data, status=status.HTTP_201_CREATED)
+        response_serializer = HeatmapScreenshotResponseSerializer(screenshot, context=self.get_serializer_context())
+        return response.Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
         responses={200: HeatmapScreenshotResponseSerializer},
@@ -1108,7 +1117,8 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         ):
             self._regenerate(obj)
 
-        return response.Response(HeatmapScreenshotResponseSerializer(obj).data, status=status.HTTP_200_OK)
+        response_serializer = HeatmapScreenshotResponseSerializer(obj, context=self.get_serializer_context())
+        return response.Response(response_serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(
         request=None,
@@ -1125,7 +1135,8 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             )
 
         self._regenerate(obj)
-        return response.Response(HeatmapScreenshotResponseSerializer(obj).data, status=status.HTTP_200_OK)
+        response_serializer = HeatmapScreenshotResponseSerializer(obj, context=self.get_serializer_context())
+        return response.Response(response_serializer.data, status=status.HTTP_200_OK)
 
     def _regenerate(self, obj: SavedHeatmap) -> None:
         obj.status = SavedHeatmap.Status.PROCESSING
@@ -1164,4 +1175,5 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             detail=Detail(name=updated.name or updated.url, short_id=updated.short_id, type=updated.type),
             was_impersonated=is_impersonated(request),
         )
-        return response.Response(HeatmapScreenshotResponseSerializer(updated).data, status=status.HTTP_200_OK)
+        response_serializer = HeatmapScreenshotResponseSerializer(updated, context=self.get_serializer_context())
+        return response.Response(response_serializer.data, status=status.HTTP_200_OK)
