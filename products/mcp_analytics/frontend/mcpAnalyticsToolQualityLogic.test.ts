@@ -20,39 +20,37 @@ function dailyStat(overrides: Partial<DailyToolStat> & { day: string }): DailyTo
 
 describe('mcpAnalyticsToolQualityLogic', () => {
     describe('buildDailyChartData', () => {
-        it('fills missing days so the x-axis stays linear', () => {
-            const data = buildDailyChartData([
-                dailyStat({ day: '2026-06-05', calls: 100, errors: 10, p50: 200, p95: 900, p99: 2100 }),
-                dailyStat({ day: '2026-06-07', calls: 50, errors: 0, p50: 150, p95: 800, p99: 1500 }),
-            ])
-            expect(data.labels).toEqual(['2026-06-05', '2026-06-06', '2026-06-07'])
+        it('projects rows onto the bucket keys, zero/NaN-filling gaps', () => {
+            const data = buildDailyChartData(
+                [
+                    dailyStat({ day: '2026-06-05', calls: 100, errors: 10, p50: 200, p95: 900, p99: 2100 }),
+                    dailyStat({ day: '2026-06-07', calls: 50, errors: 0, p50: 150, p95: 800, p99: 1500 }),
+                ],
+                ['2026-06-05 00:00:00', '2026-06-06 00:00:00', '2026-06-07 00:00:00']
+            )
+            expect(data.labels).toEqual(['2026-06-05 00:00:00', '2026-06-06 00:00:00', '2026-06-07 00:00:00'])
             expect(data.calls).toEqual([100, 0, 50])
             expect(data.errors).toEqual([10, 0, 0])
-            // Gap days get NaN (skipped by the chart), not a dip to zero.
+            // Gap buckets get NaN (skipped by the chart), not a dip to zero.
             expect(data.successRate[0]).toBeCloseTo(90)
             expect(data.successRate[1]).toBeNaN()
             expect(data.p99).toEqual([2100, NaN, 1500])
         })
 
-        it('returns empty series for no rows', () => {
-            expect(buildDailyChartData([]).labels).toEqual([])
+        it('returns empty series for empty bucket keys', () => {
+            expect(buildDailyChartData([], []).labels).toEqual([])
         })
 
-        it('spans the full range when given one, zero-filling days outside the data', () => {
+        // Sub-day windows bucket by hour: rows keyed to an hour must line up with hourly keys, so the
+        // "12 hours collapses to a single point" bug can't come back.
+        it('lines up hourly rows with hourly bucket keys', () => {
             const data = buildDailyChartData(
-                [dailyStat({ day: '2026-06-07', calls: 50, errors: 0, p50: 150, p95: 800, p99: 1500 })],
-                { start: '2026-06-05', end: '2026-06-08' }
+                [dailyStat({ day: '2026-06-07 10:00:00', calls: 12, errors: 3, p50: 80, p95: 200, p99: 400 })],
+                ['2026-06-07 09:00:00', '2026-06-07 10:00:00', '2026-06-07 11:00:00']
             )
-            expect(data.labels).toEqual(['2026-06-05', '2026-06-06', '2026-06-07', '2026-06-08'])
-            expect(data.calls).toEqual([0, 0, 50, 0])
-            expect(data.successRate[0]).toBeNaN()
-            expect(data.successRate[2]).toBeCloseTo(100)
-        })
-
-        it('zero-fills the whole range when there is no data at all', () => {
-            const data = buildDailyChartData([], { start: '2026-06-05', end: '2026-06-07' })
-            expect(data.labels).toEqual(['2026-06-05', '2026-06-06', '2026-06-07'])
-            expect(data.calls).toEqual([0, 0, 0])
+            expect(data.calls).toEqual([0, 12, 0])
+            expect(data.errors).toEqual([0, 3, 0])
+            expect(data.successRate[1]).toBeCloseTo(75)
         })
     })
 
