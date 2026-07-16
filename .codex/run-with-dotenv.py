@@ -92,6 +92,9 @@ def main() -> NoReturn:
 
     environment = os.environ.copy()
     environment.update({name: value for name, value in values.items() if value is not None})
+    # argv is the caller's own command line, which with-flox execs directly when no .env is present.
+    # The .env is the untrusted input, and the blocked-name checks above keep it out of the exec.
+    # nosemgrep: python.lang.security.audit.dangerous-os-exec-tainted-env-args.dangerous-os-exec-tainted-env-args
     os.execvpe(sys.argv[3], sys.argv[3:], environment)
 
 
