@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
     _MAX_CONNECT_ATTEMPTS,
+    _RATE_LIMIT_BASE_BACKOFF_SECONDS,
     YIELD_TARGET_ROWS,
     ClickHouseColumn,
     ClickHouseConnectionError,
@@ -19,10 +20,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     _get_client,
     _get_incremental_row_count,
     _has_duplicate_primary_keys,
+    _is_rate_limited,
     _is_transient_connect_drop,
     _parse_mv_target,
     _project_columns,
     _quote_identifier,
+    _rate_limit_backoff_seconds,
     _strip_type_modifiers,
     filter_clickhouse_incremental_fields,
     get_primary_keys_for_schemas,
@@ -661,6 +664,9 @@ class TestClickHouseSourceNonRetryableErrors:
             # Transient gateway errors must stay retryable — only 404 is permanent.
             "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 502",
             "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 503",
+            # HTTP 429 is a transient throttle — the host is up, just rate-limiting us —
+            # so it stays retryable at the Temporal level after in-process backoff.
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 429",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
@@ -745,6 +751,75 @@ class TestGetClientTransientRetry:
                 self._connect()
         assert mock_get_client.call_count == 1
         mock_sleep.assert_not_called()
+
+
+class TestRateLimitBackoff:
+    @pytest.mark.parametrize(
+        "message,expected",
+        [
+            ("HTTPDriver for https://h:8443 returned response code 429", True),
+            # 404 is permanent, not a throttle — must not be treated as rate-limited.
+            ("HTTPDriver for https://h:8443 returned response code 404", False),
+            ("Code: 516. DB::Exception: Authentication failed", False),
+        ],
+    )
+    def test_is_rate_limited(self, message, expected):
+        assert _is_rate_limited(message) is expected
+
+    def test_honors_retry_after_when_present(self):
+        msg = "HTTPDriver for https://h:8443 returned response code 429 Retry-After: 7"
+        assert _rate_limit_backoff_seconds(msg, attempt=1) == 7.0
+
+    def test_caps_retry_after_so_hostile_value_cant_stall_worker(self):
+        msg = "returned response code 429 retry-after: 99999"
+        assert _rate_limit_backoff_seconds(msg, attempt=1) == 120.0
+
+    def test_exponential_backoff_without_retry_after(self):
+        msg = "HTTPDriver for https://h:8443 returned response code 429"
+        assert _rate_limit_backoff_seconds(msg, attempt=1) == _RATE_LIMIT_BASE_BACKOFF_SECONDS
+        assert _rate_limit_backoff_seconds(msg, attempt=2) == _RATE_LIMIT_BASE_BACKOFF_SECONDS * 2
+
+
+class TestGetClientRateLimitRetry:
+    """`_get_client` backs off in-process on an HTTP 429 rather than failing straight
+    through to Temporal, which would re-run the whole import and hammer the host."""
+
+    def _connect(self):
+        return _get_client(
+            host="h", port=8443, database="default", user="default", password=None, secure=True, verify=True
+        )
+
+    def test_backs_off_and_retries_then_succeeds(self):
+        client = MagicMock()
+        rate_limited = ClickHouseError("HTTPDriver for https://h:8443 returned response code 429")
+        with (
+            patch.object(ch_module.time, "sleep") as mock_sleep,
+            patch.object(ch_module, "get_client", side_effect=[rate_limited, client]) as mock_get_client,
+        ):
+            assert self._connect() is client
+        assert mock_get_client.call_count == 2
+        # Backed off before retrying — not a tight immediate re-hit.
+        mock_sleep.assert_called_once_with(_RATE_LIMIT_BASE_BACKOFF_SECONDS)
+
+    def test_gives_up_after_max_attempts(self):
+        rate_limited = ClickHouseError("HTTPDriver for https://h:8443 returned response code 429")
+        with (
+            patch.object(ch_module.time, "sleep"),
+            patch.object(ch_module, "get_client", side_effect=rate_limited) as mock_get_client,
+        ):
+            with pytest.raises(ClickHouseConnectionError):
+                self._connect()
+        assert mock_get_client.call_count == _MAX_CONNECT_ATTEMPTS
+
+    def test_honors_retry_after_for_backoff(self):
+        client = MagicMock()
+        rate_limited = ClickHouseError("HTTPDriver for https://h:8443 returned response code 429 Retry-After: 12")
+        with (
+            patch.object(ch_module.time, "sleep") as mock_sleep,
+            patch.object(ch_module, "get_client", side_effect=[rate_limited, client]),
+        ):
+            assert self._connect() is client
+        mock_sleep.assert_called_once_with(12.0)
 
 
 class TestTranslateError:
