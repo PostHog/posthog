@@ -227,6 +227,19 @@ def increment_cohort_save_fallback(reason: CohortSaveFallbackReason) -> None:
     counter.add(1)
 
 
+def increment_cohort_save_conflicts(count: int) -> None:
+    """Counts alerts whose cohort save was skipped because a control-plane write
+    (snooze, reset, threshold change) landed between batch load and save. The
+    user's write wins; the alert re-evaluates next cycle. A steady rate here is
+    normal user activity — a spike means cycles are running long."""
+    meter = get_metric_meter()
+    counter = meter.create_counter(
+        "logs_alerting_cohort_save_conflict_total",
+        "Cohort save skipped alerts changed concurrently by a control-plane write",
+    )
+    counter.add(count)
+
+
 def increment_cohort_query_fallback(reason: CohortQueryFallbackReason) -> None:
     """Counts batched CH query failures that triggered the per-alert query fallback path.
 

@@ -2,6 +2,7 @@
 
 import gc
 import time
+import uuid
 import asyncio
 import contextlib
 import dataclasses
@@ -74,6 +75,7 @@ from products.logs.backend.temporal.metrics import (
     increment_checkpoint_unavailable,
     increment_checks_total,
     increment_cohort_query_fallback,
+    increment_cohort_save_conflicts,
     increment_cohort_save_fallback,
     increment_notification_failures,
     increment_state_transition,
@@ -677,7 +679,9 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                     dispatched = await asyncio.to_thread(_resolve_notification_deliveries, dispatched)
 
                 try:
-                    saved, failed = (await save_cohort_async(dispatched, now)) if dispatched else ([], [])
+                    saved, failed, conflicted = (
+                        (await save_cohort_async(dispatched, now)) if dispatched else ([], [], [])
+                    )
                 except Exception as e:
                     logger.exception("Cohort bulk save failed (non-recoverable)", team_id=cohort.team_id)
                     capture_exception(e, {"team_id": cohort.team_id, "phase": "bulk_save"})
@@ -708,6 +712,10 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                     slo_handles[str(dispatched_alert.evaluation.alert.id)].fail(failure_phase="save")
                     local_stats["checked"] += 1
                     local_stats["errored"] += 1
+                # Conflicted: a control-plane write won; the evaluation was
+                # discarded, not errored. Counted as checked, and the SLO handle
+                # is left to report success since the check itself completed cleanly.
+                local_stats["checked"] += len(conflicted)
 
                 local_notified.extend(_build_notified_from_saved(saved))
                 return local_stats, local_notified
@@ -1063,11 +1071,17 @@ _COHORT_UPDATE_FIELDS: list[str] = [
 
 def _save_cohort_outcomes(
     dispatched: list[_DispatchedAlert], now: datetime
-) -> tuple[list[_DispatchedAlert], list[_DispatchedAlert]]:
+) -> tuple[list[_DispatchedAlert], list[_DispatchedAlert], list[_DispatchedAlert]]:
     """Phase 3: persist the cohort's outcomes via one bulk_create + one bulk_update.
 
-    Returns `(saved, failed)` — saved alerts advanced to their committed state,
-    failed alerts didn't (caller treats them as errored).
+    Returns `(saved, failed, conflicted)` — saved alerts advanced to their
+    committed state, failed alerts didn't (caller treats them as errored), and
+    conflicted alerts were modified by a control-plane write (snooze, reset,
+    threshold change) between batch load and this save. The user's write wins:
+    the worker's stale outcome is discarded and the next cycle re-evaluates
+    against the fresh row. Conflicts are detected by comparing `updated_at`
+    under `SELECT ... FOR UPDATE` (every control-plane save bumps it via
+    `auto_now`), so a write can't slip between the check and the bulk write.
 
     On `IntegrityError` (constraint shaped — a row hit a DB constraint we didn't
     anticipate), fall back to per-alert UPDATEs so the rest still advance.
@@ -1076,9 +1090,13 @@ def _save_cohort_outcomes(
     fallback against the same broken cluster wouldn't help.
     """
     if not dispatched:
-        return [], []
+        return [], [], []
 
     save_start = time.perf_counter()
+
+    # Capture the load-time row version before staging mutates the instances
+    # (staging overwrites `updated_at` with `now` for the bulk write).
+    loaded_updated_at = {d.evaluation.alert.id: d.evaluation.alert.updated_at for d in dispatched}
 
     # Stage every alert exactly once: mutates the in-memory alert (apply_outcome,
     # advance_next_check_at, etc.) and produces the (update_fields, event) tuple
@@ -1090,23 +1108,39 @@ def _save_cohort_outcomes(
         update_fields, event = _stage_alert_for_save(d, now)
         staged.append((d, update_fields, event))
 
-    events = [event for _, _, event in staged if event is not None]
-    alerts = [d.evaluation.alert for d, _, _ in staged]
-
     event_insert_ms: int | None = None
     update_ms: int | None = None
-    saved: list[_DispatchedAlert] = list(dispatched)
     failed: list[_DispatchedAlert] = []
     try:
         with transaction.atomic():
+            current_updated_at = dict(
+                LogsAlertConfiguration.objects.select_for_update()
+                .filter(id__in=loaded_updated_at)
+                .values_list("id", "updated_at")
+            )
+            fresh_staged = []
+            conflicted = []
+            for t in staged:
+                alert_id = t[0].evaluation.alert.id
+                # A missing row (deleted since load) is also a conflict.
+                if current_updated_at.get(alert_id) == loaded_updated_at[alert_id]:
+                    fresh_staged.append(t)
+                else:
+                    conflicted.append(t[0])
+
+            saved = [d for d, _, _ in fresh_staged]
+            events = [event for _, _, event in fresh_staged if event is not None]
+            alerts = [d.evaluation.alert for d, _, _ in fresh_staged]
+
             if events:
                 event_insert_start = time.perf_counter()
                 LogsAlertEvent.objects.bulk_create(events)
                 event_insert_ms = int((time.perf_counter() - event_insert_start) * 1000)
 
-            update_start = time.perf_counter()
-            LogsAlertConfiguration.objects.bulk_update(alerts, fields=_COHORT_UPDATE_FIELDS)
-            update_ms = int((time.perf_counter() - update_start) * 1000)
+            if alerts:
+                update_start = time.perf_counter()
+                LogsAlertConfiguration.objects.bulk_update(alerts, fields=_COHORT_UPDATE_FIELDS)
+                update_ms = int((time.perf_counter() - update_start) * 1000)
     except IntegrityError as e:
         # Recover the rest of the cohort via per-alert UPDATEs using the
         # already-staged data.
@@ -1117,7 +1151,14 @@ def _save_cohort_outcomes(
         )
         capture_exception(e, {"cohort_size": len(dispatched), "fallback": "per_alert"})
         increment_cohort_save_fallback("integrity_error")
-        saved, failed = _save_staged_per_alert(staged)
+        saved, failed, conflicted = _save_staged_per_alert(staged, loaded_updated_at)
+
+    if conflicted:
+        logger.info(
+            "Cohort save skipped alerts changed by a concurrent control-plane write",
+            conflicted_count=len(conflicted),
+            alert_ids=[str(d.evaluation.alert.id) for d in conflicted],
+        )
 
     save_ms = int((time.perf_counter() - save_start) * 1000)
     with _safe_record_block("cohort save metrics"):
@@ -1126,38 +1167,53 @@ def _save_cohort_outcomes(
             record_cohort_event_insert_duration(event_insert_ms)
         if update_ms is not None:
             record_cohort_update_duration(update_ms)
+        if conflicted:
+            increment_cohort_save_conflicts(len(conflicted))
 
-    return saved, failed
+    return saved, failed, conflicted
 
 
 def _save_staged_per_alert(
     staged: list[tuple[_DispatchedAlert, list[str], LogsAlertEvent | None]],
-) -> tuple[list[_DispatchedAlert], list[_DispatchedAlert]]:
+    loaded_updated_at: dict[uuid.UUID, datetime],
+) -> tuple[list[_DispatchedAlert], list[_DispatchedAlert], list[_DispatchedAlert]]:
     """Fallback path used when `bulk_update` raises `IntegrityError`.
 
-    Returns `(saved, failed)`. Each alert saves independently so a single bad
-    row doesn't strand the cohort. Takes pre-staged tuples (alert already
-    mutated, event already instantiated) so we don't re-run
+    Returns `(saved, failed, conflicted)`. Each alert saves independently so a
+    single bad row doesn't strand the cohort. Takes pre-staged tuples (alert
+    already mutated, event already instantiated) so we don't re-run
     `_stage_alert_for_save` and accidentally advance `next_check_at` twice.
+
+    The conditional UPDATE re-applies the version guard here because the bulk
+    transaction rolled back and released its locks — a control-plane write can
+    land before this retry. `.update()` writes the staged values verbatim
+    (including `updated_at`, already set to the cycle's `now`).
     """
     saved: list[_DispatchedAlert] = []
     failed: list[_DispatchedAlert] = []
+    conflicted: list[_DispatchedAlert] = []
     for d, update_fields, event in staged:
+        alert = d.evaluation.alert
         try:
             with transaction.atomic():
+                updated = LogsAlertConfiguration.objects.filter(
+                    id=alert.id, updated_at=loaded_updated_at[alert.id]
+                ).update(**{f: getattr(alert, f) for f in update_fields})
+                if not updated:
+                    conflicted.append(d)
+                    continue
                 if event is not None:
                     event.save()
-                d.evaluation.alert.save(update_fields=update_fields)
             saved.append(d)
         except Exception as e:
             logger.exception(
                 "Per-alert fallback save failed",
-                alert_id=str(d.evaluation.alert.id),
-                team_id=d.evaluation.alert.team_id,
+                alert_id=str(alert.id),
+                team_id=alert.team_id,
             )
-            capture_exception(e, {"alert_id": str(d.evaluation.alert.id), "phase": "per_alert_fallback"})
+            capture_exception(e, {"alert_id": str(alert.id), "phase": "per_alert_fallback"})
             failed.append(d)
-    return saved, failed
+    return saved, failed, conflicted
 
 
 def _finalize_alert(dispatched: _DispatchedAlert, elapsed_ms: int, stats: dict[str, int]) -> None:

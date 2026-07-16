@@ -59,7 +59,7 @@ def _evaluate_and_save_one(
     evaluation = _evaluate_single_alert(alert, now, checkpoint=checkpoint)
     dispatched = _dispatch_for_alert(evaluation, now)
     elapsed_ms = int((time.perf_counter() - eval_start) * 1000)
-    saved, _failed = _save_cohort_outcomes([dispatched], now)
+    saved, _failed, _conflicted = _save_cohort_outcomes([dispatched], now)
     if saved:
         _finalize_alert(saved[0], elapsed_ms, stats)
     else:
@@ -219,12 +219,12 @@ class TestSaveCohortOutcomesFallback(APIBaseTest):
         defaults.update(kwargs)
         return LogsAlertConfiguration.objects.create(**defaults)
 
-    def _make_dispatched(self, alert: LogsAlertConfiguration):
+    def _make_dispatched(self, alert: LogsAlertConfiguration, new_state: AlertState = AlertState.NOT_FIRING):
         from products.logs.backend.alert_state_machine import AlertCheckOutcome, CheckResult
         from products.logs.backend.temporal.activities import _AlertEvaluation, _DispatchedAlert
 
         outcome = AlertCheckOutcome(
-            new_state=AlertState.NOT_FIRING,
+            new_state=new_state,
             notification=NotificationAction.NONE,
             consecutive_failures=0,
             update_last_notified_at=False,
@@ -239,6 +239,76 @@ class TestSaveCohortOutcomesFallback(APIBaseTest):
             state_before=alert.state,
         )
         return _DispatchedAlert(evaluation=evaluation, notification_failed=False)
+
+    def test_concurrent_control_plane_write_wins_over_cohort_save(self):
+        # Simulates the lost-update race: the worker loaded the alert, then the
+        # user snoozed it, then the worker's cohort save lands. The user's write
+        # must survive and the worker's stale outcome must be discarded.
+        stale = self._make_alert()
+        dispatched = self._make_dispatched(stale, new_state=AlertState.FIRING)
+
+        concurrent = LogsAlertConfiguration.objects.get(id=stale.id)
+        concurrent.state = LogsAlertConfiguration.State.SNOOZED
+        concurrent.snooze_until = datetime(2025, 1, 2, 0, 0, tzinfo=UTC)
+        concurrent.save()
+
+        saved, failed, conflicted = _save_cohort_outcomes([dispatched], datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC))
+
+        stale.refresh_from_db()
+        assert stale.state == LogsAlertConfiguration.State.SNOOZED
+        assert stale.snooze_until is not None
+        assert saved == []
+        assert failed == []
+        assert conflicted == [dispatched]
+        assert LogsAlertEvent.objects.filter(alert_id=stale.id).count() == 0
+
+    def test_conflict_isolated_within_cohort(self):
+        untouched = self._make_alert(name="untouched")
+        clobber_target = self._make_alert(name="snoozed-mid-cycle")
+        dispatched = [self._make_dispatched(untouched), self._make_dispatched(clobber_target)]
+
+        concurrent = LogsAlertConfiguration.objects.get(id=clobber_target.id)
+        concurrent.state = LogsAlertConfiguration.State.SNOOZED
+        concurrent.snooze_until = datetime(2025, 1, 2, 0, 0, tzinfo=UTC)
+        concurrent.save()
+
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+        saved, _failed, conflicted = _save_cohort_outcomes(dispatched, now)
+
+        untouched.refresh_from_db()
+        assert untouched.last_checked_at == now
+        assert saved == [dispatched[0]]
+        assert conflicted == [dispatched[1]]
+
+    @patch("products.logs.backend.temporal.activities.LogsAlertConfiguration.objects.bulk_update")
+    def test_per_alert_fallback_also_respects_conflicts(self, mock_bulk_update):
+        # A control-plane write landing after the bulk transaction aborts but
+        # before the per-alert fallback saves must still win. A write inside the
+        # atomic block would roll back with the test's savepoint (unlike prod's
+        # separate connections), so hook the metric call that runs between
+        # rollback and fallback to place the write in the real race window.
+        from django.db.utils import IntegrityError
+
+        stale = self._make_alert()
+        dispatched = self._make_dispatched(stale, new_state=AlertState.FIRING)
+        mock_bulk_update.side_effect = IntegrityError("constraint violation")
+
+        def _write_concurrently(*args, **kwargs):
+            concurrent = LogsAlertConfiguration.objects.get(id=stale.id)
+            concurrent.state = LogsAlertConfiguration.State.SNOOZED
+            concurrent.snooze_until = datetime(2025, 1, 2, 0, 0, tzinfo=UTC)
+            concurrent.save()
+
+        with patch(
+            "products.logs.backend.temporal.activities.increment_cohort_save_fallback",
+            side_effect=_write_concurrently,
+        ):
+            saved, failed, conflicted = _save_cohort_outcomes([dispatched], datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC))
+
+        stale.refresh_from_db()
+        assert stale.state == LogsAlertConfiguration.State.SNOOZED
+        assert saved == []
+        assert conflicted == [dispatched]
 
     @patch("products.logs.backend.temporal.activities.LogsAlertConfiguration.objects.bulk_update")
     def test_integrity_error_falls_back_to_per_alert(self, mock_bulk_update):
