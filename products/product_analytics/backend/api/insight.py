@@ -1215,25 +1215,21 @@ class InsightSerializer(InsightBasicSerializer):
                             ExecutionMode.CALCULATE_ASYNC_ALWAYS,
                         }
                     ):
-                        if insight_result.is_cached:
-                            record_dashboard_cache_outcome(
-                                dashboard,
-                                access_method,
-                                is_cached=True,
-                            )
-                        else:
+                        persist_miss = not insight_result.is_cached
+                        if persist_miss:
                             request = self.context["request"]
                             recorded_miss_dashboard_ids = cast(
                                 set[int],
                                 request._request.__dict__.setdefault("_cache_warming_miss_dashboard_ids", set()),
                             )
-                            if dashboard.id not in recorded_miss_dashboard_ids:
-                                record_dashboard_cache_outcome(
-                                    dashboard,
-                                    access_method,
-                                    is_cached=False,
-                                )
-                                recorded_miss_dashboard_ids.add(dashboard.id)
+                            persist_miss = dashboard.id not in recorded_miss_dashboard_ids
+                            recorded_miss_dashboard_ids.add(dashboard.id)
+                        record_dashboard_cache_outcome(
+                            dashboard,
+                            access_method,
+                            is_cached=insight_result.is_cached,
+                            persist_miss=persist_miss,
+                        )
                     return insight_result
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
                 raise ValidationError(str(e), getattr(e, "code_name", None))

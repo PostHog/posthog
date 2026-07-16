@@ -95,11 +95,12 @@ def record_dashboard_cache_outcome(
     access_method: DashboardAccessMethod,
     *,
     is_cached: bool,
+    persist_miss: bool = True,
     observed_at: datetime | None = None,
 ) -> None:
     outcome = "hit" if is_cached else "miss"
     DASHBOARD_CACHE_OUTCOME_COUNTER.labels(access_method=access_method.value, result=outcome).inc()
-    if is_cached:
+    if is_cached or not persist_miss:
         return
 
     observation_timestamp = observed_at or now()

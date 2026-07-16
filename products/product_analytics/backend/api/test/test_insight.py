@@ -57,7 +57,7 @@ from posthog.test.persons import create_person
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.access import DashboardAccessMethod
+from products.dashboards.backend.access import DASHBOARD_CACHE_OUTCOME_COUNTER
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
@@ -498,21 +498,21 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("hit", True, None, True),
-            ("miss", False, None, True),
-            ("forced_refresh", False, "force_blocking", False),
+            ("cache_only", None, True),
+            ("blocking", "blocking", True),
+            ("async", "async", True),
+            ("lazy_async", "lazy_async", True),
+            ("force_blocking", "force_blocking", False),
+            ("force_async", "force_async", False),
         ]
     )
-    @patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome")
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    def test_dashboard_insight_records_cache_outcome(
+    def test_dashboard_cache_miss_pressure_uses_final_execution_mode(
         self,
         _name: str,
-        is_cached: bool,
         refresh: str | None,
-        expect_recorded: bool,
+        expect_recorded_miss: bool,
         mock_calculate: mock.MagicMock,
-        mock_record_outcome: mock.MagicMock,
     ) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
         insight = Insight.objects.create(
@@ -525,20 +525,77 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             result=[],
             last_refresh=timezone.now(),
             cache_key="cache-key",
-            is_cached=is_cached,
+            is_cached=False,
             timezone=self.team.timezone,
         )
-
-        query_params = {"from_dashboard": str(dashboard.id)}
+        miss_counter = DASHBOARD_CACHE_OUTCOME_COUNTER.labels(access_method="human", result="miss")
+        miss_count_before = miss_counter._value.get()
+        query_params: dict[str, str | int] = {"from_dashboard": dashboard.id}
         if refresh is not None:
             query_params["refresh"] = refresh
+
         response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/", query_params)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        if expect_recorded:
-            mock_record_outcome.assert_called_once_with(DashboardAccessMethod.HUMAN, is_cached=is_cached)
+        dashboard.refresh_from_db()
+        if expect_recorded_miss:
+            self.assertEqual(dashboard.most_recent_access["human"]["cache_miss_count"], 1)
         else:
-            mock_record_outcome.assert_not_called()
+            self.assertEqual(dashboard.most_recent_access, {})
+        self.assertEqual(miss_counter._value.get(), miss_count_before + 1)
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_dashboard_cache_hit_records_outcome_without_miss_pressure(self, mock_calculate: mock.MagicMock) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        mock_calculate.return_value = InsightResult(
+            result=[],
+            last_refresh=timezone.now(),
+            cache_key="cache-key",
+            is_cached=True,
+            timezone=self.team.timezone,
+        )
+        hit_counter = DASHBOARD_CACHE_OUTCOME_COUNTER.labels(access_method="human", result="hit")
+        hit_count_before = hit_counter._value.get()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/",
+            {"from_dashboard": dashboard.id, "refresh": "blocking"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.most_recent_access, {})
+        self.assertEqual(hit_counter._value.get(), hit_count_before + 1)
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_shared_force_blocking_records_miss_after_mode_remapping(self, mock_calculate: mock.MagicMock) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        sharing_config = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        mock_calculate.return_value = InsightResult(
+            result=[],
+            last_refresh=timezone.now(),
+            cache_key="cache-key",
+            is_cached=False,
+            timezone=self.team.timezone,
+        )
+
+        response = self.client.get(f"/shared/{sharing_config.access_token}.json?refresh=force_blocking")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.most_recent_access["embedded"]["cache_miss_count"], 1)
 
     def test_get_insight_in_shared_context(self) -> None:
         filter_dict = {
@@ -557,12 +614,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         valid_url = f"{settings.SITE_URL}/shared/{sharing_config.access_token}"
 
-        with (
-            patch(
-                "posthog.caching.calculate_results.calculate_for_query_based_insight"
-            ) as calculate_for_query_based_insight,
-            patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome") as record_outcome,
-        ):
+        with patch(
+            "posthog.caching.calculate_results.calculate_for_query_based_insight"
+        ) as calculate_for_query_based_insight:
             self.client.get(valid_url)
             calculate_for_query_based_insight.assert_called_once_with(
                 mock.ANY,
@@ -576,9 +630,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 tile_filters_override={},
                 cache_age_seconds=None,
                 analytics_props=ANY,
-                allow_raw_results=False,
             )
-            record_outcome.assert_not_called()
 
         with patch(
             "posthog.caching.calculate_results.calculate_for_query_based_insight"
@@ -599,7 +651,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 tile_filters_override={},
                 cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
                 analytics_props=ANY,
-                allow_raw_results=False,
             )
 
     def test_get_shared_insight_with_force_refresh_returns_200(self) -> None:
@@ -661,7 +712,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 tile_filters_override={},
                 cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
                 analytics_props=ANY,
-                allow_raw_results=False,
             )
 
     def test_get_insight_by_short_id(self) -> None:

@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import BaseTest
 
 from products.dashboards.backend.access import (
+    DASHBOARD_CACHE_OUTCOME_COUNTER,
     DashboardAccessMethod,
     record_dashboard_access,
     record_dashboard_cache_outcome,
@@ -30,6 +31,10 @@ class TestDashboardAccess(BaseTest):
     def test_records_cache_misses_without_counting_them_as_accesses(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team)
         accessed_at = datetime(2026, 7, 16, 10, tzinfo=UTC)
+        miss_counter = DASHBOARD_CACHE_OUTCOME_COUNTER.labels(access_method="api", result="miss")
+        hit_counter = DASHBOARD_CACHE_OUTCOME_COUNTER.labels(access_method="api", result="hit")
+        miss_count_before = miss_counter._value.get()
+        hit_count_before = hit_counter._value.get()
 
         record_dashboard_access(dashboard, DashboardAccessMethod.API, accessed_at=accessed_at)
         record_dashboard_cache_outcome(
@@ -41,8 +46,15 @@ class TestDashboardAccess(BaseTest):
         record_dashboard_cache_outcome(
             dashboard,
             DashboardAccessMethod.API,
-            is_cached=True,
+            is_cached=False,
+            persist_miss=False,
             observed_at=accessed_at + timedelta(minutes=2),
+        )
+        record_dashboard_cache_outcome(
+            dashboard,
+            DashboardAccessMethod.API,
+            is_cached=True,
+            observed_at=accessed_at + timedelta(minutes=3),
         )
 
         dashboard.refresh_from_db()
@@ -54,6 +66,8 @@ class TestDashboardAccess(BaseTest):
                 "cache_miss_count": 1,
             }
         }
+        assert miss_counter._value.get() == miss_count_before + 2
+        assert hit_counter._value.get() == hit_count_before + 1
 
     def test_access_timestamps_do_not_move_backwards(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team)
