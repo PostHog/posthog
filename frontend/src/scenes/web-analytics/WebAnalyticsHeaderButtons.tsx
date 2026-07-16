@@ -1,21 +1,18 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { IconBolt, IconPerson, IconShare } from '@posthog/icons'
+import { IconBolt, IconPerson } from '@posthog/icons'
 
 import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
-import { shareNudgeLogic } from 'scenes/web-analytics/shareNudgeLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsMenu } from 'scenes/web-analytics/WebAnalyticsMenu'
+import { WebAnalyticsShareButton } from 'scenes/web-analytics/WebAnalyticsShareButton'
 
 export function WebAnalyticsHeaderButtons(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -23,7 +20,6 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { shouldFilterTestAccounts } = useValues(webAnalyticsLogic)
     const { setShouldFilterTestAccounts } = useActions(webAnalyticsLogic)
-    const { emphasizeShareButton } = useValues(shareNudgeLogic)
     const [showPopover, setShowPopover] = useState(false)
 
     const hasFeatureFlag = featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES]
@@ -32,11 +28,6 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
         featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]
     const showShareButton =
         !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] && !featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]
-
-    const handleShare = (): void => {
-        void copyToClipboard(window.location.href, 'link')
-        posthog.capture('web analytics share link copied', { source: 'header_button' })
-    }
 
     const handleToggleEngine = (checked: boolean): void => {
         updateCurrentTeam({
@@ -56,17 +47,7 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
                 />
             )}
             {showShareButton && (
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={emphasizeShareButton ? <IconShare fontSize="16" /> : <IconLink fontSize="16" />}
-                    tooltip={emphasizeShareButton ? undefined : 'Share'}
-                    tooltipPlacement="top"
-                    onClick={handleShare}
-                    data-attr="web-analytics-share-button"
-                >
-                    {emphasizeShareButton ? 'Share' : undefined}
-                </LemonButton>
+                <WebAnalyticsShareButton source="header_button" getShareUrl={() => window.location.href} />
             )}
             <LemonButton
                 type="secondary"
