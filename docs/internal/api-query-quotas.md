@@ -2,7 +2,7 @@
 
 ## Purpose
 
-API query quotas cap the ClickHouse read cost created by personal API key requests to the query API.
+API query quotas limit the ClickHouse read cost created by personal API key requests to the query API.
 The first rollout is configured for free organizations only.
 Application code remains plan-agnostic so an existing finite allowance on another plan continues to work, but this change does not add or lower a paid-plan allowance.
 
@@ -31,6 +31,18 @@ The aggregation intentionally does not filter to successful `QueryFinish` rows.
 The usage report and quota decision are asynchronous.
 A newly over-limit organization can continue querying until the next quota update reaches Redis.
 The query path uses the existing 30-second process cache for Redis quota membership.
+
+## Enforcement timing decision
+
+The first version is intentionally an eventual billing-period limit, not a real-time hard cap.
+The usage-report pipeline, billing quota task, and Redis decision cache remain the authoritative enforcement loop.
+A request that crosses the allowance is allowed to finish, and later requests can continue until that loop marks the organization as limited.
+Once the decision is visible to the query process, new uncached personal API key queries return HTTP 402.
+
+This delay is an accepted simplicity tradeoff for the first rollout.
+The query path will not maintain a second per-query byte accumulator or synchronously fetch current billing usage.
+Avoiding those mechanisms keeps one source of truth, removes a write or remote lookup from every query, and avoids reconciliation between live estimates and finalized ClickHouse usage.
+Observed usage beyond the allowance should be monitored to validate the reporting interval, but the existence of reporting lag does not by itself block launch.
 
 ## Request scope
 
@@ -76,20 +88,20 @@ HTTP 402 should not be retried repeatedly before the billing period resets or an
 The free-only boundary is owned by billing configuration.
 Before launch, confirm that the free plan has the intended finite `api_queries_read_bytes` allowance and that paid plans are unchanged unless they already define an allowance.
 
-The existing quota framework can delay or bypass enforcement:
+Separate from the accepted reporting delay, the existing quota framework can add grace or bypass enforcement:
 
 - Customer trust scores can add a grace period before hard limiting.
 - `never_drop_data` bypasses API query limiting because API queries are not in `GRACE_PERIOD_EXEMPT_RESOURCES`.
 - The `retain-data-past-quota-limit` feature flag can bypass a new limit before the organization is already limited.
 
-These behaviors must be reviewed explicitly for the free-plan rollout.
-Do not assume that setting an allowance alone produces an immediate hard cap for every organization.
+These behaviors must be reviewed explicitly for the free-plan rollout because they can extend access beyond the normal reporting delay.
 
 ## Reliability and operations
 
 The query path reuses the existing Redis quota decision cache rather than maintaining a live usage counter.
-This avoids a write on every query and keeps the billing usage report authoritative.
-It also means enforcement has reporting lag and depends on the existing Redis quota infrastructure.
+This is the chosen enforcement model, not a fallback for the first rollout.
+It keeps the billing usage report authoritative and avoids adding a request-time dependency on billing or a write on every query.
+Enforcement therefore depends on the existing usage-report schedule, billing quota task, Redis quota infrastructure, and query-process cache.
 
 Quota membership is keyed by the team's project token, not the caller's personal API key.
 Rotating a project token can delay enforcement until the quota task refreshes Redis.
@@ -111,8 +123,8 @@ Monitor at least:
 3. Verify `API_QUERIES_ENABLED` in every cloud region.
 4. Test blocking and async personal API key requests against a limited organization.
 5. Test that fresh cached results remain available and no async task is enqueued while limited.
-6. Publish the allowance and HTTP 402 behavior in customer API and pricing documentation.
-7. Give Support the response shape, reset behavior, and escalation path.
+6. Publish the allowance, eventual enforcement timing, and HTTP 402 behavior in customer API and pricing documentation.
+7. Give Support the response shape, reset behavior, expected enforcement delay, and escalation path.
 8. Enable monitoring before rollout, alert on unexpected paid-plan blocks, and review usage leakage caused by the reporting interval.
 
 ## Out of scope
@@ -123,4 +135,5 @@ Monitor at least:
 - Per-query byte ceilings
 - New paid-plan limits
 
-A later version can widen the meter to other customer-initiated query paths or add a reconciled live counter if reporting lag is too costly.
+A later version can widen the meter to other customer-initiated query paths.
+A reconciled live counter should only be considered if observed usage beyond the allowance materially undermines the cost-control goal.
