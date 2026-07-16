@@ -16063,6 +16063,11 @@ export namespace Schemas {
       widget?: DashboardPatchWidgetOpenApi;
     }
 
+    export interface DashboardSubscribeNudgeResponse {
+      /** Whether a nudge notification was created. False when one was already sent recently for this user and dashboard, or when in-app notifications are unavailable. */
+      created: boolean;
+    }
+
     /**
      * * `team` - Only team
      * * `organization` - Organization
@@ -31625,6 +31630,8 @@ export namespace Schemas {
 
     export interface MCPToolDailyStatsQuery {
       dateRange?: DateRange | null;
+      /** Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window buckets by hour/minute instead of collapsing to a single day point. Defaults to day. */
+      interval?: IntervalType | null;
       kind?: 'MCPToolDailyStatsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -46865,7 +46872,7 @@ export namespace Schemas {
       review_inbox_prs?: boolean;
       /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
       review_labeled_prs?: boolean;
-      /** Minimum priority a validated finding needs to be published: 'consider' publishes everything, 'should_fix' (default) drops consider-level findings, 'must_fix' publishes only blocking issues.
+      /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
        *
        * * `consider` - Consider
        * * `should_fix` - Should Fix
@@ -54991,7 +54998,7 @@ export namespace Schemas {
       review_inbox_prs?: boolean;
       /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
       review_labeled_prs?: boolean;
-      /** Minimum priority a validated finding needs to be published: 'consider' publishes everything, 'should_fix' (default) drops consider-level findings, 'must_fix' publishes only blocking issues.
+      /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
        *
        * * `consider` - Consider
        * * `should_fix` - Should Fix
@@ -65244,6 +65251,18 @@ export namespace Schemas {
       Xs: 'xs',
     } as const;
 
+    export type EnvironmentsDashboardsSubscribeNudgeCreateParams = {
+    format?: EnvironmentsDashboardsSubscribeNudgeCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsSubscribeNudgeCreateFormat = typeof EnvironmentsDashboardsSubscribeNudgeCreateFormat[keyof typeof EnvironmentsDashboardsSubscribeNudgeCreateFormat];
+
+
+    export const EnvironmentsDashboardsSubscribeNudgeCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsUpdateTextTileCreateParams = {
     format?: EnvironmentsDashboardsUpdateTextTileCreateFormat;
     };
@@ -71687,6 +71706,18 @@ export namespace Schemas {
     export const DashboardsStreamTilesRetrieveLayoutSize = {
       Sm: 'sm',
       Xs: 'xs',
+    } as const;
+
+    export type DashboardsSubscribeNudgeCreateParams = {
+    format?: DashboardsSubscribeNudgeCreateFormat;
+    };
+
+    export type DashboardsSubscribeNudgeCreateFormat = typeof DashboardsSubscribeNudgeCreateFormat[keyof typeof DashboardsSubscribeNudgeCreateFormat];
+
+
+    export const DashboardsSubscribeNudgeCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
     } as const;
 
     export type DashboardsUpdateTextTileCreateParams = {
