@@ -495,7 +495,10 @@ class BetterStackSourceConfig(config.Config):
 
 @config.config
 class BettermodeSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    network_id: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
