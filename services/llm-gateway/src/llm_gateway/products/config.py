@@ -267,13 +267,16 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     # done by PostHog, not customer-billable usage, and the worker attributes spend per customer team
     # via the team_id header — a credit_bucket here would silently charge customer AI credits for it.
     # The trade-off (any personal API key can reach an unbilled route) is shared by every
-    # key-accessible unbilled product in this table and is bounded by the model pins;
-    # the class-wide fix is an internal-only/service-credential restriction on the gateway.
+    # key-accessible unbilled product in this table and is bounded by the model pins.
+    # requires_server_credential closes the OAuth side of that class: reviewer tokens are minted
+    # server-side with the internal marker, so a user's own Code OAuth token can't ride this route
+    # around the posthog_code free-tier gate.
     "stamphog": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=frozenset({"claude-haiku-4-5", "claude-sonnet-5"}),
         allow_api_keys=True,
         credit_bucket=None,
+        requires_server_credential=True,
     ),
 }
 

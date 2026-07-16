@@ -110,11 +110,15 @@ def _mint_reviewer_gateway_token(run: ReviewRun) -> str:
     """Short-lived OAuth token the sandboxed reviewer presents to the LLM gateway.
 
     Minted under the user who connected the repo's installation (the same creator-credential model
-    tasks uses with ``task.created_by``), under the shared sandbox OAuth app, carrying the single
-    ``llm_gateway:read`` scope and this run's team. If an untrusted PR coaxes the reviewer into
-    leaking it, the token buys a few hours of stamphog-route LLM calls and nothing else — the worker's
-    own long-lived credential never enters the sandbox. Fails closed when the repo was never synced
-    or the connecting user is gone; re-syncing the installation stamps a fresh identity.
+    tasks uses with ``task.created_by``), under the shared sandbox OAuth app, carrying only
+    ``llm_gateway:read`` plus the ``internal_run:read`` provenance marker — the gateway's stamphog
+    route sets ``requires_server_credential`` and refuses OAuth tokens without the marker, so a
+    user's own Code OAuth token can't reach the route. The marker is passed explicitly instead of
+    ``include_internal_scopes=True`` to keep the rest of the internal bundle (``task:write``) out of
+    a sandbox that runs an LLM over untrusted PR content. If that PR coaxes the reviewer into
+    leaking the token, it buys a few hours of stamphog-route LLM calls and nothing else — the
+    worker's own long-lived credential never enters the sandbox. Fails closed when the repo was
+    never synced or the connecting user is gone; re-syncing stamps a fresh identity.
     """
     user_id = run.pull_request.repo_config.connected_by_user_id
     if user_id is None:
@@ -128,7 +132,7 @@ def _mint_reviewer_gateway_token(run: ReviewRun) -> str:
             "re-sync the installation to mint sandbox LLM credentials"
         )
     return create_oauth_access_token_for_user(
-        user, run.team_id, scopes=["llm_gateway:read"], include_internal_scopes=False
+        user, run.team_id, scopes=["llm_gateway:read", "internal_run:read"], include_internal_scopes=False
     )
 
 

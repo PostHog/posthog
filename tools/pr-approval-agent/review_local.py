@@ -171,6 +171,16 @@ def _build_pr_data(context: dict) -> PRData:
     )
 
 
+def _ownership_summary(ownership: dict) -> str:
+    """Mirror _summarize_ownership's emptiness rule: individual owners count as ownership context
+    even with zero teams, or the prompt would claim "no owned paths" while hiding the handles the
+    reviewer should route escalations to."""
+    owners = [*ownership.get("teams", []), *ownership.get("individuals", [])]
+    if owners:
+        return f"touches {', '.join(owners)}"
+    return "no owned paths touched"
+
+
 def _run_gates_offline(pipeline: Pipeline) -> None:
     """Run the four deterministic gate checks — the same ones _run_gates runs.
 
@@ -189,11 +199,7 @@ def _run_gates_offline(pipeline: Pipeline) -> None:
         passed, message = check()
         pipeline.gate_results.append(GateResult(name, passed, message))
 
-    ownership = pipeline.classification.get("ownership", {})
-    if ownership.get("team_count", 0) == 0:
-        pipeline.classification["ownership_summary"] = "no owned paths touched"
-    else:
-        pipeline.classification["ownership_summary"] = f"touches {', '.join(ownership.get('teams', []))}"
+    pipeline.classification["ownership_summary"] = _ownership_summary(pipeline.classification.get("ownership", {}))
 
 
 def _familiarity_offline(

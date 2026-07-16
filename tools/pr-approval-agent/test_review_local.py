@@ -61,6 +61,17 @@ def test_commented_reviews_are_dropped_offline(monkeypatch) -> None:
     assert assurance["head_approvals"] == ["dave"]
 
 
+def test_ownership_summary_preserves_individual_owners() -> None:
+    # Individuals-only ownership (team_count == 0) used to collapse to "no owned paths touched",
+    # hiding the owner handles from the reviewer prompt — the LLM would approve instead of routing
+    # to the named owner. Mirrors _summarize_ownership's emptiness rule.
+    assert review_local._ownership_summary({"teams": [], "individuals": ["@a-handle"]}) == "touches @a-handle"
+    assert review_local._ownership_summary({"teams": ["org/devex"], "individuals": ["@a-handle"]}) == (
+        "touches org/devex, @a-handle"
+    )
+    assert review_local._ownership_summary({"teams": [], "individuals": []}) == "no owned paths touched"
+
+
 def test_fresh_trusted_bot_eyes_reach_pr_data_and_flag_in_flight(monkeypatch) -> None:
     # The hosted context now carries raw PR reactions; a fresh 👀 from an allowlisted reviewer bot
     # must reach PRData so the offline WAIT check can fire — hard-coding pr_reactions=[] meant

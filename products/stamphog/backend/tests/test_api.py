@@ -301,9 +301,11 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     def test_sync_adopts_preexisting_manual_config(self, mock_exchange, mock_verify, mock_list) -> None:
         # A repo onboarded through the plain create path carries a blank installation_id. When the same
         # team later syncs the verified installation, that row must be adopted (its installation stamped)
-        # rather than reported skipped and left unbound forever.
+        # rather than reported skipped and left unbound forever — but adopted DISABLED: the placeholder's
+        # flags were set by someone who never proved GitHub access, so a member could otherwise pre-arm
+        # enabled=True for a private repo and have reviews start the moment a teammate installs.
         manual = StamphogRepoConfig.objects.unscoped().create(
-            team_id=self.team.id, repository="PostHog/posthog", installation_id="", enabled=True
+            team_id=self.team.id, repository="PostHog/posthog", installation_id="", enabled=True, digest_enabled=True
         )
         response = self.client.post(
             self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
@@ -315,6 +317,8 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         manual.refresh_from_db()
         assert manual.installation_id == "42"
         assert manual.connected_by_user_id == self.user.id
+        assert manual.enabled is False
+        assert manual.digest_enabled is False
 
     @patch(f"{_VIEWS}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)

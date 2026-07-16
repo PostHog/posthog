@@ -218,7 +218,10 @@ def test_sandbox_gets_minted_short_lived_credential_and_closed_egress(
 
     minted = OAuthAccessToken.objects.get(token=env["AI_GATEWAY_API_KEY"])
     assert minted.user_id == user.id
-    assert minted.scope == "llm_gateway:read"
+    # internal_run:read is the server-mint provenance marker the gateway's stamphog route demands
+    # (requires_server_credential); llm_gateway:read is the only real capability. Anything broader
+    # (task:write from the internal bundle) must never ride into the sandbox.
+    assert set(minted.scope.split()) == {"llm_gateway:read", "internal_run:read"}
     assert minted.scoped_teams == [team.id]
     assert minted.expires is not None and minted.expires > timezone.now()
 
@@ -633,22 +636,33 @@ def test_refused_verdict_strips_trigger_label_only_in_label_mode(
 
 
 @pytest.mark.parametrize(
-    "approved_at_sha,expected_audience_key",
+    "review_enabled,approved_at_sha,expected_audience_key",
     [
-        ("sha-merged", "team-devex"),
-        (None, ""),
-        ("sha-earlier", ""),
+        (True, "sha-merged", "team-devex"),
+        (True, None, ""),
+        (True, "sha-earlier", ""),
+        # Digest-only mode (review off, digest on): approvals can't exist by construction, so
+        # every merge is digest-eligible — gating on approval would keep these repos out of
+        # Slack forever.
+        (False, None, "team-devex"),
     ],
-    ids=["approved_at_merged_head", "never_approved", "approved_at_earlier_head"],
+    ids=["approved_at_merged_head", "never_approved", "approved_at_earlier_head", "digest_only_needs_no_approval"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_merged_pr_digest_eligibility_gate(
-    team, stamphog_chain: StamphogChain, approved_at_sha: str | None, expected_audience_key: str
+    team,
+    stamphog_chain: StamphogChain,
+    review_enabled: bool,
+    approved_at_sha: str | None,
+    expected_audience_key: str,
 ) -> None:
     # Regression guard: the approved-head_sha eligibility gate plus the author -> GitHub-team
     # audience cascade. Merge facts are always recorded, but audience_key is stamped (via the
-    # cascade) only when a stamphog-approved run exists at the exact merged head SHA.
+    # cascade) only when a stamphog-approved run exists at the exact merged head SHA — or the
+    # repo is digest-only, where no approval can exist.
     repo_config = _repo_config(team.id)
+    if not review_enabled:
+        StamphogRepoConfig.objects.for_team(team.id).filter(id=repo_config.id).update(enabled=False)
     author, merged_head = "devex-dev", "sha-merged"
     stamphog_chain.recorder.teams_by_login[author] = ["team-devex"]
     _make_pr_with_review(team.id, repo_config, number=101, author=author, approved_at_sha=approved_at_sha)
@@ -663,10 +677,13 @@ def test_merged_pr_digest_eligibility_gate(
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_daily_digest_auto_provisions_channel_and_posts(team, stamphog_chain: StamphogChain) -> None:
-    # Regression guard: the digest fan-out + auto-provision (Slack name match) + Slack post. An
-    # approved-merged PR with no channel yet must provision an enabled DigestChannel by matching
-    # its audience_key to a workspace channel name, complete a DigestRun, and post the digest.
+def test_daily_digest_provisions_name_matched_channel_disabled(team, stamphog_chain: StamphogChain) -> None:
+    # A bare Slack name match provisions the channel DISABLED and posts nothing: any workspace
+    # member can pre-create a public channel named after a GitHub team slug, so auto-posting to a
+    # name-matched channel would hand a squatter private repo titles and summaries. A human enables
+    # the channel in the UI; the merged PR stays unlinked so the next run after enabling picks it
+    # up. Repo-declared channels (maintainer's explicit pick) still provision enabled — see the
+    # STAMPHOG_CONFIG test below.
     repo_config = _repo_config(team.id)
     integration = Integration.objects.create(
         team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
@@ -686,19 +703,25 @@ def test_daily_digest_auto_provisions_channel_and_posts(team, stamphog_chain: St
     send_daily_digests()
 
     channel = DigestChannel.objects.for_team(team.id).get(audience_key="team-devex")
-    assert channel.enabled is True
+    assert channel.enabled is False
     assert channel.resolution_source == ChannelResolutionSource.SLACK_NAME_MATCH
     assert channel.slack_integration_id == integration.id
 
+    assert not DigestRun.objects.for_team(team.id).filter(digest_channel=channel).exists()
+    assert fakes.FakeSlackIntegration.posted_messages == []
+    pr.refresh_from_db()
+    assert pr.digest_run_id is None
+
+    # A human enabling the channel is the confirmation step — the next daily run then posts.
+    DigestChannel.objects.for_team(team.id).filter(id=channel.id).update(enabled=True)
+    send_daily_digests()
+
     run = DigestRun.objects.for_team(team.id).get(digest_channel=channel)
     assert run.status == DigestRunStatus.COMPLETED
-
     posted = fakes.FakeSlackIntegration.posted_messages
     assert len(posted) == 1
     assert posted[0]["channel"] == "C-DEVEX"
-    assert posted[0]["blocks"][0]["text"]["text"] == "Merged PRs digest"
     assert "#101 Add util helper" in posted[0]["text"]
-
     pr.refresh_from_db()
     assert pr.digest_run_id == run.id
 

@@ -398,7 +398,10 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
             .filter(pull_request=pr_obj, verdict=ReviewVerdict.APPROVED, head_sha=pr_head_sha)
             .exists()
         )
-    if repo_config.digest_enabled and approved:
+    # Review-disabled repos can't have approved runs by construction, so digest-only mode
+    # (digest on, review off) admits every merge — gating those on approval would silently
+    # keep digest-only repos out of Slack forever.
+    if repo_config.digest_enabled and (approved or not repo_config.enabled):
         pr_obj.audience_key = resolve_audience_key(repo_config, pr)
         update_fields.append("audience_key")
     else:

@@ -131,11 +131,18 @@ def resolve_slack_destination(
 
 
 def auto_provision_channel(team_id: int, audience_key: str) -> DigestChannel | None:
-    """Create an enabled DigestChannel for (team, audience_key) if a Slack name match exists.
+    """Create a DigestChannel for (team, audience_key) if a Slack destination resolves.
+
+    Repo-declared channels (``digest:`` in .stamphog config, read from the default branch) are the
+    maintainer's explicit pick and provision enabled. A bare name match provisions DISABLED, pending
+    a human enable in the UI: any workspace member can create a public channel named after a GitHub
+    team slug, so auto-posting to a name-matched channel would let a squatter receive private repo
+    titles and summaries.
 
     No-op (returns None, logged) when: the team has no Slack integration, no channel name
     matches, or a row already exists for this (team, audience_key) — including a disabled one,
-    since disabled means a human opted out and auto-provisioning must never resurrect it.
+    since disabled means a human opted out (or hasn't confirmed a name match yet) and
+    auto-provisioning must never resurrect it.
     """
     if DigestChannel.objects.for_team(team_id).filter(audience_key=audience_key).exists():
         logger.info("stamphog_channel_resolution_row_exists", team_id=team_id, audience_key=audience_key)
@@ -154,7 +161,7 @@ def auto_provision_channel(team_id: int, audience_key: str) -> DigestChannel | N
             slack_integration_id=slack_integration_id,
             slack_channel_id=channel["id"],
             slack_channel_name=channel["name"],
-            enabled=True,
+            enabled=resolution_source != ChannelResolutionSource.SLACK_NAME_MATCH,
             resolution_source=resolution_source,
         )
     except IntegrityError:

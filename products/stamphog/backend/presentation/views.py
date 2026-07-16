@@ -72,14 +72,25 @@ def _adopt_preexisting_config(team_id: int, repository: str, installation_id: st
     Stamp the verified installation onto it so it starts resolving webhooks again, rather than reporting
     it skipped and leaving it unbound forever. Safe to rebind: this helper is team-scoped and only
     reached from the sync flow, which already proved the caller owns the NEW installation.
+
+    A never-bound placeholder binds DISABLED: its enabled flags were set by whoever created the row,
+    who never proved GitHub access to the repo — otherwise a member could pre-arm ``enabled=True``
+    for a private repo and have reviews start (under the syncing teammate's identity) the moment
+    someone else completes the install. Reinstall rows keep their settings: they were configured
+    while verifiably bound to a real installation.
     """
     existing = StamphogRepoConfig.objects.for_team(team_id).filter(provider="github", repository=repository).first()
     if existing is None:
         return None
     if existing.installation_id != installation_id:
+        update_fields = ["installation_id", "updated_at"]
+        if not existing.installation_id:
+            existing.enabled = False
+            existing.digest_enabled = False
+            update_fields += ["enabled", "digest_enabled"]
         existing.installation_id = installation_id
         try:
-            existing.save(update_fields=["installation_id", "updated_at"])
+            existing.save(update_fields=update_fields)
         except IntegrityError:
             return None
     return existing
