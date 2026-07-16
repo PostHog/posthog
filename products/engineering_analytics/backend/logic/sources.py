@@ -297,7 +297,10 @@ def _configured_repositories(source: ExternalDataSource) -> list[str]:
     if not isinstance(job_inputs, dict):
         return []
     repositories = job_inputs.get("repositories")
-    raw = repositories if isinstance(repositories, list) else [job_inputs.get("repository")]
+    # An empty `repositories` list means "unset" — the sync-side parser falls back to the single
+    # `repository` and still syncs it, so treat it the same here or a working single-repo source
+    # would list as a blank, unsynced entry.
+    raw = repositories if isinstance(repositories, list) and repositories else [job_inputs.get("repository")]
     seen: set[str] = set()
     result: list[str] = []
     for value in raw:

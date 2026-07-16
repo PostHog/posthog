@@ -1661,10 +1661,14 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     if (!sourceId) {
                         return null
                     }
+                    // Mirror activeSource: with no explicit repo, prefer the synced entry so the picker
+                    // highlights the repo the loaders actually read — else it shows an unsynced repo whose
+                    // selection would flip the page to not-connected.
+                    const ofSource = githubSources.filter((source) => source.id === sourceId)
                     const match =
-                        (scopeRepo &&
-                            githubSources.find((source) => source.id === sourceId && source.repo === scopeRepo)) ||
-                        githubSources.find((source) => source.id === sourceId)
+                        (scopeRepo && ofSource.find((source) => source.repo === scopeRepo)) ||
+                        ofSource.find((source) => source.synced) ||
+                        ofSource[0]
                     return match ? scopeToValue(match.id, match.repo) : null
                 },
             ],

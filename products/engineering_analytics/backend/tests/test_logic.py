@@ -703,6 +703,18 @@ class TestListGitHubSources(BaseTest):
         ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs=["not", "a", "dict"])
         assert list_github_sources(team=self.team) == [GitHubSource(id=str(source.id), repo="", prefix="weird")]
 
+    def test_empty_repositories_list_falls_back_to_legacy_repository(self) -> None:
+        # A legacy source with `repository` set but `repositories: []` (empty) — the sync parser treats
+        # the empty list as unset and still syncs the legacy repo, so the picker must list that repo, not
+        # a blank unknown entry.
+        source = self._source(prefix="emptylist", repository="PostHog/posthog")
+        ExternalDataSource.objects.filter(pk=source.pk).update(
+            job_inputs={"repository": "PostHog/posthog", "repositories": []}
+        )
+        assert list_github_sources(team=self.team) == [
+            GitHubSource(id=str(source.id), repo="PostHog/posthog", prefix="emptylist")
+        ]
+
     def test_excludes_non_github_and_soft_deleted_sources(self) -> None:
         self._source(prefix="stripe", source_type=ExternalDataSourceType.STRIPE)
         deleted = self._source(prefix="gone", repository="PostHog/posthog")
