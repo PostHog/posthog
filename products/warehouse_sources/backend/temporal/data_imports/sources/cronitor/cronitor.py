@@ -95,6 +95,21 @@ def _fetch(session: requests.Session, url: str, api_key: str, logger: FilteringB
     return response.json()
 
 
+# HTTP-check monitors carry the outbound request config Cronitor uses to probe an endpoint, and
+# that config can embed credentials (bearer tokens, API keys, session cookies, secrets in the
+# POST body). Strip those before a row is persisted so they never land in the queryable warehouse
+# table where any project member could read them back.
+_SENSITIVE_REQUEST_FIELDS = ("headers", "cookies", "body")
+
+
+def _redact_monitor(monitor: dict[str, Any]) -> dict[str, Any]:
+    request = monitor.get("request")
+    if not isinstance(request, dict) or not any(field in request for field in _SENSITIVE_REQUEST_FIELDS):
+        return monitor
+    redacted_request = {key: value for key, value in request.items() if key not in _SENSITIVE_REQUEST_FIELDS}
+    return {**monitor, "request": redacted_request}
+
+
 def _fetch_monitors_page(
     session: requests.Session, api_key: str, logger: FilteringBoundLogger, page: int
 ) -> tuple[list[dict[str, Any]], bool]:
@@ -108,7 +123,7 @@ def _fetch_monitors_page(
     monitors = data.get("monitors") if isinstance(data, dict) else data
     if not isinstance(monitors, list):
         return [], False
-    rows = [monitor for monitor in monitors if isinstance(monitor, dict)]
+    rows = [_redact_monitor(monitor) for monitor in monitors if isinstance(monitor, dict)]
     return rows, len(rows) >= PAGE_SIZE
 
 

@@ -132,6 +132,28 @@ class TestMonitors:
         _patch_fetch(monkeypatch, {_monitors_url(1): {"detail": "something unexpected"}})
         assert _collect(_FakeResumableManager(), "monitors") == []
 
+    def test_sensitive_request_config_is_redacted(self, monkeypatch: Any) -> None:
+        # HTTP-check monitors embed the outbound request config, which can carry credentials.
+        # Those must never reach the warehouse table, but harmless request config stays.
+        monitor = {
+            "key": "check-a",
+            "created": "2026-01-01T00:00:00Z",
+            "request": {
+                "url": "https://example.com/health",
+                "method": "GET",
+                "headers": {"Authorization": "Bearer super-secret"},
+                "cookies": {"session": "secret-cookie"},
+                "body": "api_key=secret",
+            },
+        }
+        _patch_fetch(monkeypatch, {_monitors_url(1): {"monitors": [monitor]}})
+        rows = _collect(_FakeResumableManager(), "monitors")
+
+        assert len(rows) == 1
+        assert rows[0]["request"] == {"url": "https://example.com/health", "method": "GET"}
+        # The original response dict must not be mutated in place.
+        assert "headers" in monitor["request"]
+
 
 class TestInvocations:
     def _detail_url(self, key: str) -> str:
