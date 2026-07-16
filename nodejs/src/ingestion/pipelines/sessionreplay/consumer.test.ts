@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { ingestionLagGauge, ingestionLagHistogram } from '~/common/metrics'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { SessionReplayPipeline, runSessionReplayPipeline } from '~/ingestion/pipelines/sessionreplay'
 import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
@@ -37,7 +38,7 @@ function flushMicrotasks(): Promise<void> {
     return new Promise((resolve) => setImmediate(resolve))
 }
 
-function kafkaMessage(partition: number, offset: number): Message {
+function kafkaMessage(partition: number, offset: number, capturedAtMs?: number): Message {
     return {
         value: Buffer.from('data'),
         size: 4,
@@ -45,7 +46,15 @@ function kafkaMessage(partition: number, offset: number): Message {
         partition,
         offset,
         timestamp: Date.now(),
+        headers: capturedAtMs === undefined ? undefined : [{ now: Buffer.from(new Date(capturedAtMs).toISOString()) }],
     }
+}
+
+async function lagHistogramCount(partition: string): Promise<number | undefined> {
+    const metric = await ingestionLagHistogram.get()
+    return metric.values.find(
+        (v) => v.metricName === 'ingestion_lag_ms_histogram_count' && v.labels.partition === partition
+    )?.value
 }
 
 describe('SessionRecordingIngester', () => {
@@ -176,6 +185,23 @@ describe('SessionRecordingIngester', () => {
         expect(jest.mocked(ingester.kafkaConsumer).offsetsStore).toHaveBeenCalledWith([
             { topic: consumeTopic, partition: 0, offset: 43 },
         ])
+    })
+
+    it('reports ingestion lag only once the batch is flushed', async () => {
+        ingestionLagGauge.reset()
+        ingestionLagHistogram.reset()
+
+        // The default ingester keeps age/size out of reach, so recording a batch does not flush it —
+        // and lag must not be observed until the data is durably ingested.
+        runPipelineMock.mockResolvedValue(new Map([[0, 42]]))
+        await ingester.handleEachBatch([kafkaMessage(0, 42, Date.now() - 5000)])
+        expect(await lagHistogramCount('0')).toBeUndefined()
+
+        // With the age trigger the batch flushes immediately, so its capture lag is observed post-flush.
+        createIngester({ SESSION_RECORDING_MAX_BATCH_AGE_MS: 0 })
+        runPipelineMock.mockResolvedValue(new Map([[0, 43]]))
+        await ingester.handleEachBatch([kafkaMessage(0, 43, Date.now() - 5000)])
+        expect(await lagHistogramCount('0')).toBe(1)
     })
 
     it('start() wires the revoke hook, and the hook flushes the tracked offsets', async () => {

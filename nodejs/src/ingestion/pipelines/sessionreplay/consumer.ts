@@ -39,6 +39,7 @@ import { HealthCheckResult, PluginServerService, RedisPool, ValueMatcher } from 
 import { SessionRecordingApiConfig, SessionRecordingConfig } from './config'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
+import { SessionReplayLagReporter } from './session-replay-lag-reporter'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
 import { RetentionAwareStorage } from './sessions/retention-aware-batch-writer'
 import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
@@ -89,6 +90,8 @@ export class SessionRecordingIngester {
     private isDebugLoggingEnabled: ValueMatcher<number>
     private readonly promiseScheduler: PromiseScheduler
     private readonly sessionBatchManager: SessionBatchManager
+    /** Buffers capture timestamps of processed messages and reports ingestion lag after each flush. */
+    private readonly lagReporter: SessionReplayLagReporter
     /** The accumulator for the current flush cycle. Owned here, minted and flushed via the manager. */
     private currentBatch: SessionBatchRecorder
     /** When the current accumulation cycle started (last flush, or startup), for the age flush trigger. */
@@ -241,6 +244,8 @@ export class SessionRecordingIngester {
             encryptor: this.encryptor,
         })
 
+        this.lagReporter = new SessionReplayLagReporter(this.topic)
+
         this.currentBatch = this.sessionBatchManager.createBatch()
         this.lastFlushTime = Date.now()
     }
@@ -290,6 +295,8 @@ export class SessionRecordingIngester {
             )
         )
         this.sessionBatchManager.trackProcessedOffsets(offsets)
+        // Buffer capture timestamps now; lag is reported once the batch is durably flushed and committed.
+        this.lagReporter.record(messages)
 
         if (this.sessionBatchManager.shouldFlush(this.currentBatch, this.lastFlushTime)) {
             await this.flushCurrentBatch()
@@ -312,6 +319,9 @@ export class SessionRecordingIngester {
         await this.batchLock(async () => {
             logger.info('🔁', 'blob_ingester_consumer_v2 - flushing batch', { batchSize: this.currentBatch.size })
             await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () => this.currentBatch.flush())
+            // The flush committed the batch's offsets, so its data is now durably ingested — report lag.
+            // Skipped if the flush above threw, so a failed flush records no premature lag sample.
+            this.lagReporter.flush()
             this.currentBatch = this.sessionBatchManager.createBatch()
             this.lastFlushTime = Date.now()
         })
