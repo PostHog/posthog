@@ -922,7 +922,8 @@ class CodefreshSourceConfig(config.Config):
 
 @config.config
 class CodySourceConfig(config.Config):
-    pass
+    instance_url: str
+    access_token: str
 
 
 @config.config

@@ -111,6 +111,7 @@ the row lists both.
 | coassemble                | HTTP                        | requests                                                        | ✅                          |
 | coda                      | HTTP                        | requests                                                        | ✅                          |
 | codefresh                 | HTTP                        | requests                                                        | ✅                          |
+| cody                      | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | cohere                    | HTTP                        | requests                                                        | ✅                          |
 | coin_api                  | HTTP                        | requests                                                        | ✅                          |
 | coingecko                 | HTTP                        | requests                                                        | ✅                          |
@@ -575,7 +576,6 @@ doesn't conflict with concurrent PRs.
 - cockroachdb
 - codacy
 - codecov
-- cody
 - confluent_cloud
 - constant_contact
 - copper
