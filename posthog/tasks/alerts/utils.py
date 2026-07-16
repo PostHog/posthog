@@ -13,14 +13,14 @@ from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 
-from products.alerts.backend.calendar import (
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, derive_detector_event_fields
+from products.alerts.backend.scheduling import (
     EVERY_15_MINUTES_CADENCE_MINUTES as EVERY_15_MINUTES_CADENCE_MINUTES,
     REAL_TIME_CADENCE_MINUTES as REAL_TIME_CADENCE_MINUTES,
     is_weekend,
     next_calendar_check_time,
     to_calendar_interval,
 )
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, derive_detector_event_fields
 
 logger = structlog.get_logger(__name__)
 

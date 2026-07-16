@@ -1,9 +1,8 @@
-"""Calendar-anchored scheduling math for alert checks.
+"""Scheduling math for alert checks.
 
-The second of the two scheduling models (see scheduling.py for grid cadence):
-checks anchor to calendar instants in the team's local timezone, daily at 1am,
-weekly Monday 3am, and monthly on the 1st at 4am, with quiet hours (blocked local
-time windows) and weekend skipping layered on top.
+Sub-daily checks preserve their existing cadence. Daily, weekly, and monthly
+checks anchor to calendar instants in the team's local timezone. Quiet hours
+and weekend skipping layer local-time restrictions on top of those schedules.
 
 Pure Python with no Django or model imports. Timezones are passed as IANA
 names, quiet-hours windows as parsed tuples.
