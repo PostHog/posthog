@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 
 import { IconBell, IconCreditCard, IconPlay, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { AlertingListToolbar, AlertingTable } from 'lib/components/Alerting'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -11,8 +10,9 @@ import type { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTabl
 import { createdByColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 
+import { BillingAlertListToolbar } from './BillingAlertComponents'
 import { BillingAlertDestinationPanel } from './BillingAlertDestination'
-import { metricLabel, stateLabel, stateTagType, thresholdDescription } from './billingAlertDisplay'
+import { destinationLabel, metricLabel, stateLabel, stateTagType, thresholdDescription } from './billingAlertDisplay'
 import { BillingAlertEvents } from './BillingAlertEvents'
 import { BillingAlertCreationView, billingAlertsLogic } from './billingAlertsLogic'
 import type { BillingAlertConfiguration } from './billingAlertsLogic'
@@ -39,6 +39,7 @@ export function BillingAlertsList(): JSX.Element {
         checkNow,
         loadEvents,
         openDestinationPanel,
+        deleteDestination,
     } = useActions(billingAlertsLogic)
 
     const columns: LemonTableColumns<BillingAlertConfiguration> = [
@@ -132,6 +133,24 @@ export function BillingAlertsList(): JSX.Element {
                                         icon: <IconPlus />,
                                         onClick: () => openDestinationPanel(alert.id),
                                     },
+                                    ...(alert.destinations ?? []).map((destination) => ({
+                                        label: `Remove ${destinationLabel(destination.type)} destination`,
+                                        status: 'danger' as const,
+                                        disabledReason: updating ? 'Removing' : undefined,
+                                        onClick: () =>
+                                            LemonDialog.open({
+                                                title: `Remove ${destinationLabel(destination.type)} destination?`,
+                                                description: `This stops ${destinationLabel(destination.type)} notifications for "${alert.name}".`,
+                                                primaryButton: {
+                                                    children: 'Remove destination',
+                                                    status: 'danger',
+                                                    onClick: () => deleteDestination(alert, destination),
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                },
+                                            }),
+                                    })),
                                     {
                                         label: 'Delete',
                                         status: 'danger' as const,
@@ -161,14 +180,14 @@ export function BillingAlertsList(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4" data-attr="billing-alerts-view">
-            <AlertingListToolbar
+            <BillingAlertListToolbar
                 searchValue={filters.search}
                 onSearchChange={(search) => setFilters({ search })}
                 createdByValue={filters.createdBy}
                 onCreatedByChange={(user) => setFilters({ createdBy: user?.id ?? null })}
                 showPaused={filters.showPaused}
                 onShowPausedChange={(showPaused) => setFilters({ showPaused: !!showPaused })}
-                extraControls={
+                createButton={
                     <LemonButton
                         type="primary"
                         size="small"
@@ -179,7 +198,8 @@ export function BillingAlertsList(): JSX.Element {
                 }
             />
 
-            <AlertingTable
+            <LemonTable
+                size="small"
                 dataSource={filteredAlerts}
                 columns={columns}
                 rowKey="id"

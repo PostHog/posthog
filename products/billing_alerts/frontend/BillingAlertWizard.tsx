@@ -2,11 +2,14 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
-import { AlertingChoiceCard, AlertingWizardLayout } from 'lib/components/Alerting'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import type { MetricEnumApi, ThresholdTypeEnumApi } from 'products/billing_alerts/frontend/generated/api.schemas'
+import type {
+    BillingAlertMetricEnumApi,
+    ThresholdTypeEnumApi,
+} from 'products/billing_alerts/frontend/generated/api.schemas'
 
+import { BillingAlertChoiceCard, BillingAlertWizardLayout } from './BillingAlertComponents'
 import { BillingAlertDestinationFields } from './BillingAlertDestination'
 import {
     BILLING_ALERT_DESTINATIONS,
@@ -22,7 +25,7 @@ export function BillingAlertWizard(): JSX.Element {
     const { setWizardStep, resetCreation } = useActions(billingAlertsLogic)
 
     return (
-        <AlertingWizardLayout
+        <BillingAlertWizardLayout
             steps={BILLING_ALERT_WIZARD_STEPS}
             currentStep={wizardStep}
             onStepClick={setWizardStep}
@@ -31,7 +34,7 @@ export function BillingAlertWizard(): JSX.Element {
             {wizardStep === BillingAlertWizardStep.Destination && <BillingAlertDestinationStep />}
             {wizardStep === BillingAlertWizardStep.Trigger && <BillingAlertTriggerStep />}
             {wizardStep === BillingAlertWizardStep.Configure && <BillingAlertConfigureStep />}
-        </AlertingWizardLayout>
+        </BillingAlertWizardLayout>
     )
 }
 
@@ -47,7 +50,7 @@ function BillingAlertDestinationStep(): JSX.Element {
             </div>
             <div className="space-y-3">
                 {BILLING_ALERT_DESTINATIONS.map((destination) => (
-                    <AlertingChoiceCard
+                    <BillingAlertChoiceCard
                         key={destination.key}
                         icon={<img src={destination.icon} alt="" className="h-8 w-8 object-contain" />}
                         name={destination.name}
@@ -73,7 +76,7 @@ function BillingAlertTriggerStep(): JSX.Element {
             </div>
             <div className="space-y-3">
                 {BILLING_ALERT_TRIGGERS.map((trigger) => (
-                    <AlertingChoiceCard
+                    <BillingAlertChoiceCard
                         key={trigger.key}
                         name={trigger.name}
                         description={trigger.description}
@@ -134,7 +137,7 @@ function BillingAlertThresholdFields(): JSX.Element {
                 <LemonField.Pure label="Metric">
                     <LemonSelect
                         value={form.metric}
-                        onChange={(metric) => setFormValue('metric', metric as MetricEnumApi)}
+                        onChange={(metric) => setFormValue('metric', metric as BillingAlertMetricEnumApi)}
                         options={[
                             { value: 'spend', label: 'Spend' },
                             { value: 'usage', label: 'Usage' },

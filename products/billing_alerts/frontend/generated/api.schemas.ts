@@ -66,9 +66,9 @@ export interface UserBasicApi {
  * * `spend` - Spend
  * * `usage` - Usage
  */
-export type MetricEnumApi = (typeof MetricEnumApi)[keyof typeof MetricEnumApi]
+export type BillingAlertMetricEnumApi = (typeof BillingAlertMetricEnumApi)[keyof typeof BillingAlertMetricEnumApi]
 
-export const MetricEnumApi = {
+export const BillingAlertMetricEnumApi = {
     Spend: 'spend',
     Usage: 'usage',
 } as const
@@ -118,6 +118,11 @@ export const NotificationDestinationTypeEnumApi = {
     Teams: 'teams',
 } as const
 
+export interface BillingAlertDestinationSummaryApi {
+    type: NotificationDestinationTypeEnumApi
+    hog_function_ids: string[]
+}
+
 export interface BillingAlertConfigurationApi {
     /** Unique identifier for this billing alert. */
     readonly id: string
@@ -152,7 +157,7 @@ export interface BillingAlertConfigurationApi {
      *
      * * `spend` - Spend
      * * `usage` - Usage */
-    metric?: MetricEnumApi
+    metric?: BillingAlertMetricEnumApi
     /**
      * Currency for spend alerts.
      * @maxLength 3
@@ -213,6 +218,8 @@ export interface BillingAlertConfigurationApi {
     readonly consecutive_failures: number
     /** Notification destination types configured for this alert. */
     readonly destination_types: readonly NotificationDestinationTypeEnumApi[]
+    /** Notification destination groups configured for this alert, including their shared HogFunctions. */
+    readonly destinations: readonly BillingAlertDestinationSummaryApi[]
     readonly created_at: string
     readonly updated_at: string
 }
@@ -260,7 +267,7 @@ export interface PatchedBillingAlertConfigurationApi {
      *
      * * `spend` - Spend
      * * `usage` - Usage */
-    metric?: MetricEnumApi
+    metric?: BillingAlertMetricEnumApi
     /**
      * Currency for spend alerts.
      * @maxLength 3
@@ -321,6 +328,8 @@ export interface PatchedBillingAlertConfigurationApi {
     readonly consecutive_failures?: number
     /** Notification destination types configured for this alert. */
     readonly destination_types?: readonly NotificationDestinationTypeEnumApi[]
+    /** Notification destination groups configured for this alert, including their shared HogFunctions. */
+    readonly destinations?: readonly BillingAlertDestinationSummaryApi[]
     readonly created_at?: string
     readonly updated_at?: string
 }
@@ -375,7 +384,7 @@ export interface BillingAlertEventApi {
      *
      * * `spend` - Spend
      * * `usage` - Usage */
-    readonly metric: MetricEnumApi
+    readonly metric: BillingAlertMetricEnumApi
     /**
      * @nullable
      * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$

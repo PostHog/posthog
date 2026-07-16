@@ -1,9 +1,11 @@
+from datetime import timedelta
 from decimal import Decimal
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 from rest_framework import status
 
@@ -87,6 +89,123 @@ class TestBillingAlertAPI(APIBaseTest):
         alert = BillingAlertConfiguration.objects.get(id=data["id"])
         assert alert.threshold_percentage == Decimal("50.00")
 
+    def test_create_snoozed_alert_applies_snooze_transition(self) -> None:
+        snooze_until = timezone.now() + timedelta(hours=2)
+
+        response = self.client.post(
+            self.url,
+            self._payload(snooze_until=snooze_until.isoformat()),
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        alert = BillingAlertConfiguration.objects.get(id=response.json()["id"])
+        assert alert.state == BillingAlertConfiguration.State.SNOOZED
+        assert alert.snooze_until == snooze_until
+
+    def test_enable_resets_lifecycle_state_and_failures(self) -> None:
+        alert = self._alert(
+            enabled=False,
+            state=BillingAlertConfiguration.State.BROKEN,
+            consecutive_failures=5,
+        )
+
+        response = self.client.patch(f"{self.url}{alert.id}/", {"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        alert.refresh_from_db()
+        assert alert.enabled is True
+        assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
+        assert alert.consecutive_failures == 0
+
+    def test_disable_preserves_failure_count_and_resets_state(self) -> None:
+        alert = self._alert(
+            enabled=True,
+            state=BillingAlertConfiguration.State.FIRING,
+            consecutive_failures=3,
+        )
+
+        response = self.client.patch(f"{self.url}{alert.id}/", {"enabled": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        alert.refresh_from_db()
+        assert alert.enabled is False
+        assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
+        assert alert.consecutive_failures == 3
+
+    def test_snooze_preserves_failure_count_and_sets_snoozed_state(self) -> None:
+        snooze_until = timezone.now() + timedelta(hours=2)
+        alert = self._alert(
+            state=BillingAlertConfiguration.State.FIRING,
+            consecutive_failures=2,
+        )
+
+        response = self.client.patch(
+            f"{self.url}{alert.id}/",
+            {"snooze_until": snooze_until.isoformat()},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        alert.refresh_from_db()
+        assert alert.state == BillingAlertConfiguration.State.SNOOZED
+        assert alert.snooze_until == snooze_until
+        assert alert.consecutive_failures == 2
+
+    def test_unsnooze_resets_state_and_failures(self) -> None:
+        alert = self._alert(
+            state=BillingAlertConfiguration.State.SNOOZED,
+            snooze_until=timezone.now() + timedelta(hours=2),
+            consecutive_failures=4,
+        )
+
+        response = self.client.patch(f"{self.url}{alert.id}/", {"snooze_until": None}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        alert.refresh_from_db()
+        assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
+        assert alert.snooze_until is None
+        assert alert.consecutive_failures == 0
+
+    def test_threshold_edit_resets_firing_state_and_failures(self) -> None:
+        alert = self._alert(
+            state=BillingAlertConfiguration.State.FIRING,
+            consecutive_failures=3,
+        )
+
+        response = self.client.patch(
+            f"{self.url}{alert.id}/",
+            {"threshold_percentage": "75.00"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        alert.refresh_from_db()
+        assert alert.threshold_percentage == Decimal("75.00")
+        assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
+        assert alert.consecutive_failures == 0
+
+    def test_threshold_edit_preserves_snoozed_state(self) -> None:
+        snooze_until = timezone.now() + timedelta(hours=2)
+        alert = self._alert(
+            state=BillingAlertConfiguration.State.SNOOZED,
+            snooze_until=snooze_until,
+            consecutive_failures=3,
+        )
+
+        response = self.client.patch(
+            f"{self.url}{alert.id}/",
+            {"minimum_value": "10.00"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        alert.refresh_from_db()
+        assert alert.minimum_value == Decimal("10.00")
+        assert alert.state == BillingAlertConfiguration.State.SNOOZED
+        assert alert.snooze_until == snooze_until
+        assert alert.consecutive_failures == 3
+
     def test_model_rejects_execution_team_from_different_organization(self) -> None:
         other_org = Organization.objects.create(name="Other")
         other_team = Team.objects.create(organization=other_org, name="Other project")
@@ -140,6 +259,9 @@ class TestBillingAlertAPI(APIBaseTest):
         assert data[0]["destination_types"] == ["slack"]
         assert data[1]["destination_types"] == ["webhook"]
         assert data[2]["destination_types"] == []
+        assert len(data[0]["destinations"][0]["hog_function_ids"]) == 2
+        assert len(data[1]["destinations"][0]["hog_function_ids"]) == 1
+        assert data[2]["destinations"] == []
 
     def test_non_admin_cannot_create(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER

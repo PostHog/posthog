@@ -5,6 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { UserBasicType } from '~/types'
 
@@ -12,6 +13,7 @@ import {
     billingAlertsCheckNowCreate,
     billingAlertsCreate,
     billingAlertsDestinationsCreate,
+    billingAlertsDestinationsDeleteCreate,
     billingAlertsDestroy,
     billingAlertsEventsList,
     billingAlertsList,
@@ -21,7 +23,7 @@ import type {
     BillingAlertCreateDestinationApi,
     BillingAlertConfigurationApi as GeneratedBillingAlertConfigurationApi,
     BillingAlertEventApi,
-    MetricEnumApi,
+    BillingAlertMetricEnumApi,
     PatchedBillingAlertConfigurationApi,
     ThresholdTypeEnumApi,
 } from 'products/billing_alerts/frontend/generated/api.schemas'
@@ -33,6 +35,7 @@ export type BillingAlertConfiguration = GeneratedBillingAlertConfigurationApi & 
     created_by?: UserBasicType | null
     updated_by?: UserBasicType | null
 }
+export type BillingAlertDestination = NonNullable<BillingAlertConfiguration['destinations']>[number]
 
 export enum BillingAlertCreationView {
     None = 'none',
@@ -62,7 +65,7 @@ export interface BillingAlertListFilters {
 
 export interface BillingAlertForm {
     name: string
-    metric: MetricEnumApi
+    metric: BillingAlertMetricEnumApi
     threshold_type: ThresholdTypeEnumApi
     threshold_percentage: number
     threshold_value: number | undefined
@@ -244,7 +247,7 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
     path(['products', 'billing_alerts', 'frontend', 'billingAlertsLogic']),
 
     connect(() => ({
-        values: [billingLogic, ['currentOrganization', 'canAccessBilling']],
+        values: [billingLogic, ['currentOrganization', 'canAccessBilling'], teamLogic, ['currentTeamId']],
     })),
 
     actions({
@@ -277,6 +280,10 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
         setSlackChannel: (slackChannel: string | null) => ({ slackChannel }),
         setWebhookUrl: (webhookUrl: string) => ({ webhookUrl }),
         createDestination: true,
+        deleteDestination: (alert: BillingAlertConfiguration, destination: BillingAlertDestination) => ({
+            alert,
+            destination,
+        }),
         setSaving: (saving: boolean) => ({ saving }),
         setDestinationSaving: (saving: boolean) => ({ saving }),
         setCheckingAlertId: (alertId: string | null) => ({ alertId }),
@@ -447,6 +454,26 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
     })),
 
     selectors({
+        destinationAlert: [
+            (s) => [s.alerts, s.destinationAlertId],
+            (
+                alerts: BillingAlertConfiguration[],
+                destinationAlertId: string | null
+            ): BillingAlertConfiguration | null => alerts.find((alert) => alert.id === destinationAlertId) ?? null,
+        ],
+        destinationTypeExists: [
+            (s) => [s.destinationAlert, s.selectedDestinationKey],
+            (alert: BillingAlertConfiguration | null, destinationType: BillingAlertDestinationKey): boolean =>
+                !!alert?.destination_types.includes(destinationType),
+        ],
+        slackExecutionTeamMismatch: [
+            (s) => [s.destinationAlert, s.selectedDestinationKey, s.currentTeamId],
+            (
+                alert: BillingAlertConfiguration | null,
+                destinationType: BillingAlertDestinationKey,
+                currentTeamId: number
+            ): boolean => destinationType === 'slack' && !!alert && alert.execution_team_id !== currentTeamId,
+        ],
         filteredAlerts: [
             (s) => [s.alerts, s.filters],
             (alerts: BillingAlertConfiguration[], filters: BillingAlertListFilters): BillingAlertConfiguration[] => {
@@ -496,15 +523,27 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
             },
         ],
         canCreateDestination: [
-            (s) => [s.destinationAlertId, s.selectedDestinationKey, s.slackIntegrationId, s.slackChannel, s.webhookUrl],
+            (s) => [
+                s.destinationAlertId,
+                s.selectedDestinationKey,
+                s.slackIntegrationId,
+                s.slackChannel,
+                s.webhookUrl,
+                s.destinationTypeExists,
+                s.slackExecutionTeamMismatch,
+            ],
             (
                 destinationAlertId: string | null,
                 selectedDestinationKey: BillingAlertDestinationKey,
                 slackIntegrationId: number | null,
                 slackChannel: string | null,
-                webhookUrl: string
+                webhookUrl: string,
+                destinationTypeExists: boolean,
+                slackExecutionTeamMismatch: boolean
             ): boolean =>
                 !!destinationAlertId &&
+                !destinationTypeExists &&
+                !slackExecutionTeamMismatch &&
                 !!destinationPayload({
                     destinationKey: selectedDestinationKey,
                     slackIntegrationId,
@@ -638,6 +677,25 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
                 lemonToast.error(apiMessage(error))
             } finally {
                 actions.setDestinationSaving(false)
+            }
+        },
+        deleteDestination: async ({ alert, destination }) => {
+            const organizationId = values.currentOrganization?.id
+            if (!organizationId || values.updatingAlertIds.has(alert.id)) {
+                return
+            }
+
+            actions.setUpdatingAlertId(alert.id, true)
+            try {
+                await billingAlertsDestinationsDeleteCreate(organizationId, alert.id, {
+                    hog_function_ids: [...destination.hog_function_ids],
+                })
+                lemonToast.success('Destination removed.')
+                actions.loadAlerts()
+            } catch (error) {
+                lemonToast.error(apiMessage(error))
+            } finally {
+                actions.setUpdatingAlertId(alert.id, false)
             }
         },
     })),

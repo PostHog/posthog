@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Any, cast
 from urllib.parse import urlparse
 
+from django.db import transaction
 from django.db.models import QuerySet
 
 from drf_spectacular.utils import extend_schema_field
@@ -15,8 +16,26 @@ from posthog.models.user import User
 
 from products.billing_alerts.backend.facade import api as billing_alerts_api
 from products.billing_alerts.backend.facade.api import BillingAlertConfiguration, BillingAlertEvent
+from products.billing_alerts.backend.logic.state_machine import (
+    apply_disable,
+    apply_enable,
+    apply_outcome,
+    apply_snooze,
+    apply_threshold_change,
+    apply_unsnooze,
+    billing_alert_snapshot,
+)
 
-_DESTINATION_TYPES_CACHE_KEY = "_billing_alert_destination_types_by_alert_id"
+_DESTINATIONS_CACHE_KEY = "_billing_alert_destinations_by_alert_id"
+_NOT_PROVIDED = object()
+
+
+def _any_field_changed(
+    instance: BillingAlertConfiguration,
+    validated_data: dict[str, Any],
+    fields: set[str],
+) -> bool:
+    return any(field in validated_data and validated_data[field] != getattr(instance, field) for field in fields)
 
 
 class BillingAlertEventSerializer(serializers.ModelSerializer):
@@ -92,6 +111,11 @@ class BillingAlertEventSerializer(serializers.ModelSerializer):
         ]
 
 
+class BillingAlertDestinationSummarySerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=["slack", "webhook", "teams"])
+    hog_function_ids = serializers.ListField(child=serializers.UUIDField())
+
+
 class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this billing alert.")
     organization_id = serializers.UUIDField(read_only=True, help_text="Organization this billing alert belongs to.")
@@ -159,6 +183,9 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
     destination_types = serializers.SerializerMethodField(
         help_text="Notification destination types configured for this alert.",
     )
+    destinations = serializers.SerializerMethodField(
+        help_text="Notification destination groups configured for this alert, including their shared HogFunctions.",
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -192,27 +219,26 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_notified_at",
             "consecutive_failures",
             "destination_types",
+            "destinations",
             "created_at",
             "updated_at",
         ]
 
     @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=["slack", "webhook", "teams"])))
     def get_destination_types(self, obj: BillingAlertConfiguration) -> list[str]:
-        cache = self.context.get(_DESTINATION_TYPES_CACHE_KEY)
+        return [destination["type"] for destination in self.get_destinations(obj)]
+
+    @extend_schema_field(BillingAlertDestinationSummarySerializer(many=True))
+    def get_destinations(self, obj: BillingAlertConfiguration) -> list[dict[str, Any]]:
+        cache = self.context.get(_DESTINATIONS_CACHE_KEY)
         if cache is None:
-            cache = self._load_destination_type_cache(obj)
-            self.context[_DESTINATION_TYPES_CACHE_KEY] = cache
-        destination_types_by_alert_id = cast(dict[str, list[str]], cache)
-        alert_id = str(obj.id)
-        if alert_id not in destination_types_by_alert_id:
-            destination_types_by_alert_id.update(self._load_destination_type_cache(obj))
-        return destination_types_by_alert_id.get(alert_id, [])
+            alerts = self._destination_cache_alerts(obj)
+            cache = billing_alerts_api.destinations_for_alerts(alerts)
+            self.context[_DESTINATIONS_CACHE_KEY] = cache
+        destinations_by_alert_id = cast(dict[str, list[dict[str, Any]]], cache)
+        return destinations_by_alert_id.get(str(obj.id), [])
 
-    def _load_destination_type_cache(self, obj: BillingAlertConfiguration) -> dict[str, list[str]]:
-        alerts = self._destination_type_cache_alerts(obj)
-        return billing_alerts_api.destination_types_for_alerts(alerts)
-
-    def _destination_type_cache_alerts(self, obj: BillingAlertConfiguration) -> list[BillingAlertConfiguration]:
+    def _destination_cache_alerts(self, obj: BillingAlertConfiguration) -> list[BillingAlertConfiguration]:
         parent_instance = getattr(getattr(self, "parent", None), "instance", None)
         instance = parent_instance if parent_instance is not None else self.instance
 
@@ -290,6 +316,55 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         if minimum_value < 0:
             raise ValidationError({"minimum_value": "Must be greater than or equal to 0."})
         return attrs
+
+    def create(self, validated_data: dict[str, Any]) -> BillingAlertConfiguration:
+        with transaction.atomic():
+            alert = super().create(validated_data)
+            snapshot = billing_alert_snapshot(alert)
+
+            if not alert.enabled:
+                update_fields = apply_outcome(alert, apply_disable(snapshot))
+            elif alert.snooze_until is not None:
+                update_fields = apply_outcome(alert, apply_snooze(snapshot))
+            else:
+                return alert
+
+            alert.save(update_fields=[*update_fields, "updated_at"])
+            return alert
+
+    def update(
+        self,
+        instance: BillingAlertConfiguration,
+        validated_data: dict[str, Any],
+    ) -> BillingAlertConfiguration:
+        snooze_until = validated_data.get("snooze_until", _NOT_PROVIDED)
+        threshold_fields = {
+            "threshold_type",
+            "threshold_percentage",
+            "threshold_value",
+            "minimum_value",
+        }
+        with transaction.atomic():
+            locked = BillingAlertConfiguration.objects.select_for_update().get(pk=instance.pk)
+            threshold_changed = _any_field_changed(locked, validated_data, threshold_fields)
+            enabled_change: bool | None = None
+            if "enabled" in validated_data and validated_data["enabled"] != locked.enabled:
+                enabled_change = validated_data["enabled"]
+
+            snapshot = billing_alert_snapshot(locked)
+            if enabled_change is True:
+                apply_outcome(locked, apply_enable(snapshot))
+            elif enabled_change is False:
+                apply_outcome(locked, apply_disable(snapshot))
+            elif snooze_until is not _NOT_PROVIDED:
+                if snooze_until is None:
+                    apply_outcome(locked, apply_unsnooze(snapshot))
+                else:
+                    apply_outcome(locked, apply_snooze(snapshot))
+            elif threshold_changed:
+                apply_outcome(locked, apply_threshold_change(snapshot))
+
+            return super().update(locked, validated_data)
 
 
 class BillingAlertCreateDestinationSerializer(serializers.Serializer):

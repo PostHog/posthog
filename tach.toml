@@ -444,6 +444,7 @@ path = "products.billing_alerts"
 depends_on = [
     "ee",
     "posthog",
+    "products.alerts",
     "products.cdp",
 ]
 layer = "modules"
@@ -814,6 +815,18 @@ from = [
     "products.experiments",
 ]
 
+# Billing alerts registers product-owned workflows and a schedule with the shared billing worker.
+
+[[interfaces]]
+expose = [
+    "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.WORKFLOWS",
+    "backend\\.temporal\\.schedule\\.create_schedule_due_billing_alert_checks_schedule",
+]
+from = [
+    "products.billing_alerts",
+]
+
 # Experiments is the first isolated product to register a Temporal workflow, so the canonical interface
 # doesn't cover the registration surface yet. Narrowly expose the symbols core imports (worker registration,
 # schedule registration, and the worker interceptor) rather than widening every isolated product's surface.
@@ -823,16 +836,6 @@ expose = [
     "backend\\.temporal\\.ACTIVITIES",
     "backend\\.temporal\\.EXPERIMENT_CANARY_ACTIVITIES",
     "backend\\.temporal\\.EXPERIMENT_CANARY_WORKFLOWS",
-    "backend\\.temporal\\.WORKFLOWS",
-    "backend\\.temporal\\.schedule\\.create_schedule_due_billing_alert_checks_schedule",
-]
-from = [
-    "products.billing_alerts",
-]
-
-[[interfaces]]
-expose = [
-    "backend\\.temporal\\.ACTIVITIES",
     "backend\\.temporal\\.WORKFLOWS",
     "backend\\.temporal\\.recalculation_metrics.*",
     "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",

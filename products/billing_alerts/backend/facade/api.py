@@ -1,26 +1,37 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import QuerySet
 
+from rest_framework.exceptions import ValidationError as DRFValidationError
+
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
-from products.cdp.backend.api.hog_function import HogFunctionSerializer
+from products.alerts.backend.facade.api import (
+    AlertDestinationData,
+    DestinationType,
+    build_alert_destination_config,
+    create_alert_destination_hog_functions,
+    soft_delete_alert_destinations,
+    soft_delete_all_alert_destinations,
+    validate_destination_data,
+)
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 from ..alert_destinations import (
+    BILLING_ALERT_EVENT_IDS,
+    BILLING_ALERT_SLACK_CONTEXT_ELEMENTS,
+    BILLING_DESTINATION_TYPES,
     DESTINATION_TYPE_BY_TEMPLATE_ID,
+    EVENT_KIND_CONFIG,
     EVENT_KINDS,
-    TEMPLATE_ID_BY_DESTINATION_TYPE,
     EventKind,
-    build_destination_config,
 )
-from ..logic.notifications import dispatch_billing_alert_event
-from ..logic.state_machine import evaluate_and_record_billing_alert, event_should_dispatch
+from ..logic.notifications import evaluate_and_dispatch_billing_alert
 from ..models import BillingAlertConfiguration, BillingAlertEvent
 from .contracts import BillingAlertDispatchResult
 
@@ -52,26 +63,24 @@ def visible_events_for_alert(alert: BillingAlertConfiguration) -> QuerySet[Billi
 
 
 def evaluate_and_dispatch_alert(alert: BillingAlertConfiguration) -> BillingAlertDispatchResult:
-    event = evaluate_and_record_billing_alert(alert)
-    dispatched = dispatch_billing_alert_event(event) if event_should_dispatch(event) else 0
+    event, dispatched = evaluate_and_dispatch_billing_alert(alert)
     return BillingAlertDispatchResult(event=event, dispatched_destinations=dispatched)
 
 
 def delete_alert_and_destinations(alert: BillingAlertConfiguration) -> None:
     with transaction.atomic():
-        HogFunction.objects.filter(
+        soft_delete_all_alert_destinations(
             team_id=alert.execution_team_id,
-            deleted=False,
-            template_id__in=list(TEMPLATE_ID_BY_DESTINATION_TYPE.values()),
-            filters__properties__contains=[{"key": "alert_id", "value": str(alert.id)}],
-        ).update(deleted=True, enabled=False)
+            alert_id=str(alert.id),
+            allowed_event_ids=BILLING_ALERT_EVENT_IDS,
+        )
         alert.delete()
 
 
-def destination_types_for_alerts(alerts: list[BillingAlertConfiguration]) -> dict[str, list[str]]:
+def destinations_for_alerts(alerts: list[BillingAlertConfiguration]) -> dict[str, list[dict[str, Any]]]:
     alert_ids = {str(alert.id) for alert in alerts}
     team_ids = {alert.execution_team_id for alert in alerts}
-    destination_types_by_alert_id: dict[str, set[str]] = {alert_id: set() for alert_id in alert_ids}
+    destination_ids_by_alert_and_type: dict[str, dict[str, list[UUID]]] = {alert_id: {} for alert_id in alert_ids}
 
     if not alert_ids or not team_ids:
         return {}
@@ -80,9 +89,9 @@ def destination_types_for_alerts(alerts: list[BillingAlertConfiguration]) -> dic
         team_id__in=team_ids,
         deleted=False,
         template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
-    ).values_list("template_id", "filters")
+    ).values_list("id", "template_id", "filters")
 
-    for template_id, filters in hog_functions:
+    for hog_function_id, template_id, filters in hog_functions:
         if template_id is None:
             continue
         destination_type = DESTINATION_TYPE_BY_TEMPLATE_ID.get(template_id)
@@ -97,11 +106,25 @@ def destination_types_for_alerts(alerts: list[BillingAlertConfiguration]) -> dic
             if not isinstance(property_filter, dict) or property_filter.get("key") != "alert_id":
                 continue
             alert_id = str(property_filter.get("value"))
-            if alert_id in destination_types_by_alert_id:
-                destination_types_by_alert_id[alert_id].add(destination_type)
+            if alert_id in destination_ids_by_alert_and_type:
+                destination_ids_by_alert_and_type[alert_id].setdefault(destination_type.value, []).append(
+                    hog_function_id
+                )
+            break
 
     return {
-        alert_id: sorted(destination_types) for alert_id, destination_types in destination_types_by_alert_id.items()
+        alert_id: [
+            {"type": destination_type, "hog_function_ids": sorted(hog_function_ids, key=str)}
+            for destination_type, hog_function_ids in sorted(destinations.items())
+        ]
+        for alert_id, destinations in destination_ids_by_alert_and_type.items()
+    }
+
+
+def destination_types_for_alerts(alerts: list[BillingAlertConfiguration]) -> dict[str, list[str]]:
+    return {
+        alert_id: [destination["type"] for destination in destinations]
+        for alert_id, destinations in destinations_for_alerts(alerts).items()
     }
 
 
@@ -114,40 +137,42 @@ def slack_integration_belongs_to_team(*, integration_id: int, team_id: int) -> b
 
 
 def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: dict[str, Any]) -> list[UUID]:
-    with transaction.atomic():
-        hog_functions = [_build_and_create_hog_function(alert, alert.team, data, kind, request) for kind in EVENT_KINDS]
+    destination_data = cast(AlertDestinationData, data)
+    validate_destination_data(destination_data, allowed_destination_types=BILLING_DESTINATION_TYPES)
+    destination_data["type"] = DestinationType(data["type"])
+    existing_types = destination_types_for_alerts([alert]).get(str(alert.id), [])
+    if destination_data["type"].value in existing_types:
+        raise DRFValidationError({"type": f"A {destination_data['type'].label} destination already exists."})
+    configs = [
+        build_alert_destination_config(
+            team=alert.team,
+            spec=EVENT_KIND_CONFIG[kind],
+            alert_id=str(alert.id),
+            alert_name=alert.name,
+            data=destination_data,
+            slack_context_elements=BILLING_ALERT_SLACK_CONTEXT_ELEMENTS,
+        )
+        for kind in EVENT_KINDS
+    ]
+    hog_functions = create_alert_destination_hog_functions(configs, request=request)
     return [hog_function.id for hog_function in hog_functions]
 
 
-def _build_and_create_hog_function(
-    alert: BillingAlertConfiguration,
-    team: Team,
-    data: dict[str, Any],
-    kind: EventKind,
-    request: Any,
-) -> HogFunction:
-    config = build_destination_config(alert, team, kind, data)
-    destination_team = config.pop("team")
-    serializer = HogFunctionSerializer(
-        data=config,
-        context={"request": request, "get_team": lambda: destination_team, "is_create": True},
-    )
-    serializer.is_valid(raise_exception=True)
-    return serializer.save(team=destination_team)
-
-
 def delete_destination(alert: BillingAlertConfiguration, hog_function_ids: list[UUID]) -> None:
-    with transaction.atomic():
-        updated = HogFunction.objects.filter(
+    try:
+        soft_delete_alert_destinations(
             team_id=alert.execution_team_id,
-            id__in=hog_function_ids,
-            filters__properties__contains=[{"key": "alert_id", "value": str(alert.id)}],
-        ).update(deleted=True, enabled=False)
-        if updated != len(hog_function_ids):
-            raise BillingAlertDestinationOwnershipError
+            alert_id=str(alert.id),
+            allowed_event_ids=BILLING_ALERT_EVENT_IDS,
+            hog_function_ids=hog_function_ids,
+        )
+    except DRFValidationError as error:
+        raise BillingAlertDestinationOwnershipError from error
 
 
 __all__ = [
+    "BILLING_ALERT_EVENT_IDS",
+    "BILLING_DESTINATION_TYPES",
     "EVENT_KINDS",
     "BillingAlertDispatchResult",
     "BillingAlertConfiguration",
@@ -159,6 +184,7 @@ __all__ = [
     "create_destination",
     "delete_alert_and_destinations",
     "delete_destination",
+    "destinations_for_alerts",
     "destination_types_for_alerts",
     "evaluate_and_dispatch_alert",
     "execution_team_for_organization",
