@@ -217,7 +217,6 @@ export enum Scene {
     OrganizationPendingDeletion = 'OrganizationPendingDeletion',
     ProjectPendingDeletion = 'ProjectPendingDeletion',
     CustomerJourneyTemplates = 'CustomerJourneyTemplates',
-    SupportTickets = 'SupportTickets',
     SupportTicketDetail = 'SupportTicketDetail',
     SupportSettings = 'SupportSettings',
 }
