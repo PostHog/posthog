@@ -20051,6 +20051,99 @@ export namespace Schemas {
     }
 
     /**
+     * * `manual` - MANUAL
+     * * `slack_name_match` - SLACK_NAME_MATCH
+     * * `stamphog_config` - STAMPHOG_CONFIG
+     * * `owners_contact` - OWNERS_CONTACT
+     */
+    export type ResolutionSourceEnum = typeof ResolutionSourceEnum[keyof typeof ResolutionSourceEnum];
+
+
+    export const ResolutionSourceEnum = {
+      Manual: 'manual',
+      SlackNameMatch: 'slack_name_match',
+      StamphogConfig: 'stamphog_config',
+      OwnersContact: 'owners_contact',
+    } as const;
+
+    export interface DigestChannel {
+      readonly id: string;
+      /**
+         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'.
+         * @maxLength 255
+         */
+      audience_key: string;
+      /**
+         * ID of the team's Slack integration used to post the digest.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      slack_integration_id: number;
+      /**
+         * Slack channel ID to post the digest to, e.g. 'C012AB3CD'.
+         * @maxLength 64
+         */
+      slack_channel_id: string;
+      /**
+         * Human-readable Slack channel name, for display only.
+         * @maxLength 255
+         */
+      slack_channel_name?: string;
+      /** How this row was created: 'manual' (via this API), 'slack_name_match' (auto-provisioned because the workspace has a channel named exactly like the audience_key), 'stamphog_config' (auto-provisioned from the channel the repo declared under 'digest:' in .stamphog/policy.yml), or 'owners_contact' (reserved for the future owners.yaml contact.slack step, not implemented yet).
+       *
+       * * `manual` - MANUAL
+       * * `slack_name_match` - SLACK_NAME_MATCH
+       * * `stamphog_config` - STAMPHOG_CONFIG
+       * * `owners_contact` - OWNERS_CONTACT */
+      readonly resolution_source: ResolutionSourceEnum;
+      /** Whether this channel is included in the daily digest fan-out. */
+      enabled?: boolean;
+      /** @nullable */
+      readonly last_digest_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
+     * * `pending` - PENDING
+     * * `completed` - COMPLETED
+     * * `failed` - FAILED
+     */
+    export type DigestRunStatusEnum = typeof DigestRunStatusEnum[keyof typeof DigestRunStatusEnum];
+
+
+    export const DigestRunStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface DigestRun {
+      readonly id: string;
+      /** ID of the digest channel this run belongs to. */
+      readonly digest_channel: string;
+      /** Current state of the digest run (pending, completed, failed).
+       *
+       * * `pending` - PENDING
+       * * `completed` - COMPLETED
+       * * `failed` - FAILED */
+      readonly status: DigestRunStatusEnum;
+      /** Number of merged PRs included in the posted digest. */
+      readonly pr_count: number;
+      /** Slack message timestamp of the posted digest, if posted. */
+      readonly slack_message_ts: string;
+      /** Error message if the run failed, blank otherwise. */
+      readonly error: string;
+      /** When the digest run was created. */
+      readonly created_at: string;
+      /**
+         * When the digest was posted to Slack, if it was.
+         * @nullable
+         */
+      readonly posted_at: string | null;
+    }
+
+    /**
      * * `already_fixed` - Already fixed
      * * `report_unclear` - Report is unclear to me
      * * `analysis_wrong` - Agent's analysis is wrong
@@ -32730,6 +32823,8 @@ export namespace Schemas {
       readonly version_count: number;
       readonly first_version_created_at: string;
       readonly outline: readonly LLMPromptOutlineEntry[];
+      /** Names of the labels currently pointing at this version. */
+      readonly labels: readonly string[];
     }
 
     export interface LLMPromptDuplicate {
@@ -32745,6 +32840,18 @@ export namespace Schemas {
       old: string;
       /** Replacement text. */
       new: string;
+    }
+
+    export interface LLMPromptLabel {
+      readonly id: string;
+      /** Label name, e.g. 'production'. Points to exactly one version of the prompt. */
+      readonly name: string;
+      /** Name of the prompt this label belongs to. */
+      readonly prompt_name: string;
+      readonly version: number;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     export interface LLMPromptList {
@@ -32768,6 +32875,8 @@ export namespace Schemas {
       readonly version_count: number;
       readonly first_version_created_at: string;
       readonly outline: readonly LLMPromptOutlineEntry[];
+      /** Names of the labels currently pointing at this version. */
+      readonly labels: readonly string[];
       readonly prompt_preview: string;
       readonly prompt_size_bytes: number;
     }
@@ -32799,12 +32908,22 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly is_latest: boolean;
+      /** Names of the labels currently pointing at this version. */
+      readonly labels: readonly string[];
     }
 
     export interface LLMPromptResolveResponse {
       prompt: LLMPrompt;
       versions: LLMPromptVersionSummary[];
       has_more: boolean;
+    }
+
+    export interface LLMPromptSetLabel {
+      /**
+         * Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.
+         * @minimum 1
+         */
+      version: number;
     }
 
     /**
@@ -36772,6 +36891,24 @@ export namespace Schemas {
       results: Dataset[];
     }
 
+    export interface PaginatedDigestChannelList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DigestChannel[];
+    }
+
+    export interface PaginatedDigestRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DigestRun[];
+    }
+
     export interface PaginatedEarlyAccessFeatureList {
       count: number;
       /** @nullable */
@@ -38194,6 +38331,138 @@ export namespace Schemas {
       results: ReviewQueue[];
     }
 
+    /**
+     * * `queued` - QUEUED
+     * * `gated` - GATED
+     * * `reviewing` - REVIEWING
+     * * `completed` - COMPLETED
+     * * `failed` - FAILED
+     * * `superseded` - SUPERSEDED
+     */
+    export type ReviewRunStatusEnum = typeof ReviewRunStatusEnum[keyof typeof ReviewRunStatusEnum];
+
+
+    export const ReviewRunStatusEnum = {
+      Queued: 'queued',
+      Gated: 'gated',
+      Reviewing: 'reviewing',
+      Completed: 'completed',
+      Failed: 'failed',
+      Superseded: 'superseded',
+    } as const;
+
+    /**
+     * * `none` - NONE
+     * * `approved` - APPROVED
+     * * `refused` - REFUSED
+     * * `escalate` - ESCALATE
+     * * `wait` - WAIT
+     * * `error` - ERROR
+     */
+    export type ReviewRunVerdictEnum = typeof ReviewRunVerdictEnum[keyof typeof ReviewRunVerdictEnum];
+
+
+    export const ReviewRunVerdictEnum = {
+      None: 'none',
+      Approved: 'approved',
+      Refused: 'refused',
+      Escalate: 'escalate',
+      Wait: 'wait',
+      Error: 'error',
+    } as const;
+
+    /**
+     * Allowlisted, content-free slice of ``ReviewRun.gate_result``.
+     *
+     * The raw gate blob nests ``gates``, ``classification``, and ``policy`` sub-objects that carry
+     * repository content — changed-file paths (``safe_migration_files``, ``invalid_folder_files``),
+     * manifest gate messages, and declared ``policy.scopes`` — which a project member without repo
+     * access must not read. Only the terminal decision is exposed.
+     */
+    export interface _GateResultSummary {
+      /** Whether the deterministic gates blocked auto-review before the reviewer ran. */
+      readonly gate_blocked: boolean;
+      /** The engine's raw final-verdict token, if the run reached a verdict. */
+      readonly final_verdict: string;
+    }
+
+    /**
+     * Allowlisted, non-sensitive slice of ``ReviewRun.output``.
+     *
+     * The raw ``output`` blob also holds the reviewer's stdout, the full PR payload, changed-file patches,
+     * and default-branch policy file contents — repository content a project member without repo access
+     * must never read over the API. Only these derived, content-free fields are exposed.
+     */
+    export interface _ReviewOutputSummary {
+      /** Version of the stamphog engine that produced this review, if it reported one. */
+      readonly stamphog_version: string;
+      /** Exit code of the reviewer process in the sandbox, if the run reached the sandbox stage. */
+      readonly reviewer_exit_code: number;
+    }
+
+    export interface ReviewRun {
+      readonly id: string;
+      /** ID of the pull request this review run belongs to. */
+      readonly pull_request: string;
+      /** Full name of the repository this review run belongs to. */
+      readonly repository: string;
+      /** Pull request number on GitHub. */
+      readonly pr_number: number;
+      /** Full URL to the pull request on GitHub. */
+      readonly pr_url: string;
+      /** Commit SHA of the PR head at the time this run started. */
+      readonly head_sha: string;
+      /** Branch name of the PR head. */
+      readonly head_branch: string;
+      /**
+         * GitHub webhook delivery ID that triggered this run, used for deduplication.
+         * @nullable
+         */
+      readonly delivery_id: string | null;
+      /** Current stage of the review run's lifecycle.
+       *
+       * * `queued` - QUEUED
+       * * `gated` - GATED
+       * * `reviewing` - REVIEWING
+       * * `completed` - COMPLETED
+       * * `failed` - FAILED
+       * * `superseded` - SUPERSEDED */
+      readonly status: ReviewRunStatusEnum;
+      /** Final verdict reached by the reviewer, if any.
+       *
+       * * `none` - NONE
+       * * `approved` - APPROVED
+       * * `refused` - REFUSED
+       * * `escalate` - ESCALATE
+       * * `wait` - WAIT
+       * * `error` - ERROR */
+      readonly verdict: ReviewRunVerdictEnum;
+      /** Allowlisted deterministic gate outcome (gate_blocked, final_verdict). The nested gate, classification, and policy sub-objects are excluded — they carry changed-file paths and policy scopes, repository content a project member without repo access must not read. */
+      readonly gate_result: _GateResultSummary;
+      /** Allowlisted, non-sensitive subset of the reviewer output blob (stamphog version, reviewer exit code). The raw reviewer stdout, PR payload, changed-file patches, and policy file contents are deliberately excluded — they carry repository content a project member without repo access must not read. */
+      readonly output: _ReviewOutputSummary;
+      /** Error message if the run failed, blank otherwise. */
+      readonly error: string;
+      /** When the review run was created. */
+      readonly created_at: string;
+      /** When the review run was last updated. */
+      readonly updated_at: string;
+      /**
+         * When the review run reached a terminal state, if it has.
+         * @nullable
+         */
+      readonly completed_at: string | null;
+    }
+
+    export interface PaginatedReviewRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ReviewRun[];
+    }
+
     export interface RoleExternalReference {
       readonly id: string;
       /**
@@ -39128,6 +39397,110 @@ export namespace Schemas {
       results: Snapshot[];
       /** Count of this run's snapshots whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
       quarantined_count?: number;
+    }
+
+    export interface StamphogPullRequest {
+      readonly id: string;
+      /** Full name of the repository this pull request belongs to. */
+      readonly repository: string;
+      /** Pull request number on GitHub. */
+      readonly pr_number: number;
+      /** Pull request title, refreshed on every relevant webhook delivery. */
+      readonly title: string;
+      /** GitHub login of the pull request author. */
+      readonly author_login: string;
+      /** Full URL to the pull request on GitHub. */
+      readonly pr_url: string;
+      /** Branch name of the PR head. */
+      readonly head_branch: string;
+      /** Whether this pull request has merged (merged_at is set). */
+      readonly merged: boolean;
+      /**
+         * When the pull request merged, null if it hasn't.
+         * @nullable
+         */
+      readonly merged_at: string | null;
+      /** Merge commit SHA, blank until the pull request merges. */
+      readonly merge_commit_sha: string;
+      /** Lines added, recorded when the pull request merges. */
+      readonly additions: number;
+      /** Lines deleted, recorded when the pull request merges. */
+      readonly deletions: number;
+      /** Files changed, recorded when the pull request merges. */
+      readonly changed_files: number;
+      /** Digest bucket this merged PR belongs to; blank unless it was digest-eligible. */
+      readonly audience_key: string;
+      /**
+         * ID of the digest run that reported this merged PR, if any.
+         * @nullable
+         */
+      readonly digest_run: string | null;
+      /** When this pull request was first captured. */
+      readonly created_at: string;
+      /** When this pull request was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedStamphogPullRequestList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: StamphogPullRequest[];
+    }
+
+    /**
+     * * `all` - all
+     * * `label` - label
+     */
+    export type ReviewModeEnum = typeof ReviewModeEnum[keyof typeof ReviewModeEnum];
+
+
+    export const ReviewModeEnum = {
+      All: 'all',
+      Label: 'label',
+    } as const;
+
+    export interface StamphogRepoConfig {
+      readonly id: string;
+      /**
+         * SCM provider this config talks to. Defaults to 'github'.
+         * @maxLength 32
+         */
+      provider?: string;
+      /**
+         * Repository full name, e.g. 'PostHog/posthog'.
+         * @maxLength 255
+         */
+      repository: string;
+      /** Whether stamphog actively reviews pull requests for this repo. */
+      enabled?: boolean;
+      /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
+      readonly installation_id: string;
+      /** Whether merged PRs on this repo are captured for the daily Slack digest. */
+      digest_enabled?: boolean;
+      /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
+       *
+       * * `all` - all
+       * * `label` - label */
+      review_mode?: ReviewModeEnum;
+      /**
+         * Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'.
+         * @maxLength 100
+         */
+      trigger_label?: string;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedStamphogRepoConfigList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: StamphogRepoConfig[];
     }
 
     /**
@@ -42533,6 +42906,44 @@ export namespace Schemas {
     export interface PatchedDesignPatch {
       /** Ordered edits applied atomically to a template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and it's saved only if valid — otherwise the template is unchanged. Reference blocks by id so you never resend the whole design. */
       operations?: DesignOperation[];
+    }
+
+    export interface PatchedDigestChannel {
+      readonly id?: string;
+      /**
+         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'.
+         * @maxLength 255
+         */
+      audience_key?: string;
+      /**
+         * ID of the team's Slack integration used to post the digest.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      slack_integration_id?: number;
+      /**
+         * Slack channel ID to post the digest to, e.g. 'C012AB3CD'.
+         * @maxLength 64
+         */
+      slack_channel_id?: string;
+      /**
+         * Human-readable Slack channel name, for display only.
+         * @maxLength 255
+         */
+      slack_channel_name?: string;
+      /** How this row was created: 'manual' (via this API), 'slack_name_match' (auto-provisioned because the workspace has a channel named exactly like the audience_key), 'stamphog_config' (auto-provisioned from the channel the repo declared under 'digest:' in .stamphog/policy.yml), or 'owners_contact' (reserved for the future owners.yaml contact.slack step, not implemented yet).
+       *
+       * * `manual` - MANUAL
+       * * `slack_name_match` - SLACK_NAME_MATCH
+       * * `stamphog_config` - STAMPHOG_CONFIG
+       * * `owners_contact` - OWNERS_CONTACT */
+      readonly resolution_source?: ResolutionSourceEnum;
+      /** Whether this channel is included in the daily digest fan-out. */
+      enabled?: boolean;
+      /** @nullable */
+      readonly last_digest_at?: string | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     /**
@@ -46628,6 +47039,38 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** @nullable */
       readonly status?: string | null;
+    }
+
+    export interface PatchedStamphogRepoConfig {
+      readonly id?: string;
+      /**
+         * SCM provider this config talks to. Defaults to 'github'.
+         * @maxLength 32
+         */
+      provider?: string;
+      /**
+         * Repository full name, e.g. 'PostHog/posthog'.
+         * @maxLength 255
+         */
+      repository?: string;
+      /** Whether stamphog actively reviews pull requests for this repo. */
+      enabled?: boolean;
+      /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
+      readonly installation_id?: string;
+      /** Whether merged PRs on this repo are captured for the daily Slack digest. */
+      digest_enabled?: boolean;
+      /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
+       *
+       * * `all` - all
+       * * `label` - label */
+      review_mode?: ReviewModeEnum;
+      /**
+         * Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'.
+         * @maxLength 100
+         */
+      trigger_label?: string;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     /**
@@ -58881,6 +59324,42 @@ export namespace Schemas {
     export interface StaffWarmRunResponse {
       /** Most recent warm-all run, or null when none has been recorded (or the dedicated flags cache is not configured). */
       run: StaffWarmRun | null;
+    }
+
+    /**
+     * Static info the frontend needs to render the 'Connect a repository' button.
+     */
+    export interface StamphogInstallInfo {
+      /** URL-friendly slug of the dedicated Stamphog GitHub App, or blank if unconfigured. */
+      readonly app_slug: string;
+      /** GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the App, or blank if the App slug is unconfigured. */
+      readonly install_url: string;
+    }
+
+    /**
+     * Request body for binding a completed GitHub App installation to the current team.
+     *
+     * Requires both the ``installation_id`` and the user-to-server OAuth ``code`` from the post-install
+     * redirect: the code proves the caller actually owns the installation, without which any caller could
+     * bind another org's installation to their own team.
+     */
+    export interface StamphogSyncInstallationRequest {
+      /** GitHub App installation ID returned on the post-install Setup URL redirect. */
+      installation_id: string;
+      /** GitHub user-to-server OAuth code from the post-install redirect (present when the App has 'Request user authorization during installation' enabled). Exchanged server-side to prove the caller owns the installation before its repos are bound. */
+      code: string;
+      /** Signed state token minted by install_info and round-tripped through GitHub's install redirect. Binds the callback to the team and user that started the flow, so a stolen installation_id + code can't be replayed against another team's session. */
+      state: string;
+    }
+
+    /**
+     * Result of syncing an installation: rows created/kept for this team, plus conflicting repos skipped.
+     */
+    export interface StamphogSyncInstallationResponse {
+      /** Repo configs now bound to this team for the installation (created this call or already present). */
+      readonly synced: readonly StamphogRepoConfig[];
+      /** Repository full names skipped because another team already owns them under this installation. */
+      readonly skipped: readonly string[];
     }
 
     /**
@@ -76189,6 +76668,85 @@ export namespace Schemas {
       Success: 'success',
       Unknown: 'unknown',
     } as const;
+
+    export type StamphogDigestChannelsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type StamphogDigestRunsListParams = {
+    /**
+     * Filter by digest channel ID.
+     */
+    digest_channel?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type StamphogPullRequestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * Filter by merge state: true for merged pull requests, false for unmerged.
+     */
+    merged?: boolean;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by pull request number.
+     */
+    pr_number?: number;
+    };
+
+    export type StamphogRepoConfigsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type StamphogReviewRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by pull request number.
+     */
+    pr_number?: number;
+    /**
+     * Filter by repository full name, e.g. 'PostHog/posthog'.
+     */
+    repository?: string;
+    /**
+     * Filter by review run status.
+     */
+    status?: string;
+    };
 
     export type StreamlitAppsListParams = {
     /**

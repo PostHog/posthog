@@ -4120,6 +4120,7 @@ export type FileSystemIconType =
     | 'toolbar'
     | 'visual_review'
     | 'code_review'
+    | 'stamphog'
     | 'settings'
     | 'health'
     | 'inbox'
