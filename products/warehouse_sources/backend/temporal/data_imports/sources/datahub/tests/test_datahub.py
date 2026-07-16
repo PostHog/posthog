@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.da
     DatahubResponseTooLargeError,
     DatahubResumeConfig,
     DatahubRetryableError,
+    DatahubTooManyPagesError,
     _extract_entities,
     _headers,
     check_endpoint_permissions,
@@ -234,6 +235,39 @@ class TestDatahub:
         assert rows == []
         assert len(calls) == 1
         assert manager.saved == []
+
+    def test_scroll_aborts_past_page_budget(self, monkeypatch: Any) -> None:
+        # A hostile instance can echo a fresh non-empty page and cursor forever; the empty-page
+        # guard never fires, so the sweep must abort at the page budget instead of writing rows
+        # until the activity times out.
+        monkeypatch.setattr(datahub, "MAX_PAGES_PER_SWEEP", 3)
+        manager = _FakeResumableManager()
+
+        def endless_fetch(session: Any, url: str, params: Optional[dict], logger: Any) -> Any:
+            cursor = params.get("scrollId") if params else None
+            n = int(cursor) + 1 if cursor else 1
+            return {"scrollId": str(n), "entities": [{"urn": f"u{n}"}]}
+
+        monkeypatch.setattr(datahub, "_fetch", endless_fetch)
+        monkeypatch.setattr(datahub, "make_tracked_session", lambda **kwargs: MagicMock())
+        monkeypatch.setattr(datahub, "_check_host", lambda instance_url, team_id: None)
+
+        collected: list[dict] = []
+        with pytest.raises(DatahubTooManyPagesError):
+            for batch in get_rows(
+                instance_url=BASE_URL,
+                api_token=TOKEN,
+                endpoint="datasets",
+                team_id=1,
+                logger=MagicMock(),
+                resumable_source_manager=manager,  # type: ignore[arg-type]
+            ):
+                collected.extend(batch)
+
+        # Pages up to the budget are still yielded; the cursor past the budget is never persisted,
+        # so a resume restarts from the last good page rather than walking deeper into the stream.
+        assert [r["urn"] for r in collected] == ["u1", "u2", "u3"]
+        assert [s.scroll_id for s in manager.saved] == ["1", "2"]
 
     def test_scroll_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager(DatahubResumeConfig(scroll_id="cursor-9"))

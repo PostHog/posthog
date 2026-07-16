@@ -29,6 +29,12 @@ REQUEST_TIMEOUT_SECONDS = 60
 # stays comfortably under this, while an error body only needs a short human-readable snippet.
 MAX_PAGE_RESPONSE_BYTES = 64 * 1024 * 1024
 MAX_ERROR_SNIPPET_BYTES = 64 * 1024
+# The instance URL is customer-controlled, so a hostile server can hand back a fresh non-empty
+# page and a new scroll cursor forever, pinning a worker and writing junk rows until the activity
+# times out. Bound a single sweep to this many pages and abort past it. At PAGE_SIZE this is 10M
+# entities — far above any real DataHub instance's metadata volume, so a legitimate sync never
+# reaches it, while an otherwise-unbounded loop is stopped.
+MAX_PAGES_PER_SWEEP = 100_000
 # Cheap probe used to confirm the token is genuine: dataPlatform is a small built-in collection
 # (~60 rows) present on every DataHub instance.
 DEFAULT_PROBE_ENTITY = "dataPlatform"
@@ -45,6 +51,10 @@ class DatahubHostNotAllowedError(Exception):
 
 
 class DatahubResponseTooLargeError(Exception):
+    pass
+
+
+class DatahubTooManyPagesError(Exception):
     pass
 
 
@@ -227,6 +237,7 @@ def get_rows(
     if resuming:
         logger.debug(f"DataHub: resuming {endpoint} from saved scroll cursor")
 
+    pages_fetched = 0
     while True:
         try:
             data = _fetch(session, url, _scroll_params(scroll_id), logger)
@@ -243,6 +254,7 @@ def get_rows(
                 continue
             raise
         resuming = False
+        pages_fetched += 1
 
         entities, next_scroll_id = _extract_entities(data, url)
         if entities:
@@ -252,6 +264,15 @@ def get_rows(
         # means the sweep is complete.
         if not next_scroll_id or not entities:
             break
+
+        # A hostile instance can echo a fresh non-empty page and cursor indefinitely. Abort past
+        # the page budget rather than let one sweep write rows until the activity times out; don't
+        # persist the next cursor first, so a resume restarts from the last good page rather than
+        # walking further into the runaway stream.
+        if pages_fetched >= MAX_PAGES_PER_SWEEP:
+            raise DatahubTooManyPagesError(
+                f"DataHub sweep for {endpoint} exceeded {MAX_PAGES_PER_SWEEP} pages; aborting a likely runaway paginated response"
+            )
 
         # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages
         # are persisted); merge dedupes the re-pulled page on the primary key.
