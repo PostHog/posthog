@@ -513,6 +513,12 @@ describe('sqlLineGraphAdapter', () => {
         ])('%s', (_name, value, settings, expected) => {
             expect(formatSqlSeriesValue(value, settings)).toBe(expected)
         })
+
+        // toFixed throws a RangeError outside 0–100; an out-of-range decimalPlaces used to crash the
+        // whole chart render. The value is clamped before it reaches toFixed instead.
+        it('clamps an out-of-range decimalPlaces instead of throwing', () => {
+            expect(() => formatSqlSeriesValue(22.5, { formatting: { decimalPlaces: 200 } })).not.toThrow()
+        })
     })
 
     describe('hasAxisTickFormatting', () => {

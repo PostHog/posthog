@@ -18,7 +18,7 @@ import mergeObject from 'lodash.merge'
 import { dayjs } from 'lib/dayjs'
 import { RGBToHex, lightenDarkenColor } from 'lib/utils/colors'
 import { uuid } from 'lib/utils/dom'
-import { compactNumber } from 'lib/utils/numbers'
+import { clamp, compactNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -132,6 +132,14 @@ const cloneOrDefaultSettings = (settings?: AxisSeriesSettings): AxisSeriesSettin
 const TRANSPOSED_FIELD_COLUMN_NAME = '__transpose_field__'
 const TRANSPOSED_ROW_COLUMN_PREFIX = '__transpose_row__'
 
+/** `Number.prototype.toFixed` and `toLocaleString`'s `maximumFractionDigits` both only accept 0–100;
+ *  anything outside throws a RangeError. Clamp a user-supplied decimal-places value into that range
+ *  before handing it to either, keeping `null`/`undefined` untouched so callers can still branch on it. */
+export const MAX_DECIMAL_PLACES = 100
+export function clampDecimalPlaces<T extends number | null | undefined>(decimalPlaces: T): T {
+    return (typeof decimalPlaces === 'number' ? clamp(decimalPlaces, 0, MAX_DECIMAL_PLACES) : decimalPlaces) as T
+}
+
 export const formatDataWithSettings = (
     data: number | string | null | object,
     settings?: AxisSeriesSettings
@@ -144,7 +152,7 @@ export const formatDataWithSettings = (
         return data
     }
 
-    const decimalPlaces = settings?.formatting?.decimalPlaces
+    const decimalPlaces = clampDecimalPlaces(settings?.formatting?.decimalPlaces)
 
     let dataAsString = `${data}`
 
@@ -897,7 +905,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                     if (series.settings.formatting?.decimalPlaces) {
                                         return parseFloat(
                                             (parseFloat(n[column.dataIndex]) * multiplier).toFixed(
-                                                series.settings.formatting.decimalPlaces
+                                                clampDecimalPlaces(series.settings.formatting.decimalPlaces)
                                             )
                                         )
                                     }
@@ -1036,7 +1044,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                         formattedValue: formatDataWithSettings(
                                             parseFloat(
                                                 (parseFloat(value.toString()) * multiplier).toFixed(
-                                                    column.settings.formatting.decimalPlaces
+                                                    clampDecimalPlaces(column.settings.formatting.decimalPlaces)
                                                 )
                                             ),
                                             column.settings
