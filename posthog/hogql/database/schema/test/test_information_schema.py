@@ -200,6 +200,36 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         # information_schema is self-describing
         assert rows.get("system.information_schema.columns") == "information_schema"
 
+    def test_posthog_namespaced_data_plane_tables_are_discoverable(self):
+        # The `posthog.*` namespace holds data-plane tables (ai_events, trace_spans, metrics, …) that
+        # exist ONLY there — a bare `FROM ai_events` errors, and the execute-sql prompt points agents at
+        # their `posthog.`-qualified names. If the catalog drops them, they become undiscoverable through
+        # the schema-discovery workflow and a healthy project looks like it has no such schema. Copies of
+        # root tables (posthog.events) must stay hidden so the catalog isn't cluttered with duplicates.
+        names = {
+            row[0]
+            for row in execute_hogql_query(
+                "SELECT table_name FROM system.information_schema.tables", team=self.team
+            ).results
+            or []
+        }
+        assert {"posthog.ai_events", "posthog.trace_spans", "posthog.metrics"}.issubset(names)
+        assert "events" in names
+        assert "posthog.events" not in names
+
+    def test_posthog_namespaced_table_columns_resolve(self):
+        # Being listed isn't enough — an agent that discovers `posthog.trace_spans` must then be able to
+        # inspect its columns. Guards the split between enumerating a dotted name and resolving it.
+        columns = {
+            row[0]
+            for row in execute_hogql_query(
+                "SELECT column_name FROM system.information_schema.columns WHERE table_name = 'posthog.trace_spans'",
+                team=self.team,
+            ).results
+            or []
+        }
+        assert {"trace_id", "span_id"}.issubset(columns)
+
     def test_access_scoped_system_tables_are_filtered(self):
         # Access-scoped system tables the caller can't reach must not leak into the catalog,
         # while unscoped ones remain visible — mirroring the SQL editor's access decision.
