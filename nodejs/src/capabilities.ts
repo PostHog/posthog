@@ -186,6 +186,10 @@ export function getPluginServerCapabilities(
             return {
                 cdpCyclotronV2Janitor: true,
             }
+        case PluginServerMode.cdp_cyclotron_v2_poison_pill_autodrain:
+            return {
+                cdpCyclotronV2PoisonPillAutodrain: true,
+            }
         case PluginServerMode.cdp_rerun_worker:
             return {
                 cdpRerunWorker: true,

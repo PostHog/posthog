@@ -47,6 +47,21 @@ Responsibilities:
   life.
 - **Queue depth metrics** — Prometheus gauges per queue
 
+### Poison-pill autodrain (standalone service)
+
+Runs on a timer interval as its own service
+(`PLUGIN_SERVER_MODE=cdp-cyclotron-v2-poison-pill-autodrain`).
+The janitor _records_ poison-pill give-ups as replayable `failed` rows; recovering them was a manual operator rerun.
+This service automates that recovery.
+
+On each tick it discovers distinct `(team_id, function_kind, function_id)` groups whose latest lifecycle row is a not-deleted `failed` `janitor_poison_pill` under the attempts cap (within a recent `scheduled_at` window), then enqueues one rerun wrapper per group through the existing rerun tooling (`RerunJobManager`).
+
+It converges without a cursor or state table:
+`CYCLOTRON_POISON_PILL_AUTODRAIN_MAX_ATTEMPTS` bounds how many times a genuinely-always-poison group is drained (both discovery and the rerun paginator exclude over-cap invocations), and a rerun writes a `running` row that self-dedups the invocation out of discovery until it either completes or re-poisons with `attempts+1`.
+Throttled by `CYCLOTRON_POISON_PILL_AUTODRAIN_GROUP_BATCH` groups per tick, `CYCLOTRON_POISON_PILL_AUTODRAIN_MAX_COUNT_PER_GROUP` invocations per group, and the tick interval.
+
+Opt-in per environment via `CYCLOTRON_POISON_PILL_AUTODRAIN_ENABLED` (default off) — it is a new autonomous re-enqueue loop, so it stays off until validated.
+
 ## Integration
 
 The `CyclotronJobQueuePostgresV2` wrapper in `job-queue/` bridges this SDK with the existing

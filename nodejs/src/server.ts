@@ -39,7 +39,12 @@ import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consume
 import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
 import { CdpProducerName } from './cdp/outputs/producers'
 import { createCdpOutputsRegistry } from './cdp/outputs/registry'
-import { CyclotronV2JanitorService, CyclotronV2Manager, CyclotronV2Worker } from './cdp/services/cyclotron-v2'
+import {
+    CyclotronPoisonPillAutodrainService,
+    CyclotronV2JanitorService,
+    CyclotronV2Manager,
+    CyclotronV2Worker,
+} from './cdp/services/cyclotron-v2'
 import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
 import { HOGFLOW_BATCH_RESOLVE_QUEUE } from './cdp/services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from './cdp/services/hogflows/hogflow-batch-person-query.service'
@@ -278,6 +283,22 @@ export class PluginServer implements NodeServer {
                 )
                 await janitor.start()
                 return janitor.service
+            })
+        }
+
+        // Autonomous drain of recorded poison pills. Gated on both the capability
+        // and the opt-in enabled flag — this loop re-enqueues janitor give-ups on
+        // its own, so it stays off until explicitly enabled per environment.
+        if (capabilities.cdpCyclotronV2PoisonPillAutodrain && this.config.CYCLOTRON_POISON_PILL_AUTODRAIN_ENABLED) {
+            if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
+                throw new Error(
+                    'CYCLOTRON_NODE_DATABASE_URL not configured but required for CyclotronPoisonPillAutodrainService'
+                )
+            }
+            serviceLoaders.push(async () => {
+                const autodrain = new CyclotronPoisonPillAutodrainService(this.config)
+                await autodrain.start()
+                return autodrain.service
             })
         }
 

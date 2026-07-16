@@ -154,6 +154,7 @@ export interface PluginServerCapabilities {
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
     cdpCyclotronV2Janitor?: boolean
+    cdpCyclotronV2PoisonPillAutodrain?: boolean
     cdpRerunWorker?: boolean
     cdpHogflowScheduler?: boolean
     cdpHogflowSubscriptionMatcher?: boolean

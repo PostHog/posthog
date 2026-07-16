@@ -150,6 +150,22 @@ export type CdpConfig = ClickhouseConfig & {
     // record (a give-up is lost, exactly as before this change). Flip to false to
     // roll back the recovery machinery instantly without a redeploy. Default true.
     CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: boolean
+
+    // Automatic draining of recorded poison pills. Opt-in per environment: this is
+    // a new autonomous loop that re-enqueues recorded janitor give-ups via the
+    // rerun tooling, so it stays off until validated. Default false.
+    CYCLOTRON_POISON_PILL_AUTODRAIN_ENABLED: boolean
+    CYCLOTRON_POISON_PILL_AUTODRAIN_INTERVAL_MS: number
+    // How far back to look for recorded poison pills on each tick. Bounded by the
+    // TTL/partitioning on hog_invocation_results.
+    CYCLOTRON_POISON_PILL_AUTODRAIN_WINDOW_HOURS: number
+    // Drain a group at most this many times — the recorded `attempts` climbs on
+    // each rerun, so a genuinely-always-poison job is left failed once it hits the
+    // cap instead of being re-enqueued forever.
+    CYCLOTRON_POISON_PILL_AUTODRAIN_MAX_ATTEMPTS: number
+    // Throttle: most groups drained per tick, and most invocations per group.
+    CYCLOTRON_POISON_PILL_AUTODRAIN_GROUP_BATCH: number
+    CYCLOTRON_POISON_PILL_AUTODRAIN_MAX_COUNT_PER_GROUP: number
 }
 
 export function getDefaultCdpConfig(): CdpConfig {
@@ -288,5 +304,13 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: 3,
         CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: 10000,
         CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: true,
+
+        // Poison-pill autodrain — off by default (opt-in per environment).
+        CYCLOTRON_POISON_PILL_AUTODRAIN_ENABLED: false,
+        CYCLOTRON_POISON_PILL_AUTODRAIN_INTERVAL_MS: 60000,
+        CYCLOTRON_POISON_PILL_AUTODRAIN_WINDOW_HOURS: 24,
+        CYCLOTRON_POISON_PILL_AUTODRAIN_MAX_ATTEMPTS: 3,
+        CYCLOTRON_POISON_PILL_AUTODRAIN_GROUP_BATCH: 100,
+        CYCLOTRON_POISON_PILL_AUTODRAIN_MAX_COUNT_PER_GROUP: 1000,
     }
 }
