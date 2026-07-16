@@ -253,7 +253,7 @@ class EndpointResourceBase(ResourceBase, total=False):
     # Per-item transform applied after ``data_selector`` and before type coercion, for reshaping
     # a row the selector can't express (e.g. flattening JSON:API ``attributes`` into the row root).
     # Wired through to ``Resource.add_map``; must be dict -> dict (1:1).
-    data_map: Optional[Callable[[dict[str, Any]], dict[str, Any]]]
+    data_map: Optional[Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]]
 
 
 class EndpointResource(EndpointResourceBase, total=False):

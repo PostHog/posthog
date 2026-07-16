@@ -49,7 +49,10 @@ class Resource:
             return None
         return {key: value.get("data_type") for key, value in columns.items()}
 
-    def add_map(self, fn: Callable[[dict[str, Any]], dict[str, Any]]) -> "Resource":
+    def add_map(self, fn: Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]) -> "Resource":
+        """Add a per-item transform. Returning a dict maps 1:1; returning a list explodes the item
+        1-to-many (e.g. flattening a report bucket's ``results[]`` into one row per result, with
+        parent-bucket fields merged in). Later maps apply to each exploded row."""
         self._maps.append(fn)
         return self
 
@@ -75,9 +78,19 @@ class Resource:
                     break
             if skip:
                 continue
+            # A map may return a dict (1:1) or a list of dicts (1-to-many explode); subsequent
+            # maps apply to every row produced so far.
+            current: list[dict[str, Any]] = [item]
             for m in self._maps:
-                item = m(item)
-            result.append(item)
+                next_rows: list[dict[str, Any]] = []
+                for row in current:
+                    mapped = m(row)
+                    if isinstance(mapped, list):
+                        next_rows.extend(mapped)
+                    else:
+                        next_rows.append(mapped)
+                current = next_rows
+            result.extend(current)
         return result
 
     def _iter_generator(self, call_kwargs: dict[str, Any]) -> Iterator[list[dict[str, Any]]]:
