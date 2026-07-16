@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 
 import { LemonDialog, Link, lemonToast } from '@posthog/lemon-ui'
 
-import api, { getJSONOrNull } from 'lib/api'
+import api, { ApiError, getJSONOrNull } from 'lib/api'
 import { FEATURE_FLAGS, FeatureFlagKey, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
@@ -80,54 +80,40 @@ export type SwitchPlanPayload = {
     to_plan_key: string
 }
 
-const getBillingApiErrorData = (error: unknown): Record<string, unknown> | null => {
-    if (!error || typeof error !== 'object' || !('data' in error)) {
-        return null
-    }
-
-    const data = (error as { data?: unknown }).data
-    return data && typeof data === 'object' ? (data as Record<string, unknown>) : null
-}
-
-const getBillingApiErrorFieldValue = (value: unknown): string | null => {
+const getBillingApiErrorValue = (value: unknown): string | null => {
     if (typeof value === 'string') {
         return value
     }
 
-    if (Array.isArray(value)) {
-        const messages = value.map(getBillingApiErrorFieldValue).filter(Boolean)
-        return messages.length ? messages.join(' ') : null
-    }
-
-    if (value && typeof value === 'object') {
-        const messages = Object.values(value as Record<string, unknown>)
-            .map(getBillingApiErrorFieldValue)
-            .filter(Boolean)
-        return messages.length ? messages.join(' ') : null
+    if (Array.isArray(value) && typeof value[0] === 'string') {
+        return value[0]
     }
 
     return null
 }
 
 export const getBillingApiErrorMessage = (error: unknown, fieldNames: string[], fallbackMessage: string): string => {
-    const data = getBillingApiErrorData(error)
+    const data =
+        error instanceof ApiError && error.data && typeof error.data === 'object'
+            ? (error.data as Record<string, unknown>)
+            : null
 
     if (data) {
         for (const fieldName of fieldNames) {
-            const fieldMessage = getBillingApiErrorFieldValue(data[fieldName])
+            const fieldMessage = getBillingApiErrorValue(data[fieldName])
             if (fieldMessage) {
                 return fieldMessage
             }
         }
 
-        const detailMessage = getBillingApiErrorFieldValue(data.detail)
+        const detailMessage = getBillingApiErrorValue(data.detail)
         if (detailMessage) {
             return detailMessage
         }
     }
 
-    if (error && typeof error === 'object' && 'detail' in error) {
-        const detailMessage = getBillingApiErrorFieldValue((error as { detail?: unknown }).detail)
+    if (error instanceof ApiError) {
+        const detailMessage = getBillingApiErrorValue(error.detail)
         if (detailMessage) {
             return detailMessage
         }
