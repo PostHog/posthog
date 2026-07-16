@@ -2,12 +2,8 @@ import { initKeaTests } from '~/test/init'
 
 import { shortcutLogic } from './shortcutLogic'
 
-jest.mock('lib/posthog-typed', () => ({
-    __esModule: true,
-    default: { __loaded: true, capture: jest.fn() },
-}))
-
-// The ⌘⌥ matching path branches on isMac(), which is captured once at module load.
+// The ⌘⌥ matching path branches on isMac(), captured once at module load. Force it so the
+// modifier resolves to 'command' regardless of the host platform running the test.
 jest.mock('lib/utils/dom', () => ({
     ...jest.requireActual('lib/utils/dom'),
     isMac: () => true,
@@ -17,7 +13,7 @@ describe('shortcutLogic', () => {
     let logic: ReturnType<typeof shortcutLogic.build>
 
     beforeEach(() => {
-        initKeaTests()
+        initKeaTests(false)
         logic = shortcutLogic()
         logic.mount()
     })
