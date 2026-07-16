@@ -4,6 +4,7 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit import gerrit as gerrit_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.gerrit import (
     HOST_NOT_ALLOWED_ERROR,
@@ -30,7 +31,8 @@ def _response(*, status_code: int = 200, text: str = "", is_redirect: bool = Fal
     return response
 
 
-class _FakeResumeManager:
+class _FakeResumeManager(ResumableSourceManager[GerritResumeConfig]):
+    # In-memory stand-in — deliberately doesn't call super().__init__, so no Redis is touched.
     def __init__(self, state: Optional[GerritResumeConfig] = None):
         self._state = state
         self.saved: list[GerritResumeConfig] = []
@@ -45,7 +47,7 @@ class _FakeResumeManager:
         self.saved.append(state)
 
 
-def _patch_session(responses: list[mock.MagicMock]) -> tuple[mock.MagicMock, mock.MagicMock]:
+def _patch_session(responses: list[mock.MagicMock]) -> tuple[mock.MagicMock, Any]:
     session = mock.MagicMock()
     session.get.side_effect = responses
     patcher = mock.patch.object(gerrit_module, "make_tracked_session", return_value=session)
