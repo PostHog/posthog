@@ -72,6 +72,22 @@ if (not inputs.bypass_signature_check) {
       }
   }
 
+  // Replay protection: reject deliveries whose signature timestamp is older than
+  // maximum_variance_seconds, mirroring the Paddle SDK's Verifier. 0 or unset disables it.
+  // Null-coalesce both operands: Hog's `and` does not short-circuit, and a non-numeric ts
+  // makes toInt return null, so a bare comparison would raise instead of returning a 400.
+  let maxVariance := inputs.maximum_variance_seconds ?? 0
+  if (maxVariance > 0) {
+      if (toUnixTimestamp(now()) - (toInt(timestamp) ?? 0) > maxVariance) {
+          return {
+            'httpResponse': {
+              'status': 400,
+              'body': 'Signature timestamp too old',
+            }
+          }
+      }
+  }
+
   let signedPayload := concat(timestamp, ':', body)
   let computedSignature := sha256HmacChainHex([inputs.signing_secret, signedPayload])
   let signatureMatches := false
@@ -135,6 +151,16 @@ produceToWarehouseWebhooks(request.body, schemaId)""",
             "default": False,
             "required": False,
             "secret": False,
+        },
+        {
+            "type": "number",
+            "key": "maximum_variance_seconds",
+            "label": "Maximum signature age (seconds)",
+            "description": "Reject webhooks whose signature timestamp is older than this many seconds, to limit replay. Set to 0 to disable. Mirrors the Paddle SDK default of 5.",
+            "default": 5,
+            "required": False,
+            "secret": False,
+            "hidden": False,
         },
         {
             "type": "json",

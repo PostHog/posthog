@@ -1,5 +1,6 @@
 import hmac
 import json
+import time
 import hashlib
 
 from parameterized import parameterized
@@ -114,6 +115,90 @@ class TestPaddleWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
         globals = self._request_globals(TRANSACTION_PAYLOAD, {"paddle-signature": sig_value})
         res = self.run_function({"signing_secret": "pdl_ntfset_test", "bypass_signature_check": False}, globals=globals)
         assert res.result == {"httpResponse": {"status": 400, "body": "Could not parse signature"}}
+
+    def test_recent_timestamp_within_variance_is_accepted(self):
+        secret = "pdl_ntfset_test"
+        ts = str(int(time.time()) - 60)
+        headers = self._make_signed_request(TRANSACTION_PAYLOAD, secret, timestamp=ts)
+        globals = self._request_globals(TRANSACTION_PAYLOAD, headers)
+        self.run_function(
+            {
+                "signing_secret": secret,
+                "bypass_signature_check": False,
+                "schema_mapping": {"transaction": "schema_123"},
+                "maximum_variance_seconds": 3600,
+            },
+            globals=globals,
+        )
+        self.mock_produce_to_warehouse_webhooks.assert_called_once()
+
+    def test_stale_timestamp_beyond_variance_is_rejected(self):
+        secret = "pdl_ntfset_test"
+        ts = str(int(time.time()) - 3600)
+        headers = self._make_signed_request(TRANSACTION_PAYLOAD, secret, timestamp=ts)
+        globals = self._request_globals(TRANSACTION_PAYLOAD, headers)
+        res = self.run_function(
+            {
+                "signing_secret": secret,
+                "bypass_signature_check": False,
+                "schema_mapping": {"transaction": "schema_123"},
+                "maximum_variance_seconds": 5,
+            },
+            globals=globals,
+        )
+        assert res.result == {"httpResponse": {"status": 400, "body": "Signature timestamp too old"}}
+        self.mock_produce_to_warehouse_webhooks.assert_not_called()
+
+    def test_maximum_variance_zero_disables_replay_check(self):
+        secret = "pdl_ntfset_test"
+        ts = str(int(time.time()) - 3600)
+        headers = self._make_signed_request(TRANSACTION_PAYLOAD, secret, timestamp=ts)
+        globals = self._request_globals(TRANSACTION_PAYLOAD, headers)
+        self.run_function(
+            {
+                "signing_secret": secret,
+                "bypass_signature_check": False,
+                "schema_mapping": {"transaction": "schema_123"},
+                "maximum_variance_seconds": 0,
+            },
+            globals=globals,
+        )
+        self.mock_produce_to_warehouse_webhooks.assert_called_once()
+
+    def test_omitted_variance_skips_replay_check(self):
+        # No maximum_variance_seconds input is the shape of every already-deployed function; the
+        # drift check must be skipped, not raise on a null comparison (Hog `and` doesn't short-circuit).
+        secret = "pdl_ntfset_test"
+        ts = str(int(time.time()) - 3600)
+        headers = self._make_signed_request(TRANSACTION_PAYLOAD, secret, timestamp=ts)
+        globals = self._request_globals(TRANSACTION_PAYLOAD, headers)
+        self.run_function(
+            {
+                "signing_secret": secret,
+                "bypass_signature_check": False,
+                "schema_mapping": {"transaction": "schema_123"},
+            },
+            globals=globals,
+        )
+        self.mock_produce_to_warehouse_webhooks.assert_called_once()
+
+    def test_non_numeric_timestamp_with_variance_is_rejected(self):
+        # A parseable header with a non-numeric ts must 400, not raise (toInt returns null).
+        secret = "pdl_ntfset_test"
+        sig = self._sign(TRANSACTION_PAYLOAD, secret, timestamp="not-a-number")
+        headers = {"paddle-signature": f"ts=not-a-number;h1={sig}"}
+        globals = self._request_globals(TRANSACTION_PAYLOAD, headers)
+        res = self.run_function(
+            {
+                "signing_secret": secret,
+                "bypass_signature_check": False,
+                "schema_mapping": {"transaction": "schema_123"},
+                "maximum_variance_seconds": 5,
+            },
+            globals=globals,
+        )
+        assert res.result == {"httpResponse": {"status": 400, "body": "Signature timestamp too old"}}
+        self.mock_produce_to_warehouse_webhooks.assert_not_called()
 
     @parameterized.expand(
         [
