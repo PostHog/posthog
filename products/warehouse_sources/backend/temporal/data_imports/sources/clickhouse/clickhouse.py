@@ -112,6 +112,16 @@ _TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
     "Tunnel connection failed: 502",
     "Tunnel connection failed: 503",
     "Tunnel connection failed: 504",
+    # The ClickHouse host (or a proxy/gateway in front of it) rate-limited the
+    # request with HTTP 429 ("HTTPDriver for <url> returned response code 429").
+    # A 429 is a transient "back off and retry" signal, not a config error.
+    # clickhouse-connect already retries 429 for queries (query_retries), but
+    # the probe it runs while constructing the client passes retries=0, so a
+    # 429 at connect time reaches us with no retry at all — a bounded backoff
+    # retry here recovers the common transient burst. We match only 429; other
+    # HTTP statuses keep their existing handling (404 is non-retryable in the
+    # source, 5xx stay retryable via Temporal).
+    "returned response code 429",
 )
 
 

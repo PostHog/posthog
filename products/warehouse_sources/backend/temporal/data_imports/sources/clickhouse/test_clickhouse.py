@@ -5,7 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
-from clickhouse_connect.driver.exceptions import ClickHouseError
+from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -687,6 +687,9 @@ class TestIsTransientConnectDrop:
             "502 Bad gateway'))) executing HTTP request attempt 1",
             "Tunnel connection failed: 503 Service Unavailable",
             "Tunnel connection failed: 504 Gateway Timeout",
+            # HTTP 429 rate-limit at connect time — clickhouse-connect doesn't
+            # retry the client-construction probe, so we retry it in-process.
+            "HTTPDriver for https://host:8443 returned response code 429",
         ],
     )
     def test_matches_transient_drops(self, message):
@@ -721,6 +724,18 @@ class TestGetClientTransientRetry:
         with (
             patch.object(ch_module.time, "sleep"),
             patch.object(ch_module, "get_client", side_effect=[ssl_eof, client]) as mock_get_client,
+        ):
+            assert self._connect() is client
+        assert mock_get_client.call_count == 2
+
+    def test_retries_connect_time_429_then_succeeds(self):
+        # clickhouse-connect raises OperationalError for a 429 exhausted at the
+        # client-construction probe (which runs with retries=0). We retry it.
+        client = MagicMock()
+        rate_limited = OperationalError("HTTPDriver for https://host:8443 returned response code 429")
+        with (
+            patch.object(ch_module.time, "sleep"),
+            patch.object(ch_module, "get_client", side_effect=[rate_limited, client]) as mock_get_client,
         ):
             assert self._connect() is client
         assert mock_get_client.call_count == 2
