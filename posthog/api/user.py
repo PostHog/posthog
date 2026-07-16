@@ -1647,16 +1647,20 @@ class ToolbarOAuthRefreshView(APIView):
 
         # Re-check current toolbar access here: the token itself is the only credential on this
         # AllowAny endpoint, so a user whose access was revoked after the token was issued must
-        # not be able to keep minting fresh tokens with it.
+        # not be able to keep minting fresh tokens with it. Check against the token's own scoped
+        # team, not the user's current team - the user can switch their active team to one they
+        # still have access to while continuing to refresh a token scoped to a different, revoked
+        # project.
         token_record = find_oauth_refresh_token(refresh_token)
-        if token_record and (
-            not token_record.user.team or not _user_can_access_toolbar(token_record.user, token_record.user.team)
-        ):
-            logger.warning("toolbar_oauth_refresh_denied", reason="access_revoked")
-            return JsonResponse(
-                {"code": "forbidden", "detail": "You don't have access to the toolbar for this project."},
-                status=403,
-            )
+        if token_record:
+            scoped_team_ids = token_record.scoped_teams or []
+            team = Team.objects.filter(pk__in=scoped_team_ids).first() if len(scoped_team_ids) == 1 else None
+            if not team or not _user_can_access_toolbar(token_record.user, team):
+                logger.warning("toolbar_oauth_refresh_denied", reason="access_revoked")
+                return JsonResponse(
+                    {"code": "forbidden", "detail": "You don't have access to the toolbar for this project."},
+                    status=403,
+                )
 
         try:
             token_payload = refresh_tokens(client_id=client_id, refresh_token=refresh_token)

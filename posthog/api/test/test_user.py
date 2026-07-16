@@ -2291,6 +2291,7 @@ class TestToolbarAccessControl(APIBaseTest):
             user=self.user,
             application=oauth_app,
             token="test_toolbar_refresh_token",
+            scoped_teams=[self.team.id],
         )
         self._deny_toolbar_access()
 
@@ -2304,10 +2305,44 @@ class TestToolbarAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_refresh_tokens.assert_not_called()
 
+    def test_toolbar_oauth_refresh_denied_when_access_revoked_in_scoped_team_despite_switching_active_team(self):
+        """The refresh check must gate on the token's scoped team, not the user's mutable current
+        team - otherwise a user whose access was revoked in the project the token is scoped to
+        could keep refreshing it by switching their active team to one where access remains."""
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        oauth_app = OAuthApplication.objects.create(
+            name="Test Toolbar OAuth App",
+            client_id="test_toolbar_client_id_team_switch",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+        refresh_token = OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="test_toolbar_refresh_token_team_switch",
+            scoped_teams=[self.team.id],
+        )
+        self._deny_toolbar_access()
+        self.user.current_team = other_team
+        self.user.save()
+
+        with patch("posthog.api.user.refresh_tokens") as mock_refresh_tokens:
+            response = self.client.post(
+                "/api/user/toolbar_oauth_refresh/",
+                {"refresh_token": refresh_token.token, "client_id": oauth_app.client_id},
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_refresh_tokens.assert_not_called()
+
     def test_toolbar_oauth_refresh_denied_when_token_owner_has_no_team(self):
-        """A refresh token belonging to a user with no current team must be denied rather than
-        skipping the access check entirely - `if token_record and token_record.user.team` used to
-        fail open (allow refresh) for exactly this case instead of failing closed."""
+        """A refresh token with no scoped team (e.g. one minted before grants were narrowed to a
+        single verified team) must be denied rather than allowed through - the check fails closed
+        when it can't resolve exactly one scoped team to verify access against."""
         no_team_user = User.objects.create_user(
             email="no-team-refresh@posthog.com", password="testpass123", first_name=""
         )
