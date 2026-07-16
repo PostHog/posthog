@@ -193,9 +193,11 @@ class TestWebhookTableTransformer:
 
     def test_no_required_field_keeps_rows_without_it(self):
         # Endpoints with no incremental field (e.g. customers) don't filter on a cursor.
-        result = _transform(table_from_py_list([_envelope({"id": "cus_1"}, event_type="customer.updated")]))
+        result = _transform(
+            table_from_py_list([_envelope({"id": "ctm_01h8xq9j5m2k3n4p5q6r7s8t9a"}, event_type="customer.updated")])
+        )
 
-        assert [row["id"] for row in result.to_pylist()] == ["cus_1"]
+        assert [row["id"] for row in result.to_pylist()] == ["ctm_01h8xq9j5m2k3n4p5q6r7s8t9a"]
 
     def test_distinct_ids_all_kept(self):
         envelopes = [_envelope({"id": f"txn_{i}"}) for i in range(3)]

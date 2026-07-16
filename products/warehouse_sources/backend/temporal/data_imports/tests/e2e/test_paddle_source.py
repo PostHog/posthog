@@ -57,11 +57,11 @@ def _get_mock_resumable_manager() -> ResumableSourceManager[PaddleResumeConfig]:
 @patch(MOCK_PATH)
 def test_get_rows_pagination(mock_request):
     page1 = {
-        "data": [{"id": 1}],
+        "data": [{"id": "ctm_01h8xq9j5m2k3n4p5q6r7s8t9a"}],
         "meta": {"pagination": {"next": "https://api.paddle.com/customers?per_page=100&after=123"}},
     }
     page2 = {
-        "data": [{"id": 2}],
+        "data": [{"id": "ctm_01h8xq9j5m2k3n4p5q6r7s8t9b"}],
         "meta": {"pagination": {"next": None}},
     }
 
@@ -86,12 +86,17 @@ def test_get_rows_pagination(mock_request):
     table: pa.Table = items[0]
 
     assert table.num_rows == 2
-    assert table.column("id").to_pylist() == [1, 2]
+    assert table.column("id").to_pylist() == ["ctm_01h8xq9j5m2k3n4p5q6r7s8t9a", "ctm_01h8xq9j5m2k3n4p5q6r7s8t9b"]
 
 
 @patch(MOCK_PATH)
 def test_get_rows_incremental(mock_request):
-    mock_request.return_value = MockResponse({"data": [{"id": 1}], "meta": {"pagination": {"next": None}}})
+    mock_request.return_value = MockResponse(
+        {
+            "data": [{"id": "txn_01h8xq9j5m2k3n4p5q6r7s8t9d", "billed_at": "2024-06-01T00:00:00Z"}],
+            "meta": {"pagination": {"next": None}},
+        }
+    )
 
     logger = MagicMock()
     mock_manager = _get_mock_resumable_manager()
@@ -278,7 +283,9 @@ def test_validate_credentials_sandbox_hits_sandbox_host(mock_request):
 
 @patch(MOCK_PATH)
 def test_get_rows_resume(mock_request):
-    mock_request.return_value = MockResponse({"data": [{"id": 3}], "meta": {"pagination": {"next": None}}})
+    mock_request.return_value = MockResponse(
+        {"data": [{"id": "ctm_01h8xq9j5m2k3n4p5q6r7s8t9c"}], "meta": {"pagination": {"next": None}}}
+    )
 
     logger = MagicMock()
     mock_manager = MagicMock(spec=ResumableSourceManager)
@@ -299,7 +306,7 @@ def test_get_rows_resume(mock_request):
     assert mock_request.call_count == 1
     assert mock_request.call_args[0][1] == "https://api.paddle.com/customers?after=2"
     assert len(items) == 1
-    assert items[0].column("id").to_pylist() == [3]
+    assert items[0].column("id").to_pylist() == ["ctm_01h8xq9j5m2k3n4p5q6r7s8t9c"]
 
 
 @patch(MOCK_PATH)
