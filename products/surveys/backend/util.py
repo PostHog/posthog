@@ -3,6 +3,7 @@ from uuid import UUID
 
 from posthog.hogql.escape_sql import escape_clickhouse_string
 
+from posthog.models.event.new_events_schema import events_read_table
 from posthog.models.property.util import get_property_string_expr
 
 from products.surveys.backend.models import SurveyResponseArchive
@@ -26,13 +27,18 @@ class SurveyEventProperties(StrEnum):
     SURVEY_LAST_SEEN_DATE = "$last_seen_survey_date"
 
 
-def get_survey_property_string_expr(property_name: SurveyEventProperties, table_alias: str | None = None) -> str:
+def get_survey_property_string_expr(
+    property_name: SurveyEventProperties,
+    table_alias: str | None = None,
+    use_new_events_schema: bool = False,
+) -> str:
     expression, _ = get_property_string_expr(
         "events",
         str(property_name),
         escape_clickhouse_string(str(property_name)),
         "properties",
         table_alias=table_alias,
+        use_new_events_schema=use_new_events_schema,
     )
     return expression
 
@@ -97,6 +103,7 @@ def _build_multiple_choice_query(_DANGEROUS_id_based_key: str, index_based_key: 
 def get_unique_survey_event_uuids_sql_subquery(
     base_conditions_sql: list[str],
     group_by_prefix_expressions: list[str] | None = None,
+    use_new_events_schema: bool = False,
 ) -> str:
     """
     Generates a SQL subquery string that returns unique event UUIDs for 'survey sent' events,
@@ -131,20 +138,25 @@ def get_unique_survey_event_uuids_sql_subquery(
         sql_conditions = base_conditions_sql
 
     # Always include the survey_id in the group by
-    survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)
+    survey_id_expr = get_survey_property_string_expr(
+        SurveyEventProperties.SURVEY_ID, use_new_events_schema=use_new_events_schema
+    )
     if survey_id_expr not in group_by_prefix_expressions:
         group_by_prefix_expressions.append(survey_id_expr)
 
     where_clause = " AND ".join(sql_conditions)
 
-    submission_id_col = get_survey_property_string_expr(SurveyEventProperties.SURVEY_SUBMISSION_ID)
+    submission_id_col = get_survey_property_string_expr(
+        SurveyEventProperties.SURVEY_SUBMISSION_ID, use_new_events_schema=use_new_events_schema
+    )
     deduplication_group_by_key = (
         f"CASE WHEN COALESCE({submission_id_col}, '') = '' THEN toString(uuid) ELSE {submission_id_col} END"
     )
 
     group_by_clause = ", ".join([*group_by_prefix_expressions, deduplication_group_by_key])
 
-    return f"(SELECT argMax(uuid, timestamp) FROM events WHERE {where_clause} GROUP BY {group_by_clause})"
+    events_table = events_read_table(use_new_events_schema)
+    return f"(SELECT argMax(uuid, timestamp) FROM {events_table} WHERE {where_clause} GROUP BY {group_by_clause})"
 
 
 def get_archived_response_uuids(survey_id: str | UUID | None, team_id: int) -> set[str]:

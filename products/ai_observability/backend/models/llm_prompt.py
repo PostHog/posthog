@@ -74,6 +74,49 @@ class LLMPrompt(UUIDModel):
     deleted = models.BooleanField(default=False)
 
 
+class LLMPromptLabel(UUIDModel):
+    """A movable pointer from a name (e.g. "production") to exactly one version of a prompt.
+
+    Version rows are immutable; releasing a version means pointing a label at it and
+    rolling back means pointing it back. The (team, prompt_name, name) uniqueness is
+    what keeps fetch-by-label single-valued.
+
+    Deliberately not on TeamScopedRootMixin: LLMPrompt stores raw (possibly child-env)
+    team ids, and the mixin's canonical-team rewrite would put labels in a different
+    team-space than the prompt rows they point into. Migrate to fail-closed scoping
+    together with LLMPrompt.
+    """
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "prompt_name", "name"],
+                name="unique_llm_prompt_label_per_prompt",
+            ),
+        ]
+        db_table = "posthog_llmpromptlabel"
+
+    name = models.CharField(max_length=128)
+    # Prompts have no parent entity — version rows are grouped by name, so the label
+    # keys the prompt family by name and points at one version row via the FK below.
+    prompt_name = models.CharField(max_length=255)
+    prompt = models.ForeignKey(LLMPrompt, on_delete=models.CASCADE, related_name="labels")
+
+    # db_constraint=False: posthog_team / posthog_user are hot tables — adding a real FK
+    # constraint locks the parent table during migration.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+    )
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
 def annotate_llm_prompt_version_history_metadata(queryset: QuerySet[LLMPrompt]) -> QuerySet[LLMPrompt]:
     active_versions = LLMPrompt.objects.filter(team_id=OuterRef("team_id"), name=OuterRef("name"), deleted=False)
 
