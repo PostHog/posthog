@@ -182,6 +182,8 @@ export interface PendingInsertion {
     w: number | null
 }
 
+const cachedDashboardTeams = new WeakMap<DashboardType<QueryBasedInsightModel>, number>()
+
 const tileLayoutsFromDashboard = (
     dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
 ): Record<number, DashboardTile['layouts']> => {
@@ -1868,6 +1870,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.loadingDashboardItemsStarted(DashboardLoadAction.InitialLoad)
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
+                    const cachedDashboard = dashboardsModel.values.rawDashboards[String(props.id)]
+                    if (
+                        cachedDashboard &&
+                        'tiles' in cachedDashboard &&
+                        !cachedDashboard.deleted &&
+                        cachedDashboardTeams.get(cachedDashboard) === values.currentTeamId
+                    ) {
+                        actions.loadDashboardMetadataSuccess(cachedDashboard)
+                    }
+
                     const hasVariablesInUrl = SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams
 
                     if (!hasVariablesInUrl) {
@@ -2880,6 +2892,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         loadDashboardSuccess: [
+            ({ dashboard }) => {
+                if (dashboard && typeof values.currentTeamId === 'number') {
+                    cachedDashboardTeams.set(dashboard, values.currentTeamId)
+                    dashboardsModel.actions.updateDashboardSuccess(dashboard)
+                }
+            },
             sharedListeners.reportLoadTiming,
             () => {
                 if (!values.dashboard) {
@@ -2897,7 +2915,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return // We hit a 404
             }
         },
-        tileStreamingComplete: sharedListeners.handleDashboardLoadComplete,
+        tileStreamingComplete: [
+            () => {
+                if (values.dashboard && typeof values.currentTeamId === 'number') {
+                    cachedDashboardTeams.set(values.dashboard, values.currentTeamId)
+                    dashboardsModel.actions.updateDashboardSuccess(values.dashboard)
+                }
+            },
+            sharedListeners.handleDashboardLoadComplete,
+        ],
         reportInsightsViewed: ({ insights }: { insights: QueryBasedInsightModel[] }) => {
             const insightIds = insights
                 .map((insight: QueryBasedInsightModel) => insight?.id)

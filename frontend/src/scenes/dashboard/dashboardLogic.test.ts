@@ -1454,6 +1454,26 @@ describe('dashboardLogic', () => {
 
             getResponseSpy.mockRestore()
         })
+
+        it('shows a cached dashboard while immediately revalidating it', async () => {
+            logic = dashboardLogic({ id: 12 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.unmount()
+
+            const hydrateDashboardSpy = jest.spyOn(logic.actions, 'loadDashboardMetadataSuccess')
+            const getResponseSpy = jest.spyOn(api, 'getResponse')
+            logic.mount()
+
+            expect(hydrateDashboardSpy).toHaveBeenCalledTimes(1)
+            expect(logic.values.dashboard?.tiles).toHaveLength(8)
+            expect(getResponseSpy).toHaveBeenCalledTimes(1)
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            hydrateDashboardSpy.mockRestore()
+            getResponseSpy.mockRestore()
+        })
     })
 
     describe('dashboard variables', () => {
