@@ -254,6 +254,43 @@ class TestGetRowsTopLevel:
         assert "sinceChange" not in _locator_of(fetched[0])
 
 
+class TestPaginationBounds:
+    def test_repeated_cursor_aborts_walk(self, monkeypatch: Any) -> None:
+        # A server that returns the same non-empty nextHref forever must not loop indefinitely.
+        fetched: list[str] = []
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict[str, Any]:
+            fetched.append(url)
+            return {"project": [{"id": "a"}], "nextHref": "/app/rest/projects?locator=count:100,start:100"}
+
+        monkeypatch.setattr(teamcity, "_fetch_page", fake_fetch)
+        rows = _collect(_FakeResumableManager(), endpoint="projects")
+
+        # First page + one repeat of the fixed cursor, then repetition is detected and the walk stops.
+        assert fetched == [
+            mock.ANY,
+            "https://teamcity.example.com/app/rest/projects?locator=count:100,start:100",
+        ]
+        assert len(rows) == 2
+
+    def test_page_cap_truncates_endless_changing_cursor(self, monkeypatch: Any) -> None:
+        # Cursors that keep changing (so repetition never trips) are bounded by the hard page cap.
+        monkeypatch.setattr(teamcity, "MAX_PAGES_PER_WALK", 3)
+        fetched: list[str] = []
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict[str, Any]:
+            n = len(fetched)
+            fetched.append(url)
+            return {"project": [{"id": n}], "nextHref": f"/app/rest/projects?locator=count:100,start:{(n + 1) * 100}"}
+
+        monkeypatch.setattr(teamcity, "_fetch_page", fake_fetch)
+        rows = _collect(_FakeResumableManager(), endpoint="projects")
+
+        # Stops after MAX_PAGES_PER_WALK pages instead of paginating forever.
+        assert len(fetched) == 3
+        assert [r["id"] for r in rows] == [0, 1, 2]
+
+
 class TestGetRowsFanOut:
     def test_fans_out_per_build_and_injects_parent_fields(self, monkeypatch: Any) -> None:
         fetched = _patch_fetch(

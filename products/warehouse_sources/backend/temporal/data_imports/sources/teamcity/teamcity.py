@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.teamcity.s
     FAN_OUT_BUILD_FINISH_DATE_FIELD,
     FAN_OUT_BUILD_ID_FIELD,
     MAX_PAGES_PER_BUILD,
+    MAX_PAGES_PER_WALK,
     TEAMCITY_ENDPOINTS,
     TeamCityEndpointConfig,
 )
@@ -209,15 +210,32 @@ def _paginate(
     response_key: str,
     logger: FilteringBoundLogger,
 ) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
-    """Yield ``(items, next_href)`` per page, following TeamCity's nextHref cursor."""
+    """Yield ``(items, next_href)`` per page, following TeamCity's nextHref cursor.
+
+    ``nextHref`` is supplied by the remote server, so pagination is bounded two ways to keep a
+    misbehaving or malicious host from pinning an import worker: a repeated cursor (the same
+    URL seen twice, e.g. a server that returns a fixed nextHref forever) aborts the walk, and a
+    hard ``MAX_PAGES_PER_WALK`` cap bounds cursors that keep changing but never terminate.
+    """
     url = first_url
+    seen: set[str] = set()
+    pages = 0
     while True:
         data = _fetch_page(session, url, headers, logger)
         next_href = data.get("nextHref")
         yield data.get(response_key, []), next_href
         if not next_href:
             return
-        url = _resolve_next_href(server_root, next_href)
+        seen.add(url)
+        pages += 1
+        next_url = _resolve_next_href(server_root, next_href)
+        if next_url in seen:
+            logger.warning(f"TeamCity: pagination cursor repeated, aborting walk. url={next_url}, pages={pages}")
+            return
+        if pages >= MAX_PAGES_PER_WALK:
+            logger.warning(f"TeamCity: page cap reached, truncating walk. pages={pages}, url={next_url}")
+            return
+        url = next_url
 
 
 def _top_level_rows(

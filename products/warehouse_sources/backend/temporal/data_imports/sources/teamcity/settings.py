@@ -12,6 +12,12 @@ OCCURRENCE_PAGE_SIZE = 1000
 # pagination. A structured warning is logged if the cap is reached.
 MAX_PAGES_PER_BUILD = 100
 
+# Hard cap on pages fetched in a single pagination walk. nextHref comes from the remote
+# server, so a misbehaving or malicious host could otherwise return a non-empty cursor
+# forever and pin an import worker until the activity timeout. At 100–1000 rows per page
+# this still allows tens of millions of rows per walk before the cap trips.
+MAX_PAGES_PER_WALK = 50_000
+
 # Builds locator applied to the builds endpoint and to the parent walk of the occurrence
 # fan-outs. `branch:(default:any)` lifts TeamCity's default-branch-only filter so feature
 # branch builds are synced too; `state:finished` keeps rows immutable (a running build's
