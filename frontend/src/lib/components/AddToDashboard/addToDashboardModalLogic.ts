@@ -55,8 +55,8 @@ export interface addToDashboardModalLogicActions {
         insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null
     } // eventUsageLogic
     updateInsight: (
-        insightUpdate: Partial<QueryBasedInsightModel>,
-        callback?: () => void
+        insightUpdate: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
+        callback?: (() => void) | undefined
     ) => {
         callback: (() => void) | undefined
         insightUpdate: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
@@ -70,10 +70,12 @@ export interface addToDashboardModalLogicActions {
     } // insightLogic
     updateInsightSuccess: (
         insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
-        payload?: {
-            callback: (() => void) | undefined
-            insightUpdate: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
-        }
+        payload?:
+            | {
+                  callback: (() => void) | undefined
+                  insightUpdate: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
+              }
+            | undefined
     ) => {
         insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
         payload?: {
