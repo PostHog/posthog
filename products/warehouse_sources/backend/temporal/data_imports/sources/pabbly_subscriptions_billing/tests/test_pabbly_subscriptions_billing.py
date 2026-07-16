@@ -251,6 +251,40 @@ class TestMakeSession:
         assert mock_session.call_args.kwargs["redact_values"] == ("pabbly-key", "pabbly-secret")
 
 
+class TestHttpSampleCapture:
+    @parameterized.expand(
+        [
+            # licenses bodies carry raw redeemable license_codes, so their raw responses must stay
+            # out of captured HTTP samples; ordinary endpoints keep capture on for diagnostics.
+            ("licenses", False),
+            ("customers", True),
+        ]
+    )
+    def test_capture_disabled_only_for_secret_bearing_endpoints(
+        self, endpoint: str, expected_capture: bool, monkeypatch: Any
+    ) -> None:
+        captured_kwargs: dict[str, Any] = {}
+
+        def fake_make_session(**kwargs: Any) -> MagicMock:
+            captured_kwargs.update(kwargs)
+            return MagicMock()
+
+        monkeypatch.setattr(pabbly, "make_tracked_session", fake_make_session)
+        monkeypatch.setattr(pabbly, "_fetch_page", lambda *args, **kwargs: [])
+
+        list(
+            get_rows(
+                api_key="pabbly-key",
+                secret_key="pabbly-secret",
+                endpoint=endpoint,
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            )
+        )
+
+        assert captured_kwargs["capture"] is expected_capture
+
+
 class TestCheckAccess:
     @staticmethod
     def _session(response: Any) -> MagicMock:

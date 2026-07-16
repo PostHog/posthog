@@ -20,6 +20,10 @@ class PabblyEndpointConfig:
     # envelope when there is simply no data (its Airbyte connector ignores those the same way).
     # When True, such responses are treated as an empty page instead of an error.
     ignore_no_data_errors: bool = False
+    # HTTP sample capture stores raw response bodies as diagnostic artifacts. Set False on
+    # endpoints whose bodies carry redeemable secrets the name-based scrubbers can't recognise
+    # (e.g. the raw license codes in a licenses batch); requests stay metered and logged.
+    capture_http_samples: bool = True
 
 
 # Pabbly Subscription Billing REST endpoints (https://apidocs.pabbly.com/pabbly/subscription-billing).
@@ -69,6 +73,8 @@ PABBLY_ENDPOINTS: dict[str, PabblyEndpointConfig] = {
         parent="products",
         parent_field="product_id",
         ignore_no_data_errors=True,
+        # license_codes are redeemable secrets; keep raw bodies out of captured HTTP samples.
+        capture_http_samples=False,
     ),
     "payment_methods": PabblyEndpointConfig(
         name="payment_methods",

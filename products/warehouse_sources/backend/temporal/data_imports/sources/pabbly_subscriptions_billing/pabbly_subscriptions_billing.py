@@ -36,10 +36,12 @@ class PabblyResumeConfig:
     page: int = 1
 
 
-def _make_session(api_key: str, secret_key: str) -> requests.Session:
+def _make_session(api_key: str, secret_key: str, capture: bool = True) -> requests.Session:
     # Pabbly authenticates with HTTP Basic only: API key as username, secret key as password.
     # (Its docs portal shows a generic Bearer example, but the live API rejects Bearer tokens.)
-    session = make_tracked_session(headers={"Accept": "application/json"}, redact_values=(api_key, secret_key))
+    session = make_tracked_session(
+        headers={"Accept": "application/json"}, redact_values=(api_key, secret_key), capture=capture
+    )
     session.auth = (api_key, secret_key)
     return session
 
@@ -191,7 +193,7 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[PabblyResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     config = PABBLY_ENDPOINTS[endpoint]
-    session = _make_session(api_key, secret_key)
+    session = _make_session(api_key, secret_key, capture=config.capture_http_samples)
 
     if config.parent is not None:
         yield from _iter_fan_out(session, config, logger, resumable_source_manager)
