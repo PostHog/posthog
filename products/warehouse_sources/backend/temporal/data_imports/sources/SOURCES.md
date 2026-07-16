@@ -446,6 +446,7 @@ the row lists both.
 | teamwork                  | HTTP                        | requests                                                        | ✅                          |
 | tempo                     | HTTP                        | requests                                                        | ✅                          |
 | temporalio                | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
+| tenable_vulnerability_management | HTTP (async export flow) | requests                                                     | ✅                          |
 | terraform_cloud           | HTTP                        | requests                                                        | ✅                          |
 | testrail                  | HTTP                        | requests                                                        | ✅                          |
 | thinkific                 | HTTP                        | requests                                                        | ✅                          |
@@ -927,7 +928,6 @@ doesn't conflict with concurrent PRs.
 - teamcity
 - telli
 - tempo
-- tenable_vulnerability_management
 - terra_api
 - thinkific_courses
 - thrive_learning
