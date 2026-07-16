@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.infisical 
 from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.infisical import (
     INVALID_CREDENTIALS_ERROR,
     InfisicalAuthError,
+    InfisicalResponseTooLargeError,
     InfisicalResumeConfig,
     _format_incremental_value,
     _parse_retry_after,
@@ -25,7 +26,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.
 LOGIN_JSON = {"accessToken": "tok", "expiresIn": 3600, "accessTokenMaxTTL": 7200, "tokenType": "Bearer"}
 
 
-def _response(*, status_code: int = 200, json_data: Any = None, text: str = "") -> mock.MagicMock:
+def _response(
+    *, status_code: int = 200, json_data: Any = None, text: str = "", body_chunks: Optional[list[bytes]] = None
+) -> mock.MagicMock:
     response = mock.MagicMock(spec=requests.Response)
     response.status_code = status_code
     response.ok = 200 <= status_code < 400
@@ -34,6 +37,8 @@ def _response(*, status_code: int = 200, json_data: Any = None, text: str = "") 
     response.text = text
     response.headers = {}
     response.json.return_value = json_data
+    # _send streams the body, so the tracked session's response must yield chunks.
+    response.iter_content.return_value = iter(body_chunks if body_chunks is not None else [text.encode("utf-8")])
     if status_code >= 400:
         response.raise_for_status.side_effect = requests.HTTPError(f"{status_code} Client Error", response=response)
     return response
@@ -323,6 +328,30 @@ class TestTokenHandling:
                     )
                 )
         session.request.assert_not_called()
+
+
+class TestResponseLimits:
+    def test_oversized_response_is_rejected(self):
+        # base_url is customer-controlled, so an unbounded body must abort rather than buffer
+        # into memory and exhaust the worker.
+        oversized = _response(json_data={"projects": []}, body_chunks=[b"x" * 2048])
+        with mock.patch.object(infisical_module, "MAX_RESPONSE_BYTES", 1024):
+            with pytest.raises(InfisicalResponseTooLargeError):
+                _run_get_rows([_login_response(), oversized], "projects")
+
+    def test_pagination_stops_at_max_pages(self):
+        # A host that always returns a full page would loop forever without the page cap.
+        identities_config = INFISICAL_ENDPOINTS["identities"]
+        full1 = _response(json_data={"identityMemberships": [{"id": "a"}]})
+        full2 = _response(json_data={"identityMemberships": [{"id": "b"}]})
+        with (
+            mock.patch.object(identities_config, "page_limit", 1),
+            mock.patch.object(infisical_module, "MAX_PAGES", 2),
+        ):
+            rows, session, _manager = _run_get_rows([_login_response(), full1, full2], "identities")
+
+        assert [r["id"] for r in rows] == ["a", "b"]
+        assert len(_get_urls(session)) == 2
 
 
 class TestValidateCredentials:

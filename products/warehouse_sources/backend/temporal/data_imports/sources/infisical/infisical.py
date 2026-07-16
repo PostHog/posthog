@@ -27,6 +27,15 @@ MAX_RETRY_AFTER_SECONDS = 60
 # Re-login this many seconds before the access token's advertised expiry, so a token can't
 # lapse between the check and the request during a long sync.
 TOKEN_EXPIRY_MARGIN_SECONDS = 60
+# base_url points at a customer-controlled host, so cap what a single response may buffer into
+# memory and how many pages a paginating loop may fetch — a hostile or misbehaving server can
+# otherwise stream an unbounded (chunked) body or hand back full pages forever and exhaust the
+# import worker. Both bounds are far above any legitimate Infisical response.
+MAX_RESPONSE_BYTES = 128 * 1024 * 1024
+RESPONSE_CHUNK_BYTES = 1024 * 1024
+MAX_PAGES = 100_000
+# Cap how much of an error response body reaches the logs — the host is untrusted.
+ERROR_BODY_LOG_LIMIT = 500
 
 HOST_NOT_ALLOWED_ERROR = "Infisical host is not allowed"
 INVALID_CREDENTIALS_ERROR = "Invalid Infisical machine identity credentials"
@@ -41,6 +50,10 @@ class InfisicalRetryableError(Exception):
 
 
 class InfisicalHostNotAllowedError(Exception):
+    pass
+
+
+class InfisicalResponseTooLargeError(Exception):
     pass
 
 
@@ -123,6 +136,29 @@ def _retry_wait(retry_state: RetryCallState) -> float:
     wait=_retry_wait,
     reraise=True,
 )
+def _read_capped_body(response: requests.Response) -> None:
+    """Buffer a streamed response body into memory under ``MAX_RESPONSE_BYTES``.
+
+    Aborts (closing the connection) once the cap is crossed rather than letting a hostile or
+    misbehaving host stream an unbounded chunked body and exhaust the worker. Pins the bytes
+    onto the response so downstream ``.json()`` / ``.text`` keep working.
+    """
+    total = 0
+    chunks: list[bytes] = []
+    for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > MAX_RESPONSE_BYTES:
+            response.close()
+            raise InfisicalResponseTooLargeError(
+                f"Infisical response exceeded {MAX_RESPONSE_BYTES} bytes; refusing to buffer it"
+            )
+        chunks.append(chunk)
+    response._content = b"".join(chunks)
+    response._content_consumed = True
+
+
 def _send(
     session: requests.Session,
     method: str,
@@ -133,6 +169,7 @@ def _send(
 ) -> requests.Response:
     # Don't follow redirects: the base URL is customer-controlled, so a 3xx could point at an
     # internal address and defeat the host validation done before the request (SSRF).
+    # stream=True keeps the body unread until _read_capped_body enforces the size cap below.
     response = session.request(
         method,
         url,
@@ -140,10 +177,12 @@ def _send(
         json=json_body,
         timeout=REQUEST_TIMEOUT_SECONDS,
         allow_redirects=False,
+        stream=True,
     )
 
     if response.status_code == 429 or response.status_code >= 500:
         retry_after = _parse_retry_after(response) if response.status_code == 429 else None
+        response.close()
         raise InfisicalRetryableError(
             f"Infisical API error (retryable): status={response.status_code}, url={url}",
             retry_after=retry_after,
@@ -152,12 +191,17 @@ def _send(
     # A 3xx isn't an error status (`response.ok` is True), so reject it explicitly rather than
     # silently parsing the redirect body as data.
     if response.is_redirect or response.is_permanent_redirect:
+        response.close()
         raise InfisicalHostNotAllowedError(
             f"Infisical API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
         )
 
+    _read_capped_body(response)
+
     if not response.ok:
-        logger.error(f"Infisical API error: status={response.status_code}, body={response.text}, url={url}")
+        logger.error(
+            f"Infisical API error: status={response.status_code}, body={response.text[:ERROR_BODY_LOG_LIMIT]}, url={url}"
+        )
         response.raise_for_status()
 
     return response
@@ -340,7 +384,7 @@ def _get_audit_log_rows(
             else None
         )
 
-    while True:
+    for page in range(MAX_PAGES):
         params: dict[str, Any] = {"limit": config.page_limit, "offset": offset, "endDate": window_end}
         if window_start:
             params["startDate"] = window_start
@@ -361,6 +405,9 @@ def _get_audit_log_rows(
         if len(rows) < config.page_limit:
             break
 
+        if page == MAX_PAGES - 1:
+            logger.warning(f"Infisical: hit MAX_PAGES={MAX_PAGES} for audit_logs, stopping pagination")
+
 
 def _get_offset_paginated_rows(
     client: InfisicalClient,
@@ -376,7 +423,7 @@ def _get_offset_paginated_rows(
     if offset:
         logger.debug(f"Infisical: resuming {config.name} at offset={offset}")
 
-    while True:
+    for page in range(MAX_PAGES):
         params: dict[str, Any] = {"limit": config.page_limit, "offset": offset, **config.extra_params}
         rows = client.get(path, params).json().get(config.data_key) or []
         if not rows:
@@ -389,6 +436,9 @@ def _get_offset_paginated_rows(
 
         if len(rows) < config.page_limit:
             break
+
+        if page == MAX_PAGES - 1:
+            logger.warning(f"Infisical: hit MAX_PAGES={MAX_PAGES} for {config.name}, stopping pagination")
 
 
 def _get_project_fan_out_rows(
