@@ -27,13 +27,6 @@ You only need the full setup below when you want to run the app in a worktree. F
 - If a lockfile differs, the hooks tell you what to install locally instead.
 - Use `phw` (below) only when you need to run the app in that worktree.
 
-## Codex worktrees
-
-Codex reads the repository's `.codex/config.toml` and automatically prepares a worktree-local Flox environment.
-Its command wrapper separates normal commands, dependency changes, local-stack access, and MCP servers so each receives only the permissions it needs.
-Dependency changes and MCP servers use the required macOS development sandbox.
-Local-stack commands request Docker and loopback access explicitly and use the shared `posthog` Docker Compose project.
-
 ## Prerequisites
 
 1. **Flox installed**: https://flox.dev/docs/install-flox/

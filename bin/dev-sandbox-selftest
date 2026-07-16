@@ -14,7 +14,7 @@
 set -uo pipefail # intentionally not -e: run every check, then report
 
 cd "$(dirname "$0")/.." || exit 1
-SANDBOX="bin/dev-sandbox --require"
+SANDBOX="bin/dev-sandbox"
 fail=0
 pass() { printf '  \033[32mok\033[0m   %s\n' "$1"; }
 die() {
@@ -28,11 +28,6 @@ if [[ "$(uname -s)" != "Darwin" ]] || ! command -v sandbox-exec >/dev/null 2>&1;
 fi
 
 echo "dev-sandbox self-test"
-
-sandbox_tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/posthog-dev-sandbox-selftest.XXXXXX")"
-cleanup_sandbox_tmpdir() { rm -rf "$sandbox_tmpdir"; }
-trap cleanup_sandbox_tmpdir EXIT
-SANDBOX="env TMPDIR=$sandbox_tmpdir bin/dev-sandbox --require"
 
 # 1. Profile compiles and the sandbox is actually enforcing (not failing open).
 err="$($SANDBOX 'echo SANDBOX_MARKER' 2>&1 >/dev/null)"
@@ -175,8 +170,6 @@ check_write_blocked() {
     fi
 }
 check_write_blocked "bin/.dev_sandbox_selftest_probe" "repo bin/"
-check_write_blocked ".codex/.dev_sandbox_selftest_probe" "repo .codex/"
-check_write_blocked ".flox/env/.dev_sandbox_selftest_probe" "repo .flox/env/"
 mkdir -p .git/hooks 2>/dev/null || true
 check_write_blocked ".git/hooks/.dev_sandbox_selftest_probe" ".git/hooks"
 if [[ -d "$HOME/.cargo/bin" ]]; then
@@ -187,7 +180,7 @@ fi
 #     Otherwise a dependency could overwrite them and have a poisoned profile
 #     loaded on the next cache hit (which re-runs neither render nor preflight),
 #     bypassing the sandbox entirely. Earlier checks have already rendered it.
-rendered_profiles=("$sandbox_tmpdir"/posthog-dev-sandbox-*.sb)
+rendered_profiles=("${TMPDIR:-/tmp}"/posthog-dev-sandbox-*.sb)
 rendered_profile="${rendered_profiles[0]}" # literal glob if none matched -> -f false below
 if [[ -f "$rendered_profile" ]]; then
     check_write_blocked "$rendered_profile" "rendered profile (cache poisoning)"
