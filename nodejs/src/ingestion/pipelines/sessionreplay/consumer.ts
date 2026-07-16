@@ -289,14 +289,22 @@ export class SessionRecordingIngester {
         // Run messages through the pipeline (handles restrictions, parsing, team filtering, and recording)
         // and track the highest offset reached per partition — the single place Kafka progress is tracked.
         // Recording holds the batch lock so a concurrent revoke can't flush the batch mid-record.
-        const offsets = await instrumentFn(`recordingingesterv2.handleEachBatch.runPipeline`, async () =>
-            this.batchLock(() =>
-                runSessionReplayPipeline(this.sessionReplayPipeline, messages, this.currentBatch, this.promiseScheduler)
-            )
+        const { maxOffsets, okMessages } = await instrumentFn(
+            `recordingingesterv2.handleEachBatch.runPipeline`,
+            async () =>
+                this.batchLock(() =>
+                    runSessionReplayPipeline(
+                        this.sessionReplayPipeline,
+                        messages,
+                        this.currentBatch,
+                        this.promiseScheduler
+                    )
+                )
         )
-        this.sessionBatchManager.trackProcessedOffsets(offsets)
-        // Buffer capture timestamps now; lag is reported once the batch is durably flushed and committed.
-        this.lagReporter.record(messages)
+        this.sessionBatchManager.trackProcessedOffsets(maxOffsets)
+        // Buffer capture timestamps of the recorded (OK) messages; lag is reported once the batch is
+        // durably flushed and committed.
+        this.lagReporter.record(okMessages)
 
         if (this.sessionBatchManager.shouldFlush(this.currentBatch, this.lastFlushTime)) {
             await this.flushCurrentBatch()
