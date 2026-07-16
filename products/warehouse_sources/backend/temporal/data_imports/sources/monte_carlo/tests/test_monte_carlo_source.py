@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -53,10 +53,14 @@ class TestMonteCarloSource:
     def test_source_config_fields(self) -> None:
         fields = {f.name: f for f in self.source.get_source_config.fields}
         assert set(fields.keys()) == {"api_key_id", "api_key_secret"}
-        assert fields["api_key_id"].type == SourceFieldInputConfigType.TEXT
-        assert fields["api_key_id"].required is True
-        assert fields["api_key_secret"].type == SourceFieldInputConfigType.PASSWORD
-        assert fields["api_key_secret"].secret is True
+        api_key_id = fields["api_key_id"]
+        api_key_secret = fields["api_key_secret"]
+        assert isinstance(api_key_id, SourceFieldInputConfig)
+        assert isinstance(api_key_secret, SourceFieldInputConfig)
+        assert api_key_id.type == SourceFieldInputConfigType.TEXT
+        assert api_key_id.required is True
+        assert api_key_secret.type == SourceFieldInputConfigType.PASSWORD
+        assert api_key_secret.secret is True
 
     def test_get_schemas_lists_every_endpoint(self) -> None:
         schemas = self.source.get_schemas(self.config, team_id=1)

@@ -116,7 +116,7 @@ class TestExecuteQuery:
     def test_raises_http_error_on_unauthorized(self) -> None:
         session = MagicMock()
         response = self._response(401)
-        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error")
+        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=response)
         session.post.return_value = response
         try:
             _execute_query(session, "query {}", {}, MagicMock())

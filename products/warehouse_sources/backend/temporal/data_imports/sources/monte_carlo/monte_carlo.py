@@ -116,7 +116,14 @@ def _execute_query(
 
 
 def validate_credentials(api_key_id: str, api_key_secret: str) -> bool:
-    session = make_tracked_session(headers=_get_headers(api_key_id, api_key_secret))
+    # Both credentials ride in nonstandard x-mcd-* headers the tracked transport's denylist
+    # can't recognise, so redact them explicitly from captured samples. allow_redirects=False
+    # keeps those headers from being forwarded across a cross-host redirect.
+    session = make_tracked_session(
+        headers=_get_headers(api_key_id, api_key_secret),
+        redact_values=(api_key_id, api_key_secret),
+        allow_redirects=False,
+    )
     try:
         response = session.post(
             MONTE_CARLO_GRAPHQL_URL,
@@ -277,8 +284,14 @@ def get_rows(
     incremental_field: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = MONTE_CARLO_ENDPOINTS[endpoint]
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session(headers=_get_headers(api_key_id, api_key_secret))
+    # One session reused across every page so urllib3 keeps the connection alive. Redact both
+    # credentials (they travel in nonstandard x-mcd-* headers the denylist can't recognise) from
+    # captured samples, and pin redirects off so the headers aren't forwarded cross-host.
+    session = make_tracked_session(
+        headers=_get_headers(api_key_id, api_key_secret),
+        redact_values=(api_key_id, api_key_secret),
+        allow_redirects=False,
+    )
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
