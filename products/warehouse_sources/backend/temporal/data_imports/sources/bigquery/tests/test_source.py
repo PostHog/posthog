@@ -19,11 +19,16 @@ from google.auth.exceptions import RefreshError
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
+    BIGQUERY_CREDENTIALS_REJECTED_ERROR,
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
+    BIGQUERY_INVALID_KEY_FILE_ERROR,
+    BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR,
     BIGQUERY_QUERY_JOB_RETRY,
     BIGQUERY_READ_ROWS_RETRY,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
+    BIGQUERY_VALIDATION_GENERIC_ERROR,
+    BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR,
     BigQueryCredentialsRejectedError,
     BigQueryDatasetNotFoundError,
     BigQueryImplementation,
@@ -949,6 +954,75 @@ def test_bigquery_validate_credentials_trims_whitespace_before_calling_bigquery(
 
     assert mock_client.call_args.args[0] == "524098457564"
     bq.dataset.assert_called_once_with("my_dataset", project="524098457564")
+
+
+def _valid_key_file() -> dict[str, str]:
+    return {
+        "project_id": "my-project",
+        "private_key": "private-key",
+        "private_key_id": "private-key-id",
+        "client_email": "client-email",
+        "token_uri": "token-uri",
+    }
+
+
+def test_bigquery_validate_credentials_missing_fields_reports_actionable_message():
+    key_file = _valid_key_file()
+    del key_file["private_key"]
+
+    with mock.patch.object(bq_module, "bigquery_client") as mock_client:
+        ok, message = validate_bigquery_credentials(
+            dataset_id="my_dataset", key_file=key_file, dataset_project_id=None, location=None
+        )
+
+    assert ok is False
+    assert message == BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR
+    # A malformed key file must be caught before we try to reach BigQuery.
+    mock_client.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "exception,expected_message,should_capture",
+    [
+        (
+            ValueError("Unable to load PEM file. ... InvalidData(InvalidPadding)"),
+            BIGQUERY_INVALID_KEY_FILE_ERROR,
+            False,
+        ),
+        (RefreshError("('invalid_grant: Invalid JWT Signature.', {})"), BIGQUERY_CREDENTIALS_REJECTED_ERROR, False),
+        (BadRequest('Invalid dataset ID "(default)"'), BIGQUERY_INVALID_IDENTIFIER_ERROR, False),
+        (
+            NotFound("404 Not found: Dataset my-project:my_dataset was not found in location US"),
+            BIGQUERY_DATASET_NOT_FOUND_ERROR,
+            False,
+        ),
+        (
+            Forbidden("403 Access Denied: Table my-project:my_dataset.t"),
+            BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR,
+            False,
+        ),
+        (RuntimeError("something unexpected"), BIGQUERY_VALIDATION_GENERIC_ERROR, True),
+    ],
+)
+def test_bigquery_validate_credentials_maps_failures_to_actionable_messages(
+    exception, expected_message, should_capture
+):
+    client_cm = mock.MagicMock()
+    client_cm.__enter__.side_effect = exception
+
+    with (
+        mock.patch.object(bq_module, "bigquery_client", return_value=client_cm),
+        mock.patch.object(bq_module, "capture_exception") as mock_capture,
+    ):
+        ok, message = validate_bigquery_credentials(
+            dataset_id="my_dataset", key_file=_valid_key_file(), dataset_project_id=None, location=None
+        )
+
+    assert ok is False
+    assert message == expected_message
+    # Expected user/config errors must not be reported to error tracking as noise; only genuinely
+    # unexpected failures are captured.
+    assert mock_capture.called is should_capture
 
 
 def test_bigquery_build_pipeline_trims_whitespace_in_destination_table():
