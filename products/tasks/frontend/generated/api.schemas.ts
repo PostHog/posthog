@@ -503,6 +503,17 @@ export interface PaginatedTaskMentionDTOListApi {
 }
 
 /**
+ * * `acp` - ACP
+ * * `pi` - Pi
+ */
+export type RuntimeEnumApi = (typeof RuntimeEnumApi)[keyof typeof RuntimeEnumApi]
+
+export const RuntimeEnumApi = {
+    Acp: 'acp',
+    Pi: 'pi',
+} as const
+
+/**
  * @nullable
  */
 export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
@@ -524,6 +535,11 @@ export interface TaskDetailDTOApi {
     title_manually_set: boolean
     description: string
     origin_product: string
+    /** Agent protocol and harness used for this task's runs.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    readonly runtime: RuntimeEnumApi
     /** @nullable */
     repository: string | null
     /** @nullable */
@@ -674,6 +690,11 @@ export interface TaskWriteApi {
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder */
     origin_product?: OriginProductEnumApi
+    /** Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    runtime?: RuntimeEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
      * @maxLength 255
@@ -789,6 +810,11 @@ export interface PatchedTaskWriteApi {
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder */
     origin_product?: OriginProductEnumApi
+    /** Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    runtime?: RuntimeEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
      * @maxLength 255

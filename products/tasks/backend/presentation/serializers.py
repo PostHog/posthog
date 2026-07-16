@@ -324,6 +324,11 @@ class TaskSerializer(DataclassSerializer):
 
     latest_run = TaskRunDetailSerializer(allow_null=True, required=False, help_text="Latest run details for this task")
     created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+    runtime = serializers.ChoiceField(
+        choices=tasks_facade.TaskRuntime.choices,
+        read_only=True,
+        help_text="Agent protocol and harness used for this task's runs.",
+    )
 
     class Meta:
         dataclass = TaskDetailDTO
@@ -335,6 +340,7 @@ class TaskSerializer(DataclassSerializer):
             "title_manually_set",
             "description",
             "origin_product",
+            "runtime",
             "repository",
             "github_integration",
             "github_user_integration",
@@ -379,6 +385,11 @@ class TaskWriteSerializer(serializers.Serializer):
         choices=tasks_facade.TaskOriginProduct.choices,
         required=False,
         help_text="PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).",
+    )
+    runtime = serializers.ChoiceField(
+        choices=tasks_facade.TaskRuntime.choices,
+        required=False,
+        help_text="Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.",
     )
     repository = serializers.CharField(
         max_length=255,

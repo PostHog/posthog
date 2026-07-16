@@ -178,6 +178,20 @@ class TestRunTaskTool(BaseTaskToolTest):
 
         mock_execute_workflow.assert_called_once()
 
+    @patch("products.tasks.backend.max_tools.execute_task_processing_workflow_async")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_run_task_rejects_pi_task(self, mock_execute_workflow):
+        task = await self._create_task(runtime=Task.Runtime.PI)
+        tool = self._create_tool(RunTaskTool)
+
+        content, artifact = await tool._arun_impl(task_id=str(task.id))
+
+        assert content == "Pi tasks cannot be run through the ACP task workflow."
+        assert artifact["error"] == "unsupported_runtime"
+        assert not await sync_to_async(task.runs.exists)()
+        mock_execute_workflow.assert_not_called()
+
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_run_task_not_found(self):

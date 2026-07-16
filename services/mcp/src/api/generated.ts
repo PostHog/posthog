@@ -14304,6 +14304,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `acp` - ACP
+     * * `pi` - Pi
+     */
+    export type RuntimeEnum = typeof RuntimeEnum[keyof typeof RuntimeEnum];
+
+
+    export const RuntimeEnum = {
+      Acp: 'acp',
+      Pi: 'pi',
+    } as const;
+
+    /**
      * @nullable
      */
     export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
@@ -14325,6 +14337,11 @@ export namespace Schemas {
       title_manually_set: boolean;
       description: string;
       origin_product: string;
+      /** Agent protocol and harness used for this task's runs.
+       *
+       * * `acp` - ACP
+       * * `pi` - Pi */
+      readonly runtime: RuntimeEnum;
       /** @nullable */
       repository: string | null;
       /** @nullable */
@@ -46607,6 +46624,11 @@ export namespace Schemas {
        * * `review_hog` - ReviewHog
        * * `image_builder` - Image Builder */
       origin_product?: OriginProductEnum;
+      /** Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.
+       *
+       * * `acp` - ACP
+       * * `pi` - Pi */
+      runtime?: RuntimeEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
          * @maxLength 255
@@ -59322,6 +59344,11 @@ export namespace Schemas {
        * * `review_hog` - ReviewHog
        * * `image_builder` - Image Builder */
       origin_product?: OriginProductEnum;
+      /** Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.
+       *
+       * * `acp` - ACP
+       * * `pi` - Pi */
+      runtime?: RuntimeEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
          * @maxLength 255

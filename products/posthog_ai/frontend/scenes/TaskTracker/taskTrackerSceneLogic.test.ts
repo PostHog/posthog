@@ -4,6 +4,8 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
 
@@ -14,6 +16,7 @@ const buildTask = (overrides: Partial<Task> = {}): Task => ({
     title: 'Some task',
     description: 'do the thing',
     origin_product: OriginProduct.POSTHOG_AI,
+    runtime: RuntimeEnumApi.Acp,
     repository: null,
     github_integration: null,
     signal_report: null,

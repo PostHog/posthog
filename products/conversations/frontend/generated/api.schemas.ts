@@ -116,6 +116,17 @@ export const ConversationTypeApi = {
 } as const
 
 /**
+ * * `acp` - ACP
+ * * `pi` - Pi
+ */
+export type RuntimeEnumApi = (typeof RuntimeEnumApi)[keyof typeof RuntimeEnumApi]
+
+export const RuntimeEnumApi = {
+    Acp: 'acp',
+    Pi: 'pi',
+} as const
+
+/**
  * @nullable
  */
 export type TaskUserBasicInfoApiHedgehogConfig = { [key: string]: unknown } | null
@@ -160,6 +171,11 @@ export interface TaskDetailDTOApi {
     title_manually_set: boolean
     description: string
     origin_product: string
+    /** Agent protocol and harness used for this task's runs.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    readonly runtime: RuntimeEnumApi
     /** @nullable */
     repository: string | null
     /** @nullable */

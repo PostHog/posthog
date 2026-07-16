@@ -79,6 +79,7 @@ logger = logging.getLogger(__name__)
 TaskRunStatus = TaskRun.Status
 TaskRunEnvironment = TaskRun.Environment
 TaskOriginProduct = Task.OriginProduct
+TaskRuntime = Task.Runtime
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
 
@@ -113,6 +114,7 @@ __all__ = [
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
     "TaskOriginProduct",
+    "TaskRuntime",
     "TaskRunEnvironment",
     "TaskRunStatus",
     "append_task_run_log",
@@ -211,6 +213,7 @@ __all__ = [
     "task_ids_with_pr_url_subquery",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
+    "task_runtime",
     "task_visible",
     "update_sandbox_environment",
     "update_task",
@@ -402,6 +405,7 @@ def _task_detail_to_dto(
         title_manually_set=task.title_manually_set,
         description=task.description,
         origin_product=task.origin_product,
+        runtime=task.runtime,
         repository=task.repository,
         github_integration=task.github_integration_id,
         github_user_integration=task.github_user_integration_id,
@@ -2980,6 +2984,8 @@ def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: i
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found"
+    if run.task.runtime == Task.Runtime.PI:
+        return "unsupported_runtime"
     if run.environment != TaskRun.Environment.CLOUD:
         return "not_cloud"
     if run.status not in _STARTABLE_TASK_RUN_STATUSES:
@@ -3059,6 +3065,8 @@ def resume_task_run_in_cloud(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found", None, None
+    if run.task.runtime == Task.Runtime.PI:
+        return "unsupported_runtime", None, None
 
     logger.info(
         "resume_in_cloud_called",
@@ -3229,6 +3237,15 @@ def get_conversation_task_dtos(task_ids: Sequence[str | UUID], team_id: int) -> 
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
     )
     return {task.id: _task_detail_to_dto(task, include_latest_run=False) for task in tasks}
+
+
+def task_runtime(task_id: str | UUID, team_id: int, user_id: int | None, *, for_control: bool = False) -> str | None:
+    return (
+        _visible_task_qs(team_id, user_id, for_control=for_control)
+        .filter(id=task_id)
+        .values_list("runtime", flat=True)
+        .first()
+    )
 
 
 def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_control: bool = False) -> bool:
@@ -3999,6 +4016,12 @@ def run_task(
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
+    if task.runtime == Task.Runtime.PI:
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="detail", detail="Pi tasks cannot be run through the ACP task workflow."
+            )
+        )
 
     mode = validated_data.get("mode", "background")
     branch = validated_data.get("branch")

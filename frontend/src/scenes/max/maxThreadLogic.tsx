@@ -71,6 +71,7 @@ import {
     runStreamLogic,
 } from 'products/posthog_ai/frontend/api/logics'
 import { LogEntry, parseLogEvent } from 'products/posthog_ai/frontend/lib/parse-logs'
+import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { handsFreeLogic } from './handsFreeLogic'
 import { summariseAssistantThread } from './handsFreeUtils'
@@ -124,6 +125,21 @@ export interface MaxThreadLogicProps {
     conversationId: string
     conversation?: ConversationDetail | null
     skipInitialLoad?: boolean
+}
+
+async function shouldBlockPendingPiTask(pendingBindTaskId: string): Promise<boolean> {
+    try {
+        const pendingTask = await api.tasks.get(pendingBindTaskId)
+        if (!isPiTaskRuntime(pendingTask.runtime)) {
+            return false
+        }
+
+        lemonToast.error("Pi tasks aren't available in PostHog AI yet.")
+        return true
+    } catch {
+        lemonToast.error("Couldn't load this task. Please try again.")
+        return true
+    }
 }
 
 export const maxThreadLogic = kea<maxThreadLogicType>([
@@ -662,6 +678,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             breakpoint
         ) => {
             const { actions, values, cache, mount, props } = logic as BuiltLogic<maxThreadLogicType>
+
+            if (isPiTaskRuntime(values.conversation?.task?.runtime)) {
+                return
+            }
+
             // Set active streaming threads, so we know streaming is active
             const releaseStreamingLock = mount() // lock the logic - don't unmount before we're done streaming
             actions.incrActiveStreamingThreads()
@@ -1283,6 +1304,17 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (values.conversationId !== values.activeThreadKey) {
                 return
             }
+            if (isPiTaskRuntime(values.conversation?.task?.runtime)) {
+                return
+            }
+            if (
+                !values.conversation?.task &&
+                values.pendingBindTaskId &&
+                (await shouldBlockPendingPiTask(values.pendingBindTaskId))
+            ) {
+                return
+            }
+
             // A sent message consumes any sandbox pre-warm: the warm Run is the in-progress run the
             // sandbox routing follows up on, so cancel pending timers and clear the flag WITHOUT
             // issuing a release/DELETE.
@@ -2285,6 +2317,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         // runStreamLogic, which replays logs/ then opens SSE if non-terminal. The LangGraph
         // reconnect path below is never entered for sandbox runtimes (coexistence).
         if (conversation.agent_runtime === 'sandbox') {
+            if (isPiTaskRuntime(conversation.task?.runtime)) {
+                return
+            }
+
             // runStreamLogic and posthogAiContextLogic are connected (so already mounted) for this
             // conversation. Reset their per-conversation state before replaying this run's history.
             actions.resetSandboxStream()
