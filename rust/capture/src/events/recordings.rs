@@ -443,10 +443,8 @@ pub async fn serialize_snapshot_data_async(
     })
 }
 
-/// Serialized via structs (not a `json!` map) because field order is a contract: struct fields
-/// serialize in declaration order, and `$snapshot_items` must come last — the ml-mirror
-/// anonymizer reads `$snapshot_host` from the envelope prefix and stops at the items without
-/// traversing them, silently ignoring anything behind (uniform collapse-all).
+// Use a struct instead of a `json!` map as consumers downstream rely on specific ordering (as a performance hack).
+// It's also ~4x faster to serialize.
 #[derive(Serialize)]
 struct SnapshotItemsMessage<'a> {
     event: &'static str,
