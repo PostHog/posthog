@@ -1140,7 +1140,10 @@ class Db2SourceConfig(config.Config):
 
 @config.config
 class DbtSourceConfig(config.Config):
-    pass
+    account_id: str
+    api_token: str
+    region: Literal["us", "emea", "au"] = config.value(default="us")
+    custom_base_url: str | None = None
 
 
 @config.config
