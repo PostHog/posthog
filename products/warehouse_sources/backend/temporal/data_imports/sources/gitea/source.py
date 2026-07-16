@@ -73,9 +73,10 @@ class GiteaSource(
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # The instance URL decides where the stored access token is sent;
-        # retargeting it must re-require the token.
-        return ["base_url"]
+        # `base_url` decides where the stored token is sent; `repository` decides which repo that
+        # token reads. Retargeting either lets an editor reuse a token they never entered against a
+        # host they control or a private repo the token can reach — both must re-require the token.
+        return ["base_url", "repository"]
 
     @property
     def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:

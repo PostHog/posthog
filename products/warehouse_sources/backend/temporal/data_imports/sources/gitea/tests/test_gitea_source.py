@@ -49,9 +49,10 @@ class TestGiteaSource:
         assert token_field.secret is True
         assert token_field.required is True
 
-    def test_connection_host_fields_cover_base_url(self):
-        # The instance URL decides where the stored token gets sent.
-        assert self.source.connection_host_fields == ["base_url"]
+    def test_connection_host_fields_cover_base_url_and_repository(self):
+        # `base_url` is where the token is sent; `repository` is which repo it reads. Changing
+        # either must force token re-entry so a stored token can't be reused against a new target.
+        assert self.source.connection_host_fields == ["base_url", "repository"]
 
     @pytest.mark.parametrize(
         "observed_error",

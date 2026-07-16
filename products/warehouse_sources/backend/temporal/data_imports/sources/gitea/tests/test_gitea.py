@@ -1,5 +1,6 @@
+from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -315,7 +316,7 @@ class TestGiteaSourceResponse:
             BASE_URL, "tok", REPO, "issues", mock.MagicMock(), _make_manager(), webhook_source_manager=webhook_manager
         )
 
-        assert list(response.items()) == []
+        assert list(cast(Iterable[Any], response.items())) == []
         webhook_manager.get_items.assert_not_called()
 
 
