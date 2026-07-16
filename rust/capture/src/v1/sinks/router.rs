@@ -175,6 +175,7 @@ mod tests {
                 dlq_step: None,
                 dlq_timestamp: None,
                 content_encoding: None,
+                snapshot_host: None,
             }
         }
         fn partition_key(&self, _ctx: &RequestContext) -> String {

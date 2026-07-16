@@ -613,6 +613,7 @@ fn build_kafka_event(
         uuid: parsed.event_uuid,
         distinct_id: parsed.distinct_id.clone(),
         session_id: None,
+        snapshot_host: None,
         ip: resolved_ip,
         data,
         now: now.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),

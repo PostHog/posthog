@@ -121,6 +121,7 @@ mod tests {
             uuid: uuid_v7_from_datetime(timestamp),
             distinct_id: distinct_id.to_string(),
             session_id: None,
+            snapshot_host: None,
             ip: "127.0.0.1".to_string(),
             data: "{}".to_string(),
             now: "2026-04-20T00:00:00Z".to_string(),

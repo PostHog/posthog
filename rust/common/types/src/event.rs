@@ -124,6 +124,8 @@ pub struct CapturedEventHeaders {
     pub dlq_step: Option<String>,
     pub dlq_timestamp: Option<String>,
     pub content_encoding: Option<String>,
+    /// The recorded page's hostname on replay snapshot messages, stamped by the browser SDK.
+    pub snapshot_host: Option<String>,
 }
 
 impl CapturedEventHeaders {
@@ -228,6 +230,12 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
                 value: Some(encoding.as_str()),
             });
         }
+        if let Some(ref snapshot_host) = headers.snapshot_host {
+            owned = owned.insert(Header {
+                key: "snapshot_host",
+                value: Some(snapshot_host.as_str()),
+            });
+        }
 
         owned
     }
@@ -265,6 +273,7 @@ impl From<OwnedHeaders> for CapturedEventHeaders {
             dlq_step: headers_map.get("dlq_step").cloned(),
             dlq_timestamp: headers_map.get("dlq_timestamp").cloned(),
             content_encoding: headers_map.get("content-encoding").cloned(),
+            snapshot_host: headers_map.get("snapshot_host").cloned(),
         }
     }
 }
@@ -276,6 +285,9 @@ pub struct CapturedEvent {
     pub distinct_id: String,
     #[serde(skip_serializing, default)]
     pub session_id: Option<String>,
+    /// Replay only; rides as a Kafka header, never in the serialized body.
+    #[serde(skip_serializing, default)]
+    pub snapshot_host: Option<String>,
     pub ip: String,
     pub data: String, // This should be a `RawEvent`, but we serialise twice.
     pub now: String,
@@ -326,6 +338,7 @@ impl CapturedEvent {
             dlq_step: None,
             dlq_timestamp: None,
             content_encoding: None,
+            snapshot_host: self.snapshot_host.clone(),
         }
     }
 
@@ -566,6 +579,7 @@ mod tests {
             uuid: Uuid::nil(),
             distinct_id: "test_user".to_string(),
             session_id: None,
+            snapshot_host: None,
             ip: "127.0.0.1".to_string(),
             data: r#"{"event":"test_event"}"#.to_string(),
             now: "2023-01-02T10:00:00Z".to_string(), // Ingestion time
@@ -594,6 +608,7 @@ mod tests {
             uuid: Uuid::nil(),
             distinct_id: "test_user".to_string(),
             session_id: None,
+            snapshot_host: None,
             ip: "127.0.0.1".to_string(),
             data: r#"{"event":"test_event"}"#.to_string(),
             now: "2023-01-02T15:30:00Z".to_string(), // Ingestion time
@@ -643,6 +658,7 @@ mod tests {
             uuid: Uuid::nil(),
             distinct_id: "test_user".to_string(),
             session_id: Some("session123".to_string()),
+            snapshot_host: None,
             ip: "127.0.0.1".to_string(),
             data: r#"{"event":"test_event","properties":{"$session_id":"session123"}}"#.to_string(),
             now: "2023-01-02T10:00:00Z".to_string(),
@@ -663,6 +679,7 @@ mod tests {
             uuid: Uuid::nil(),
             distinct_id: "test_user".to_string(),
             session_id: None,
+            snapshot_host: None,
             ip: "127.0.0.1".to_string(),
             data: r#"{"event":"test_event"}"#.to_string(),
             now: "2023-01-02T10:00:00Z".to_string(),
@@ -686,6 +703,7 @@ mod tests {
             uuid: Uuid::nil(),
             distinct_id: "test_user".to_string(),
             session_id: None,
+            snapshot_host: None,
             ip: "127.0.0.1".to_string(),
             data: r#"{"event":"test_event"}"#.to_string(),
             now: "2023-01-02T10:00:00Z".to_string(),
@@ -711,6 +729,7 @@ mod tests {
             uuid: Uuid::nil(),
             distinct_id: "test_user".to_string(),
             session_id: None,
+            snapshot_host: None,
             ip: "127.0.0.1".to_string(),
             data: r#"{"event":"test_event"}"#.to_string(),
             now: "2023-01-02T10:00:00Z".to_string(),
@@ -743,6 +762,7 @@ mod tests {
             uuid: Uuid::nil(),
             distinct_id: "test_user".to_string(),
             session_id: None,
+            snapshot_host: None,
             ip: "127.0.0.1".to_string(),
             data: r#"{"event":"test_event"}"#.to_string(),
             now: "2023-01-02T10:00:00Z".to_string(),
@@ -787,6 +807,7 @@ mod tests {
             uuid: Uuid::nil(),
             distinct_id: "test_user".to_string(),
             session_id: None,
+            snapshot_host: None,
             ip: "127.0.0.1".to_string(),
             data: r#"{"event":"test_event"}"#.to_string(),
             now: "2023-01-02T10:00:00Z".to_string(),

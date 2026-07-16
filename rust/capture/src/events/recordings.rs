@@ -278,11 +278,10 @@ pub async fn process_replay_events(
         .take()
         .unwrap_or(default_snapshot_source);
 
-    let snapshot_host = first_event
-        .properties
-        .snapshot_host
-        .take()
-        .filter(Value::is_string);
+    let snapshot_host = match first_event.properties.snapshot_host.take() {
+        Some(Value::String(host)) => Some(host),
+        _ => None,
+    };
 
     let snapshot_library = first_event
         .properties
@@ -383,7 +382,6 @@ pub async fn process_replay_events(
         &session_id,
         &window_id,
         &snapshot_source,
-        snapshot_host.as_ref(),
         &snapshot_items,
         &snapshot_library,
     );
@@ -394,6 +392,7 @@ pub async fn process_replay_events(
         uuid,
         distinct_id, // No clone - we own it from extract_distinct_id()
         session_id: Some(session_id_str.to_string()),
+        snapshot_host,
         ip: context.client_ip.clone(),
         data: serialized_data,
         now: context
@@ -421,7 +420,6 @@ pub async fn serialize_snapshot_data_async(
     session_id: Value,
     window_id: Value,
     snapshot_source: Value,
-    snapshot_host: Option<Value>,
     snapshot_items: Vec<Value>,
     snapshot_library: String,
 ) -> Result<String, CaptureError> {
@@ -431,7 +429,6 @@ pub async fn serialize_snapshot_data_async(
             &session_id,
             &window_id,
             &snapshot_source,
-            snapshot_host.as_ref(),
             &snapshot_items,
             &snapshot_library,
         )
@@ -443,8 +440,8 @@ pub async fn serialize_snapshot_data_async(
     })
 }
 
-// Use a struct instead of a `json!` map as consumers downstream rely on specific ordering (as a performance hack).
-// It's also ~4x faster to serialize.
+// A struct rather than a `json!` map: ~4x faster to serialize (no intermediate Value tree, no
+// deep copy of the items array).
 #[derive(Serialize)]
 struct SnapshotItemsMessage<'a> {
     event: &'static str,
@@ -462,8 +459,6 @@ struct SnapshotItemsProperties<'a> {
     snapshot_source: &'a Value,
     #[serde(rename = "$lib")]
     lib: &'a str,
-    #[serde(rename = "$snapshot_host", skip_serializing_if = "Option::is_none")]
-    snapshot_host: Option<&'a Value>,
     #[serde(rename = "$snapshot_items")]
     snapshot_items: &'a Vec<Value>,
 }
@@ -475,7 +470,6 @@ pub fn serialize_snapshot_data_sync(
     session_id: &Value,
     window_id: &Value,
     snapshot_source: &Value,
-    snapshot_host: Option<&Value>,
     snapshot_items: &Vec<Value>,
     snapshot_library: &String,
 ) -> String {
@@ -487,7 +481,6 @@ pub fn serialize_snapshot_data_sync(
             window_id,
             snapshot_source,
             lib: snapshot_library,
-            snapshot_host,
             snapshot_items,
         },
     })
@@ -775,10 +768,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_snapshot_host_passes_through_to_the_serialized_message() {
-        // The ml-mirror anonymizer keys host classification on `properties.$snapshot_host`
-        // surviving this rebuild; capture silently dropping it would permanently disable
-        // classification downstream (the fallback there is also collapse-everything).
+    async fn test_snapshot_host_passes_through_as_a_kafka_header() {
+        // The ml-mirror anonymizer keys host classification on the `snapshot_host` Kafka header;
+        // capture silently dropping it would permanently disable classification downstream (the
+        // fallback there is also collapse-everything). It must ride the headers only — never the
+        // serialized body, which consumers must not need to parse for it.
         let cases: &[(Option<Value>, Option<&str>)] = &[
             (Some(json!("app.example.com")), Some("app.example.com")),
             (Some(json!(42)), None), // non-string stamps must not pass through
@@ -798,40 +792,16 @@ mod tests {
                 .unwrap();
 
             let captured = events_captured.lock().unwrap();
-            let data: Value = serde_json::from_str(&captured[0].event.data).unwrap();
             assert_eq!(
-                data["properties"].get("$snapshot_host"),
-                expected.map(|h| json!(h)).as_ref(),
+                captured[0].event.to_headers().snapshot_host.as_deref(),
+                *expected,
                 "stamp={stamp:?}"
             );
+            assert!(
+                !captured[0].event.data.contains("$snapshot_host"),
+                "the stamp must not leak into the serialized body (stamp={stamp:?})"
+            );
         }
-    }
-
-    #[test]
-    fn test_snapshot_host_serializes_before_snapshot_items() {
-        // Byte order is a contract: the anonymizer reads the stamp from the envelope prefix and
-        // stops at `$snapshot_items` without traversing it, so a stamp serialized after the items
-        // is silently ignored (collapse-all). Key form (with colon) — the bare string also occurs
-        // as the `event` name value.
-        let raw = serialize_snapshot_data_sync(
-            "d-1",
-            &json!("s-1"),
-            &json!("w-1"),
-            &json!("web"),
-            Some(&json!("app.example.com")),
-            &vec![json!({"type": 1, "data": {}})],
-            &String::from("posthog-js"),
-        );
-        let host_at = raw
-            .find("\"$snapshot_host\":")
-            .expect("stamp key in output");
-        let items_at = raw
-            .find("\"$snapshot_items\":")
-            .expect("items key in output");
-        assert!(
-            host_at < items_at,
-            "$snapshot_host must serialize before $snapshot_items"
-        );
     }
 
     #[tokio::test]

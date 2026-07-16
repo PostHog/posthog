@@ -189,6 +189,7 @@ pub fn process_single_event(
             .extract_distinct_id()
             .ok_or(CaptureError::MissingDistinctId)?,
         session_id: metadata.session_id.clone(),
+        snapshot_host: None,
         ip: resolved_ip,
         data,
         now: context

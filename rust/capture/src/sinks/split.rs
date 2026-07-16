@@ -120,6 +120,7 @@ mod tests {
                 uuid: uuid_v7_from_datetime(timestamp),
                 distinct_id: "did".to_string(),
                 session_id: None,
+                snapshot_host: None,
                 ip: "127.0.0.1".to_string(),
                 data: "{}".to_string(),
                 now: "2024-01-01T00:00:00Z".to_string(),

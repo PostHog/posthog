@@ -908,6 +908,7 @@ mod tests {
             uuid: uuid_v7_from_datetime(timestamp),
             distinct_id: distinct_id.clone(),
             session_id: None,
+            snapshot_host: None,
             ip: "".to_string(),
             data: "".to_string(),
             now: "".to_string(),
@@ -963,6 +964,7 @@ mod tests {
             uuid: uuid_v7_from_datetime(timestamp),
             distinct_id: "id1".to_string(),
             session_id: None,
+            snapshot_host: None,
             ip: "".to_string(),
             data: big_data,
             now: "".to_string(),
@@ -996,6 +998,7 @@ mod tests {
                 uuid: uuid_v7_from_datetime(timestamp),
                 distinct_id: "id1".to_string(),
                 session_id: None,
+                snapshot_host: None,
                 ip: "".to_string(),
                 data: big_data,
                 now: "".to_string(),
@@ -1084,6 +1087,7 @@ mod tests {
             dlq_step: None,
             dlq_timestamp: None,
             content_encoding: None,
+            snapshot_host: None,
         };
 
         let owned_headers: OwnedHeaders = headers_historical.into();
@@ -1106,12 +1110,17 @@ mod tests {
             dlq_step: None,
             dlq_timestamp: None,
             content_encoding: None,
+            snapshot_host: Some("app.example.com".to_string()),
         };
 
         let owned_headers: OwnedHeaders = headers_main.into();
         let parsed_headers = CapturedEventHeaders::from(owned_headers);
         assert_eq!(parsed_headers.historical_migration, Some(false));
         assert_eq!(parsed_headers.now, Some("2023-01-01T12:00:00Z".to_string()));
+        assert_eq!(
+            parsed_headers.snapshot_host,
+            Some("app.example.com".to_string())
+        );
     }
 
     #[tokio::test]
@@ -1136,6 +1145,7 @@ mod tests {
             dlq_step: None,
             dlq_timestamp: None,
             content_encoding: None,
+            snapshot_host: None,
         };
 
         // Convert to owned headers and back
@@ -1171,6 +1181,7 @@ mod tests {
             dlq_step: Some("test step".to_string()),
             dlq_timestamp: Some(dlq_timestamp.clone()),
             content_encoding: None,
+            snapshot_host: None,
         };
 
         // Convert to owned headers and back
@@ -1226,6 +1237,7 @@ mod tests {
                 uuid: uuid_v7_from_datetime(timestamp),
                 distinct_id: "test_user".to_string(),
                 session_id: Some("session123".to_string()),
+                snapshot_host: None,
                 ip: "127.0.0.1".to_string(),
                 data: "{}".to_string(),
                 now: "2024-01-01T00:00:00Z".to_string(),
