@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -105,6 +107,31 @@ describe('taskTrackerSceneLogic', () => {
         expect(createBody?.description).toBe('why the drop?')
         // Only the entity ref is marked sent (text items always resend), under the created task's id.
         expect(attachedContextLogic().values.sentContextKeysByTask).toEqual({ 'new-task': ['insight:sig'] })
+    })
+
+    // The tasks backend has no server-side consent check (unlike the conversations coordinator), so a
+    // send must be blocked client-side before it ever reaches `api.tasks.create` — otherwise a sandbox
+    // run starts with zero consent enforcement. Uses a distinct `panelId` key so the logic is built
+    // (and connects to `aiConsentLogic`) after the selector is stubbed.
+    it('blocks submitNewTask without creating a task when AI data processing consent is not accepted', async () => {
+        const consent = aiConsentLogic()
+        consent.mount()
+        jest.spyOn(consent.selectors, 'dataProcessingAccepted').mockReturnValue(false)
+
+        const blockedLogic = taskTrackerSceneLogic({ panelId: 'consent-test' })
+        blockedLogic.mount()
+        blockedLogic.actions.setNewTaskData({ description: 'do the thing' })
+        blockedLogic.actions.submitNewTask()
+
+        await expectLogic(blockedLogic).toFinishAllListeners()
+
+        expect(createBody).toBeNull()
+        expect(blockedLogic.values.consentBlocked).toBe(true)
+        expect(blockedLogic.values.isSubmittingTask).toBe(false)
+
+        blockedLogic.unmount()
+        consent.unmount()
+        jest.restoreAllMocks()
     })
 
     // The repo picker only renders once `repositoryConfig.integrationId` is set (auto-selected from the
