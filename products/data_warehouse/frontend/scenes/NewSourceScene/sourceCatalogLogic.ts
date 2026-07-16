@@ -1080,9 +1080,9 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 availableSources: Record<string, SourceConfig> | null,
                 manualConnectors: {
                     name: string
-                    type: ManualLinkSourceType
+                    type: import('~/types').ManualLinkSourceType
                 }[],
-                featureFlags: FeatureFlagsSet,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 allowedSources:
                     | (
                           | 'ActiveCampaign'

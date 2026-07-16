@@ -568,7 +568,7 @@ export const productToursLogic = kea<productToursLogicType>([
     selectors({
         selectedTour: [
             (s) => [s.selectedTourId, s.tours],
-            (selectedTourId: string | null, tours: ProductTour[]): TourForm | null => {
+            (selectedTourId: string | 'new' | null, tours: ProductTour[]): TourForm | null => {
                 if (selectedTourId === 'new') {
                     return newTour()
                 }

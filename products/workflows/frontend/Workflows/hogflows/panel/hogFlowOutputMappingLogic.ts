@@ -10,8 +10,7 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
 import type { HogflowTestResult } from '../steps/types'
 import type { HogFlowAction } from '../types'
-import type { HogFlow } from '../types'
-import type { HogFlowActionNode } from '../types'
+import type { HogFlow, HogFlowActionNode } from '../types'
 import { createExampleEvent, hogFlowEditorTestLogic } from './testing/hogFlowEditorTestLogic'
 
 export type OutputMapping = { key: string; result_path: string; spread?: boolean | null }
@@ -279,7 +278,7 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
     selectors({
         selectedAction: [
             (s) => [s.selectedNode],
-            (selectedNode: HogFlowActionNode | null) => selectedNode?.data ?? null,
+            (selectedNode: null | import('../types').HogFlowActionNode) => selectedNode?.data ?? null,
         ],
         pendingSuggestions: [
             (s) => [s.suggestions, s.mappings],

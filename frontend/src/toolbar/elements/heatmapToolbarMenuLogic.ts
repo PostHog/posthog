@@ -45,8 +45,9 @@ import {
 } from '~/toolbar/utils'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
+import type { HrefMatchType } from '../../lib/components/heatmaps/heatmapDataLogic'
 import type { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from '../../lib/components/heatmaps/types'
-import type { HeatmapElement } from '../types'
+import type { HeatmapElement, HeatmapResponseType } from '../types'
 
 export const doesVersionSupportScrollDepth = createVersionChecker('1.99')
 
@@ -426,17 +427,15 @@ export interface heatmapToolbarMenuLogicActions {
         errorObject?: any
     } // heatmapDataLogic
     loadHeatmapSuccess: (
-        rawHeatmap: null | import('~/toolbar/types').HeatmapResponseType,
-        payload?:
-            | {
-                  value: true
-              }
-            | undefined
+        rawHeatmap: HeatmapResponseType | null,
+        payload?: {
+            value: true
+        }
     ) => {
         payload?: {
             value: true
         }
-        rawHeatmap: null | import('~/toolbar/types').HeatmapResponseType
+        rawHeatmap: HeatmapResponseType | null
     } // heatmapDataLogic
     patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => {
         filters: Partial<HeatmapFilters>
@@ -457,8 +456,8 @@ export interface heatmapToolbarMenuLogicActions {
     setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => {
         mode: HeatmapFixedPositionMode
     } // heatmapDataLogic
-    setHrefMatchType: (matchType: import('lib/components/heatmaps/heatmapDataLogic').HrefMatchType) => {
-        matchType: import('lib/components/heatmaps/heatmapDataLogic').HrefMatchType
+    setHrefMatchType: (matchType: HrefMatchType) => {
+        matchType: HrefMatchType
     } // heatmapDataLogic
     cancelAreaSelection: () => {
         value: true

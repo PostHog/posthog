@@ -415,7 +415,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 searchTerm: string,
                 userFlagsWithOverrideInfo: {
                     currentValue: boolean | string
-                    feature_flag: FeatureFlagType
+                    feature_flag: import('~/types').FeatureFlagType
                     hasOverride: boolean
                     hasVariants: boolean
                     payloadOverride: any

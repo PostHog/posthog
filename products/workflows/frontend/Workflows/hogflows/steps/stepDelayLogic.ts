@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props } from 'kea'
 
 import { WorkflowLogicProps, workflowLogic } from '../../workflowLogic'
-import type { HogFlow } from '../types'
+import type { HogFlow, HogFlowAction } from '../types'
 
 const DURATION_REGEX = /^(\d*\.?\d*)([dhm])$/
 const AUTO_DESCRIPTION_REGEX = /^Wait for \d*\.?\d+ (minute|hour|day)s?\.$/
@@ -41,9 +41,9 @@ export interface stepDelayLogicValues {
 export interface stepDelayLogicActions {
     setWorkflowAction: (
         actionId: string,
-        action: import('../types').HogFlowAction
+        action: HogFlowAction
     ) => {
-        action: import('../types').HogFlowAction
+        action: HogFlowAction
         actionId: string
     } // workflowLogic
     setWorkflowActionConfig: (

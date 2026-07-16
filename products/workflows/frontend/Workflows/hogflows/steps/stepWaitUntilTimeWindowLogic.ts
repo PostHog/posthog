@@ -3,7 +3,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props } fro
 import { WeekdayType } from '~/types'
 
 import { WorkflowLogicProps, workflowLogic } from '../../workflowLogic'
-import type { HogFlow } from '../types'
+import type { HogFlow, HogFlowAction } from '../types'
 
 type DayConfig = 'any' | 'weekday' | 'weekend' | WeekdayType[]
 type TimeConfig = 'any' | [string, string]
@@ -615,9 +615,9 @@ export interface stepWaitUntilTimeWindowLogicActions {
     } // workflowLogic
     setWorkflowAction: (
         actionId: string,
-        action: import('../types').HogFlowAction
+        action: HogFlowAction
     ) => {
-        action: import('../types').HogFlowAction
+        action: HogFlowAction
         actionId: string
     } // workflowLogic
     partialSetWaitUntilTimeWindowConfig: (

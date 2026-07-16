@@ -213,7 +213,10 @@ export const maxChangelogLogic = kea<maxChangelogLogicType>([
         // Derive entries from feature flag payload, with override for testing
         entries: [
             (s) => [s.entriesOverride, s.featureFlags],
-            (entriesOverride: ChangelogEntry[] | null, featureFlags: FeatureFlagsSet): ChangelogEntry[] => {
+            (
+                entriesOverride: ChangelogEntry[] | null,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
+            ): ChangelogEntry[] => {
                 if (entriesOverride !== null) {
                     return entriesOverride
                 }
@@ -228,7 +231,9 @@ export const maxChangelogLogic = kea<maxChangelogLogicType>([
         // Derive alerts from ongoing incident.io incidents tagged to PostHog AI
         alerts: [
             (s) => [s.aiIncidentAlerts],
-            (aiIncidentAlerts: ComponentIncidentAlert[]): AlertEntry[] => aiIncidentAlerts,
+            (
+                aiIncidentAlerts: import('lib/components/HelpMenu/incidentStatusLogic').ComponentIncidentAlert[]
+            ): AlertEntry[] => aiIncidentAlerts,
         ],
         entriesHash: [
             (s) => [s.entries],

@@ -176,7 +176,7 @@ export const maxWebAnalyticsNudgeLogic = kea<maxWebAnalyticsNudgeLogicType>([
     selectors({
         variant: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): string | null => {
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): string | null => {
                 const value = featureFlags[FEATURE_FLAGS.MAX_WEB_ANALYTICS_NUDGE]
                 return typeof value === 'string' ? value : null
             },

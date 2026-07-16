@@ -403,11 +403,9 @@ export interface workflowMetricsSummaryLogicValues {
 export interface workflowMetricsSummaryLogicActions {
     loadAppMetricsTrendsSuccess: (
         appMetricsTrends: AppMetricsTimeSeriesResponse,
-        payload?:
-            | {
-                  value: true
-              }
-            | undefined
+        payload?: {
+            value: true
+        }
     ) => {
         appMetricsTrends: AppMetricsTimeSeriesResponse
         payload?: {
@@ -873,9 +871,15 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 appMetricsTrendsLoading || completedLoading,
         ],
 
-        emailActions: [(s) => [s.workflow], (workflow: HogFlow) => workflow.actions.filter(isEmailAction)],
+        emailActions: [
+            (s) => [s.workflow],
+            (workflow: import('./hogflows/types').HogFlow) => workflow.actions.filter(isEmailAction),
+        ],
 
-        pushActions: [(s) => [s.workflow], (workflow: HogFlow) => workflow.actions.filter(isPushAction)],
+        pushActions: [
+            (s) => [s.workflow],
+            (workflow: import('./hogflows/types').HogFlow) => workflow.actions.filter(isPushAction),
+        ],
 
         metricNameBySummaryMetric: [
             (s) => [s.appMetricsTrends],
@@ -904,7 +908,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
         // backend never emits conversion metrics/events, so the tiles would always read empty.
         hasConversionGoal: [
             (s) => [s.workflow],
-            (workflow: HogFlow): boolean => {
+            (workflow: import('./hogflows/types').HogFlow): boolean => {
                 const filters = workflow.conversion?.filters
                 const hasPropertyGoal = Array.isArray(filters) && filters.length > 0
                 const hasEventGoal = (workflow.conversion?.events?.length ?? 0) > 0
@@ -916,8 +920,8 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
             (s) => [s.getDateRangeAbsolute, (_, p: WorkflowMetricsSummaryLogicProps) => p.id],
             (
                 getDateRangeAbsolute: () => {
-                    dateFrom: Dayjs
-                    dateTo: Dayjs
+                    dateFrom: import('lib/dayjs').Dayjs
+                    dateTo: import('lib/dayjs').Dayjs
                     diffMs: number
                 },
                 id: string

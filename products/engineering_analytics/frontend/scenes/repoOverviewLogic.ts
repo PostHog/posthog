@@ -434,7 +434,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
         ],
         costByWorkflow: [
             (s) => [s.workflowHealth],
-            (workflowHealth: WorkflowHealthRow[]): CostShareRow[] => {
+            (workflowHealth: import('./engineeringAnalyticsLogic').WorkflowHealthRow[]): CostShareRow[] => {
                 const costed = workflowHealth.filter((row) => (row.estimatedCostUsd ?? 0) > 0)
                 if (!costed.length) {
                     return []
@@ -457,7 +457,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
         ],
         otherCostWorkflowCount: [
             (s) => [s.workflowHealth],
-            (workflowHealth: WorkflowHealthRow[]): number =>
+            (workflowHealth: import('./engineeringAnalyticsLogic').WorkflowHealthRow[]): number =>
                 Math.max(
                     0,
                     workflowHealth.filter((row) => (row.estimatedCostUsd ?? 0) > 0).length - TOP_COST_WORKFLOWS

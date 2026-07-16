@@ -96,7 +96,10 @@ export const joinsLogic = kea<joinsLogicType>([
         ],
         tablesJoinedToPersons: [
             (s) => [s.allTablesMap, s.personTableJoins],
-            (allTablesMap: Record<string, DatabaseSchemaTable>, personTableJoins: DataWarehouseViewLink[]) => {
+            (
+                allTablesMap: Record<string, import('~/queries/schema').DatabaseSchemaTable>,
+                personTableJoins: DataWarehouseViewLink[]
+            ) => {
                 return personTableJoins.map((join: DataWarehouseViewLink) => {
                     // valid join should have a joining table name
                     const table = allTablesMap[join.joining_table_name as string]
@@ -113,7 +116,7 @@ export const joinsLogic = kea<joinsLogicType>([
             (
                 tablesJoinedToPersons: {
                     join: DataWarehouseViewLink
-                    table: DatabaseSchemaTable
+                    table: import('~/queries/schema').DatabaseSchemaTable
                 }[]
             ) => {
                 return tablesJoinedToPersons.reduce((acc, { table, join }) => {

@@ -86,7 +86,7 @@ export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
         logicProps: [() => [(_, props) => props], (props) => props],
         breadcrumbs: [
             (s) => [s.currentTab],
-            (currentTab: 'channels' | 'library' | 'opt-outs' | 'workflows'): Breadcrumb[] => {
+            (currentTab: WorkflowsSceneTab): Breadcrumb[] => {
                 return [
                     {
                         key: [Scene.Workflows, currentTab],

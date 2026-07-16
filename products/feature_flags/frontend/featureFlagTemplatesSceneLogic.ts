@@ -81,7 +81,8 @@ export const featureFlagTemplatesSceneLogic = kea<featureFlagTemplatesSceneLogic
     selectors({
         intentsEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet) => !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_CREATION_INTENTS],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet) =>
+                !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_CREATION_INTENTS],
         ],
     }),
     listeners(({ actions, values }) => ({

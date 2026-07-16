@@ -284,14 +284,7 @@ export interface maxThreadLogicActions {
         taskId: string
         traceId?: string | undefined
     } // runStreamLogic
-    cancelSandboxRun: (
-        run?:
-            | {
-                  runId: string
-                  taskId: string
-              }
-            | undefined
-    ) => {
+    cancelSandboxRun: (run?: { runId: string; taskId: string }) => {
         run:
             | {
                   runId: string
@@ -307,7 +300,7 @@ export interface maxThreadLogicActions {
     } // runStreamLogic
     pushSandboxError: (
         errorMessage: string,
-        variant?: 'crash' | 'error' | undefined
+        variant?: 'crash' | 'error'
     ) => {
         errorMessage: string
         variant: 'crash' | 'error'
@@ -2480,7 +2473,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // aren't flag-gated, and the sandbox runtime drives the drain itself); LangGraph stays
             // behind the rollout flag.
             (s) => [s.featureFlags, s.isSandboxMode],
-            (featureFlags: FeatureFlagsSet, isSandboxMode: boolean): boolean =>
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet, isSandboxMode: boolean): boolean =>
                 !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_QUEUE_MESSAGES_SYSTEM] || isSandboxMode,
         ],
 
@@ -2801,7 +2794,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         showDeepResearchModeToggle: [
             (s) => [s.conversation, s.featureFlags],
-            (conversation: Conversation | null, featureFlags: FeatureFlagsSet) =>
+            (conversation: Conversation | null, featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet) =>
                 // if a conversation is already marked as research, or has already started (has title/is in progress), don't show the toggle
                 !!featureFlags[FEATURE_FLAGS.MAX_DEEP_RESEARCH] &&
                 conversation?.type !== ConversationType.DeepResearch &&
@@ -2811,7 +2804,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         showContextUI: [
             (s) => [s.conversation, s.featureFlags],
-            (conversation: Conversation | null, featureFlags: FeatureFlagsSet) =>
+            (conversation: Conversation | null, featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet) =>
                 featureFlags[FEATURE_FLAGS.MAX_DEEP_RESEARCH]
                     ? conversation?.type !== ConversationType.DeepResearch
                     : true,

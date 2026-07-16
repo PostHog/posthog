@@ -312,7 +312,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
         templateJson: [
             (s) => [s.workflow, s.templateForm],
             (
-                workflow: HogFlow,
+                workflow: import('../hogflows/types').HogFlow,
                 templateForm: {
                     description: string
                     image_url: string | null

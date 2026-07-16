@@ -25,7 +25,7 @@ import { objectsEqual, reconcileById } from 'lib/utils/objects'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { urls } from 'scenes/urls'
 
-import type { HogFunctionTemplateType } from '../../../../../frontend/src/types'
+import type { HogFunctionTemplateType, UserBasicType } from '../../../../../frontend/src/types'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
@@ -827,7 +827,7 @@ export interface hogFlowEditorLogicActions {
                         }
                       | undefined
                   created_at: string
-                  created_by?: null | import('../../../../../frontend/src/types').UserBasicType | undefined
+                  created_by?: UserBasicType | null | undefined
                   description?: string | undefined
                   edges: {
                       from: string
@@ -1612,7 +1612,7 @@ export interface hogFlowEditorLogicActions {
                         }
                       | undefined
                   created_at: string
-                  created_by?: null | import('../../../../../frontend/src/types').UserBasicType | undefined
+                  created_by?: UserBasicType | null | undefined
                   description?: string | undefined
                   edges: {
                       from: string
