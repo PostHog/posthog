@@ -34,6 +34,18 @@ export const ReviewHogPerspectivesPartialUpdateBody = /* @__PURE__ */ zod.object
 })
 
 /**
+ * Start a ReviewHog review of any pull request the project's GitHub App installation can access, and publish it back to the PR. The requesting user is the review's acting user: their enabled perspectives, blind-spot check, validator, and urgency threshold drive the run, and it appears under their recent reviews. Non-blocking: returns the Temporal workflow id immediately while the review runs in the worker.
+ * @summary Start a review of a pull request
+ */
+export const ReviewHogReviewsTriggerCreateBody = /* @__PURE__ */ zod.object({
+    pr_url: zod
+        .string()
+        .describe(
+            "GitHub pull request URL to review, e.g. 'https:\/\/github.com\/PostHog\/posthog.com\/pull\/123'. The repository must be accessible to the project's GitHub App installation."
+        ),
+})
+
+/**
  * Partially update the requesting user's ReviewHog settings for this project. Only the provided fields change.
  * @summary Update the user's ReviewHog settings
  */

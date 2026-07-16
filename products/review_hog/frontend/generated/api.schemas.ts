@@ -416,6 +416,23 @@ export interface ReviewPerspectiveStatsApi {
     perspectives: ReviewPerspectiveStatItemApi[]
 }
 
+export interface ReviewTriggerRequestApi {
+    /** GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. The repository must be accessible to the project's GitHub App installation. */
+    pr_url: string
+}
+
+export interface ReviewTriggerResponseApi {
+    /** Temporal workflow id for the started review run. */
+    workflow_id: string
+    /** Run lifecycle marker; 'started' when the review was queued. */
+    status: string
+}
+
+export interface ReviewTriggerErrorApi {
+    /** Human-readable explanation of why the trigger was rejected. */
+    error: string
+}
+
 /**
  * * `consider` - Consider
  * * `should_fix` - Should Fix
@@ -440,6 +457,8 @@ export interface ReviewUserSettingsApi {
      * * `should_fix` - Should Fix
      * * `must_fix` - Must Fix */
     urgency_threshold?: UrgencyThresholdEnumApi
+    /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+    readonly can_trigger_reviews: boolean
 }
 
 export interface PatchedReviewUserSettingsApi {
@@ -453,6 +472,8 @@ export interface PatchedReviewUserSettingsApi {
      * * `should_fix` - Should Fix
      * * `must_fix` - Must Fix */
     urgency_threshold?: UrgencyThresholdEnumApi
+    /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+    readonly can_trigger_reviews?: boolean
 }
 
 export interface ReviewValidatorConfigApi {
