@@ -147,6 +147,7 @@ export interface tracingDataLogicValues {
         traceCount: number
     }
     matchingCountsAbortController: AbortController | null
+    matchingCountsError: boolean
     matchingCountsLoading: boolean
     nextCursor: string | null
     rawDurationHistogram: DurationHistogramRow[]
@@ -650,6 +651,16 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         matchingCountsAbortController: [
             null as AbortController | null,
             { setMatchingCountsAbortController: (_, { controller }) => controller },
+        ],
+        // Hides the display-bar count when its fetch failed for real (not just an aborted in-flight
+        // request), so a stale/wrong number isn't shown after the scope changes.
+        matchingCountsError: [
+            false,
+            {
+                fetchMatchingCounts: () => false,
+                fetchMatchingCountsSuccess: () => false,
+                fetchMatchingCountsFailure: (state, { error }) => (isUserInitiatedError(error) ? state : true),
+            },
         ],
         durationHistogramAbortController: [
             null as AbortController | null,
@@ -1333,11 +1344,6 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             if (!isUserInitiatedError(error)) {
                 lemonToast.error(`Failed to load traces: ${error}`)
                 posthog.capture('tracing query failed', { query_type: 'spans', error_message: String(error) })
-            }
-        },
-        fetchMatchingCountsFailure: ({ error }) => {
-            if (!isUserInitiatedError(error)) {
-                lemonToast.error(`Failed to load the matching count: ${error}`)
             }
         },
         fetchAggregationFailure: ({ error }) => {

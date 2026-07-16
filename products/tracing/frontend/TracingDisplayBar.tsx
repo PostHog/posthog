@@ -21,7 +21,8 @@ import { tracingSceneLogic } from './tracingSceneLogic'
  *    hidden entirely on the Operations view where neither applies.
  */
 export function TracingDisplayBar(): JSX.Element {
-    const { activeTracingTab, totalMatchingFilters, filters, compareActive } = useValues(tracingSceneLogic())
+    const { activeTracingTab, totalMatchingFilters, filters, compareActive, matchingCountsError } =
+        useValues(tracingSceneLogic())
     const { setActiveTracingTab } = useActions(tracingSceneLogic())
     const { setViewMode } = useActions(tracingFiltersLogic())
     const { featureFlags } = useValues(featureFlagLogic)
@@ -31,7 +32,7 @@ export function TracingDisplayBar(): JSX.Element {
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
     const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
     const inTracesView = !operationsViewEnabled || activeTracingTab !== 'operations'
-    const showCount = inTracesView && !compareActive && totalMatchingFilters > 0
+    const showCount = inTracesView && !compareActive && totalMatchingFilters > 0 && !matchingCountsError
 
     return (
         <div className="flex items-center justify-between gap-2 flex-wrap">
