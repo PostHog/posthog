@@ -29,6 +29,13 @@ export type SaveAllResult = { createdCount: number; failedCount: number; totalCo
 export type CodeOwnerEntryRow = CodeOwnerRuleCandidate
 export type CodeOwnerMappingRow = CodeOwnerOwnerMapping
 
+// Distinct, human-readable reasons behind a batch of rejected rule creations, so a failed
+// import points at the real backend cause instead of a generic string.
+function distinctRejectionReasons(reasons: unknown[]): string[] {
+    const messages = reasons.map((reason) => (reason instanceof Error ? reason.message : String(reason)))
+    return Array.from(new Set(messages.filter(Boolean)))
+}
+
 export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
     path([
         'products',
@@ -148,10 +155,18 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
                             return api.errorTracking.createRule(ErrorTrackingRuleType.Assignment, rule)
                         })
                     )
-                    const failedCount = results.filter((result) => result.status === 'rejected').length
+                    const rejections = results.filter(
+                        (result): result is PromiseRejectedResult => result.status === 'rejected'
+                    )
+                    const failedCount = rejections.length
                     const createdCount = results.length - failedCount
                     if (createdCount === 0 && failedCount > 0) {
-                        throw new Error('Failed to save assignment rules')
+                        const reasons = distinctRejectionReasons(rejections.map((rejection) => rejection.reason))
+                        throw new Error(
+                            reasons.length > 0
+                                ? `Failed to save assignment rules: ${reasons.join('; ')}`
+                                : 'Failed to save assignment rules'
+                        )
                     }
                     return { createdCount, failedCount, totalCount: rows.length }
                 },
@@ -186,9 +201,9 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
                 )
             }
         },
-        saveAllFailure: () => {
+        saveAllFailure: ({ errorObject }) => {
             rulesLogic({ ruleType: ErrorTrackingRuleType.Assignment }).actions.loadRules()
-            lemonToast.error('Failed to save assignment rules')
+            lemonToast.error(errorObject instanceof Error ? errorObject.message : 'Failed to save assignment rules')
         },
     })),
 

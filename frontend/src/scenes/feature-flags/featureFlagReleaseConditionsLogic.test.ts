@@ -98,6 +98,64 @@ describe('the feature flag release conditions logic', () => {
                 })
         })
 
+        it('flags a distinct error state when the blast radius call fails', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue(new Error('boom'))
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.calculateBlastRadiusForCondition(
+                        'X',
+                        [
+                            {
+                                key: 'aloha',
+                                value: 'aloha',
+                                type: PropertyFilterType.Person,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        null
+                    )
+                }).toFinishAllListeners()
+
+                // The error is surfaced distinctly rather than masked as -1, which the render
+                // path can't tell apart from the still-loading (undefined) state.
+                expect(logic.values.blastRadiusErrors.X).toBe(true)
+                expect(logic.values.affectedCounts.X).toBeUndefined()
+                expect(logic.values.totalCounts.X).toBeUndefined()
+            } finally {
+                createSpy.mockRestore()
+            }
+        })
+
+        it('clears the error state once a recalculation succeeds', async () => {
+            logic.actions.setBlastRadiusError('X')
+            expect(logic.values.blastRadiusErrors.X).toBe(true)
+
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue({ affected: 10, total: 100 })
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.calculateBlastRadiusForCondition(
+                        'X',
+                        [
+                            {
+                                key: 'aloha',
+                                value: 'aloha',
+                                type: PropertyFilterType.Person,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        null
+                    )
+                }).toFinishAllListeners()
+
+                expect(logic.values.blastRadiusErrors.X).toBeUndefined()
+                expect(logic.values.affectedCounts.X).toBe(10)
+                expect(logic.values.totalCounts.X).toBe(100)
+            } finally {
+                createSpy.mockRestore()
+            }
+        })
+
         it('loads when editing a flag with multiple conditions', async () => {
             // clear existing logic
             logic?.unmount()
@@ -235,7 +293,8 @@ describe('the feature flag release conditions logic', () => {
                 ])
             }).toDispatchActions(['setAffectedCount', 'setTotalCount'])
 
-            // Update with complete property — triggers API call after debounce
+            // Update with complete property — triggers API call after debounce.
+            // Three pairs: the immediate reset, calculateBlastRadiusForCondition's reset, the API result.
             await expectLogic(logic, () => {
                 logic.actions.updateConditionSet(0, 20, [
                     {
@@ -246,6 +305,7 @@ describe('the feature flag release conditions logic', () => {
                     },
                 ])
             })
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
                 .toDispatchActions(['setAffectedCount', 'setTotalCount'])
                 .toDispatchActions(['setAffectedCount', 'setTotalCount'])
                 .toMatchValues({
@@ -272,6 +332,7 @@ describe('the feature flag release conditions logic', () => {
                     },
                 ])
             })
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
                 .toDispatchActions(['setAffectedCount', 'setTotalCount'])
                 .toDispatchActions(['setAffectedCount', 'setTotalCount'])
                 .toMatchValues({

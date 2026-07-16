@@ -577,6 +577,7 @@ SPECTACULAR_SETTINGS = {
         "ExportedRecordingStatusEnum": "products.replay.backend.models.exported_recording.ExportedRecording.Status",
         "VisionActionRunStatusEnum": "products.replay_vision.backend.models.vision_action.VisionActionRunStatus",
         "VisionAlertMetricEnum": "products.replay_vision.backend.models.vision_action.AlertMetric",
+        "VisionAlertDirectionEnum": "products.replay_vision.backend.models.vision_action.AlertDirection",
         "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
@@ -617,6 +618,10 @@ SPECTACULAR_SETTINGS = {
         # subset enums keep their own auto-resolved names.
         "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
         "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
+        # Shared by alert checks and analytics anomaly-investigation signals.
+        "InvestigationVerdictEnum": ["true_positive", "false_positive", "inconclusive"],
+        # Preserve Replay Vision's existing verdict type name after introducing the shared enum above.
+        "VerdictEnum": ["yes", "no", "inconclusive"],
         # AgentRevision.state (model ChoiceField) and RevisionNotDraftError.state (the
         # bundle-edit 409 body) share one choice set — pin them to a single named enum.
         "AgentRevisionStateEnum": ["draft", "ready", "live", "archived"],
@@ -1168,10 +1173,9 @@ WEB_ANALYTICS_NO_JOIN_TEAM_IDS: list[int] = [
 # Percentage-of-teams rollout for the no-join fast paths, on top of the explicit
 # allowlist above. Bucketing is deterministic per team (team_id % 100) so everyone
 # on a team sees numbers from the same code path. 0 disables (allowlist only),
-# 100 enrolls every team. Defaults to 50 on US Cloud (verified region); EU stays 0
-# until its ClickHouse upgrade converges and the fast paths are verified there.
+# 100 enrolls every team. Defaults to 100 on US and EU Cloud; self-hosted stays 0.
 # Env var overrides in either direction and is the kill switch.
-_NO_JOIN_DEFAULT_ROLLOUT_PERCENT = 100 if (CLOUD_DEPLOYMENT or "").upper() == "US" and not TEST else 0
+_NO_JOIN_DEFAULT_ROLLOUT_PERCENT = 100 if (CLOUD_DEPLOYMENT or "").upper() in ("US", "EU") and not TEST else 0
 WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT: int = get_from_env(
     "WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT", _NO_JOIN_DEFAULT_ROLLOUT_PERCENT, type_cast=int
 )
