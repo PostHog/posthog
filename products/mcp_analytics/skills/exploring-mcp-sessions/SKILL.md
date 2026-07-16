@@ -31,9 +31,21 @@ and query recipes live in the shared reference:
 | `posthog:execute-sql`                            | Errored sessions, effective tool names, cross-session cuts |
 
 The three `mcp-analytics-*` tools are gated behind the `mcp-analytics` flag and
-run the same code as the sessions UI, so results match the screen. If they aren't
-in your tool list, the project doesn't have the flag — fall back to
-`posthog:execute-sql`, which is ungated.
+run the same code as the sessions UI, so results match the screen. A tool missing
+from your list means one of two different things — don't collapse them into "no
+flag":
+
+- **All three absent** — the project likely doesn't have the `mcp-analytics`
+  flag. Fall back to `posthog:execute-sql`, which is ungated, for the whole
+  workflow.
+- **Only `mcp-analytics-sessions-generate-intent` absent** while
+  `sessions-list` and `sessions-tool-calls` are present — the flag _is_ on, but
+  your token lacks the `mcp_analytics:write` scope that intent generation
+  requires (the two list/detail tools only need `mcp_analytics:read`).
+  Re-authenticate or request a connector / API key with `mcp_analytics:write`.
+  SQL can still cover read-only list and detail work, but it **cannot** produce
+  the LLM session summary — that has no ungated equivalent, so the write scope is
+  the only way to get it.
 
 ## The date-window trap — read this first
 
@@ -115,9 +127,13 @@ back to reading the raw `$mcp_intent` values from the tool-call list.
 Four cases, all via `posthog:execute-sql`, which — unlike the typed tools above —
 is **not** gated behind the `mcp-analytics` flag.
 
-**1. The project doesn't have the `mcp-analytics` flag.** The typed tools simply
-won't be in your tool list. Everything below still works; this query is the
-plain session listing:
+**1. The project doesn't have the `mcp-analytics` flag** (all three typed tools
+absent). Everything below still works; this query is the plain session listing.
+Note SQL is a read-only substitute — it can list, detail, and aggregate, but it
+cannot generate the LLM intent summary. If only
+`mcp-analytics-sessions-generate-intent` is missing, the flag is on and you're
+short the `mcp_analytics:write` scope, not the flag — get the scope rather than
+falling back here for intent.
 
 ```sql
 SELECT
