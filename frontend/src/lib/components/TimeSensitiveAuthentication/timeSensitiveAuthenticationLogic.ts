@@ -51,6 +51,7 @@ export interface timeSensitiveAuthenticationLogicValues {
     reauthenticationErrors: DeepPartialMap<ReauthenticationForm, ValidationErrorType>
     reauthenticationHasErrors: boolean
     reauthenticationManualErrors: Record<string, any>
+    reauthenticationSucceeded: boolean | null
     reauthenticationTouched: boolean
     reauthenticationTouches: Record<string, boolean>
     reauthenticationValidationErrors: DeepPartialMap<ReauthenticationForm, ValidationErrorType>
@@ -137,6 +138,9 @@ export interface timeSensitiveAuthenticationLogicActions {
     }
     setReauthenticationManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
+    }
+    setReauthenticationSucceeded: (value: boolean | null) => {
+        value: boolean | null
     }
     setReauthenticationValue: (
         key: FieldName,
