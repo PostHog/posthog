@@ -93,6 +93,7 @@ def _make_config(
     dataset_id: str = "dataset-id",
     dataset_project: BigQueryDatasetProjectConfig | None = None,
     temporary_dataset: BigQueryTemporaryDatasetConfig | None = None,
+    use_custom_region: BigQueryUseCustomRegionConfig | None = None,
 ) -> BigQuerySourceConfig:
     return BigQuerySourceConfig(
         key_file=BigQueryKeyFileConfig(
@@ -105,6 +106,7 @@ def _make_config(
         dataset_id=dataset_id,
         dataset_project=dataset_project,
         temporary_dataset=temporary_dataset,
+        use_custom_region=use_custom_region,
     )
 
 
@@ -1023,6 +1025,34 @@ def test_bigquery_validate_credentials_maps_failures_to_actionable_messages(
     # Expected user/config errors must not be reported to error tracking as noise; only genuinely
     # unexpected failures are captured.
     assert mock_capture.called is should_capture
+
+
+@pytest.mark.parametrize(
+    "use_custom_region,expected_region",
+    [
+        (None, None),
+        (BigQueryUseCustomRegionConfig(enabled=False, region="europe-west2"), None),
+        (BigQueryUseCustomRegionConfig(enabled=True, region=""), None),
+        (BigQueryUseCustomRegionConfig(enabled=True, region="europe-west2"), "europe-west2"),
+    ],
+)
+def test_bigquery_source_validate_credentials_wires_config_and_region(use_custom_region, expected_region):
+    config = _make_config(use_custom_region=use_custom_region)
+
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source.validate_bigquery_credentials",
+        return_value=(True, None),
+    ) as mock_validate:
+        result = BigQuerySource().validate_credentials(config, team_id=1)
+
+    assert result == (True, None)
+    dataset_id, key_file, dataset_project_id, region = mock_validate.call_args.args
+    assert dataset_id == "dataset-id"
+    assert key_file["project_id"] == "project-id"
+    assert key_file["token_uri"] == "token-uri"
+    assert dataset_project_id is None
+    # A custom region only flows through when the toggle is enabled and non-empty.
+    assert region == expected_region
 
 
 def test_bigquery_build_pipeline_trims_whitespace_in_destination_table():
