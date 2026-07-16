@@ -3,6 +3,19 @@
 Synthesized failure patterns from production incidents.
 This document grounds QA review agents with real-world failure modes.
 
+## Contents
+
+- [Pattern 1: Database Migration Failures](#pattern-1-database-migration-failures)
+- [Pattern 2: Hot-Path Service Fragility](#pattern-2-hot-path-service-fragility)
+- [Pattern 3: SDK Backwards Compatibility Breaks](#pattern-3-sdk-backwards-compatibility-breaks)
+- [Pattern 4: Security & Data Exposure](#pattern-4-security--data-exposure)
+- [Pattern 5: Performance & Resource Exhaustion](#pattern-5-performance--resource-exhaustion)
+- [Pattern 6: Data Correctness & Silent Failures](#pattern-6-data-correctness--silent-failures)
+- [Pattern 7: Infrastructure & Deployment Failures](#pattern-7-infrastructure--deployment-failures)
+- [Pattern 8: Cross-Service & Queue Processing Failures](#pattern-8-cross-service--queue-processing-failures)
+- [Pattern 9: Frontend & UX Papercuts](#pattern-9-frontend--ux-papercuts)
+- [Cross-Cutting Anti-Patterns](#cross-cutting-anti-patterns)
+
 ## Pattern 1: Database Migration Failures
 
 **Common triggers:**
