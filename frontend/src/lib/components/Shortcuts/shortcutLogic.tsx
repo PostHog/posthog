@@ -187,9 +187,14 @@ export const shortcutLogic = kea<shortcutLogicType>([
                     pressedKeys.push('option')
                 }
 
-                // Handle Alt key combinations - event.key can change with Alt held
+                // event.key is layout-aware, so it stays correct on non-QWERTY layouts (Dvorak,
+                // AZERTY, etc.) where the physical event.code position does not match the letter.
+                // Prefer it. The only reason to consult the physical event.code is the macOS quirk
+                // where holding Option turns event.key into a special glyph or dead key (e.g. ⌥K
+                // becomes "˚"); fall back to event.code only in that case, never when event.key
+                // already gives us a usable letter or digit.
                 let keyToAdd = event.key.toLowerCase()
-                if (event.altKey) {
+                if (event.altKey && !/^[a-z0-9]$/.test(keyToAdd)) {
                     const codeMatch = event.code.match(/^Key([A-Z])$/)
                     if (codeMatch) {
                         keyToAdd = codeMatch[1].toLowerCase()
