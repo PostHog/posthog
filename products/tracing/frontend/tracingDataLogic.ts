@@ -41,13 +41,7 @@ import {
     TRACING_SCENE_VIEWER_ID,
     tracingFiltersLogic,
 } from './tracingFiltersLogic'
-import type {
-    OverlayWindow,
-    TimeComparison,
-    TracingComparison,
-    TracingOrderDirection,
-    TracingViewMode,
-} from './tracingFiltersLogic'
+import type { OverlayWindow, TimeComparison, TracingOrderDirection, TracingViewMode } from './tracingFiltersLogic'
 import type { Span } from './types'
 
 export interface SparklineRow {

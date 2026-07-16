@@ -114,7 +114,6 @@ import {
 import type { DataColorTheme } from '../../lib/colors'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type {
-    AnyResponseType,
     Breakdown,
     DataNode,
     DataWarehouseNode,
