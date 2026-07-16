@@ -340,3 +340,41 @@ class TestSSEConcurrencyCap:
                 "posthog_sse_rejected_over_cap_total", {"endpoint": "test_cap_zero"}
             )
             assert rejected_count is not None and rejected_count >= 1.0
+
+
+class TestSSEKillswitch:
+    # The killswitch is the only server-side signal that reaches already-open
+    # EventSource clients (204 => CLOSED, no reconnect). These tests pin that a
+    # kill never opens the stream and that flag-evaluation failures fail open.
+
+    def test_killswitch_on_returns_204_without_opening_the_stream(self):
+        slot_baseline = streaming._active_stream_count
+        with mock.patch("posthog.api.streaming.posthoganalytics.feature_enabled", return_value=True) as feature_enabled:
+            response = sse_streaming_response(_gen(), endpoint="test_kill_on", killswitch_flag="test-sse-killswitch")
+        assert response.status_code == HTTPStatus.NO_CONTENT
+        assert not isinstance(response, StreamingHttpResponse)
+        assert _open_connections("test_kill_on") == 0.0
+        # The kill is decided before admission: a killed request must not
+        # reserve (or leak) a cap slot.
+        assert streaming._active_stream_count == slot_baseline
+        assert REGISTRY.get_sample_value("posthog_sse_killswitch_rejected_total", {"endpoint": "test_kill_on"}) == 1.0
+        feature_enabled.assert_called_once_with(
+            "test-sse-killswitch",
+            "sse-killswitch",
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+
+    def test_killswitch_off_streams_normally(self):
+        with mock.patch("posthog.api.streaming.posthoganalytics.feature_enabled", return_value=False):
+            response = sse_streaming_response(_gen(), endpoint="test_kill_off", killswitch_flag="test-sse-killswitch")
+        assert isinstance(response, StreamingHttpResponse)
+        assert b"".join(_sync_content(response)) == b"data: hello\n\n"
+
+    def test_flag_evaluation_error_fails_open(self):
+        with mock.patch(
+            "posthog.api.streaming.posthoganalytics.feature_enabled", side_effect=RuntimeError("flags down")
+        ):
+            response = sse_streaming_response(_gen(), endpoint="test_kill_err", killswitch_flag="test-sse-killswitch")
+        assert isinstance(response, StreamingHttpResponse)
+        assert b"".join(_sync_content(response)) == b"data: hello\n\n"

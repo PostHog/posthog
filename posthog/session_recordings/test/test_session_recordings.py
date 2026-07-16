@@ -2325,7 +2325,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @patch("posthog.session_recordings.session_recording_api.execute_summarize_session_video_stream")
     @patch("posthog.session_recordings.session_recording_api.is_cloud", return_value=True)
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
-    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch(
+        "posthoganalytics.feature_enabled",
+        # Keep the summarize gate on without also flipping the SSE killswitch,
+        # which would answer the stream with 204 before the view runs.
+        side_effect=lambda flag, *args, **kwargs: not flag.endswith("-sse-killswitch"),
+    )
     def test_summarize_uses_video_based_path(
         self,
         mock_feature_enabled: MagicMock,
@@ -2377,7 +2382,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @patch("posthog.session_recordings.session_recording_api.execute_summarize_session_video_stream")
     @patch("posthog.session_recordings.session_recording_api.is_cloud", return_value=True)
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
-    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch(
+        "posthoganalytics.feature_enabled",
+        # Keep the summarize gate on without also flipping the SSE killswitch,
+        # which would answer the stream with 204 before the view runs.
+        side_effect=lambda flag, *args, **kwargs: not flag.endswith("-sse-killswitch"),
+    )
     def test_summarize_threads_force_restart_through_body(
         self,
         _name: str,

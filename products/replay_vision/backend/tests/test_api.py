@@ -39,9 +39,13 @@ from products.signals.backend.models import SignalSourceConfig
 class _VisionAPITestCase(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        # The patch target is the shared posthoganalytics module, so a plain
+        # return_value=True would also flip the SSE killswitch on and turn
+        # every progress stream into a 204; keep the product gate on and the
+        # killswitch off, as in production.
         self.flag_patcher = patch(
             "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
-            return_value=True,
+            side_effect=lambda flag, *args, **kwargs: not flag.endswith("-sse-killswitch"),
         )
         self.flag_patcher.start()
         # Scanner saves recompute the volume estimate against ClickHouse; keep CRUD tests off that path.

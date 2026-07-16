@@ -9,7 +9,7 @@ from django.http.response import HttpResponseBase
 import httpx
 import structlog
 
-from posthog.api.streaming import sse_streaming_response
+from posthog.api.streaming import sse_killswitch_rejection, sse_streaming_response
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
@@ -372,6 +372,14 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
     if mcp_session_id:
         headers["Mcp-Session-Id"] = mcp_session_id
 
+    # The upstream invocation itself is the cost (the tool call executes on
+    # the MCP server, and whether the reply is SSE is unknown until it comes
+    # back), so the killswitch must answer before the request is sent; the
+    # copy inside sse_streaming_response would only discard the response.
+    rejection = sse_killswitch_rejection("mcp_store_proxy", "mcp-store-sse-killswitch")
+    if rejection is not None:
+        return rejection
+
     client = httpx.Client(timeout=UPSTREAM_TIMEOUT)
     try:
         upstream_response, upstream_url = send_mcp_request_with_same_origin_redirect(
@@ -445,7 +453,7 @@ def _stream_upstream(upstream_response: httpx.Response, client: httpx.Client) ->
 def _build_sse_response(upstream_response: httpx.Response, client: httpx.Client) -> HttpResponseBase:
     stream = _stream_upstream(upstream_response, client)
     astream = SyncIterableToAsync(stream) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream
-    response = sse_streaming_response(astream, endpoint="mcp_store_proxy")
+    response = sse_streaming_response(astream, endpoint="mcp_store_proxy", killswitch_flag="mcp-store-sse-killswitch")
 
     if not isinstance(response, StreamingHttpResponse):
         # Over-cap rejection: the generator that owns these resources never

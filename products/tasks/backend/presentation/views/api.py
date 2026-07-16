@@ -2018,6 +2018,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return sse_streaming_response(
             async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream()),
             endpoint="task_run_log",
+            killswitch_flag="tasks-sse-killswitch",
         )
 
     @staticmethod

@@ -5155,7 +5155,9 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         super().setUp()
         materialize("events", "$exception_values")
 
-        # Clear existing Django data
+        # Clear existing Django data. Projects explicitly too: team creation
+        # auto-creates a project with the team's pk, so a project 2 left over
+        # from earlier tests in the run collides with the analytics team below.
         Team.objects.all().delete()
         Project.objects.all().delete()
         Organization.objects.all().delete()

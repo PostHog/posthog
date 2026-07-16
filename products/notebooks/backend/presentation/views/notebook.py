@@ -938,7 +938,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 yield f"event: error\ndata: {payload_json}\n\n".encode()
 
         streaming_content = SyncIterableToAsync(stream()) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream()
-        return sse_streaming_response(streaming_content, endpoint="notebook_stream")
+        return sse_streaming_response(
+            streaming_content, endpoint="notebook_stream", killswitch_flag="notebooks-sse-killswitch"
+        )
 
     @action(methods=["GET"], url_path="kernel/dataframe", detail=True)
     def kernel_dataframe(self, request: Request, **kwargs):
@@ -1498,6 +1500,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 lambda: collab_stream.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
             ),
             endpoint="notebook_collab",
+            killswitch_flag="notebooks-sse-killswitch",
         )
 
     @action(methods=["GET"], detail=False)

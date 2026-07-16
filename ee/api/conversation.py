@@ -604,6 +604,7 @@ class ConversationViewSet(
             if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
             else async_to_sync(lambda: async_stream(workflow_inputs)),
             endpoint="max_conversation",
+            killswitch_flag="max-ai-sse-killswitch",
         )
 
     @action(detail=True, methods=["GET", "POST"], url_path="queue")

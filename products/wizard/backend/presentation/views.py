@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from django.conf import settings
-from django.http import HttpResponse
+from django.http import StreamingHttpResponse
 from django.http.response import HttpResponseBase
 
 import structlog
@@ -190,16 +190,18 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(WizardSessionSerializer(dto).data)
 
-    def _killswitch_active(self, request: Request) -> bool:
-        # Shared by `latest` and `stream` so flipping the incident flag quiets both the
-        # SSE stream and the 60s REST poll — otherwise the fleet keeps hitting `latest`.
+    def _killswitch_distinct_id(self, request: Request) -> str:
         user = getattr(request, "user", None)
-        distinct_id = (
+        return (
             str(user.distinct_id)
             if user is not None and not user.is_anonymous and getattr(user, "distinct_id", None)
             else f"team:{self.team_id}"
         )
-        return _wizard_sync_killswitch_enabled(distinct_id)
+
+    def _killswitch_active(self, request: Request) -> bool:
+        # Shared by `latest` and `stream` so flipping the incident flag quiets both the
+        # SSE stream and the 60s REST poll — otherwise the fleet keeps hitting `latest`.
+        return _wizard_sync_killswitch_enabled(self._killswitch_distinct_id(request))
 
     @extend_schema(
         description=(
@@ -320,19 +322,10 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["get"], url_path="stream", renderer_classes=[EventStreamRenderer])
     def stream(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
-        # Killswitch first, before any other work: a 204 tells EventSource to stop
-        # reconnecting, severing the self-reconnect loop for already-open tabs.
-        if self._killswitch_active(request):
-            return HttpResponse(status=204)
-
         workflow_id = request.query_params.get("workflow_id")
         skill_id = request.query_params.get("skill_id") or None
         if not workflow_id:
             raise ValidationError({"detail": "workflow_id is required."})
-
-        # The generator is `async def` — WSGI can't consume an async iterator.
-        if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
-            raise RuntimeError("wizard_sessions.stream requires ASGI.")
 
         generator = _wizard_session_event_stream(
             team_id=self.team_id,
@@ -342,7 +335,25 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         # Releases the request-thread DB connection (auth, team resolution) before
         # the long-lived stream begins — see sse_streaming_response.
-        return sse_streaming_response(generator, endpoint="wizard_session")
+        # The killswitch 204 tells EventSource to stop reconnecting, severing the
+        # self-reconnect loop for already-open tabs; it must answer even when the
+        # stream itself could not be served, so it is decided before the gateway
+        # check below.
+        response = sse_streaming_response(
+            generator,
+            endpoint="wizard_session",
+            killswitch_flag=WIZARD_SYNC_KILLSWITCH_FLAG,
+            killswitch_distinct_id=self._killswitch_distinct_id(request),
+        )
+        # The generator is `async def` — WSGI can't consume an async iterator.
+        # Close the unserved stream so its admission slot is released eagerly.
+        if (
+            isinstance(response, StreamingHttpResponse)
+            and getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI"
+        ):
+            response.close()
+            raise RuntimeError("wizard_sessions.stream requires ASGI.")
+        return response
 
 
 async def _wizard_session_event_stream(

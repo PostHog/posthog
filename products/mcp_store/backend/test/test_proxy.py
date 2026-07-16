@@ -95,6 +95,26 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert kwargs["headers"]["Authorization"] == "Bearer sk-test-key"
 
     @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_killswitch_answers_before_the_upstream_request_is_sent(self, mock_client_cls):
+        # The upstream tool call executes on the MCP server the moment the
+        # request is sent, so a kill that only discards the response would let
+        # callers keep invoking tools. Pin that no upstream client is created.
+        installation = self._create_installation(
+            sensitive_configuration={"api_key": "sk-test-key"},
+        )
+        with patch(
+            "posthog.api.streaming.posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag == "mcp-store-sse-killswitch",
+        ):
+            response = self.client.post(
+                self._proxy_url(installation.id),
+                data={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+                format="json",
+            )
+        assert response.status_code == 204
+        mock_client_cls.assert_not_called()
+
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
     def test_proxy_forwards_json_rpc_with_oauth_token(self, mock_client_cls):
         installation = self._create_oauth_installation()
         mock_response = MagicMock()
