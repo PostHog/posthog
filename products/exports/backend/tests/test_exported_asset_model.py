@@ -1,11 +1,22 @@
+import os
+import tempfile
 from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
-from products.exports.backend.models.exported_asset import SEVEN_DAYS, SIX_MONTHS, TWELVE_MONTHS, ExportedAsset
+from products.exports.backend.models.exported_asset import (
+    SEVEN_DAYS,
+    SIX_MONTHS,
+    TWELVE_MONTHS,
+    ExportContentTooLarge,
+    ExportedAsset,
+    save_content_from_file,
+)
 
 
 class TestExportedAssetModel(APIBaseTest):
@@ -143,6 +154,40 @@ class TestExportedAssetExpiresAfter(APIBaseTest):
         asset.save(update_fields=["expires_after"])
         asset.refresh_from_db()
         assert asset.expires_after == new_expiry
+
+
+class TestExportedAssetDbFallbackSizeGuard(APIBaseTest):
+    @override_settings(OBJECT_STORAGE_ENABLED=False, EXPORT_ASSET_DB_FALLBACK_MAX_BYTES=16)
+    def test_oversized_db_fallback_fails_fast_without_saving(self) -> None:
+        asset = ExportedAsset.objects.create(team=self.team, export_format=ExportedAsset.ExportFormat.CSV)
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
+            f.write(b"x" * 64)
+            path = f.name
+
+        try:
+            with self.assertRaises(ExportContentTooLarge):
+                save_content_from_file(asset, path)
+        finally:
+            os.unlink(path)
+
+        asset.refresh_from_db()
+        assert asset.content is None
+        assert asset.content_location is None
+
+    @override_settings(OBJECT_STORAGE_ENABLED=False, EXPORT_ASSET_DB_FALLBACK_MAX_BYTES=1024)
+    def test_within_limit_db_fallback_stores_content(self) -> None:
+        asset = ExportedAsset.objects.create(team=self.team, export_format=ExportedAsset.ExportFormat.CSV)
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
+            f.write(b"hello,world\n")
+            path = f.name
+
+        try:
+            save_content_from_file(asset, path)
+        finally:
+            os.unlink(path)
+
+        asset.refresh_from_db()
+        assert bytes(asset.content) == b"hello,world\n"
 
 
 class TestExportedAssetFilename(APIBaseTest):
