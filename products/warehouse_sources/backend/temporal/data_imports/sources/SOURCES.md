@@ -141,9 +141,11 @@ the row lists both.
 | cursor                    | HTTP                        | requests                                                        | ✅                          |
 | customer_io               | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | datadog                   | HTTP                        | requests                                                        | ✅                          |
+| dbt                       | HTTP                        | requests                                                        | ✅                          |
 | decagon                   | HTTP                        | requests                                                        | ✅                          |
 | deel                      | HTTP                        | requests                                                        | ✅                          |
 | deepgram                  | HTTP                        | requests                                                        | ✅                          |
+| deepsource                | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | delighted                 | HTTP                        | requests                                                        | ✅                          |
 | deno_deploy               | HTTP                        | requests                                                        | ✅                          |
 | devin_ai                  | HTTP                        | requests                                                        | ✅                          |
@@ -155,6 +157,7 @@ the row lists both.
 | doit                      | HTTP                        | requests                                                        | ✅                          |
 | dropbox_sign              | HTTP                        | requests                                                        | ✅                          |
 | drip                      | HTTP                        | requests                                                        | ✅                          |
+| e2b                       | HTTP                        | requests                                                        | ✅                          |
 | e_conomic                 | HTTP                        | requests                                                        | ✅                          |
 | easypost                  | HTTP                        | requests                                                        | ✅                          |
 | easypromos                | HTTP                        | requests                                                        | ✅                          |
@@ -267,6 +270,7 @@ the row lists both.
 | linkedin_ads              | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
 | linkrunner                | HTTP                        | requests                                                        | ✅                          |
 | linode                    | HTTP                        | requests                                                        | ✅                          |
+| llama_cloud               | HTTP                        | requests                                                        | ✅                          |
 | lob                       | HTTP                        | requests                                                        | ✅                          |
 | luma                      | HTTP                        | requests                                                        | ✅                          |
 | mailchimp                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -557,6 +561,7 @@ doesn't conflict with concurrent PRs.
 - browse_ai
 - cal_com
 - campaign_manager_360
+- campfire
 - captain_data
 - cart_com
 - castor_edc
@@ -594,8 +599,6 @@ doesn't conflict with concurrent PRs.
 - datascope
 - datorama
 - db2
-- dbt
-- deepsource
 - deno_deploy
 - deputy
 - display_video_360

@@ -688,6 +688,11 @@ class CampaynSourceConfig(config.Config):
 
 
 @config.config
+class CampfireSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class CannySourceConfig(config.Config):
     api_key: str
 
@@ -1135,7 +1140,10 @@ class Db2SourceConfig(config.Config):
 
 @config.config
 class DbtSourceConfig(config.Config):
-    pass
+    account_id: str
+    api_token: str
+    region: Literal["us", "emea", "au"] = config.value(default="us")
+    custom_base_url: str | None = None
 
 
 @config.config
@@ -1155,7 +1163,11 @@ class DeepgramSourceConfig(config.Config):
 
 @config.config
 class DeepsourceSourceConfig(config.Config):
-    pass
+    api_token: str
+    account_login: str
+    vcs_provider: Literal[
+        "GITHUB", "GITLAB", "BITBUCKET", "GITHUB_ENTERPRISE", "BITBUCKET_DATACENTER", "ADS", "GSR"
+    ] = config.value(default="GITHUB")
 
 
 @config.config
@@ -1295,7 +1307,7 @@ class DynatraceSourceConfig(config.Config):
 
 @config.config
 class E2BSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2412,7 +2424,8 @@ class LinodeSourceConfig(config.Config):
 
 @config.config
 class LlamaCloudSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["na", "eu"] = config.value(default="na")
 
 
 @config.config
@@ -4866,6 +4879,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.CAMPAIGNMANAGER360: CampaignManager360SourceConfig,
         ExternalDataSourceType.CAMPAIGNMONITOR: CampaignMonitorSourceConfig,
         ExternalDataSourceType.CAMPAYN: CampaynSourceConfig,
+        ExternalDataSourceType.CAMPFIRE: CampfireSourceConfig,
         ExternalDataSourceType.CANNY: CannySourceConfig,
         ExternalDataSourceType.CAPSULECRM: CapsuleCRMSourceConfig,
         ExternalDataSourceType.CAPTAINDATA: CaptainDataSourceConfig,

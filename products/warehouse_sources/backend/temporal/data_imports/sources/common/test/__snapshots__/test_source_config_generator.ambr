@@ -150,6 +150,7 @@
           ExternalDataSourceType.CAMPAIGNMANAGER360: CampaignManager360SourceConfig,
           ExternalDataSourceType.CAMPAIGNMONITOR: CampaignMonitorSourceConfig,
           ExternalDataSourceType.CAMPAYN: CampaynSourceConfig,
+          ExternalDataSourceType.CAMPFIRE: CampfireSourceConfig,
           ExternalDataSourceType.CANNY: CannySourceConfig,
           ExternalDataSourceType.CAPSULECRM: CapsuleCRMSourceConfig,
           ExternalDataSourceType.CAPTAINDATA: CaptainDataSourceConfig,
