@@ -37,6 +37,7 @@ import {
 
 import type { FeatureFlagsSet } from '../../../../lib/logic/featureFlagLogic'
 import type { InsightQueryNode } from '../../../../queries/schema/schema-general'
+import type { ExperimentTriggeredBy } from '../../experimentLogic'
 
 const filterFunnelSteps = (steps: FunnelStep[], variants: string[]): FunnelStep[] =>
     steps.filter((step) =>
@@ -66,12 +67,12 @@ export interface resultsBreakdownLogicValues {
 export interface resultsBreakdownLogicActions {
     refreshExperimentResults: (
         forceRefresh?: boolean | undefined,
-        triggeredBy?: import('scenes/experiments/experimentLogic').ExperimentTriggeredBy | undefined,
+        triggeredBy?: ExperimentTriggeredBy | undefined,
         refreshIfStale?: boolean | undefined
     ) => {
         forceRefresh: boolean | undefined
         refreshIfStale: boolean
-        triggeredBy: import('scenes/experiments/experimentLogic').ExperimentTriggeredBy
+        triggeredBy: ExperimentTriggeredBy
     } // experimentLogic
     loadBreakdownResults: (refresh?: boolean) => {
         refresh: boolean | undefined

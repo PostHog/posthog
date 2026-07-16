@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import type { DeepPartial } from 'kea-forms/lib/index'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -6,6 +7,7 @@ import api from 'lib/api'
 
 import { HogFunctionConfigurationType } from '~/types'
 
+import type { HogFunctionType } from '../../../types'
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 
 export interface HogFunctionBackfillsLogicProps {
@@ -24,16 +26,14 @@ export interface hogFunctionBackfillsLogicValues {
 export interface hogFunctionBackfillsLogicActions {
     loadHogFunction: () => any // hogFunctionConfigurationLogic
     loadHogFunctionSuccess: (
-        hogFunction: null | import('~/types').HogFunctionType,
+        hogFunction: HogFunctionType | null,
         payload?: any
     ) => {
-        hogFunction: null | import('~/types').HogFunctionType
+        hogFunction: HogFunctionType | null
         payload?: any
     } // hogFunctionConfigurationLogic
-    setConfigurationValues: (
-        values: import('node_modules/kea-forms/lib').DeepPartial<HogFunctionConfigurationType>
-    ) => {
-        values: import('node_modules/kea-forms/lib').DeepPartial<HogFunctionConfigurationType>
+    setConfigurationValues: (values: DeepPartial<HogFunctionConfigurationType>) => {
+        values: DeepPartial<HogFunctionConfigurationType>
     } // hogFunctionConfigurationLogic
     enableHogFunctionBackfills: () => boolean
     setLoading: (loading: boolean) => {

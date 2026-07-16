@@ -20,7 +20,10 @@ import { BreakdownKeyType, CohortType, DateMappingOption, InsightLogicProps, Ret
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type {
     BreakdownFilter,
+    DataNode,
+    DateRange,
     FunnelsQuery,
+    InsightFilter,
     LifecycleQuery,
     PathsQuery,
     RetentionQuery,
@@ -29,8 +32,7 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../queries/schema/schema-general'
-import type { DateRange } from '../../queries/schema/schema-general'
-import type { DataNode } from '../../queries/schema/schema-general'
+import type { QuerySourceUpdate } from '../insights/insightVizDataLogic'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 export const OVERALL_MEAN_KEY = '__overall__'
@@ -87,16 +89,16 @@ export interface retentionLogicActions {
     } // insightVizDataLogic
     updateDateRange: (
         dateRange: DateRange,
-        ignoreDebounce?: boolean | undefined
+        ignoreDebounce?: boolean
     ) => {
         dateRange: DateRange
         ignoreDebounce: boolean
     } // insightVizDataLogic
-    updateInsightFilter: (insightFilter: import('~/queries/schema/schema-general').InsightFilter) => {
-        insightFilter: import('~/queries/schema/schema-general').InsightFilter
+    updateInsightFilter: (insightFilter: InsightFilter) => {
+        insightFilter: InsightFilter
     } // insightVizDataLogic
-    updateQuerySource: (querySource: import('scenes/insights/insightVizDataLogic').QuerySourceUpdate) => {
-        querySource: import('scenes/insights/insightVizDataLogic').QuerySourceUpdate
+    updateQuerySource: (querySource: QuerySourceUpdate) => {
+        querySource: QuerySourceUpdate
     } // insightVizDataLogic
     addCustomBracket: () => {}
     removeCustomBracket: (index: number) => {
@@ -275,11 +277,13 @@ export const retentionLogic = kea<retentionLogicType>([
     selectors({
         hasValidBreakdown: [
             (s) => [s.breakdownFilter],
-            (breakdownFilter: BreakdownFilter | null | undefined) => hasBreakdownFilter(breakdownFilter),
+            (breakdownFilter: null | import('~/queries/schema/schema-general').BreakdownFilter | undefined) =>
+                hasBreakdownFilter(breakdownFilter),
         ],
         isRetentionDWHEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_RETENTION_DWH],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_RETENTION_DWH],
         ],
         isPropertyValueAggregation: [
             (s) => [s.retentionFilter],
@@ -289,7 +293,7 @@ export const retentionLogic = kea<retentionLogicType>([
         results: [
             (s) => [s.insightQuery, s.insightData, s.retentionFilter, s.timezone, s.isPropertyValueAggregation],
             (
-                insightQuery: DataNode<Record<string, any>>,
+                insightQuery: import('~/queries/schema/schema-general').DataNode<Record<string, any>>,
                 insightData: Record<string, any>,
                 retentionFilter: RetentionFilter | null,
                 timezone: string,

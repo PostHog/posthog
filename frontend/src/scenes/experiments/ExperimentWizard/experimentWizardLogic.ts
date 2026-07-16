@@ -4,8 +4,12 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import type { Experiment, FeatureFlagType } from '~/types'
 
-import type { ExperimentMetric } from '../../../queries/schema/schema-general'
-import type { FeatureFlagFilters } from '../../../types'
+import type {
+    ExperimentExposureCriteria,
+    ExperimentMetric,
+    ExperimentMetricUnion,
+} from '../../../queries/schema/schema-general'
+import type { FeatureFlagFilters, MultivariateFlagVariant } from '../../../types'
 import { NEW_EXPERIMENT } from '../constants'
 import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import { selectExistingFeatureFlagModalLogic } from '../ExperimentForm/selectExistingFeatureFlagModalLogic'
@@ -87,26 +91,26 @@ export interface experimentWizardLogicActions {
         name: string
         value: any
     } // createExperimentLogic
-    setExposureCriteria: (criteria: import('../../../queries/schema').ExperimentExposureCriteria) => {
-        criteria: import('../../../queries/schema').ExperimentExposureCriteria
+    setExposureCriteria: (criteria: ExperimentExposureCriteria) => {
+        criteria: ExperimentExposureCriteria
     } // createExperimentLogic
     setFeatureFlagConfig: (config: {
         ensure_experience_continuity?: boolean
         feature_flag_key?: string
         rollout_percentage?: number
-        variants?: import('~/types').MultivariateFlagVariant[]
+        variants?: MultivariateFlagVariant[]
     }) => {
         config: {
             ensure_experience_continuity?: boolean | undefined
             feature_flag_key?: string | undefined
             rollout_percentage?: number | undefined
-            variants?: import('~/types').MultivariateFlagVariant[] | undefined
+            variants?: MultivariateFlagVariant[] | undefined
         }
     } // createExperimentLogic
     setSharedMetrics: (sharedMetrics: { primary: ExperimentMetric[]; secondary: ExperimentMetric[] }) => {
         sharedMetrics: {
-            primary: import('../../../queries/schema').ExperimentMetricUnion[]
-            secondary: import('../../../queries/schema').ExperimentMetricUnion[]
+            primary: ExperimentMetricUnion[]
+            secondary: ExperimentMetricUnion[]
         }
     } // createExperimentLogic
     reportExperimentWizardGuideToggled: (

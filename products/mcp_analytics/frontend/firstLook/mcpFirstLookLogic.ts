@@ -9,7 +9,8 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { ProductKey } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
 
-import type { OrganizationType, TeamPublicType, TeamType, UserType } from '../../../../frontend/src/types'
+import type { OrganizationType, UserType } from '../../../../frontend/src/types'
+import type { TeamPublicType, TeamType } from '../../../../frontend/src/types'
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 import type { HarnessRow, KPIData, ToolRow } from '../mcpDashboardOverviewLogic'
 import { mcpDashboardOverviewLogic } from '../mcpDashboardOverviewLogic'
@@ -43,7 +44,7 @@ export interface mcpFirstLookLogicValues {
 export interface mcpFirstLookLogicActions {
     updateHasSeenProductIntroFor: (
         productKey: ProductKey,
-        value?: boolean | undefined
+        value?: boolean
     ) => {
         productKey: ProductKey
         value: boolean
@@ -141,8 +142,8 @@ export const mcpFirstLookLogic = kea<mcpFirstLookLogicType>([
             (s) => [s.isOnboarded, s.user, s.currentTeam, s.kpis, s.toolRows],
             (
                 isOnboarded: boolean,
-                user: UserType | null,
-                currentTeam: TeamPublicType | TeamType | null,
+                user: null | import('~/types').UserType,
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
                 kpis: KPIData,
                 toolRows: ToolRow[]
             ): boolean => {
@@ -168,8 +169,8 @@ export const mcpFirstLookLogic = kea<mcpFirstLookLogicType>([
         headline: [
             (s) => [s.currentOrganization, s.currentTeam, s.topTool, s.dominantClient, s.kpis],
             (
-                currentOrganization: OrganizationType | null,
-                currentTeam: TeamPublicType | TeamType | null,
+                currentOrganization: null | import('~/types').OrganizationType,
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
                 topTool: ToolRow | null,
                 dominantClient: string | null,
                 kpis: KPIData

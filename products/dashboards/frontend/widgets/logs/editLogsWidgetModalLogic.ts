@@ -361,32 +361,7 @@ export const editLogsWidgetModalLogic = kea<editLogsWidgetModalLogicType>([
                 wrapLines: boolean,
                 timezone: LogsTimezone,
                 dateFrom: WidgetDateFromValue,
-                widgetConfig: {
-                    dateRange?:
-                        | {
-                              date_from?:
-                                  | '-14d'
-                                  | '-1h'
-                                  | '-1M'
-                                  | '-24h'
-                                  | '-30d'
-                                  | '-30M'
-                                  | '-3h'
-                                  | '-7d'
-                                  | '-90d'
-                                  | null
-                                  | undefined
-                          }
-                        | null
-                        | undefined
-                    limit: number
-                    orderBy: 'earliest' | 'latest'
-                    savedViewId?: string | null | undefined
-                    serviceNames?: string[] | undefined
-                    severityLevels?: ('debug' | 'error' | 'fatal' | 'info' | 'trace' | 'warn')[] | undefined
-                    timezone: 'local' | 'UTC'
-                    wrapLines: boolean
-                }
+                widgetConfig: LogsWidgetConfig
             ) =>
                 validateLogsWidgetConfigInput({
                     limit,
@@ -433,7 +408,7 @@ export const editLogsWidgetModalLogic = kea<editLogsWidgetModalLogicType>([
                           fieldErrors: Partial<Record<'dateRange' | 'limit' | 'timezone' | 'wrapLines', string>>
                           success: false
                       },
-                fieldErrors: Partial<Record<'dateRange' | 'limit' | 'timezone' | 'wrapLines', string>>
+                fieldErrors: LogsWidgetFieldErrors
             ): LogsWidgetFieldErrors => {
                 if (!validation.success) {
                     return { ...validation.fieldErrors, ...fieldErrors }

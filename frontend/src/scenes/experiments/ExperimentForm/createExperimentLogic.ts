@@ -23,7 +23,9 @@ import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/
 
 import type { ExperimentFeatureFlagFiltersApi } from 'products/experiments/frontend/generated/api.schemas'
 
+import type { ProductIntentProperties } from '../../../lib/utils/product-intents'
 import type { ExperimentMetricUnion } from '../../../queries/schema/schema-general'
+import type { FeatureFlagType } from '../../../types'
 import { NEW_EXPERIMENT } from '../constants'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
@@ -108,12 +110,10 @@ export interface createExperimentLogicValues {
 export interface createExperimentLogicActions {
     reportExperimentCreated: (
         experiment: Experiment,
-        metadata?:
-            | {
-                  creation_source?: string
-                  has_linked_flag?: boolean
-              }
-            | undefined
+        metadata?: {
+            creation_source?: string
+            has_linked_flag?: boolean
+        }
     ) => {
         experiment: Experiment
         metadata:
@@ -123,12 +123,10 @@ export interface createExperimentLogicActions {
               }
             | undefined
     } // eventUsageLogic
-    updateFlag: (flag: import('~/types').FeatureFlagType) => {
-        flag: import('~/types').FeatureFlagType
+    updateFlag: (flag: FeatureFlagType) => {
+        flag: FeatureFlagType
     } // featureFlagsLogic
-    addProductIntent: (
-        properties: import('../../../lib/utils/product-intents').ProductIntentProperties
-    ) => import('../../../lib/utils/product-intents').ProductIntentProperties // teamLogic
+    addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     cancelForm: () => {
         value: true
     }

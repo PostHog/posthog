@@ -164,7 +164,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
             (s) => [s.hasAvailableFeature, s.featureFlags],
             (
                 hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean,
-                featureFlags: FeatureFlagsSet
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): APIScopeObject[] => {
                 const allResources = [
                     AccessControlResourceType.Action,

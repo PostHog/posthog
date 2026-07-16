@@ -101,8 +101,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 s.hasAvailableFeature,
             ],
             (
-                sceneSidePanelContext: SidePanelSceneContext,
-                currentTeam: TeamPublicType | TeamType | null,
+                sceneSidePanelContext: import('./types').SidePanelSceneContext,
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
                 scenePanelIsPresent: boolean,
                 isCloudOrDev: boolean | undefined,
                 hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean

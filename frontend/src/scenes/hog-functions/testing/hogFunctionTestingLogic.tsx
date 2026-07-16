@@ -543,9 +543,9 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
         baseEventsQuery: [
             (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.dateRange],
             (
-                configuration: HogFunctionConfigurationType,
-                matchingFilters: PropertyGroupFilter,
-                groupTypes: Map<GroupTypeIndex, GroupType>,
+                configuration: import('~/types').HogFunctionConfigurationType,
+                matchingFilters: import('~/types').PropertyGroupFilter,
+                groupTypes: Map<import('~/types').GroupTypeIndex, import('~/types').GroupType>,
                 dateRange: {
                     after: string | null
                     before: string | null
@@ -577,8 +577,8 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
         totalEventsQuery: [
             (s) => [s.configuration, s.matchingFilters, s.dateRange],
             (
-                configuration: HogFunctionConfigurationType,
-                matchingFilters: PropertyGroupFilter,
+                configuration: import('~/types').HogFunctionConfigurationType,
+                matchingFilters: import('~/types').PropertyGroupFilter,
                 dateRange: {
                     after: string | null
                     before: string | null

@@ -13,8 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { BillingType } from '~/types'
 
-import type { StartupProgramLabel } from '../../types'
-import type { OrganizationType, UserType } from '../../types'
+import type { OrganizationType, StartupProgramLabel, UserType } from '../../types'
 import { PUBLIC_EMAIL_DOMAINS } from './constants'
 import { getYCBatchOptions } from './utils'
 
@@ -229,7 +228,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
         ],
         domainFromEmail: [
             (s) => [s.user],
-            (user: UserType | null) => {
+            (user: null | import('~/types').UserType) => {
                 if (!user?.email) {
                     return ''
                 }

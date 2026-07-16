@@ -30,7 +30,8 @@ import { ProjectTreeRef } from '~/types'
 
 import type { Breadcrumb, UserBasicType } from '../../../types'
 import { panelLayoutLogic } from '../panelLayoutLogic'
-import type { FolderState } from './types'
+import type { PanelLayoutNavIdentifier } from '../panelLayoutLogic'
+import type { FolderState, ProjectTreeAction } from './types'
 import {
     convertFileSystemEntryToTreeDataItem,
     findInProjectTree,
@@ -130,8 +131,8 @@ export interface projectTreeLogicActions {
     resetPanelLayout: (keyboardAction: boolean) => {
         keyboardAction: boolean
     } // panelLayoutLogic
-    setActivePanelIdentifier: (identifier: import('../panelLayoutLogic').PanelLayoutNavIdentifier) => {
-        identifier: import('../panelLayoutLogic').PanelLayoutNavIdentifier
+    setActivePanelIdentifier: (identifier: PanelLayoutNavIdentifier) => {
+        identifier: PanelLayoutNavIdentifier
     } // panelLayoutLogic
     addLoadedResults: (results: RecentResults | SearchResults) => {
         results: RecentResults | SearchResults
@@ -224,10 +225,10 @@ export interface projectTreeLogicActions {
         expandedFolders: string[]
     } // projectTreeDataLogic
     queueAction: (
-        action: import('./types').ProjectTreeAction,
+        action: ProjectTreeAction,
         projectTreeLogicKey: string
     ) => {
-        action: import('./types').ProjectTreeAction
+        action: ProjectTreeAction
         projectTreeLogicKey: string
     } // projectTreeDataLogic
     addFolder: (
@@ -870,9 +871,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users, s.onlyFolders],
             (
                 viableItems: FileSystemEntry[],
-                folderStates: Record<string, FolderState>,
+                folderStates: Record<string, import('./types').FolderState>,
                 checkedItems: Record<string, boolean>,
-                users: Record<string, UserBasicType>,
+                users: Record<string, import('~/types').UserBasicType>,
                 onlyFolders: boolean
             ): TreeDataItem[] => {
                 const children = convertFileSystemEntryToTreeDataItem({
@@ -893,9 +894,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (
                 recentResults: RecentResults,
                 recentResultsLoading: boolean,
-                folderStates: Record<string, FolderState>,
+                folderStates: Record<string, import('./types').FolderState>,
                 checkedItems: Record<string, boolean>,
-                users: Record<string, UserBasicType>
+                users: Record<string, import('~/types').UserBasicType>
             ): TreeDataItem[] => {
                 const results = convertFileSystemEntryToTreeDataItem({
                     imports: recentResults.results.map((i) => ({ ...i, protocol: 'project://' })),
@@ -942,11 +943,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (
                 searchResults: SearchResults,
                 searchResultsLoading: boolean,
-                folderStates: Record<string, FolderState>,
+                folderStates: Record<string, import('./types').FolderState>,
                 checkedItems: Record<string, boolean>,
                 sortMethod: ProjectTreeSortMethod,
                 onlyFolders: boolean,
-                users: Record<string, UserBasicType>
+                users: Record<string, import('~/types').UserBasicType>
             ): TreeDataItem[] => {
                 const results = convertFileSystemEntryToTreeDataItem({
                     imports: searchResults.results.map((i) => ({ ...i, protocol: 'project://' })),

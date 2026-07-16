@@ -84,6 +84,7 @@ import {
     PropertyMathType,
 } from '~/types'
 
+import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type {
@@ -94,8 +95,8 @@ import type {
     FunnelTimeConversionMetrics,
     GroupType,
     GroupTypeIndex,
-    TrendResult,
 } from '../../types'
+import type { TrendResult } from '../../types'
 import type { ExperimentsConfig } from '../settings/environment/experimentsConfigLogic'
 import {
     EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
@@ -618,12 +619,10 @@ export interface experimentLogicActions {
     } // eventUsageLogic
     reportExperimentCreated: (
         experiment: Experiment,
-        metadata?:
-            | {
-                  creation_source?: string
-                  has_linked_flag?: boolean
-              }
-            | undefined
+        metadata?: {
+            creation_source?: string
+            has_linked_flag?: boolean
+        }
     ) => {
         experiment: Experiment
         metadata:
@@ -647,7 +646,10 @@ export interface experimentLogicActions {
         cohort: CohortType
         experiment: Experiment
     } // eventUsageLogic
-    reportExperimentHoldoutAssigned: (args_0: {
+    reportExperimentHoldoutAssigned: ({
+        experimentId,
+        holdoutId,
+    }: {
         experimentId: ExperimentIdType
         holdoutId: ExperimentHoldoutType['id']
     }) => {
@@ -681,17 +683,15 @@ export interface experimentLogicActions {
     reportExperimentMetricsRefreshed: (
         experiment: Experiment,
         forceRefresh: boolean,
-        context?:
-            | {
-                  auto_refresh_enabled?: boolean
-                  auto_refresh_interval?: number
-                  previous_refresh_age_ms?: number | null
-                  previous_refresh_id?: string | null
-                  previous_refresh_state?: string | null
-                  previous_refresh_triggered_by?: string | null
-                  triggered_by: 'auto-refresh' | 'manual'
-              }
-            | undefined
+        context?: {
+            auto_refresh_enabled?: boolean
+            auto_refresh_interval?: number
+            previous_refresh_age_ms?: number | null
+            previous_refresh_id?: string | null
+            previous_refresh_state?: string | null
+            previous_refresh_triggered_by?: string | null
+            triggered_by: 'auto-refresh' | 'manual'
+        }
     ) => {
         context:
             | {
@@ -725,14 +725,14 @@ export interface experimentLogicActions {
     } // eventUsageLogic
     reportExperimentTimeseriesRecalculated: (
         experimentId: ExperimentIdType,
-        metric: ExperimentMetricUnion
+        metric: ExperimentMetric
     ) => {
         experimentId: ExperimentIdType
         metric: ExperimentMetricUnion
     } // eventUsageLogic
     reportExperimentTimeseriesViewed: (
         experimentId: ExperimentIdType,
-        metric: ExperimentMetricUnion
+        metric: ExperimentMetric
     ) => {
         experimentId: ExperimentIdType
         metric: ExperimentMetricUnion
@@ -794,9 +794,7 @@ export interface experimentLogicActions {
     openSecondarySharedMetricModal: (sharedMetricId: number | null) => {
         sharedMetricId: number | null
     } // modalsLogic
-    addProductIntent: (
-        properties: import('../../lib/utils/product-intents').ProductIntentProperties
-    ) => import('../../lib/utils/product-intents').ProductIntentProperties // teamLogic
+    addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     addSharedMetricsToExperiment: (
         sharedMetricIds: SharedMetric['id'][],
         metadata: {
@@ -3639,7 +3637,7 @@ export const experimentLogic = kea<experimentLogicType>([
         recommendedSampleSize: [
             (s) => [s.conversionMetrics, s.variants, s.minimumDetectableEffect],
             (
-                conversionMetrics: FunnelTimeConversionMetrics,
+                conversionMetrics: import('~/types').FunnelTimeConversionMetrics,
                 variants: MultivariateFlagVariant[],
                 minimumDetectableEffect: number
             ): number => {
@@ -3664,12 +3662,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 experiment: Experiment,
                 variants: MultivariateFlagVariant[],
                 getInsightType: (
-                    metric: ExperimentFunnelsQuery | ExperimentMetricUnion | ExperimentTrendsQuery | undefined
+                    metric:
+                        | ExperimentFunnelsQuery
+                        | ExperimentTrendsQuery
+                        | import('~/queries/schema/schema-general').ExperimentMetricUnion
+                        | undefined
                 ) => InsightType,
-                firstPrimaryMetric: ExperimentFunnelsQuery | ExperimentMetricUnion | ExperimentTrendsQuery | undefined,
-                funnelResults: FunnelResultType,
-                conversionMetrics: FunnelTimeConversionMetrics,
-                trendResults: TrendResult[],
+                firstPrimaryMetric: ExperimentFunnelsQuery | ExperimentMetric | ExperimentTrendsQuery | undefined,
+                funnelResults: import('~/types').FunnelResultType,
+                conversionMetrics: import('~/types').FunnelTimeConversionMetrics,
+                trendResults: import('~/types').TrendResult[],
                 minimumDetectableEffect: number
             ): number => {
                 if (getInsightType(firstPrimaryMetric) === InsightType.FUNNELS) {
@@ -3902,7 +3904,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 getOrderedMetricsWithResults: (isSecondary: boolean) => {
                     displayIndex: number
                     error: any
-                    metric: ExperimentMetricUnion
+                    metric: import('~/queries/schema/schema-general').ExperimentMetricUnion
                     metricIndex: number
                     result: any
                 }[]
@@ -3914,7 +3916,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 getOrderedMetricsWithResults: (isSecondary: boolean) => {
                     displayIndex: number
                     error: any
-                    metric: ExperimentMetricUnion
+                    metric: import('~/queries/schema/schema-general').ExperimentMetricUnion
                     metricIndex: number
                     result: any
                 }[]

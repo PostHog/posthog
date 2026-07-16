@@ -198,15 +198,15 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
             (s) => [s.querySource, s.aggregationLabel],
             (
                 querySource:
-                    | FunnelsQuery
-                    | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
-                    | StickinessQuery
-                    | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
-                    | null,
+                    | null
+                    | import('~/queries/schema/schema-general').FunnelsQuery
+                    | import('~/queries/schema/schema-general').LifecycleQuery
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').StickinessQuery
+                    | import('~/queries/schema/schema-general').TrendsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery,
                 aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
             ): Noun => {
                 const aggregation_group_type_index =

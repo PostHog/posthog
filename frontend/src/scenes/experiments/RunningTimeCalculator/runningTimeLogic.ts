@@ -18,8 +18,7 @@ import type {
 } from 'products/experiments/frontend/generated/api.schemas'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { CachedNewExperimentQueryResponse } from '../../../queries/schema/schema-general'
-import type { ExperimentMetricUnion } from '../../../queries/schema/schema-general'
+import type { CachedNewExperimentQueryResponse, ExperimentMetricUnion } from '../../../queries/schema/schema-general'
 import { experimentLogic } from '../experimentLogic'
 import { experimentMetricsLogic } from '../experimentMetricsLogic'
 import { isLaunched } from '../experimentsLogic'
@@ -400,16 +399,16 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             ],
             (
                 experiment: Experiment,
-                featureFlags: FeatureFlagsSet,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 legacyMetricsWithResults: {
                     displayIndex: number
                     error: any
-                    metric: ExperimentMetricUnion
+                    metric: import('../../../queries/schema').ExperimentMetricUnion
                     metricIndex: number
                     result: any
                 }[],
-                recalcResults: CachedNewExperimentQueryResponse[],
-                recalcErrors: unknown[]
+                recalcResults: import('../../../queries/schema').CachedNewExperimentQueryResponse[],
+                recalcErrors: (unknown | null)[]
             ) => {
                 if (experiment && featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
                     return getOrderedMetricsWithResults(experiment, recalcResults, recalcErrors, [], [], false)
@@ -424,7 +423,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 results: {
                     displayIndex: number
                     error: any
-                    metric: ExperimentMetricUnion
+                    metric: import('../../../queries/schema').ExperimentMetricUnion
                     metricIndex: number
                     result: any
                 }[]
@@ -435,11 +434,11 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         automaticCalculationInput: [
             (s) => [s.mode, s.metricsWithResults, s.numberOfVariants, s.mde],
             (
-                mode: 'automatic' | 'manual',
+                mode: RunningTimeConfig['mode'],
                 results: {
                     displayIndex: number
                     error: any
-                    metric: ExperimentMetricUnion
+                    metric: import('../../../queries/schema').ExperimentMetricUnion
                     metricIndex: number
                     result: any
                 }[],

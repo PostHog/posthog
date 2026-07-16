@@ -314,31 +314,7 @@ export const editSurveyResultsWidgetModalLogic = kea<editSurveyResultsWidgetModa
             (s) => [s.limit, s.dateFrom, s.widgetConfig],
             // The survey is chosen on the tile filter bar; read it from the persisted config so saving
             // the date range / limit preserves the selection.
-            (
-                limit: number,
-                dateFrom: SurveyWidgetDateFrom,
-                widgetConfig: {
-                    dateRange?:
-                        | {
-                              date_from?:
-                                  | '-14d'
-                                  | '-1h'
-                                  | '-1M'
-                                  | '-24h'
-                                  | '-30d'
-                                  | '-30M'
-                                  | '-3h'
-                                  | '-7d'
-                                  | '-90d'
-                                  | null
-                                  | undefined
-                          }
-                        | null
-                        | undefined
-                    limit: number
-                    surveyId?: string | null | undefined
-                }
-            ) =>
+            (limit: number, dateFrom: SurveyWidgetDateFrom, widgetConfig: SurveyResultsWidgetConfig) =>
                 validateSurveyResultsWidgetConfigInput({
                     surveyId: widgetConfig.surveyId ?? null,
                     limit,
@@ -378,7 +354,7 @@ export const editSurveyResultsWidgetModalLogic = kea<editSurveyResultsWidgetModa
                           fieldErrors: Partial<Record<'dateRange' | 'limit' | 'surveyId', string>>
                           success: false
                       },
-                fieldErrors: Partial<Record<'dateRange' | 'limit' | 'surveyId', string>>
+                fieldErrors: SurveyResultsWidgetFieldErrors
             ): SurveyResultsWidgetFieldErrors => {
                 if (!validation.success) {
                     return { ...validation.fieldErrors, ...fieldErrors }

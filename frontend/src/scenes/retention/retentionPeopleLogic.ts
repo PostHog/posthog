@@ -12,10 +12,24 @@ import { NodeKind, RetentionQuery } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import type {
+    DataNode,
+    ErrorTrackingQueryResponse,
     FunnelsQuery,
+    HogQLAutocompleteResponse,
+    HogQLMetadataResponse,
+    HogQLQueryResponse,
+    HogQueryResponse,
     LifecycleQuery,
+    LogAttributesQueryResponse,
+    LogValuesQueryResponse,
+    MetricsQueryResponse,
     PathsQuery,
+    RefreshType,
+    SessionsQueryResponse,
     StickinessQuery,
+    TraceSpansAggregationQueryResponse,
+    TraceSpansAttributeBreakdownQueryResponse,
+    TraceSpansQueryResponse,
     TrendsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
@@ -46,51 +60,49 @@ export interface retentionPeopleLogicValues {
 export interface retentionPeopleLogicActions {
     loadDataSuccess: (
         response:
+            | ErrorTrackingQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
             | Record<string, any>
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
             | null
-            | import('~/queries/schema/schema-general').ErrorTrackingQueryResponse
-            | import('~/queries/schema/schema-general').HogQLAutocompleteResponse
-            | import('~/queries/schema/schema-general').HogQLMetadataResponse
-            | import('~/queries/schema/schema-general').HogQLQueryResponse<any[]>
-            | import('~/queries/schema/schema-general').HogQueryResponse
-            | import('~/queries/schema/schema-general').LogAttributesQueryResponse
-            | import('~/queries/schema/schema-general').LogValuesQueryResponse
-            | import('~/queries/schema/schema-general').MetricsQueryResponse
-            | import('~/queries/schema/schema-general').SessionsQueryResponse
-            | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
-            | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
-            | import('~/queries/schema/schema-general').TraceSpansQueryResponse
             | undefined,
-        payload?:
-            | {
-                  overrideQuery: import('~/queries/schema/schema-general').DataNode<Record<string, any>> | undefined
-                  pollOnly: boolean
-                  queryId: string
-                  refresh: import('~/queries/schema/schema-general').RefreshType | undefined
-              }
-            | undefined
-    ) => {
         payload?: {
-            overrideQuery: import('~/queries/schema/schema-general').DataNode<Record<string, any>> | undefined
+            overrideQuery: DataNode<Record<string, any>> | undefined
             pollOnly: boolean
             queryId: string
-            refresh: import('~/queries/schema/schema-general').RefreshType | undefined
+            refresh: RefreshType | undefined
+        }
+    ) => {
+        payload?: {
+            overrideQuery: DataNode<Record<string, any>> | undefined
+            pollOnly: boolean
+            queryId: string
+            refresh: RefreshType | undefined
         }
         response:
+            | ErrorTrackingQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
             | Record<string, any>
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
             | null
-            | import('~/queries/schema/schema-general').ErrorTrackingQueryResponse
-            | import('~/queries/schema/schema-general').HogQLAutocompleteResponse
-            | import('~/queries/schema/schema-general').HogQLMetadataResponse
-            | import('~/queries/schema/schema-general').HogQLQueryResponse<any[]>
-            | import('~/queries/schema/schema-general').HogQueryResponse
-            | import('~/queries/schema/schema-general').LogAttributesQueryResponse
-            | import('~/queries/schema/schema-general').LogValuesQueryResponse
-            | import('~/queries/schema/schema-general').MetricsQueryResponse
-            | import('~/queries/schema/schema-general').SessionsQueryResponse
-            | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
-            | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
-            | import('~/queries/schema/schema-general').TraceSpansQueryResponse
             | undefined
     } // insightVizDataLogic
     clearPeople: () => {
@@ -214,15 +226,15 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
             (s) => [s.querySource],
             (
                 querySource:
-                    | FunnelsQuery
-                    | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
-                    | StickinessQuery
-                    | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').FunnelsQuery
+                    | import('~/queries/schema/schema-general').LifecycleQuery
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').StickinessQuery
+                    | import('~/queries/schema/schema-general').TrendsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (querySource ? queryNodeToFilter(querySource) : {}),
         ],
     })),

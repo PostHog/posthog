@@ -9,9 +9,7 @@ import { isRetentionQuery } from '~/queries/utils'
 import { InsightLogicProps, InsightType } from '~/types'
 
 import type { DataColorTheme } from '../../lib/colors'
-import type { RetentionFilter, VizSpecificOptions } from '../../queries/schema/schema-general'
-import type { DateRange } from '../../queries/schema/schema-general'
-import type { DataNode } from '../../queries/schema/schema-general'
+import type { DataNode, DateRange, RetentionFilter, VizSpecificOptions } from '../../queries/schema/schema-general'
 import { dateOptionPlurals } from './constants'
 import { retentionLogic } from './retentionLogic'
 import type { MeanRetentionValue } from './retentionLogic'
@@ -159,7 +157,8 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
     selectors({
         retentionVizOptions: [
             (s) => [s.vizSpecificOptions],
-            (vizSpecificOptions: VizSpecificOptions | null | undefined) => vizSpecificOptions?.[InsightType.RETENTION],
+            (vizSpecificOptions: null | import('~/queries/schema/schema-general').VizSpecificOptions | undefined) =>
+                vizSpecificOptions?.[InsightType.RETENTION],
         ],
         hideSizeColumn: [
             (s) => [s.retentionVizOptions],
@@ -178,7 +177,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
             (s) => [s.filteredResults, s.retentionFilter],
             (
                 filteredResults: ProcessedRetentionPayload[],
-                retentionFilter: RetentionFilter | null
+                retentionFilter: null | import('~/queries/schema/schema-general').RetentionFilter
             ): RetentionTableRow[] => {
                 const { period } = retentionFilter || {}
 

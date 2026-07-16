@@ -668,84 +668,7 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
                     | 'start_time',
                 orderDirection: 'ASC' | 'DESC',
                 filterTestAccounts: boolean,
-                widgetConfig: {
-                    collectionId?: string | null | undefined
-                    dateRange?:
-                        | {
-                              date_from?:
-                                  | '-14d'
-                                  | '-1h'
-                                  | '-1M'
-                                  | '-24h'
-                                  | '-30d'
-                                  | '-30M'
-                                  | '-3h'
-                                  | '-7d'
-                                  | '-90d'
-                                  | null
-                                  | undefined
-                          }
-                        | null
-                        | undefined
-                    filterTestAccounts?: boolean | null | undefined
-                    limit: number
-                    orderBy:
-                        | 'activity_score'
-                        | 'click_count'
-                        | 'console_error_count'
-                        | 'duration'
-                        | 'recording_duration'
-                        | 'start_time'
-                    orderDirection: 'ASC' | 'DESC'
-                    savedFilterId?: string | null | undefined
-                    widgetFilters?:
-                        | Record<
-                              string,
-                              {
-                                  filterId: string
-                                  operator:
-                                      | 'between'
-                                      | 'exact'
-                                      | 'flag_evaluates_to'
-                                      | 'gt'
-                                      | 'gte'
-                                      | 'icontains'
-                                      | 'icontains_multi'
-                                      | 'in'
-                                      | 'is_cleaned_path_exact'
-                                      | 'is_date_after'
-                                      | 'is_date_before'
-                                      | 'is_date_exact'
-                                      | 'is_not'
-                                      | 'is_not_set'
-                                      | 'is_set'
-                                      | 'lt'
-                                      | 'lte'
-                                      | 'max'
-                                      | 'min'
-                                      | 'not_between'
-                                      | 'not_icontains'
-                                      | 'not_icontains_multi'
-                                      | 'not_in'
-                                      | 'not_regex'
-                                      | 'regex'
-                                      | 'semver_caret'
-                                      | 'semver_eq'
-                                      | 'semver_gt'
-                                      | 'semver_gte'
-                                      | 'semver_lt'
-                                      | 'semver_lte'
-                                      | 'semver_neq'
-                                      | 'semver_tilde'
-                                      | 'semver_wildcard'
-                                  optionId: string
-                                  propertyName: string
-                                  value?: string | string[] | null | undefined
-                              }
-                          >
-                        | null
-                        | undefined
-                }
+                widgetConfig: SessionReplayWidgetConfig
             ) =>
                 validateSessionReplayWidgetConfigInput({
                     limit,
@@ -849,9 +772,7 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
                           >
                           success: false
                       },
-                fieldErrors: Partial<
-                    Record<'dateRange' | 'filterTestAccounts' | 'limit' | 'orderBy' | 'orderDirection', string>
-                >
+                fieldErrors: SessionReplayWidgetFieldErrors
             ): SessionReplayWidgetFieldErrors => {
                 if (!validation.success) {
                     return { ...validation.fieldErrors, ...fieldErrors }

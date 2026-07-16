@@ -263,7 +263,10 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
         // TRICKY: we do not load all feature flags here, just the latest ones.
         unavailableFeatureFlagKeys: [
             (s) => [s.featureFlags, s.experiments],
-            (featureFlags: FeatureFlagsResult, experiments: ExperimentsResult) => {
+            (
+                featureFlags: import('scenes/feature-flags/featureFlagsLogic').FeatureFlagsResult,
+                experiments: import('scenes/experiments/experimentsLogic').ExperimentsResult
+            ) => {
                 return new Set([
                     ...featureFlags.results.map((flag) => flag.key),
                     ...experiments.results.map((experiment) => experiment.feature_flag_key),

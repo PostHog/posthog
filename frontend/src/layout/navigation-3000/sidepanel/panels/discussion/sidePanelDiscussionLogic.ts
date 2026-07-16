@@ -161,7 +161,7 @@ export const sidePanelDiscussionLogic = kea<sidePanelDiscussionLogicType>([
     selectors({
         commentsLogicProps: [
             (s) => [s.sceneSidePanelContext],
-            (sceneSidePanelContext: SidePanelSceneContext): CommentsLogicProps | null => {
+            (sceneSidePanelContext: import('../../types').SidePanelSceneContext): CommentsLogicProps | null => {
                 return sceneSidePanelContext.activity_scope
                     ? {
                           scope: sceneSidePanelContext.activity_scope,

@@ -784,123 +784,7 @@ export const editActivityEventsWidgetModalLogic = kea<editActivityEventsWidgetMo
         ...widgetEditModalPropSelectors,
         validation: [
             (s) => [s.limit, s.filterTestAccounts, s.widgetConfig],
-            (
-                limit: number,
-                filterTestAccounts: boolean,
-                widgetConfig: {
-                    dateRange?:
-                        | {
-                              date_from?:
-                                  | '-14d'
-                                  | '-1h'
-                                  | '-1M'
-                                  | '-24h'
-                                  | '-30d'
-                                  | '-30M'
-                                  | '-3h'
-                                  | '-7d'
-                                  | '-90d'
-                                  | null
-                                  | undefined
-                          }
-                        | null
-                        | undefined
-                    eventName?: string | null | undefined
-                    filterTestAccounts?: boolean | null | undefined
-                    limit: number
-                    properties?:
-                        | {
-                              key: string
-                              label?: string | null | undefined
-                              operator:
-                                  | 'between'
-                                  | 'exact'
-                                  | 'flag_evaluates_to'
-                                  | 'gt'
-                                  | 'gte'
-                                  | 'icontains'
-                                  | 'icontains_multi'
-                                  | 'in'
-                                  | 'is_cleaned_path_exact'
-                                  | 'is_date_after'
-                                  | 'is_date_before'
-                                  | 'is_date_exact'
-                                  | 'is_not'
-                                  | 'is_not_set'
-                                  | 'is_set'
-                                  | 'lt'
-                                  | 'lte'
-                                  | 'max'
-                                  | 'min'
-                                  | 'not_between'
-                                  | 'not_icontains'
-                                  | 'not_icontains_multi'
-                                  | 'not_in'
-                                  | 'not_regex'
-                                  | 'regex'
-                                  | 'semver_caret'
-                                  | 'semver_eq'
-                                  | 'semver_gt'
-                                  | 'semver_gte'
-                                  | 'semver_lt'
-                                  | 'semver_lte'
-                                  | 'semver_neq'
-                                  | 'semver_tilde'
-                                  | 'semver_wildcard'
-                              type: 'event' | 'person'
-                              value?: boolean | number | string | (boolean | number | string)[] | null | undefined
-                          }[]
-                        | null
-                        | undefined
-                    widgetFilters?:
-                        | Record<
-                              string,
-                              {
-                                  filterId: string
-                                  operator:
-                                      | 'between'
-                                      | 'exact'
-                                      | 'flag_evaluates_to'
-                                      | 'gt'
-                                      | 'gte'
-                                      | 'icontains'
-                                      | 'icontains_multi'
-                                      | 'in'
-                                      | 'is_cleaned_path_exact'
-                                      | 'is_date_after'
-                                      | 'is_date_before'
-                                      | 'is_date_exact'
-                                      | 'is_not'
-                                      | 'is_not_set'
-                                      | 'is_set'
-                                      | 'lt'
-                                      | 'lte'
-                                      | 'max'
-                                      | 'min'
-                                      | 'not_between'
-                                      | 'not_icontains'
-                                      | 'not_icontains_multi'
-                                      | 'not_in'
-                                      | 'not_regex'
-                                      | 'regex'
-                                      | 'semver_caret'
-                                      | 'semver_eq'
-                                      | 'semver_gt'
-                                      | 'semver_gte'
-                                      | 'semver_lt'
-                                      | 'semver_lte'
-                                      | 'semver_neq'
-                                      | 'semver_tilde'
-                                      | 'semver_wildcard'
-                                  optionId: string
-                                  propertyName: string
-                                  value?: string | string[] | null | undefined
-                              }
-                          >
-                        | null
-                        | undefined
-                }
-            ) =>
+            (limit: number, filterTestAccounts: boolean, widgetConfig: ActivityEventsWidgetConfig) =>
                 validateActivityEventsWidgetConfigInput({
                     limit,
                     filterTestAccounts,
@@ -1037,7 +921,7 @@ export const editActivityEventsWidgetModalLogic = kea<editActivityEventsWidgetMo
                           fieldErrors: Partial<Record<'dateRange' | 'filterTestAccounts' | 'limit', string>>
                           success: false
                       },
-                fieldErrors: Partial<Record<'dateRange' | 'filterTestAccounts' | 'limit', string>>
+                fieldErrors: ActivityEventsWidgetFieldErrors
             ): ActivityEventsWidgetFieldErrors => {
                 if (!validation.success) {
                     return { ...validation.fieldErrors, ...fieldErrors }

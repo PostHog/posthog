@@ -2,6 +2,11 @@ import { MakeLogicType, connect, kea, key, listeners, path, props } from 'kea'
 
 import { issueActionsLogic } from 'products/error_tracking/frontend/components/IssueActions/issueActionsLogic'
 
+import type {
+    ErrorTrackingIssue,
+    ErrorTrackingIssueAssignee,
+    ErrorTrackingIssueStatus,
+} from '../../../../../frontend/src/queries/schema/schema-general'
 import type { WidgetIssueMetadataDelta } from './applyWidgetIssueMetadataChange'
 
 export type ErrorTrackingWidgetLogicProps = {
@@ -23,17 +28,17 @@ export interface errorTrackingWidgetLogicActions {
     } // issueActionsLogic
     updateIssueAssignee: (
         id: string,
-        assignee: null | import('~/queries/schema').ErrorTrackingIssueAssignee
+        assignee: ErrorTrackingIssue['assignee']
     ) => {
-        assignee: null | import('~/queries/schema').ErrorTrackingIssueAssignee
+        assignee: ErrorTrackingIssueAssignee | null
         id: string
     } // issueActionsLogic
     updateIssueStatus: (
         id: string,
-        status: import('~/queries/schema').ErrorTrackingIssueStatus
+        status: ErrorTrackingIssue['status']
     ) => {
         id: string
-        status: import('~/queries/schema').ErrorTrackingIssueStatus
+        status: ErrorTrackingIssueStatus
     } // issueActionsLogic
 }
 

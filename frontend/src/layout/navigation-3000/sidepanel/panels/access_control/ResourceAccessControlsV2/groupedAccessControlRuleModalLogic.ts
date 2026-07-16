@@ -1787,7 +1787,7 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
 
         modalTitle: [
             (s) => [s.scopeType],
-            (scopeType: ScopeType) => {
+            (scopeType: import('./types').ScopeType) => {
                 switch (scopeType) {
                     case 'default':
                         return 'Update default access'
@@ -1800,7 +1800,8 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
         ],
         isOrgAdmin: [
             (s) => [s.entry],
-            (entry: AccessControlSettingsEntry) => entry.project.inherited_access_level_reason === 'organization_admin',
+            (entry: import('./types').AccessControlSettingsEntry) =>
+                entry.project.inherited_access_level_reason === 'organization_admin',
         ],
         featuresDisabledReason: [
             (s) => [s.loading, s.canEdit, s.isOrgAdmin],
@@ -1821,20 +1822,20 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
         // Project access level
         isProjectLevelShowingInherited: [
             (s) => [s.formProjectLevel, s.entry],
-            (formProjectLevel: FormAccessLevel, entry: AccessControlSettingsEntry) =>
+            (formProjectLevel: FormAccessLevel, entry: import('./types').AccessControlSettingsEntry) =>
                 formProjectLevel === entry.project.inherited_access_level &&
                 entry.project.inherited_access_level !== null,
         ],
         projectInheritedReasonTooltip: [
             (s) => [s.isProjectLevelShowingInherited, s.entry],
-            (isProjectLevelShowingInherited: boolean, entry: AccessControlSettingsEntry) =>
+            (isProjectLevelShowingInherited: boolean, entry: import('./types').AccessControlSettingsEntry) =>
                 isProjectLevelShowingInherited
                     ? getInheritedReasonTooltip(entry.project.inherited_access_level_reason)
                     : undefined,
         ],
         projectLevelOptions: [
             (s) => [s.availableProjectLevels, s.entry],
-            (availableProjectLevels: AccessControlLevel[], entry: AccessControlSettingsEntry) => {
+            (availableProjectLevels: AccessControlLevel[], entry: import('./types').AccessControlSettingsEntry) => {
                 const { inherited_access_level, inherited_access_level_reason, minimum, maximum } = entry.project
                 return getLevelOptionsForResource(availableProjectLevels, {
                     minimum,
@@ -1865,113 +1866,8 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
         isResourceLevelShowingInherited: [
             (s) => [s.formResourceLevels, s.entry],
             (
-                formResourceLevels: Record<
-                    | 'access_control'
-                    | 'account'
-                    | 'action'
-                    | 'activity_log'
-                    | 'agent_approvals'
-                    | 'agents'
-                    | 'alert'
-                    | 'annotation'
-                    | 'approvals'
-                    | 'batch_export'
-                    | 'batch_import'
-                    | 'business_knowledge'
-                    | 'clickhouse_test_cluster_perf'
-                    | 'cohort'
-                    | 'comment'
-                    | 'conversation'
-                    | 'customer_analytics'
-                    | 'customer_journey'
-                    | 'customer_profile_config'
-                    | 'dashboard'
-                    | 'dashboard_template'
-                    | 'data_catalog'
-                    | 'data_catalog_approval'
-                    | 'dataset'
-                    | 'early_access_feature'
-                    | 'element'
-                    | 'endpoint'
-                    | 'engineering_analytics'
-                    | 'error_tracking'
-                    | 'evaluation'
-                    | 'event_definition'
-                    | 'event_filter'
-                    | 'experiment'
-                    | 'experiment_holdout'
-                    | 'experiment_saved_metric'
-                    | 'export'
-                    | 'external_data_schema'
-                    | 'external_data_source'
-                    | 'feature_flag'
-                    | 'field_note'
-                    | 'file_system'
-                    | 'file_system_shortcut'
-                    | 'group'
-                    | 'health_issue'
-                    | 'heatmap'
-                    | 'hog_flow'
-                    | 'hog_function'
-                    | 'ingestion_warning'
-                    | 'insight'
-                    | 'insight_variable'
-                    | 'integration'
-                    | 'internal_run'
-                    | 'legal_document'
-                    | 'link'
-                    | 'live_debugger'
-                    | 'llm_analytics'
-                    | 'llm_gateway'
-                    | 'llm_prompt'
-                    | 'llm_provider_key'
-                    | 'llm_skill'
-                    | 'logs'
-                    | 'marketing_analytics'
-                    | 'mcp_analytics'
-                    | 'metrics'
-                    | 'notebook'
-                    | 'organization'
-                    | 'organization_integration'
-                    | 'organization_member'
-                    | 'person'
-                    | 'plugin'
-                    | 'product_enablement'
-                    | 'product_tour'
-                    | 'project'
-                    | 'property_definition'
-                    | 'query'
-                    | 'query_performance'
-                    | 'replay_scanner'
-                    | 'revenue_analytics'
-                    | 'session_recording'
-                    | 'session_recording_playlist'
-                    | 'sharing_configuration'
-                    | 'signal_scout'
-                    | 'signal_scout_internal'
-                    | 'signal_scout_report'
-                    | 'streamlit_app'
-                    | 'subscription'
-                    | 'survey'
-                    | 'tagger'
-                    | 'task'
-                    | 'ticket'
-                    | 'tracing'
-                    | 'uploaded_media'
-                    | 'usage_metric'
-                    | 'user'
-                    | 'user_interview'
-                    | 'vision_action'
-                    | 'visual_review'
-                    | 'warehouse_objects'
-                    | 'warehouse_table'
-                    | 'warehouse_view'
-                    | 'web_analytics'
-                    | 'webhook'
-                    | 'wizard_session',
-                    FormAccessLevel
-                >,
-                entry: AccessControlSettingsEntry
+                formResourceLevels: Record<APIScopeObject, FormAccessLevel>,
+                entry: import('./types').AccessControlSettingsEntry
             ) =>
                 (resource: APIScopeObject) => {
                     const resourceEntry = entry.resources[resource] as EffectiveAccessControlEntry
@@ -2090,7 +1986,7 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
                         | 'webhook'
                         | 'wizard_session'
                 ) => boolean,
-                entry: AccessControlSettingsEntry
+                entry: import('./types').AccessControlSettingsEntry
             ) =>
                 (resource: APIScopeObject) =>
                     isResourceLevelShowingInherited(resource)
@@ -2103,113 +1999,8 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
             (s) => [s.availableResourceLevels, s.entry, s.formResourceLevels],
             (
                 availableResourceLevels: AccessControlLevel[],
-                entry: AccessControlSettingsEntry,
-                formResourceLevels: Record<
-                    | 'access_control'
-                    | 'account'
-                    | 'action'
-                    | 'activity_log'
-                    | 'agent_approvals'
-                    | 'agents'
-                    | 'alert'
-                    | 'annotation'
-                    | 'approvals'
-                    | 'batch_export'
-                    | 'batch_import'
-                    | 'business_knowledge'
-                    | 'clickhouse_test_cluster_perf'
-                    | 'cohort'
-                    | 'comment'
-                    | 'conversation'
-                    | 'customer_analytics'
-                    | 'customer_journey'
-                    | 'customer_profile_config'
-                    | 'dashboard'
-                    | 'dashboard_template'
-                    | 'data_catalog'
-                    | 'data_catalog_approval'
-                    | 'dataset'
-                    | 'early_access_feature'
-                    | 'element'
-                    | 'endpoint'
-                    | 'engineering_analytics'
-                    | 'error_tracking'
-                    | 'evaluation'
-                    | 'event_definition'
-                    | 'event_filter'
-                    | 'experiment'
-                    | 'experiment_holdout'
-                    | 'experiment_saved_metric'
-                    | 'export'
-                    | 'external_data_schema'
-                    | 'external_data_source'
-                    | 'feature_flag'
-                    | 'field_note'
-                    | 'file_system'
-                    | 'file_system_shortcut'
-                    | 'group'
-                    | 'health_issue'
-                    | 'heatmap'
-                    | 'hog_flow'
-                    | 'hog_function'
-                    | 'ingestion_warning'
-                    | 'insight'
-                    | 'insight_variable'
-                    | 'integration'
-                    | 'internal_run'
-                    | 'legal_document'
-                    | 'link'
-                    | 'live_debugger'
-                    | 'llm_analytics'
-                    | 'llm_gateway'
-                    | 'llm_prompt'
-                    | 'llm_provider_key'
-                    | 'llm_skill'
-                    | 'logs'
-                    | 'marketing_analytics'
-                    | 'mcp_analytics'
-                    | 'metrics'
-                    | 'notebook'
-                    | 'organization'
-                    | 'organization_integration'
-                    | 'organization_member'
-                    | 'person'
-                    | 'plugin'
-                    | 'product_enablement'
-                    | 'product_tour'
-                    | 'project'
-                    | 'property_definition'
-                    | 'query'
-                    | 'query_performance'
-                    | 'replay_scanner'
-                    | 'revenue_analytics'
-                    | 'session_recording'
-                    | 'session_recording_playlist'
-                    | 'sharing_configuration'
-                    | 'signal_scout'
-                    | 'signal_scout_internal'
-                    | 'signal_scout_report'
-                    | 'streamlit_app'
-                    | 'subscription'
-                    | 'survey'
-                    | 'tagger'
-                    | 'task'
-                    | 'ticket'
-                    | 'tracing'
-                    | 'uploaded_media'
-                    | 'usage_metric'
-                    | 'user'
-                    | 'user_interview'
-                    | 'vision_action'
-                    | 'visual_review'
-                    | 'warehouse_objects'
-                    | 'warehouse_table'
-                    | 'warehouse_view'
-                    | 'web_analytics'
-                    | 'webhook'
-                    | 'wizard_session',
-                    FormAccessLevel
-                >
+                entry: import('./types').AccessControlSettingsEntry,
+                formResourceLevels: Record<APIScopeObject, FormAccessLevel>
             ) =>
                 (resource: APIScopeObject, resourceLabel: string) => {
                     const { access_level, inherited_access_level, inherited_access_level_reason, minimum, maximum } =
@@ -2239,116 +2030,8 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
         ],
         showResourceAddOverrideButton: [
             (s) => [s.formResourceLevels],
-            (
-                formResourceLevels: Record<
-                    | 'access_control'
-                    | 'account'
-                    | 'action'
-                    | 'activity_log'
-                    | 'agent_approvals'
-                    | 'agents'
-                    | 'alert'
-                    | 'annotation'
-                    | 'approvals'
-                    | 'batch_export'
-                    | 'batch_import'
-                    | 'business_knowledge'
-                    | 'clickhouse_test_cluster_perf'
-                    | 'cohort'
-                    | 'comment'
-                    | 'conversation'
-                    | 'customer_analytics'
-                    | 'customer_journey'
-                    | 'customer_profile_config'
-                    | 'dashboard'
-                    | 'dashboard_template'
-                    | 'data_catalog'
-                    | 'data_catalog_approval'
-                    | 'dataset'
-                    | 'early_access_feature'
-                    | 'element'
-                    | 'endpoint'
-                    | 'engineering_analytics'
-                    | 'error_tracking'
-                    | 'evaluation'
-                    | 'event_definition'
-                    | 'event_filter'
-                    | 'experiment'
-                    | 'experiment_holdout'
-                    | 'experiment_saved_metric'
-                    | 'export'
-                    | 'external_data_schema'
-                    | 'external_data_source'
-                    | 'feature_flag'
-                    | 'field_note'
-                    | 'file_system'
-                    | 'file_system_shortcut'
-                    | 'group'
-                    | 'health_issue'
-                    | 'heatmap'
-                    | 'hog_flow'
-                    | 'hog_function'
-                    | 'ingestion_warning'
-                    | 'insight'
-                    | 'insight_variable'
-                    | 'integration'
-                    | 'internal_run'
-                    | 'legal_document'
-                    | 'link'
-                    | 'live_debugger'
-                    | 'llm_analytics'
-                    | 'llm_gateway'
-                    | 'llm_prompt'
-                    | 'llm_provider_key'
-                    | 'llm_skill'
-                    | 'logs'
-                    | 'marketing_analytics'
-                    | 'mcp_analytics'
-                    | 'metrics'
-                    | 'notebook'
-                    | 'organization'
-                    | 'organization_integration'
-                    | 'organization_member'
-                    | 'person'
-                    | 'plugin'
-                    | 'product_enablement'
-                    | 'product_tour'
-                    | 'project'
-                    | 'property_definition'
-                    | 'query'
-                    | 'query_performance'
-                    | 'replay_scanner'
-                    | 'revenue_analytics'
-                    | 'session_recording'
-                    | 'session_recording_playlist'
-                    | 'sharing_configuration'
-                    | 'signal_scout'
-                    | 'signal_scout_internal'
-                    | 'signal_scout_report'
-                    | 'streamlit_app'
-                    | 'subscription'
-                    | 'survey'
-                    | 'tagger'
-                    | 'task'
-                    | 'ticket'
-                    | 'tracing'
-                    | 'uploaded_media'
-                    | 'usage_metric'
-                    | 'user'
-                    | 'user_interview'
-                    | 'vision_action'
-                    | 'visual_review'
-                    | 'warehouse_objects'
-                    | 'warehouse_table'
-                    | 'warehouse_view'
-                    | 'web_analytics'
-                    | 'webhook'
-                    | 'wizard_session',
-                    FormAccessLevel
-                >
-            ) =>
-                (resource: APIScopeObject) =>
-                    formResourceLevels[resource] === null,
+            (formResourceLevels: Record<APIScopeObject, FormAccessLevel>) => (resource: APIScopeObject) =>
+                formResourceLevels[resource] === null,
         ],
     }),
 

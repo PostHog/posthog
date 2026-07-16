@@ -281,7 +281,7 @@ export const editExperimentsListWidgetModalLogic = kea<editExperimentsListWidget
                           >
                           success: false
                       },
-                fieldErrors: Partial<Record<'createdBy' | 'limit' | 'orderBy' | 'orderDirection' | 'status', string>>
+                fieldErrors: ExperimentsListWidgetFieldErrors
             ): ExperimentsListWidgetFieldErrors => {
                 if (!validation.success) {
                     return { ...validation.fieldErrors, ...fieldErrors }

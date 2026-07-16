@@ -232,7 +232,7 @@ export const newNotificationDialogLogic = kea<newNotificationDialogLogicType>([
     selectors({
         selectedSlackIntegration: [
             (s) => [s.integrations, s.notificationForm],
-            (integrations: IntegrationType[] | null, form: NewNotificationForm) =>
+            (integrations: import('~/types').IntegrationType[] | null, form: NewNotificationForm) =>
                 integrations?.find((i) => i.id === form.slackIntegrationId) ?? null,
         ],
     }),

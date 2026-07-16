@@ -81,8 +81,8 @@ import {
     SurveyEventProperties,
 } from '~/types'
 
-import type { GroupType, GroupTypeIndex, ProjectType, TeamPublicType, TeamType } from '../../../types'
-import type { HogFunctionMappingTemplateType } from '../../../types'
+import type { GroupType, GroupTypeIndex, HogFunctionMappingTemplateType, ProjectType } from '../../../types'
+import type { TeamPublicType, TeamType } from '../../../types'
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 
@@ -1349,8 +1349,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId, s.survey],
             (
                 configuration: HogFunctionConfigurationType,
-                currentProject: ProjectType | null,
-                groupTypes: Map<GroupTypeIndex, GroupType>,
+                currentProject: null | import('~/types').ProjectType,
+                groupTypes: Map<import('~/types').GroupTypeIndex, import('~/types').GroupType>,
                 contextId: HogFunctionConfigurationContextId,
                 survey: Survey | null
             ): CyclotronJobInvocationGlobals => {
@@ -1675,7 +1675,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (
                 configuration: HogFunctionConfigurationType,
                 matchingFilters: PropertyGroupFilter,
-                groupTypes: Map<GroupTypeIndex, GroupType>,
+                groupTypes: Map<import('~/types').GroupTypeIndex, import('~/types').GroupType>,
                 sourceUsesEvents: boolean
             ): EventsQuery | null => {
                 if (!sourceUsesEvents) {

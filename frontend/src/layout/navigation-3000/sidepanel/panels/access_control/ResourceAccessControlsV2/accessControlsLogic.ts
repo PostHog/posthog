@@ -21,7 +21,8 @@ import {
 } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../../../lib/logic/featureFlagLogic'
-import type { RoleType } from '../../../../../../types'
+import type { AccessControlUIVersion } from '../../../../../../lib/utils/accessControlUtils'
+import type { AccessControlResponseType, AccessControlUpdateType, RoleType } from '../../../../../../types'
 import { accessControlLogic } from '../accessControlLogic'
 import { isResourceRolledOut, resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
@@ -129,24 +130,24 @@ export interface accessControlsLogicValues {
 export interface accessControlsLogicActions {
     updateAccessControlDefault: (
         level: AccessControlLevel,
-        source?: import('lib/utils/accessControlUtils').AccessControlUIVersion | undefined
+        source?: AccessControlUIVersion | undefined
     ) => {
         level: AccessControlLevel
-        source: import('lib/utils/accessControlUtils').AccessControlUIVersion
+        source: AccessControlUIVersion
     } // accessControlLogic
     updateAccessControlDefaultSuccess: (
-        accessControls: null | import('~/types').AccessControlResponseType,
+        accessControls: AccessControlResponseType | null,
         payload?:
             | {
                   level: AccessControlLevel
-                  source: import('lib/utils/accessControlUtils').AccessControlUIVersion
+                  source: AccessControlUIVersion
               }
             | undefined
     ) => {
-        accessControls: null | import('~/types').AccessControlResponseType
+        accessControls: AccessControlResponseType | null
         payload?: {
             level: AccessControlLevel
-            source: import('lib/utils/accessControlUtils').AccessControlUIVersion
+            source: AccessControlUIVersion
         }
     } // accessControlLogic
     updateAccessControlMembers: (
@@ -154,33 +155,33 @@ export interface accessControlsLogicActions {
             level: AccessControlLevel | null
             member: OrganizationMemberType['id']
         }[],
-        source?: import('lib/utils/accessControlUtils').AccessControlUIVersion | undefined
+        source?: AccessControlUIVersion | undefined
     ) => {
         accessControls: {
             level: AccessControlLevel | null
             member: string
         }[]
-        source: import('lib/utils/accessControlUtils').AccessControlUIVersion
+        source: AccessControlUIVersion
     } // accessControlLogic
     updateAccessControlMembersSuccess: (
-        accessControls: null | import('~/types').AccessControlResponseType,
+        accessControls: AccessControlResponseType | null,
         payload?:
             | {
                   accessControls: {
                       level: AccessControlLevel | null
                       member: string
                   }[]
-                  source: import('lib/utils/accessControlUtils').AccessControlUIVersion
+                  source: AccessControlUIVersion
               }
             | undefined
     ) => {
-        accessControls: null | import('~/types').AccessControlResponseType
+        accessControls: AccessControlResponseType | null
         payload?: {
             accessControls: {
                 level: AccessControlLevel | null
                 member: string
             }[]
-            source: import('lib/utils/accessControlUtils').AccessControlUIVersion
+            source: AccessControlUIVersion
         }
     } // accessControlLogic
     updateAccessControlRoles: (
@@ -188,54 +189,48 @@ export interface accessControlsLogicActions {
             level: AccessControlLevel | null
             role: RoleType['id']
         }[],
-        source?: import('lib/utils/accessControlUtils').AccessControlUIVersion | undefined
+        source?: AccessControlUIVersion | undefined
     ) => {
         accessControls: {
             level: AccessControlLevel | null
             role: string
         }[]
-        source: import('lib/utils/accessControlUtils').AccessControlUIVersion
+        source: AccessControlUIVersion
     } // accessControlLogic
     updateAccessControlRolesSuccess: (
-        accessControls: null | import('~/types').AccessControlResponseType,
+        accessControls: AccessControlResponseType | null,
         payload?:
             | {
                   accessControls: {
                       level: AccessControlLevel | null
                       role: string
                   }[]
-                  source: import('lib/utils/accessControlUtils').AccessControlUIVersion
+                  source: AccessControlUIVersion
               }
             | undefined
     ) => {
-        accessControls: null | import('~/types').AccessControlResponseType
+        accessControls: AccessControlResponseType | null
         payload?: {
             accessControls: {
                 level: AccessControlLevel | null
                 role: string
             }[]
-            source: import('lib/utils/accessControlUtils').AccessControlUIVersion
+            source: AccessControlUIVersion
         }
     } // accessControlLogic
     updateResourceAccessControls: (
-        accessControls: Pick<
-            import('~/types').AccessControlUpdateType,
-            'access_level' | 'organization_member' | 'resource' | 'role'
-        >[],
+        accessControls: Pick<AccessControlUpdateType, 'access_level' | 'organization_member' | 'resource' | 'role'>[],
         saveType: 'default' | 'member' | 'role'
     ) => {
-        accessControls: Pick<
-            import('~/types').AccessControlUpdateType,
-            'access_level' | 'organization_member' | 'resource' | 'role'
-        >[]
+        accessControls: Pick<AccessControlUpdateType, 'access_level' | 'organization_member' | 'resource' | 'role'>[]
         saveType: 'default' | 'member' | 'role'
     } // resourcesAccessControlLogic
     updateResourceAccessControlsSuccess: (
-        resourceAccessControls: null | import('~/types').AccessControlResponseType,
+        resourceAccessControls: AccessControlResponseType | null,
         payload?:
             | {
                   accessControls: Pick<
-                      import('~/types').AccessControlUpdateType,
+                      AccessControlUpdateType,
                       'access_level' | 'organization_member' | 'resource' | 'role'
                   >[]
                   saveType: 'default' | 'member' | 'role'
@@ -244,12 +239,12 @@ export interface accessControlsLogicActions {
     ) => {
         payload?: {
             accessControls: Pick<
-                import('~/types').AccessControlUpdateType,
+                AccessControlUpdateType,
                 'access_level' | 'organization_member' | 'resource' | 'role'
             >[]
             saveType: 'default' | 'member' | 'role'
         }
-        resourceAccessControls: null | import('~/types').AccessControlResponseType
+        resourceAccessControls: AccessControlResponseType | null
     } // resourcesAccessControlLogic
     closeRuleModal: () => {
         value: true
@@ -953,112 +948,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             (s) => [s.defaults, s.resources, s.featureFlags],
             (
                 defaults: AccessControlDefaultsResponse | null,
-                resources: (
-                    | 'access_control'
-                    | 'account'
-                    | 'action'
-                    | 'activity_log'
-                    | 'agent_approvals'
-                    | 'agents'
-                    | 'alert'
-                    | 'annotation'
-                    | 'approvals'
-                    | 'batch_export'
-                    | 'batch_import'
-                    | 'business_knowledge'
-                    | 'clickhouse_test_cluster_perf'
-                    | 'cohort'
-                    | 'comment'
-                    | 'conversation'
-                    | 'customer_analytics'
-                    | 'customer_journey'
-                    | 'customer_profile_config'
-                    | 'dashboard'
-                    | 'dashboard_template'
-                    | 'data_catalog'
-                    | 'data_catalog_approval'
-                    | 'dataset'
-                    | 'early_access_feature'
-                    | 'element'
-                    | 'endpoint'
-                    | 'engineering_analytics'
-                    | 'error_tracking'
-                    | 'evaluation'
-                    | 'event_definition'
-                    | 'event_filter'
-                    | 'experiment'
-                    | 'experiment_holdout'
-                    | 'experiment_saved_metric'
-                    | 'export'
-                    | 'external_data_schema'
-                    | 'external_data_source'
-                    | 'feature_flag'
-                    | 'field_note'
-                    | 'file_system'
-                    | 'file_system_shortcut'
-                    | 'group'
-                    | 'health_issue'
-                    | 'heatmap'
-                    | 'hog_flow'
-                    | 'hog_function'
-                    | 'ingestion_warning'
-                    | 'insight'
-                    | 'insight_variable'
-                    | 'integration'
-                    | 'internal_run'
-                    | 'legal_document'
-                    | 'link'
-                    | 'live_debugger'
-                    | 'llm_analytics'
-                    | 'llm_gateway'
-                    | 'llm_prompt'
-                    | 'llm_provider_key'
-                    | 'llm_skill'
-                    | 'logs'
-                    | 'marketing_analytics'
-                    | 'mcp_analytics'
-                    | 'metrics'
-                    | 'notebook'
-                    | 'organization'
-                    | 'organization_integration'
-                    | 'organization_member'
-                    | 'person'
-                    | 'plugin'
-                    | 'product_enablement'
-                    | 'product_tour'
-                    | 'project'
-                    | 'property_definition'
-                    | 'query'
-                    | 'query_performance'
-                    | 'replay_scanner'
-                    | 'revenue_analytics'
-                    | 'session_recording'
-                    | 'session_recording_playlist'
-                    | 'sharing_configuration'
-                    | 'signal_scout'
-                    | 'signal_scout_internal'
-                    | 'signal_scout_report'
-                    | 'streamlit_app'
-                    | 'subscription'
-                    | 'survey'
-                    | 'tagger'
-                    | 'task'
-                    | 'ticket'
-                    | 'tracing'
-                    | 'uploaded_media'
-                    | 'usage_metric'
-                    | 'user'
-                    | 'user_interview'
-                    | 'vision_action'
-                    | 'visual_review'
-                    | 'warehouse_objects'
-                    | 'warehouse_table'
-                    | 'warehouse_view'
-                    | 'web_analytics'
-                    | 'webhook'
-                    | 'wizard_session'
-                )[],
-                featureFlags: FeatureFlagsSet
+                resources: APIScopeObject[],
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): { key: APIScopeObject; label: string }[] => {
                 if (defaults) {
                     return Object.keys(defaults.resource_access_levels)
@@ -1128,111 +1019,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 searchText: string,
                 filters: AccessControlFilters,
                 canUseRoles: boolean,
-                visibleResourceKeySet: Set<
-                    | 'access_control'
-                    | 'account'
-                    | 'action'
-                    | 'activity_log'
-                    | 'agent_approvals'
-                    | 'agents'
-                    | 'alert'
-                    | 'annotation'
-                    | 'approvals'
-                    | 'batch_export'
-                    | 'batch_import'
-                    | 'business_knowledge'
-                    | 'clickhouse_test_cluster_perf'
-                    | 'cohort'
-                    | 'comment'
-                    | 'conversation'
-                    | 'customer_analytics'
-                    | 'customer_journey'
-                    | 'customer_profile_config'
-                    | 'dashboard'
-                    | 'dashboard_template'
-                    | 'data_catalog'
-                    | 'data_catalog_approval'
-                    | 'dataset'
-                    | 'early_access_feature'
-                    | 'element'
-                    | 'endpoint'
-                    | 'engineering_analytics'
-                    | 'error_tracking'
-                    | 'evaluation'
-                    | 'event_definition'
-                    | 'event_filter'
-                    | 'experiment'
-                    | 'experiment_holdout'
-                    | 'experiment_saved_metric'
-                    | 'export'
-                    | 'external_data_schema'
-                    | 'external_data_source'
-                    | 'feature_flag'
-                    | 'field_note'
-                    | 'file_system'
-                    | 'file_system_shortcut'
-                    | 'group'
-                    | 'health_issue'
-                    | 'heatmap'
-                    | 'hog_flow'
-                    | 'hog_function'
-                    | 'ingestion_warning'
-                    | 'insight'
-                    | 'insight_variable'
-                    | 'integration'
-                    | 'internal_run'
-                    | 'legal_document'
-                    | 'link'
-                    | 'live_debugger'
-                    | 'llm_analytics'
-                    | 'llm_gateway'
-                    | 'llm_prompt'
-                    | 'llm_provider_key'
-                    | 'llm_skill'
-                    | 'logs'
-                    | 'marketing_analytics'
-                    | 'mcp_analytics'
-                    | 'metrics'
-                    | 'notebook'
-                    | 'organization'
-                    | 'organization_integration'
-                    | 'organization_member'
-                    | 'person'
-                    | 'plugin'
-                    | 'product_enablement'
-                    | 'product_tour'
-                    | 'project'
-                    | 'property_definition'
-                    | 'query'
-                    | 'query_performance'
-                    | 'replay_scanner'
-                    | 'revenue_analytics'
-                    | 'session_recording'
-                    | 'session_recording_playlist'
-                    | 'sharing_configuration'
-                    | 'signal_scout'
-                    | 'signal_scout_internal'
-                    | 'signal_scout_report'
-                    | 'streamlit_app'
-                    | 'subscription'
-                    | 'survey'
-                    | 'tagger'
-                    | 'task'
-                    | 'ticket'
-                    | 'tracing'
-                    | 'uploaded_media'
-                    | 'usage_metric'
-                    | 'user'
-                    | 'user_interview'
-                    | 'vision_action'
-                    | 'visual_review'
-                    | 'warehouse_objects'
-                    | 'warehouse_table'
-                    | 'warehouse_view'
-                    | 'web_analytics'
-                    | 'webhook'
-                    | 'wizard_session'
-                >
+                visibleResourceKeySet: Set<APIScopeObject>
             ): AccessControlRoleEntry[] => {
                 if (!canUseRoles || !rolesData) {
                     return []
@@ -1256,111 +1043,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 membersData: AccessControlMembersResponse | null,
                 searchText: string,
                 filters: AccessControlFilters,
-                visibleResourceKeySet: Set<
-                    | 'access_control'
-                    | 'account'
-                    | 'action'
-                    | 'activity_log'
-                    | 'agent_approvals'
-                    | 'agents'
-                    | 'alert'
-                    | 'annotation'
-                    | 'approvals'
-                    | 'batch_export'
-                    | 'batch_import'
-                    | 'business_knowledge'
-                    | 'clickhouse_test_cluster_perf'
-                    | 'cohort'
-                    | 'comment'
-                    | 'conversation'
-                    | 'customer_analytics'
-                    | 'customer_journey'
-                    | 'customer_profile_config'
-                    | 'dashboard'
-                    | 'dashboard_template'
-                    | 'data_catalog'
-                    | 'data_catalog_approval'
-                    | 'dataset'
-                    | 'early_access_feature'
-                    | 'element'
-                    | 'endpoint'
-                    | 'engineering_analytics'
-                    | 'error_tracking'
-                    | 'evaluation'
-                    | 'event_definition'
-                    | 'event_filter'
-                    | 'experiment'
-                    | 'experiment_holdout'
-                    | 'experiment_saved_metric'
-                    | 'export'
-                    | 'external_data_schema'
-                    | 'external_data_source'
-                    | 'feature_flag'
-                    | 'field_note'
-                    | 'file_system'
-                    | 'file_system_shortcut'
-                    | 'group'
-                    | 'health_issue'
-                    | 'heatmap'
-                    | 'hog_flow'
-                    | 'hog_function'
-                    | 'ingestion_warning'
-                    | 'insight'
-                    | 'insight_variable'
-                    | 'integration'
-                    | 'internal_run'
-                    | 'legal_document'
-                    | 'link'
-                    | 'live_debugger'
-                    | 'llm_analytics'
-                    | 'llm_gateway'
-                    | 'llm_prompt'
-                    | 'llm_provider_key'
-                    | 'llm_skill'
-                    | 'logs'
-                    | 'marketing_analytics'
-                    | 'mcp_analytics'
-                    | 'metrics'
-                    | 'notebook'
-                    | 'organization'
-                    | 'organization_integration'
-                    | 'organization_member'
-                    | 'person'
-                    | 'plugin'
-                    | 'product_enablement'
-                    | 'product_tour'
-                    | 'project'
-                    | 'property_definition'
-                    | 'query'
-                    | 'query_performance'
-                    | 'replay_scanner'
-                    | 'revenue_analytics'
-                    | 'session_recording'
-                    | 'session_recording_playlist'
-                    | 'sharing_configuration'
-                    | 'signal_scout'
-                    | 'signal_scout_internal'
-                    | 'signal_scout_report'
-                    | 'streamlit_app'
-                    | 'subscription'
-                    | 'survey'
-                    | 'tagger'
-                    | 'task'
-                    | 'ticket'
-                    | 'tracing'
-                    | 'uploaded_media'
-                    | 'usage_metric'
-                    | 'user'
-                    | 'user_interview'
-                    | 'vision_action'
-                    | 'visual_review'
-                    | 'warehouse_objects'
-                    | 'warehouse_table'
-                    | 'warehouse_view'
-                    | 'web_analytics'
-                    | 'webhook'
-                    | 'wizard_session'
-                >
+                visibleResourceKeySet: Set<APIScopeObject>
             ): AccessControlMemberEntry[] => {
                 if (!membersData) {
                     return []

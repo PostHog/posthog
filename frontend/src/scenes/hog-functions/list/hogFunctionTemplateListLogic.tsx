@@ -218,7 +218,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             (
                 rawTemplates: HogFunctionTemplateType[],
                 user: UserType | null,
-                featureFlags: FeatureFlagsSet,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 manualTemplates: HogFunctionTemplateType[],
                 subTemplateIds: HogFunctionSubTemplateIdType[]
             ): HogFunctionTemplateWithSubTemplateType[] => {

@@ -205,7 +205,7 @@ export const editExperimentResultsWidgetModalLogic = kea<editExperimentResultsWi
                           fieldErrors: Partial<Record<'experimentId', string>>
                           success: false
                       },
-                fieldErrors: Partial<Record<'experimentId', string>>
+                fieldErrors: ExperimentResultsWidgetFieldErrors
             ): ExperimentResultsWidgetFieldErrors => {
                 if (!validation.success) {
                     return { ...validation.fieldErrors, ...fieldErrors }

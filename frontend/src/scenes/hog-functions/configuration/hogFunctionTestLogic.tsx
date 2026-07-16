@@ -12,8 +12,7 @@ import { tryJsonParse } from 'lib/utils/json'
 import { groupsModel } from '~/models/groupsModel'
 import { CyclotronJobInvocationGlobals, CyclotronJobTestInvocationResult } from '~/types'
 
-import type { GroupType, GroupTypeIndex, HogFunctionConfigurationType } from '../../../types'
-import type { HogFunctionTypeType } from '../../../types'
+import type { GroupType, GroupTypeIndex, HogFunctionConfigurationType, HogFunctionTypeType } from '../../../types'
 import {
     HogFunctionConfigurationLogicProps,
     hogFunctionConfigurationLogic,
@@ -526,7 +525,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         sortedTestsResult: [
             (s) => [s.configuration, s.testResult, s.testInvocation],
             (
-                configuration: HogFunctionConfigurationType,
+                configuration: import('~/types').HogFunctionConfigurationType,
                 testResult: CyclotronJobTestInvocationResult | null,
                 testInvocation: HogFunctionTestInvocationForm
             ): {

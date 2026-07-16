@@ -85,8 +85,10 @@ export const installationStatusNavLogic = kea<installationStatusNavLogicType>([
             (s) => [s.hasOnboardedAnyProduct, s.currentTeam, s.activeCloudRun, s.hasActiveSession, s.panelMounted],
             (
                 hasOnboardedAnyProduct: boolean,
-                currentTeam: TeamPublicType | TeamType | null,
-                activeCloudRun: CloudRunHandle | null,
+                currentTeam: null | import('../../types').TeamPublicType | import('../../types').TeamType,
+                activeCloudRun:
+                    | null
+                    | import('scenes/onboarding/shared/wizard-sync/activeCloudRunLogic').CloudRunHandle,
                 hasActiveSession: boolean,
                 panelMounted: boolean
             ): boolean => {
@@ -109,8 +111,12 @@ export const installationStatusNavLogic = kea<installationStatusNavLogicType>([
         /** Whether an active run (cloud or local) is the reason we're showing. */
         isRunActive: [
             (s) => [s.activeCloudRun, s.hasActiveSession],
-            (activeCloudRun: CloudRunHandle | null, hasActiveSession: boolean): boolean =>
-                !!(activeCloudRun || hasActiveSession),
+            (
+                activeCloudRun:
+                    | null
+                    | import('scenes/onboarding/shared/wizard-sync/activeCloudRunLogic').CloudRunHandle,
+                hasActiveSession: boolean
+            ): boolean => !!(activeCloudRun || hasActiveSession),
         ],
 
         /** High-level phase for the badge tone: 'running' while in flight, 'idle' for incomplete onboarding. */

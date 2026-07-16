@@ -201,7 +201,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                     }
                 },
             ],
-            (experiment): Experiment => (experiment ?? NEW_EXPERIMENT) as Experiment,
+            (experiment: Experiment | null | undefined): Experiment => (experiment ?? NEW_EXPERIMENT) as Experiment,
         ],
         experimentMissingSelector: [
             (s) => [s.experimentLogicRef],
@@ -223,7 +223,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                     }
                 },
             ],
-            (experimentMissing): boolean => experimentMissing ?? false,
+            (experimentMissing: boolean | undefined): boolean => experimentMissing ?? false,
         ],
         isExperimentLaunchedSelector: [
             (s) => [s.experimentLogicRef],
@@ -245,7 +245,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                     }
                 },
             ],
-            (isExperimentLaunched): boolean => isExperimentLaunched ?? false,
+            (isExperimentLaunched: boolean | undefined): boolean => isExperimentLaunched ?? false,
         ],
         breadcrumbs: [
             (s) => [s.experiment, s.experimentId],

@@ -54,7 +54,7 @@ export interface selectExistingFeatureFlagModalLogicActions {
     } // teamLogic
     updateCurrentTeamSuccess: (
         currentTeam: TeamPublicType | TeamType,
-        payload?: Partial<TeamType> | undefined
+        payload?: Partial<TeamType>
     ) => {
         currentTeam: TeamPublicType | TeamType
         payload?: Partial<TeamType>
@@ -215,7 +215,10 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
     selectors({
         paramsFromFilters: [
             (s) => [s.filters, s.currentTeam],
-            (filters: FeatureFlagModalFilters, currentTeam: TeamPublicType | TeamType | null) => {
+            (
+                filters: FeatureFlagModalFilters,
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
+            ) => {
                 const params: Record<string, any> = {
                     ...filters,
                     limit: FLAGS_PER_PAGE,
@@ -268,7 +271,8 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
         ],
         isEvaluationTagsRequired: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null) => currentTeam?.require_evaluation_contexts || false,
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType) =>
+                currentTeam?.require_evaluation_contexts || false,
         ],
     }),
 ])

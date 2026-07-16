@@ -13,6 +13,8 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { DashboardBasicType } from '~/types'
 
+import type { Node } from '../../../../frontend/src/queries/schema/schema-general'
+import type { DashboardType, QueryBasedInsightModel } from '../../../../frontend/src/types'
 import {
     buildEntryByRef,
     buildFolderDashboardCounts,
@@ -184,6 +186,28 @@ export interface dashboardsFileSystemLogicMeta {
             dashboards: DashboardBasicType[],
             entryByRef: Record<string, FileSystemEntry>
         ) => Record<string, number>
+    }
+    __keaTypeGenInternalReducerActions: {
+        'duplicate dashboard success (models.dashboardsModel)': (
+            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>,
+            payload?: {
+                duplicateTiles: boolean
+                id: number
+                name: string
+                show: boolean
+            }
+        ) => {
+            payload: {
+                dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>
+                payload?: {
+                    duplicateTiles: boolean
+                    id: number
+                    name: string
+                    show: boolean
+                }
+            }
+            type: 'duplicate dashboard success (models.dashboardsModel)'
+        }
     }
 }
 

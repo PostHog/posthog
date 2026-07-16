@@ -53,7 +53,8 @@ import {
 import { RESOURCE_EDITED_EVENT_TYPE, resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
 import type { FeatureFlagsSet } from '../../../../../lib/logic/featureFlagLogic'
-import type { OrganizationType, TeamPublicType, TeamType } from '../../../../../types'
+import type { OrganizationType } from '../../../../../types'
+import type { TeamPublicType, TeamType } from '../../../../../types'
 import { sidePanelContextLogic } from '../../sidePanelContextLogic'
 import type { SidePanelSceneContext } from '../../types'
 
@@ -1165,11 +1166,13 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
     selectors({
         realTimeNotificationsEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS],
         ],
         archivingEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.CLEARABLE_NOTIFICATIONS],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.CLEARABLE_NOTIFICATIONS],
         ],
         legacyNotifications: [
             (s) => [s.importantChanges],
@@ -1270,7 +1273,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         ],
         projectNameForNotification: [
             (s) => [s.currentTeamId, s.currentOrganization],
-            (currentTeamId: number | null, currentOrganization: OrganizationType | null) => {
+            (currentTeamId: number | null, currentOrganization: null | import('~/types').OrganizationType) => {
                 return (notification: InAppNotification): string | null => {
                     if (notification.team_id === null || notification.team_id === currentTeamId) {
                         return null
@@ -1281,7 +1284,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         ],
         sourcePathForNotification: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet) =>
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet) =>
                 (notification: InAppNotification): string | null => {
                     // When the recap flag is on, the digest links to the recap page instead of the raw dashboard
                     const recapEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_RECAP]

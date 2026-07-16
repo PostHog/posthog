@@ -223,8 +223,10 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
         // the summary so the view never contradicts itself.
         totalCalls: [
             (s) => [s.signals, s.stats],
-            (signals: MCPOnboardingSignals | null, stats: EarlyStats): number =>
-                Math.max(stats.totalCalls, signals?.toolCallsTotal ?? 0),
+            (
+                signals: null | import('../mcpAnalyticsOnboardingLogic').MCPOnboardingSignals,
+                stats: EarlyStats
+            ): number => Math.max(stats.totalCalls, signals?.toolCallsTotal ?? 0),
         ],
         summary: [
             (s) => [s.totalCalls, s.stats, s.topTools],

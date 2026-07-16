@@ -75,7 +75,7 @@ export interface experimentTimeseriesLogicValues {
 export interface experimentTimeseriesLogicActions {
     reportExperimentTimeseriesRecalculated: (
         experimentId: ExperimentIdType,
-        metric: ExperimentMetricUnion
+        metric: ExperimentMetric
     ) => {
         experimentId: ExperimentIdType
         metric: ExperimentMetricUnion

@@ -25,7 +25,8 @@ import {
     FeatureFlagType,
 } from '~/types'
 
-import type { AvailableFeature, TeamPublicType, TeamType, UserType } from '../../types'
+import type { AvailableFeature, UserType } from '../../types'
+import type { TeamPublicType, TeamType } from '../../types'
 import { getFlagVariants } from './utils'
 
 export const EXPERIMENTS_PER_PAGE = 100
@@ -207,7 +208,7 @@ export interface experimentsLogicActions {
     } // teamLogic
     updateCurrentTeamSuccess: (
         currentTeam: TeamPublicType | TeamType,
-        payload?: Partial<TeamType> | undefined
+        payload?: Partial<TeamType>
     ) => {
         currentTeam: TeamPublicType | TeamType
         payload?: Partial<TeamType>
@@ -776,7 +777,10 @@ export const experimentsLogic = kea<experimentsLogicType>([
         ],
         featureFlagModalParamsFromFilters: [
             (s) => [s.featureFlagModalFilters, s.currentTeam],
-            (filters: FeatureFlagModalFilters, currentTeam: TeamPublicType | TeamType | null) => {
+            (
+                filters: FeatureFlagModalFilters,
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
+            ) => {
                 const params: Record<string, any> = {
                     ...filters,
                     limit: FLAGS_PER_PAGE,

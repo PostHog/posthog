@@ -45,18 +45,16 @@ export interface nodeDetailSceneLogicValues {
 export interface nodeDetailSceneLogicActions {
     updateDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
-        payload?:
-            | (Partial<DataWarehouseSavedQuery> & {
-                  edited_history_id?: string
-                  folder_id?: string | null
-                  id: string
-                  lifecycle?: string
-                  shouldRematerialize?: boolean
-                  soft_update?: boolean
-                  sync_frequency?: string
-                  types?: string[][]
-              })
-            | undefined
+        payload?: Partial<DataWarehouseSavedQuery> & {
+            edited_history_id?: string
+            folder_id?: string | null
+            id: string
+            lifecycle?: string
+            shouldRematerialize?: boolean
+            soft_update?: boolean
+            sync_frequency?: string
+            types?: string[][]
+        }
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
         payload?: Partial<DataWarehouseSavedQuery> & {

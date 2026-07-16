@@ -106,7 +106,8 @@ export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
     selectors({
         isFlagEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.READ_ONLY_MODE],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.READ_ONLY_MODE],
         ],
         // isEscalated reads Date.now() inside a selector — selectors aren't time-reactive.
         // It only flips back to false when escalatedUntil is reset by the setTimeout in the

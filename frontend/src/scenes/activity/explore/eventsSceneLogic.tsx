@@ -39,7 +39,7 @@ export interface eventsSceneLogicActions {
     setSavedQueryForTab: (
         tabId: string | undefined,
         sceneKey: string,
-        query: Node<Record<string, any>> | null
+        query: Node | null
     ) => {
         query: Node<Record<string, any>> | null
         sceneKey: string
@@ -100,7 +100,10 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
     selectors({
         defaultQuery: [
             (s) => [s.currentTeam, s.filterTestAccountsDefault],
-            (currentTeam: TeamPublicType | TeamType | null, filterTestAccountsDefault: boolean): DataTableNode => {
+            (
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
+                filterTestAccountsDefault: boolean
+            ): DataTableNode => {
                 const defaultSourceForTeam = currentTeam && getDefaultEventsQueryForTeam(currentTeam)
                 const defaultForScene = getDefaultEventsSceneQuery()
                 const base = defaultSourceForTeam
@@ -114,7 +117,7 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
         ],
         query: [
             (s) => [s.savedQuery, s.defaultQuery],
-            (savedQuery: Node<Record<string, any>> | null, defaultQuery: DataTableNode) => savedQuery || defaultQuery,
+            (savedQuery: Node | null, defaultQuery: DataTableNode) => savedQuery || defaultQuery,
         ],
         breadcrumbs: [
             () => [],
