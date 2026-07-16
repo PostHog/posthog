@@ -99,19 +99,25 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                               handler: async (_ctx, args) => {
                                 const distinctId = args.distinctId ?? 'anonymous'
 
-                                const result = await generateText({
-                                  model: openai('gpt-5-mini'),
-                                  prompt: args.prompt,
-                                  experimental_telemetry: {
-                                    isEnabled: true,
-                                    functionId: 'my-convex-action',
-                                    metadata: {
-                                      posthog_distinct_id: distinctId,
+                                try {
+                                  const result = await generateText({
+                                    model: openai('gpt-5-mini'),
+                                    prompt: args.prompt,
+                                    experimental_telemetry: {
+                                      isEnabled: true,
+                                      functionId: 'my-convex-action',
+                                      metadata: {
+                                        posthog_distinct_id: distinctId,
+                                      },
                                     },
-                                  },
-                                })
+                                  })
 
-                                return { text: result.text, usage: result.usage }
+                                  return { text: result.text, usage: result.usage }
+                                } finally {
+                                  // Flush spans before the Convex isolate freezes, otherwise the
+                                  // async export is killed and no events reach PostHog.
+                                  await provider.forceFlush()
+                                }
                               },
                             })
                         `}
@@ -121,7 +127,10 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                         <Markdown>
                             The `PostHogTraceExporter` sends OpenTelemetry `gen_ai.*` spans to PostHog's OTLP ingestion
                             endpoint. PostHog converts these into `$ai_generation` events automatically. The
-                            `posthog_distinct_id` metadata field links events to a specific user.
+                            `posthog_distinct_id` metadata field links events to a specific user. Convex freezes the V8
+                            isolate as soon as the handler returns, so you must `await provider.forceFlush()` before
+                            returning (in a `finally` block, so it runs even on error). Without it, the in-flight span
+                            export is killed and no events reach PostHog.
                         </Markdown>
                     </CalloutBox>
                 </>
@@ -181,18 +190,24 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
 
                                 const { thread } = await supportAgent.createThread(ctx, {})
 
-                                const result = await thread.generateText({
-                                  prompt: args.prompt,
-                                  experimental_telemetry: {
-                                    isEnabled: true,
-                                    functionId: 'convex-agent',
-                                    metadata: {
-                                      posthog_distinct_id: distinctId,
+                                try {
+                                  const result = await thread.generateText({
+                                    prompt: args.prompt,
+                                    experimental_telemetry: {
+                                      isEnabled: true,
+                                      functionId: 'convex-agent',
+                                      metadata: {
+                                        posthog_distinct_id: distinctId,
+                                      },
                                     },
-                                  },
-                                })
+                                  })
 
-                                return { text: result.text, usage: result.totalUsage }
+                                  return { text: result.text, usage: result.totalUsage }
+                                } finally {
+                                  // Flush spans before the Convex isolate freezes, otherwise the
+                                  // async export is killed and no events reach PostHog.
+                                  await provider.forceFlush()
+                                }
                               },
                             })
                         `}
