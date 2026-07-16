@@ -265,6 +265,16 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-07-16 — inline finding comments: colored severity badges + problem/fix surfaced
+
+The inline comment `_format_issue_comment` builds (`publish_review.py`) was recolored and restructured after comparing it against Greptile's PR comments.
+Before: a plain `### title`, a text meta line (`**Priority:** should_fix | **Category:** performance | **Lines:** …`), and **four** collapsed `<details>` — the reader had to expand "Issue description" just to learn what the finding was.
+Now the comment leads with colored [shields.io](https://shields.io) badges — a severity chip (`must_fix` red `D1242F`, `should_fix` orange `E36209`, `consider` blue `0969DA`) plus a neutral-grey category chip — then the title, a `<sub>` line reference, and the **problem and suggested fix rendered inline**; only the validator's argumentation and the copy-paste AI prompt stay behind `<details>`.
+Badge alt text is the raw enum value (`![should_fix](…)`) so the priority still reads in email digests, when images are blocked, and to screen readers — and the existing publish-gate test's `should_fix`-in-body assertion still holds.
+Helpers `_shields_badge` / `_finding_badge_line` + `_PRIORITY_BADGE` carry the label/color map.
+Scope was deliberately the inline finding comment only (the screenshot surface); the "Other findings" body section (`prepare_validation_markdown._render_off_diff_section`) still uses the older four-`<details>` shape and is a natural follow-up if we want the two to match.
+Color mechanism was a user decision (badge images, Greptile-style, accepting the external-image dependency) over the GitHub-native emoji/alert alternative.
+
 ### ✅ BUILT 2026-07-15 — reviewing-stage progress copy: "Reviewing chunks" → "Running review passes"
 
 Live misread on [posthog#71025](https://github.com/PostHog/posthog/pull/71025) (63 additions): the

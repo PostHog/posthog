@@ -14,6 +14,7 @@ from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIEr
 from products.review_hog.backend.reviewer.tools.publish_review import (
     ReviewComment,
     _build_inline_comments,
+    _format_issue_comment,
     _post_github_review,
     publish_review,
 )
@@ -357,3 +358,31 @@ class TestPublishReviewGate:
         assert len(comments) == expected_count
         if expected_count:
             assert "should_fix" in comments[0]["body"]  # the emitted comment displays the effective priority
+
+
+class TestFormatIssueComment:
+    @parameterized.expand(
+        [
+            (IssuePriority.MUST_FIX, "Must_fix-D1242F", "must_fix"),
+            (IssuePriority.SHOULD_FIX, "Should_fix-E36209", "should_fix"),
+            (IssuePriority.CONSIDER, "Consider-0969DA", "consider"),
+        ]
+    )
+    def test_severity_badge_tracks_priority(self, priority: IssuePriority, badge_fragment: str, alt: str) -> None:
+        # The colored severity badge is the redesign's whole point: a swapped or recolored mapping (e.g.
+        # must_fix rendering blue) ships a misleading comment, and no other test pins priority→badge.
+        body = _format_issue_comment(_finding(priority=priority), _verdict())
+
+        assert f"/badge/{badge_fragment}" in body
+        # Alt text is the raw enum value, so the priority still reads when the badge image can't load.
+        assert f"![{alt}]" in body
+
+    def test_problem_and_fix_render_above_the_collapsed_sections(self) -> None:
+        # The redesign surfaces the problem + fix inline so a reader no longer expands to learn what the
+        # finding is; a regression that re-folds them into <details> would silently undo that.
+        finding = _finding()
+        body = _format_issue_comment(finding, _verdict())
+
+        before_details = body[: body.index("<details>")]
+        assert finding.body in before_details
+        assert finding.suggestion in before_details
