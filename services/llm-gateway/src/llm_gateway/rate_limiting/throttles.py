@@ -51,6 +51,9 @@ class ThrottleContext:
     code_usage_billed: bool = False
     billing_period_start: str | None = None
     credits_exhausted: bool = False
+    # Whether code_usage_billed/credits_exhausted came from a successful quota
+    # fetch rather than a fail-open fallback (see QuotaResourceStatus.authoritative).
+    quota_authoritative: bool = False
 
 
 @dataclass

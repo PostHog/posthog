@@ -94,6 +94,7 @@ async def get_usage(
         code_usage_billed=quota_status.code_usage_billing_active,
         billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
         credits_exhausted=quota_status.limited,
+        quota_authoritative=quota_status.authoritative,
     )
     # The product's own credit bucket (resolve_plan_and_quota resolves per bucket;
     # always unlimited for unbilled products), reported under the legacy `ai_credits`

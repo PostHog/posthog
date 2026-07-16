@@ -72,6 +72,11 @@ class QuotaResourceStatus:
     # synced numbers. None means unknown (unsynced org, fail-open) — never $0.
     used_usd: float | None = None
     limit_usd: float | None = None
+    # True only when these values came from a successful quota fetch (directly
+    # or via its cache entry); False on every fail-open shape. `limited` is only
+    # enforcing when this is True, so consumers must not grant fail-open state
+    # privileges that lean on the credit gate (e.g. the uncapped per-user limit).
+    authoritative: bool = False
 
 
 def _optional_number(value: object) -> float | None:
@@ -209,6 +214,7 @@ class QuotaResolver:
             code_usage_billing_active=bool(data.get("code_usage_billing_active")),
             used_usd=_credits_to_usd(resource.get("usage")),
             limit_usd=_credits_to_usd(resource.get("limit")),
+            authoritative=True,
         ), self._cache_ttl
 
     async def _get_cached(self, resource_key: str, team_id: int) -> QuotaResourceStatus | None:
@@ -221,11 +227,12 @@ class QuotaResolver:
             payload = json.loads(val.decode())
             return QuotaResourceStatus(
                 limited=bool(payload.get("limited")),
-                # Entries written before this field existed read as False (capped)
-                # until the TTL turns them over.
+                # Entries written before these fields existed read as False
+                # (capped / non-authoritative) until the TTL turns them over.
                 code_usage_billing_active=bool(payload.get("code_usage_billing_active")),
                 used_usd=_optional_number(payload.get("used_usd")),
                 limit_usd=_optional_number(payload.get("limit_usd")),
+                authoritative=bool(payload.get("authoritative")),
             )
         except Exception:
             logger.debug("quota_cache_read_failed", resource=resource_key, team_id=team_id)
@@ -241,6 +248,7 @@ class QuotaResolver:
                     "code_usage_billing_active": status.code_usage_billing_active,
                     "used_usd": status.used_usd,
                     "limit_usd": status.limit_usd,
+                    "authoritative": status.authoritative,
                 }
             )
             await self._redis.set(_redis_key(resource_key, team_id), payload, ex=ttl)

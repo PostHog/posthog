@@ -28,6 +28,8 @@ def make_context(
     seat_missing: bool = False,
     code_usage_billed: bool = False,
     billing_period_start: str | None = None,
+    # Defaults to the successful-fetch path; fail-open cases opt out.
+    quota_authoritative: bool = True,
 ) -> ThrottleContext:
     user = user or make_user()
     if end_user_id is None and user.auth_method == "oauth_access_token":
@@ -41,6 +43,7 @@ def make_context(
         seat_missing=seat_missing,
         code_usage_billed=code_usage_billed,
         billing_period_start=billing_period_start,
+        quota_authoritative=quota_authoritative,
     )
 
 
@@ -1441,6 +1444,40 @@ class TestPlanAwareThrottling:
         )
 
         await throttle.record_cost(context, 600.0)
+        result = await throttle.allow_request(context)
+        assert result.allowed is expected_allowed
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("seat_missing", "spent", "expected_allowed"),
+        [
+            # Fail-open quota state means the org credit gate isn't enforcing, so
+            # the paid default ($500/day burst) replaces the uncapped limit: $600
+            # must be denied whether or not a seat record lingers.
+            (True, 600.0, False),
+            (False, 600.0, False),
+            # ...but the fallback is never the $20 free cap - $80 stays allowed,
+            # seat or not, so an upstream blip can't re-cap a paying org's users.
+            (True, 80.0, True),
+            (False, 80.0, True),
+        ],
+    )
+    async def test_org_billed_without_authoritative_quota_uses_paid_defaults(
+        self, seat_missing: bool, spent: float, expected_allowed: bool
+    ) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        context = make_context(
+            product="posthog_code",
+            plan_key=None if seat_missing else "posthog-code-free-20260301",
+            seat_created_at=None if seat_missing else "2026-01-01T00:00:00+00:00",
+            seat_missing=seat_missing,
+            code_usage_billed=True,
+            quota_authoritative=False,
+        )
+
+        await throttle.record_cost(context, spent)
         result = await throttle.allow_request(context)
         assert result.allowed is expected_allowed
 

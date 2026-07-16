@@ -152,7 +152,7 @@ class TestQuotaResolver:
 
         status = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
 
-        assert status == QuotaResourceStatus(limited=True)
+        assert status == QuotaResourceStatus(limited=True, authoritative=True)
         http_client.get.assert_awaited_once()
         assert http_client.get.await_args.kwargs["headers"]["Authorization"] == "Bearer phx_test"
 
@@ -225,6 +225,7 @@ class TestQuotaResolver:
                 "code_usage_billing_active": True,
                 "used_usd": None,
                 "limit_usd": None,
+                "authoritative": False,
             }
             assert redis.ttls[_redis_key("ai_credits", 42)] == _FAIL_OPEN_CACHE_TTL_SECONDS
         else:
@@ -292,7 +293,7 @@ class TestQuotaResolver:
 
         status = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
 
-        assert status == QuotaResourceStatus(limited=False)
+        assert status == QuotaResourceStatus(limited=False, authoritative=True)
 
     @pytest.mark.asyncio
     async def test_4xx_fails_open_without_retrying(self) -> None:
@@ -319,7 +320,7 @@ class TestQuotaResolver:
 
         status = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
 
-        assert status == QuotaResourceStatus(limited=True)
+        assert status == QuotaResourceStatus(limited=True, authoritative=True)
         assert http_client.get.await_count == 2
 
     @pytest.mark.asyncio
@@ -334,7 +335,7 @@ class TestQuotaResolver:
 
         status = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
 
-        assert status == QuotaResourceStatus(limited=False)
+        assert status == QuotaResourceStatus(limited=False, authoritative=True)
         assert http_client.get.await_count == 2
 
     @pytest.mark.asyncio
@@ -387,6 +388,7 @@ class TestQuotaResolver:
             "code_usage_billing_active": False,
             "used_usd": None,
             "limit_usd": None,
+            "authoritative": True,
         }
         # Successful fetches use the gateway settings default of 5 minutes.
         assert call.kwargs.get("ex") == 300

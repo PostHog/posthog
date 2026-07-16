@@ -256,7 +256,13 @@ class _UserCostThrottleBase(CostThrottle):
         # Precedence matters: an org-billed user is uncapped even though their
         # seat state would otherwise select the free-plan cap below.
         if _is_org_billed(context):
-            return ORG_BILLED_USER_COST_LIMIT
+            if context.quota_authoritative:
+                return ORG_BILLED_USER_COST_LIMIT
+            # Fail-open quota state disables the org-level credit gate, so the
+            # uncapped limit would have no enforcement backstop at all. Hold
+            # billed users at the paid per-user defaults instead — never the
+            # free cap, which would re-cap a paying org on every upstream blip.
+            return get_settings().user_cost_limits.get(context.product) or DEFAULT_USER_COST_LIMIT
         if _is_free_plan_throttled(context):
             return FREE_PLAN_COST_LIMIT
 
