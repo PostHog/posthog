@@ -62,7 +62,7 @@ from posthog.hogql.type_system import (
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
-from posthog.models.utils import UUIDT
+from posthog.uuidt import UUIDT
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
 
