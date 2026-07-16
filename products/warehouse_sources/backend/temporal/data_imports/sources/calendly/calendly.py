@@ -2,11 +2,6 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.settings import (
@@ -14,15 +9,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.s
     CalendlyEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
 CALENDLY_BASE_URL = "https://api.calendly.com"
 PAGE_SIZE = 100
 REQUEST_TIMEOUT = 60
-
-
-class CalendlyRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -48,11 +47,12 @@ def _get_headers(token: str) -> dict[str, str]:
 
 
 def validate_credentials(token: str) -> bool:
-    try:
-        response = make_tracked_session().get(f"{CALENDLY_BASE_URL}/users/me", headers=_get_headers(token), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(token,)),
+        f"{CALENDLY_BASE_URL}/users/me",
+        headers=_get_headers(token),
+    )
+    return ok
 
 
 def get_current_organization(token: str) -> str:
@@ -61,7 +61,7 @@ def get_current_organization(token: str) -> str:
     Every list endpoint we sync is scoped by this URI, so we access it directly and let a
     malformed response surface immediately as a KeyError rather than degrading to None.
     """
-    response = make_tracked_session().get(
+    response = make_tracked_session(redact_values=(token,)).get(
         f"{CALENDLY_BASE_URL}/users/me", headers=_get_headers(token), timeout=REQUEST_TIMEOUT
     )
     response.raise_for_status()
@@ -88,88 +88,72 @@ def _build_initial_params(
     return params
 
 
-def get_rows(
-    token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[CalendlyResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[Any]:
-    config = CALENDLY_ENDPOINTS[endpoint]
-    headers = _get_headers(token)
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-
-    if resume_config is not None:
-        url = resume_config.next_url
-        logger.debug(f"Calendly: resuming from URL: {url}")
-    else:
-        organization = get_current_organization(token) if config.scope_param == "organization" else None
-        params = _build_initial_params(
-            config, organization, should_use_incremental_field, db_incremental_field_last_value
-        )
-        url = f"{CALENDLY_BASE_URL}{config.path}?{urlencode(params)}"
-
-    @retry(
-        retry=retry_if_exception_type((CalendlyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> dict:
-        response = make_tracked_session().get(page_url, headers=headers, timeout=REQUEST_TIMEOUT)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise CalendlyRetryableError(
-                f"Calendly API error (retryable): status={response.status_code}, url={page_url}"
-            )
-
-        if not response.ok:
-            logger.error(f"Calendly API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        data = fetch_page(url)
-
-        items = data.get("collection", [])
-        if items:
-            yield items
-
-        # Keep paginating until the API signals completion with a null next_page, even if an
-        # individual page came back empty.
-        next_url = data.get("pagination", {}).get("next_page")
-        if not next_url:
-            break
-
-        # Save state after yielding so a crash re-yields the last page (merge dedupes on `uri`)
-        # rather than skipping it.
-        resumable_source_manager.save_state(CalendlyResumeConfig(next_url=next_url))
-        url = next_url
-
-
 def calendly_source(
     token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[CalendlyResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = CALENDLY_ENDPOINTS[endpoint]
 
+    def get_rows() -> Iterator[Any]:
+        resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+        initial_paginator_state: Optional[dict[str, Any]] = None
+        organization: str | None = None
+        if resume_config is not None:
+            # The saved next-page URL is self-contained, so the `/users/me` bootstrap is skipped.
+            initial_paginator_state = {"next_url": resume_config.next_url}
+        elif config.scope_param == "organization":
+            organization = get_current_organization(token)
+
+        params = _build_initial_params(
+            config, organization, should_use_incremental_field, db_incremental_field_last_value
+        )
+
+        rest_config: RESTAPIConfig = {
+            "client": {
+                "base_url": CALENDLY_BASE_URL,
+                "headers": {"Content-Type": "application/json"},
+                "auth": {"type": "bearer", "token": token},
+                "paginator": JSONResponsePaginator(next_url_path="pagination.next_page"),
+            },
+            "resources": [
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "path": config.path,
+                        "params": params,
+                        # A missing `collection` key is treated as an empty page (matching the API's
+                        # tolerant contract); pagination keeps following `next_page` until it's null,
+                        # even across empty pages.
+                        "data_selector": "collection",
+                    },
+                }
+            ],
+        }
+
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            # Persist only when a next page remains; saved AFTER a page is yielded so a crash
+            # re-yields the last page (merge dedupes on `uri`) rather than skipping it.
+            if state and state.get("next_url"):
+                resumable_source_manager.save_state(CalendlyResumeConfig(next_url=state["next_url"]))
+
+        yield from rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            token=token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=get_rows,
         primary_keys=["uri"],
         partition_count=1,
         partition_size=1,
