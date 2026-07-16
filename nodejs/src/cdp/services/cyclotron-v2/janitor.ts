@@ -14,6 +14,13 @@ import { CyclotronV2CleanupResult, CyclotronV2DequeuedJob, CyclotronV2JanitorCon
 // exactly these give-ups from the rerun tooling (rerun filter `error_kind`).
 export const JANITOR_POISON_PILL_ERROR_KIND = 'janitor_poison_pill'
 
+// The first stall gets only this small jittered delay (not the full exponential
+// base), so a transient stall — a worker restart/deploy, where a healthy worker
+// should pick the job right back up — recovers in seconds rather than waiting a
+// full backoff step. The jitter still de-syncs a fleet-wide herd on that first
+// retry. Repeat stalls (a persistent signal) then pay the growing exponential.
+const STALL_BACKOFF_FIRST_RETRY_SPREAD_MS = 5000
+
 const janitorDeletedCounter = new Counter({
     name: 'cdp_cyclotron_v2_janitor_deleted',
     help: 'Number of terminal jobs cleaned up by the janitor',
@@ -97,7 +104,7 @@ export class CyclotronV2Janitor {
         this.maxTouchCount = config.maxTouchCount ?? 3
         this.cleanupGraceMs = config.cleanupGraceMs ?? 10000
         this.poisonRecoveryEnabled = config.poisonRecoveryEnabled ?? true
-        this.stallBackoffBaseMs = config.stallBackoffBaseMs ?? 30000
+        this.stallBackoffBaseMs = config.stallBackoffBaseMs ?? 60000
         this.stallBackoffMaxMs = config.stallBackoffMaxMs ?? 600000
 
         if (!this.poisonRecoveryEnabled) {
@@ -343,20 +350,26 @@ export class CyclotronV2Janitor {
     private async resetStalledJobs(): Promise<number> {
         const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
 
-        // Exponential backoff with half-jitter on the next scheduled time, keyed
-        // on janitor_touch_count, so repeated stalls back off and a fleet-wide
-        // stall doesn't immediately re-flood the workers that just recovered.
-        // Half-jitter (delay in [0.5, 1] x the capped backoff) still defers the
-        // job while spreading a synchronized herd across the window. Disabled when
-        // stallBackoffBaseMs <= 0 — scheduled is left untouched (immediate retry).
+        // Defer the reset job's next scheduled time so repeated stalls back off
+        // and a fleet-wide stall doesn't immediately re-flood the workers that
+        // just recovered. Two parts, both jittered to break a synchronized herd:
+        //   1. a small first-retry spread (0..FIRST_RETRY_SPREAD_MS) applied every
+        //      reset — on the FIRST stall it's the whole delay, so a transient
+        //      stall retries within seconds instead of a full backoff step;
+        //   2. an exponential term shifted by one (`2^touch_count - 1`), so it's 0
+        //      on the first stall and grows ~base, ~3x base, ... on repeats,
+        //      capped at max — half-jitter ([0.5, 1] x) on this part.
+        // Disabled when stallBackoffBaseMs <= 0 — scheduled is left untouched
+        // (immediate retry, the pre-backoff behavior).
         const backoffEnabled = this.stallBackoffBaseMs > 0
         const backoffClause = backoffEnabled
             ? `, scheduled = NOW() + (
-                   LEAST($2::float8 * POWER(2, janitor_touch_count), $3::float8) * (0.5 + 0.5 * random())
+                   $4::float8 * random()
+                   + LEAST($2::float8 * (POWER(2, janitor_touch_count) - 1), $3::float8) * (0.5 + 0.5 * random())
                ) * INTERVAL '1 millisecond'`
             : ''
         const params: (Date | number)[] = backoffEnabled
-            ? [heartbeatCutoff, this.stallBackoffBaseMs, this.stallBackoffMaxMs]
+            ? [heartbeatCutoff, this.stallBackoffBaseMs, this.stallBackoffMaxMs, STALL_BACKOFF_FIRST_RETRY_SPREAD_MS]
             : [heartbeatCutoff]
 
         const result = await this.pool.query(

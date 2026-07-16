@@ -1594,17 +1594,49 @@ describe('Cyclotron V2', () => {
             expect(row.janitor_touch_count).toBe(1)
         })
 
-        // Exponential-with-jitter backoff on the reset job's next scheduled time,
-        // keyed on janitor_touch_count. Bounds are loose to absorb jitter (delay is
-        // [0.5, 1] x the capped backoff) and test/db clock skew — they only need to
-        // prove: deferred at all, grows with touch count, and is capped.
-        // maxTouchCount is high so these aren't failed as poison pills before reset.
+        // Backoff on the reset job's next scheduled time, keyed on
+        // janitor_touch_count. The FIRST stall retries within the small jittered
+        // spread (~5s), not the full base — the exponential term is shifted
+        // (2^touch - 1 = 0 on the first strike) so a transient stall recovers fast.
+        // Repeat stalls then pay a growing, capped backoff. Bounds are loose to
+        // absorb jitter + db clock skew. maxTouchCount is high so these aren't given
+        // up as poison before reset.
+        it('resetStalledJobs retries the first stall fast (spread only, not the full base)', async () => {
+            const jobId = uuidv7()
+            await insertRawJob({
+                id: jobId,
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: new Date(Date.now() - 60_000),
+                scheduled: new Date(Date.now() - 60_000),
+                janitor_touch_count: 0,
+            })
+
+            const before = Date.now()
+            const janitor = createJanitor({
+                stallTimeoutMs: 1_000,
+                stallBackoffBaseMs: 10_000,
+                stallBackoffMaxMs: 600_000,
+            })
+            const result = await janitor.runOnce()
+            await janitor.stop()
+
+            expect(result.stalled).toBe(1)
+            const row = await queryJob(jobId)
+            expect(row.status).toBe('available')
+            const deferMs = new Date(row.scheduled).getTime() - before
+            // Rescheduled to ~now (not left 60s in the past → backoff ran) but only
+            // by the ~5s spread — well under the 10s base, so a first stall is fast.
+            expect(deferMs).toBeGreaterThanOrEqual(-500)
+            expect(deferMs).toBeLessThanOrEqual(6_000)
+        })
+
         it.each([
-            { touchCount: 0, baseMs: 1000, maxMs: 30000, minDeferMs: 1, maxDeferMs: 3000 },
-            { touchCount: 3, baseMs: 1000, maxMs: 30000, minDeferMs: 3000, maxDeferMs: 10000 },
-            { touchCount: 5, baseMs: 1000, maxMs: 2000, minDeferMs: 1, maxDeferMs: 3000 },
+            { touchCount: 1, baseMs: 10_000, maxMs: 600_000, minDeferMs: 4_000, maxDeferMs: 18_000 },
+            { touchCount: 2, baseMs: 10_000, maxMs: 600_000, minDeferMs: 13_000, maxDeferMs: 38_000 },
+            { touchCount: 2, baseMs: 10_000, maxMs: 5_000, minDeferMs: 2_000, maxDeferMs: 12_000 },
         ])(
-            'resetStalledJobs backs off the next scheduled time (touch=$touchCount, cap=$maxMs)',
+            'resetStalledJobs backs off repeat stalls exponentially, capped (touch=$touchCount, cap=$maxMs)',
             async ({ touchCount, baseMs, maxMs, minDeferMs, maxDeferMs }) => {
                 const jobId = uuidv7()
                 await insertRawJob({
