@@ -120,7 +120,10 @@ def get_rows(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session(redact_values=(api_key,))
+    # `capture=False`: response rows carry free-text survey comments and internal notes the
+    # name-based sample scrubbers can't recognise, so keep bodies out of HTTP sample storage
+    # entirely. Requests are still metered and logged (status + url).
+    session = make_tracked_session(redact_values=(api_key,), capture=False)
     headers = _get_headers(api_key)
 
     since_time = 0
@@ -191,7 +194,9 @@ def asknicely_source(
 
 def validate_credentials(subdomain: str, api_key: str) -> tuple[bool, str | None]:
     try:
-        response = make_tracked_session(redact_values=(api_key,)).get(
+        # `capture=False`: the probe fetches a real response row, whose free-text fields must
+        # stay out of HTTP sample storage just like the sync path's.
+        response = make_tracked_session(redact_values=(api_key,), capture=False).get(
             build_responses_url(subdomain, page_number=1, since_time=0, page_size=1),
             headers=_get_headers(api_key),
             timeout=30,
