@@ -75,6 +75,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "revenue_analytics",
     "session_recording",
     "survey",
+    "ticket",
     "web_analytics",
     "activity_log",
     "error_tracking",
@@ -100,6 +101,9 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "experiment_saved_metric": "experiment",
     "experiment_holdout": "experiment",
     "dashboard_template": "dashboard",
+    # Saved ticket views (the `conversation` scope) share the Support product's
+    # single "ticket" RBAC resource, so admins configure one control instead of two.
+    "conversation": "ticket",
     # Marketing analytics doesn't have its own RBAC resource yet — inherit from
     # web_analytics so the existing per-team controls actually gate it (matches
     # the frontend mapping in sceneTypes.ts: Scene.MarketingAnalytics ->

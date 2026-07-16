@@ -1,5 +1,7 @@
 import type { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 
+import type { AccessControlLevel } from '~/types'
+
 import type { TicketAssignee } from './components/Assignee'
 
 export type NotificationPermission = 'default' | 'granted' | 'denied'
@@ -153,6 +155,8 @@ export interface Ticket {
     person?: TicketPerson | null
     tags?: string[]
     ai_triage?: AITriage
+    /** The effective access level the current user has for this ticket. */
+    user_access_level?: AccessControlLevel
 }
 
 export interface ConversationTicket {

@@ -4,11 +4,13 @@ import { useRef } from 'react'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -19,6 +21,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
@@ -131,6 +134,13 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
           }[emailReplyBlockedReason]
         : undefined
 
+    const sendDisabledReason =
+        getAccessControlDisabledReason(
+            AccessControlResourceType.Ticket,
+            AccessControlLevel.Editor,
+            ticket?.user_access_level
+        ) ?? undefined
+
     const chatPanelRef = useRef<HTMLDivElement>(null)
 
     const resizerLogicProps: ResizerLogicProps = {
@@ -210,6 +220,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         isPrivate={draftIsPrivate}
                         onPrivateChange={setDraftIsPrivate}
                         replyDisabledReason={replyDisabledReason}
+                        sendDisabledReason={sendDisabledReason}
                         minHeight="min(400px, calc(100svh - 20rem))"
                         maxHeight="calc(100svh - 20rem)"
                         latestAiMessageId={latestAiMessage?.id ?? null}
@@ -436,14 +447,20 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             </div>
                         </div>
                         <div className="mt-3 pt-3 border-t flex justify-end">
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={() => updateTicket()}
-                                disabledReason={!hasUnsavedChanges ? 'No changes to save' : undefined}
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Ticket}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={ticket?.user_access_level}
                             >
-                                Save changes
-                            </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    onClick={() => updateTicket()}
+                                    disabledReason={!hasUnsavedChanges ? 'No changes to save' : undefined}
+                                >
+                                    Save changes
+                                </LemonButton>
+                            </AccessControlAction>
                         </div>
                     </LemonCard>
 

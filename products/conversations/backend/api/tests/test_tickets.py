@@ -34,6 +34,7 @@ from products.conversations.backend.models.constants import Channel, ChannelDeta
 from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
+from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.role import Role
 
 
@@ -2156,3 +2157,110 @@ class TestAiFeedbackAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestTicketAccessControl(APIBaseTest):
+    """Resource- and object-level access control for support tickets (the `ticket` RBAC resource)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        # A plain member (org admins bypass access control), logged in for every request below.
+        self.member = User.objects.create_and_join(self.organization, "ticket-member@posthog.com", "password")
+        self.client.force_login(self.member)
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="ac-session",
+            distinct_id="user-ac",
+            status=Status.OPEN,
+        )
+
+    def _set_resource_level(self, access_level: str) -> None:
+        AccessControl.objects.create(resource="ticket", team=self.team, access_level=access_level)
+
+    def _grant_object_level(self, ticket: Ticket, access_level: str) -> None:
+        AccessControl.objects.create(
+            resource="ticket",
+            resource_id=str(ticket.id),
+            organization_member=self.member.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level=access_level,
+        )
+
+    @parameterized.expand([("none", status.HTTP_403_FORBIDDEN), ("viewer", status.HTTP_200_OK)])
+    def test_list_access_by_resource_level(self, access_level: str, expected_status: int) -> None:
+        self._set_resource_level(access_level)
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+        self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_200_OK)])
+    def test_update_access_by_resource_level(self, access_level: str, expected_status: int) -> None:
+        self._set_resource_level(access_level)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"status": "resolved"},
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_201_CREATED)])
+    def test_reply_action_gated_by_resource_level(self, access_level: str, expected_status: int) -> None:
+        # `reply` is a write @action; a viewer must not be able to post a reply.
+        self._set_resource_level(access_level)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/reply/",
+            {"message": "A reply"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    def test_user_access_level_reflects_resource_level(self) -> None:
+        self._set_resource_level("viewer")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["user_access_level"], "viewer")
+
+    def test_user_access_level_reflects_object_level(self) -> None:
+        # An object-level grant for this ticket wins over the lower resource-level floor.
+        self._set_resource_level("viewer")
+        self._grant_object_level(self.ticket, "editor")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["user_access_level"], "editor")
+
+    def test_list_hides_tickets_blocked_at_object_level(self) -> None:
+        # Resource-level viewer, but one ticket is explicitly denied to the member.
+        blocked = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="ac-blocked",
+            distinct_id="user-ac-2",
+            status=Status.OPEN,
+        )
+        self._set_resource_level("viewer")
+        self._grant_object_level(blocked, "none")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = {r["id"] for r in response.json()["results"]}
+        self.assertIn(str(self.ticket.id), returned_ids)
+        self.assertNotIn(str(blocked.id), returned_ids)
+
+    def test_object_access_controls_endpoint_exists(self) -> None:
+        # The per-ticket access_controls route (side-panel object permissions) is wired by the mixin.
+        self._set_resource_level("viewer")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/access_controls"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_201_CREATED)])
+    def test_saved_view_create_inherits_ticket_access(self, access_level: str, expected_status: int) -> None:
+        # Saved views use the `conversation` scope, which inherits the `ticket` resource's access level.
+        self._set_resource_level(access_level)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/views/",
+            {"name": "My view", "filters": {"status": ["open"]}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())

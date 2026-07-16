@@ -217,6 +217,9 @@ export enum Scene {
     OrganizationPendingDeletion = 'OrganizationPendingDeletion',
     ProjectPendingDeletion = 'ProjectPendingDeletion',
     CustomerJourneyTemplates = 'CustomerJourneyTemplates',
+    SupportTickets = 'SupportTickets',
+    SupportTicketDetail = 'SupportTicketDetail',
+    SupportSettings = 'SupportSettings',
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null
@@ -352,6 +355,10 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,
     [Scene.Surveys]: AccessControlResourceType.Survey,
+
+    // Support (conversations)
+    [Scene.SupportTickets]: AccessControlResourceType.Ticket,
+    [Scene.SupportTicketDetail]: AccessControlResourceType.Ticket,
 
     // Endpoints
     [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,

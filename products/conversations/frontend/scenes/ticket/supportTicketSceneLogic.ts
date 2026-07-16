@@ -11,6 +11,7 @@ import { isUUIDLike } from 'lib/utils/guards'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import api from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
@@ -534,6 +535,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     }
                 }
                 return null
+            },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.ticket],
+            (ticket: Ticket | null): SidePanelSceneContext | null => {
+                return ticket?.id
+                    ? {
+                          access_control_resource: 'ticket',
+                          access_control_resource_id: `${ticket.id}`,
+                      }
+                    : null
             },
         ],
     }),

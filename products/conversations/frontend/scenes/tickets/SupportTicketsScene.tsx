@@ -20,6 +20,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -35,6 +36,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import {
     AssigneeDisplay,
@@ -247,20 +249,25 @@ function SupportTicketsBulkActions(): JSX.Element {
     }, null)
 
     return (
-        <LemonSelect
-            onChange={(value) => {
-                if (!value || value === currentStatus) {
-                    return
-                }
-                bulkUpdateStatus(selectedTicketIds, value as TicketStatus)
-            }}
-            value={null}
-            placeholder="Mark as"
-            loading={bulkUpdating}
-            disabledReason={!hasSelection ? 'Select tickets first' : bulkUpdating ? 'Updating…' : undefined}
-            options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
-            size="small"
-        />
+        <AccessControlAction
+            resourceType={AccessControlResourceType.Ticket}
+            minAccessLevel={AccessControlLevel.Editor}
+        >
+            <LemonSelect
+                onChange={(value) => {
+                    if (!value || value === currentStatus) {
+                        return
+                    }
+                    bulkUpdateStatus(selectedTicketIds, value as TicketStatus)
+                }}
+                value={null}
+                placeholder="Mark as"
+                loading={bulkUpdating}
+                disabledReason={!hasSelection ? 'Select tickets first' : bulkUpdating ? 'Updating…' : undefined}
+                options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
+                size="small"
+            />
+        </AccessControlAction>
     )
 }
 

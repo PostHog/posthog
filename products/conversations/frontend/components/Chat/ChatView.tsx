@@ -36,6 +36,8 @@ export interface ChatViewProps {
     extraActions?: React.ReactNode
     /** Blocks sending customer-facing messages (private notes stay available) */
     replyDisabledReason?: string | JSX.Element
+    /** Blocks sending entirely, including private notes (e.g. the user lacks edit access) */
+    sendDisabledReason?: string | JSX.Element
     latestAiMessageId?: string | null
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     showAiReplyFeedback?: boolean
@@ -62,6 +64,7 @@ export function ChatView({
     onPrivateChange,
     extraActions,
     replyDisabledReason,
+    sendDisabledReason,
     latestAiMessageId,
     feedbackByMessageId,
     showAiReplyFeedback,
@@ -100,6 +103,7 @@ export function ChatView({
                     onPrivateChange={onPrivateChange}
                     extraActions={extraActions}
                     replyDisabledReason={replyDisabledReason}
+                    sendDisabledReason={sendDisabledReason}
                 />
             </div>
         </LemonCard>

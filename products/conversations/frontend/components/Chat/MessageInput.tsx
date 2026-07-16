@@ -28,6 +28,8 @@ export interface MessageInputProps {
     extraActions?: React.ReactNode
     /** Blocks sending customer-facing messages (private notes stay available). Shown as the button's disabled tooltip. */
     replyDisabledReason?: string | JSX.Element
+    /** Blocks sending entirely, including private notes (e.g. the user lacks edit access). Takes precedence. */
+    sendDisabledReason?: string | JSX.Element
 }
 
 export function MessageInput({
@@ -43,6 +45,7 @@ export function MessageInput({
     onPrivateChange,
     extraActions,
     replyDisabledReason,
+    sendDisabledReason,
 }: MessageInputProps): JSX.Element {
     const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
@@ -129,13 +132,15 @@ export function MessageInput({
                         onClick={handleSubmit}
                         loading={messageSending}
                         disabledReason={
-                            replyDisabledReason && !isPrivate
-                                ? replyDisabledReason
-                                : isEmpty
-                                  ? 'No message'
-                                  : isUploading
-                                    ? 'Uploading image...'
-                                    : undefined
+                            sendDisabledReason
+                                ? sendDisabledReason
+                                : replyDisabledReason && !isPrivate
+                                  ? replyDisabledReason
+                                  : isEmpty
+                                    ? 'No message'
+                                    : isUploading
+                                      ? 'Uploading image...'
+                                      : undefined
                         }
                     >
                         {isPrivate ? 'Attach' : buttonText}

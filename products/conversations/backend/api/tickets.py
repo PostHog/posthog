@@ -39,6 +39,8 @@ from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
 from posthog.permissions import APIScopePermission
 from posthog.personhog_client.caller_tag import personhog_caller_tag
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
 from posthog.utils import relative_date_parse
 
@@ -231,7 +233,7 @@ class TicketPersonSerializer(serializers.Serializer):
         return get_person_name(team, person)
 
 
-class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMixin, serializers.ModelSerializer):
     assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
     person = TicketPersonSerializer(read_only=True, allow_null=True)
     email_to = serializers.SerializerMethodField()
@@ -276,6 +278,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "organization_id",
             "person",
             "tags",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -349,7 +352,7 @@ TICKET_ID_PARAM = OpenApiParameter(
     partial_update=extend_schema(parameters=[TICKET_ID_PARAM]),
     destroy=extend_schema(parameters=[TICKET_ID_PARAM]),
 )
-class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
     scope_object_read_actions = ["list", "retrieve", "unread_count", "messages"]
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose", "reply", "ai_feedback"]
@@ -534,6 +537,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         order_by = self.request.query_params.get("order_by", "-updated_at")
         if order_by not in allowed_orderings:
             order_by = "-updated_at"
+
+        # Hide tickets the user has been explicitly denied object-level access to (list action only).
+        queryset = self._filter_queryset_by_access_level(queryset)
 
         return queryset.order_by(order_by)
 

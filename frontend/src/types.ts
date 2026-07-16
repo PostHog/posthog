@@ -285,6 +285,7 @@ export enum AccessControlResourceType {
     DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
     Notebook = 'notebook',
+    Ticket = 'ticket',
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
