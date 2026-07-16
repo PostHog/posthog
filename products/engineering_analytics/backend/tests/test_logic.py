@@ -811,6 +811,24 @@ class TestMultiRepoGitHubResolution(BaseTest):
         assert tables.repository == expected_repo
         assert tables.pull_requests == expected_pr
 
+    def test_explicit_repo_does_not_fall_through_to_a_sibling_repo(self) -> None:
+        # The picker lists a repo before it finishes syncing. Selecting one whose pull_requests/
+        # workflow_runs pair is incomplete must surface not-connected — never silently resolve the
+        # source's other (complete) repo, which would mix two repos' metrics.
+        self._multi_repo_source(
+            prefix="partial",
+            legacy_repository="PostHog/posthog",
+            repos={
+                "PostHog/posthog": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+                # workflow_runs still backfilling — no complete pair for this repo yet.
+                "posthog/posthog.com": [(PULL_REQUESTS_SCHEMA, True)],
+            },
+        )
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team, repo="posthog/posthog.com")
+        # The complete sibling still resolves on its own.
+        assert resolve_github_tables(team=self.team, repo="PostHog/posthog").repository == "PostHog/posthog"
+
     def test_cost_pairs_include_every_repo_in_a_source(self) -> None:
         # The cost view unions (jobs, runs) across repos. A multi-repo source must contribute one
         # pair per fully-synced repo — collapsing it to one repo silently under-counts the view.

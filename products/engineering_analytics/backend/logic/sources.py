@@ -111,12 +111,16 @@ def resolve_github_tables(
     # Lazy by default so the common path (no `repo`) stops querying sources on the first usable repo.
     candidates: Iterable[_RepoCandidate] = _repo_candidates(team=team, sources=queryset)
     if repo:
-        # Materialize and stable-sort: the source-oldest / legacy-repo-first order holds among equals,
-        # and the matching repo(s) move to the front. Applies even with `source_id` set, so selecting a
-        # specific (source, repo) pair resolves that repo. The non-matching tail still follows as a
-        # fallback, since a bare row's repo can be empty while its data holds the repo.
+        # An explicit repo must never silently resolve a *different* named repo: the picker lists a
+        # source's repos before they finish syncing, so a not-yet-complete pick should surface the
+        # not-connected 400 rather than fall through to a sibling repo (mixing two repos' metrics).
+        # Keep exact matches, then only bare/unattributed ('' repo) rows as a fallback — a legacy
+        # single-repo source's rows carry no repo, so a branch-hint read still reaches them.
         wanted = repo.casefold()
-        candidates = sorted(candidates, key=lambda candidate: candidate.repository.casefold() != wanted)
+        materialized = list(candidates)
+        candidates = [c for c in materialized if c.repository.casefold() == wanted] + [
+            c for c in materialized if c.repository == ""
+        ]
     for candidate in candidates:
         tables = candidate.tables
         pull_requests = tables.get(PULL_REQUESTS_SCHEMA)

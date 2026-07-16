@@ -246,6 +246,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
             engineeringAnalyticsLogic,
             [
                 'sourceId',
+                'scopeRepo',
                 'pullRequests',
                 'pullRequestsLoading',
                 'cards',
@@ -271,6 +272,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                         date_from: values.dateFrom ?? undefined,
                         date_to: values.dateTo ?? undefined,
                         source_id: values.sourceId ?? undefined,
+                        repo: values.scopeRepo ?? undefined,
                     }),
             },
         ],
@@ -281,6 +283,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                     await engineeringAnalyticsMasterFailures(projectId(), {
                         date_from: MASTER_FAILURES_WINDOW,
                         source_id: values.sourceId ?? undefined,
+                        repo: values.scopeRepo ?? undefined,
                     }),
             },
         ],
@@ -290,6 +293,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 loadCurrentBranchHealth: async (_: void, breakpoint): Promise<CurrentBranchHealthApi> => {
                     const health = await engineeringAnalyticsCurrentBranchHealth(projectId(), {
                         source_id: values.sourceId ?? undefined,
+                        repo: values.scopeRepo ?? undefined,
                     })
                     breakpoint()
                     return health
@@ -306,6 +310,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                         date_from: values.dateFrom ?? undefined,
                         date_to: values.dateTo ?? undefined,
                         source_id: values.sourceId ?? undefined,
+                        repo: values.scopeRepo ?? undefined,
                     }),
             },
         ],
@@ -322,6 +327,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                         const logs = await engineeringAnalyticsRunFailureLogs(projectId(), {
                             run_id: runId,
                             source_id: values.sourceId ?? undefined,
+                            repo: values.scopeRepo ?? undefined,
                         })
                         return { ...values.failureLogs, [runId]: logs }
                     } catch {
