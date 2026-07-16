@@ -321,7 +321,7 @@ export function buildApp(opts: BuildAppOpts): Express {
                 // Authoritative-provider callback → admission.complete (writes the
                 // canonical identity + transport binding). Any other provider is a
                 // per-asker capability link → the provider persists its own credential.
-                const admission = buildAdmission(opts, revision)
+                const admission = buildAdmission(opts, revision, application?.slug ?? '')
                 if (admission && providerId === revision.spec.authoritative_provider) {
                     await admission.complete(providerId, stateId, { code, error: errorParam })
                 } else {

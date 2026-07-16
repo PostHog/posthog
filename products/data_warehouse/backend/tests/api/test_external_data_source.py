@@ -4157,10 +4157,6 @@ class TestExternalDataSource(APIBaseTest):
         with (
             patch.object(source, "validate_credentials_for_access_method", return_value=(True, None)),
             patch.object(source, "get_schemas", return_value=[fake_schema]),
-            patch(
-                "products.data_warehouse.backend.presentation.views.external_data_source.is_xmin_enabled_for_team",
-                return_value=True,
-            ),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
@@ -4557,7 +4553,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_available": True,
                     "append_available": True,
                     "cdc_available": None,
-                    "xmin_available": None,
+                    "xmin_available": False,
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
@@ -4628,7 +4624,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_available": True,
                     "append_available": True,
                     "cdc_available": None,
-                    "xmin_available": None,
+                    "xmin_available": False,
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
