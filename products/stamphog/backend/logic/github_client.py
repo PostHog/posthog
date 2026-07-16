@@ -479,7 +479,10 @@ class StamphogGitHubClient:
         Returns raw GitHub issue-comment objects (``user``, ``body``, ``author_association``, ...). The
         reviewer uses these as blocker context — a maintainer's top-level "please hold" comment should
         reach the agent, matching the Action path. Inline review-thread comments are a separate,
-        GraphQL-only surface (thread resolution state) and are not fetched here. Bounded by ``_MAX_PAGES``.
+        GraphQL-only surface (thread resolution state) and are not fetched here. Past the page cap the
+        fetch fails closed (raises) like the reactions fetch: anyone can comment on a public PR, so an
+        author could bury a maintainer's hold past the cap and a silently truncated list would read as
+        "no blockers" to the reviewer.
         """
         comments: list[dict] = []
         for page in range(1, _MAX_PAGES + 1):
@@ -499,8 +502,11 @@ class StamphogGitHubClient:
                 raise StamphogGitHubError(f"Unexpected PR discussion payload for {repo}#{number}")
             comments.extend(comment for comment in page_comments if isinstance(comment, dict))
             if len(page_comments) < _PER_PAGE:
-                break
-        return comments
+                return comments
+        raise StamphogGitHubError(
+            f"PR discussion on {repo}#{number} exceeds {_MAX_PAGES * _PER_PAGE} comments; "
+            "refusing to review with a truncated discussion"
+        )
 
     def get_check_runs(self, repo: str, head_sha: str) -> list[dict]:
         """Fetch the check runs for a commit, paginating through GitHub's endpoint.
