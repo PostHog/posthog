@@ -12,6 +12,8 @@ import type {
     BulkUpdateTagsUUIDRequestApi,
     BulkUpdateTagsUUIDResponseApi,
     EnterpriseEventDefinitionApi,
+    EventDefinitionBulkUpdateVerifiedRequestApi,
+    EventDefinitionBulkUpdateVerifiedResponseApi,
     EventDefinitionRecordApi,
     EventDefinitionsByNameRetrieveParams,
     EventDefinitionsListParams,
@@ -184,6 +186,42 @@ export const eventDefinitionsBulkUpdateTagsCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(bulkUpdateTagsUUIDRequestApi),
     })
+}
+
+export const getEventDefinitionsBulkUpdateVerifiedCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/event_definitions/bulk_update_verified/`
+}
+
+/**
+ * Mark multiple event definitions as verified or unverified in one request.
+ *
+ * In the same vein as ``bulk_update_tags``, but ``verified`` lives on the enterprise
+ * ``EnterpriseEventDefinition`` extension rather than the base row, so this action:
+ * - requires an enterprise license;
+ * - scopes by project (``team__project_id``) and relies on project membership — the same
+ *   boundary the single-object update path uses — rather than object-level RBAC;
+ * - lazily promotes ingestion-created base rows to ``EnterpriseEventDefinition`` (mirroring
+ *   ``_get_event_definition``) before setting ``verified``;
+ * - mirrors the single-object semantics: verifying stamps ``verified_by``/``verified_at`` and
+ *   unhides the event (an event cannot be both hidden and verified); unverifying clears them;
+ * - logs a "changed" activity per event so the History tab matches the single-object path.
+ *
+ * Events already in the target state are skipped (not re-written, not logged).
+ */
+export const eventDefinitionsBulkUpdateVerifiedCreate = async (
+    projectId: string,
+    eventDefinitionBulkUpdateVerifiedRequestApi: EventDefinitionBulkUpdateVerifiedRequestApi,
+    options?: RequestInit
+): Promise<EventDefinitionBulkUpdateVerifiedResponseApi> => {
+    return apiMutator<EventDefinitionBulkUpdateVerifiedResponseApi>(
+        getEventDefinitionsBulkUpdateVerifiedCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(eventDefinitionBulkUpdateVerifiedRequestApi),
+        }
+    )
 }
 
 export const getEventDefinitionsByNameRetrieveUrl = (
