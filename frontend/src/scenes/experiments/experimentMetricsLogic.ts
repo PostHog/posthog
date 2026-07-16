@@ -8,7 +8,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import type { Breakdown, CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
-import { Experiment } from '~/types'
+import { BreakdownAttributionType, Experiment } from '~/types'
 
 import {
     experimentsMetricsRecalculationCreate,
@@ -28,6 +28,9 @@ type ExperimentSavedMetric = {
     metadata: {
         type: 'primary' | 'secondary'
         breakdowns?: Breakdown[]
+        breakdownAttributionType?: BreakdownAttributionType
+        breakdownAttributionValue?: number
+        breakdown_limit?: number
     }
     query: ExperimentMetric
 }
@@ -78,9 +81,14 @@ const sharedMetricsToExperimentMetrics = (
         .filter(({ metadata }) => metadata.type === type)
         .map(({ query, metadata }) => ({
             ...query,
+            ...(metadata?.breakdownAttributionType !== undefined && {
+                breakdownAttributionType: metadata.breakdownAttributionType,
+                breakdownAttributionValue: metadata.breakdownAttributionValue,
+            }),
             breakdownFilter: {
                 ...query?.breakdownFilter,
                 breakdowns: metadata?.breakdowns || [],
+                ...(metadata?.breakdown_limit !== undefined && { breakdown_limit: metadata.breakdown_limit }),
             },
         }))
 
