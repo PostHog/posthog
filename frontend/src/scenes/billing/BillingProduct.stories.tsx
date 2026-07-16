@@ -34,6 +34,10 @@ export default meta
 
 type Story = StoryObj<{}>
 
+const BillingProductStoryFrame = ({ children }: { children: JSX.Element }): JSX.Element => (
+    <div className="w-[960px] max-w-full">{children}</div>
+)
+
 const makePostHogCodeUsageBilling = ({
     currentLimitUsd,
     nextPeriodLimitUsd,
@@ -94,7 +98,11 @@ const renderPostHogCodeUsageBillingProduct = ({
         },
     })
 
-    return <BillingProduct product={product} />
+    return (
+        <BillingProductStoryFrame>
+            <BillingProduct product={product} />
+        </BillingProductStoryFrame>
+    )
 }
 
 export const BillingProductWithoutAddons: Story = {
