@@ -866,6 +866,7 @@ class TaskRunLivingArtifactChartRequestSerializer(serializers.Serializer):
         help_text=(
             "Insight query JSON to render ad hoc, e.g. "
             '{"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. '
+            "SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. "
             "Provide exactly one of query or insight_id."
         ),
     )

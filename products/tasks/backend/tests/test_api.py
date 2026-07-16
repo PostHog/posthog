@@ -7320,25 +7320,9 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         response = self._post_chart(scopes, {"name": "Chart", "query": self.CHART_QUERY})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    SQL_CHART_QUERY = {
-        "kind": "DataVisualizationNode",
-        "source": {
-            "kind": "HogQLQuery",
-            "query": "SELECT toHour(timestamp) AS hour, count() FROM events GROUP BY hour",
-        },
-    }
-
-    @parameterized.expand(
-        [
-            ("insight_viz_links_to_insight_scene", "CHART_QUERY", "/insights/new#q="),
-            ("sql_dataviz_links_to_sql_editor", "SQL_CHART_QUERY", "/sql?open_query="),
-        ]
-    )
     @patch("products.tasks.backend.presentation.views.api.tasks_facade.create_task_run_living_artifact")
     @patch("products.tasks.backend.presentation.views.api.render_png_export")
-    def test_renders_and_registers_artifact_with_both_scopes(
-        self, _name, query_attr, url_fragment, mock_render, mock_create
-    ):
+    def test_renders_and_registers_artifact_with_both_scopes(self, mock_render, mock_create):
         mock_render.return_value = (MagicMock(id=321, exception=None), b"png-bytes")
         mock_create.return_value = (
             {
@@ -7357,13 +7341,29 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
             },
             None,
         )
-        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": getattr(self, query_attr)})
+        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["export_asset_id"], 321)
-        self.assertIn(url_fragment, data["url"])
+        self.assertIn("/insights/new#q=", data["url"])
         self.assertEqual(mock_create.call_args.kwargs["artifact"]["content_bytes"], b"png-bytes")
         self.assertEqual(mock_create.call_args.kwargs["artifact"]["metadata"], {"posthog_url": data["url"]})
+
+    @parameterized.expand(
+        [
+            (
+                "dataviz_node",
+                {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+            ),
+            ("bare_hogql", {"kind": "HogQLQuery", "query": "SELECT 1"}),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_sql_queries_rejected_before_render(self, _name, query, mock_render):
+        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": query})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("can't be charted yet", response.json()["error"])
+        mock_render.assert_not_called()
 
     @patch("products.tasks.backend.presentation.views.api.render_png_export")
     def test_invalid_query_fails_before_render(self, mock_render):

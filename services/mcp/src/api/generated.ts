@@ -58352,7 +58352,7 @@ export namespace Schemas {
     }
 
     /**
-     * Insight query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. Provide exactly one of query or insight_id.
+     * Insight query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. Provide exactly one of query or insight_id.
      */
     export type TaskRunLivingArtifactChartRequestQuery = { [key: string]: unknown };
 
@@ -58362,7 +58362,7 @@ export namespace Schemas {
          * @maxLength 255
          */
       name: string;
-      /** Insight query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. Provide exactly one of query or insight_id. */
+      /** Insight query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. Provide exactly one of query or insight_id. */
       query?: TaskRunLivingArtifactChartRequestQuery;
       /** Numeric id of a saved insight to render. Provide exactly one of query or insight_id. */
       insight_id?: number;

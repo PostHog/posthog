@@ -2146,6 +2146,15 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         name = request.validated_data["name"]
         query = request.validated_data.get("query")
         if query is not None:
+            # SQL rendering is unreliable until the exporter defaults chartSettings/display
+            # server-side — a DataVisualizationNode without display renders a table image.
+            if query.get("kind") in ("DataVisualizationNode", "HogQLQuery"):
+                return Response(
+                    TaskRunErrorResponseSerializer(
+                        {"error": "SQL queries can't be charted yet — use an insight query such as TrendsQuery"}
+                    ).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             try:
                 QuerySchemaRoot.model_validate(upgrade(query))
             except pydantic.ValidationError:
@@ -2193,9 +2202,6 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
 
     def _chart_url(self, query: dict | None, asset) -> str | None:
         if query is not None:
-            # The insight scene can't hydrate a DataVisualizationNode — SQL queries open in the SQL editor.
-            if query.get("kind") == "DataVisualizationNode":
-                return absolute_uri(f"/project/{self.team_id}/sql?open_query={quote(json.dumps(query))}")
             return absolute_uri(f"/project/{self.team_id}/insights/new#q={quote(json.dumps(query))}")
         if asset.insight_id and asset.insight:
             return absolute_uri(f"/project/{self.team_id}/insights/{asset.insight.short_id}")
