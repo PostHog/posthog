@@ -693,6 +693,8 @@ class ModalSandbox(SandboxBase):
         self,
         command: str,
         timeout_seconds: int | None = None,
+        *,
+        capture_timeout: bool = True,
     ) -> ExecutionResult:
         if not self.is_running():
             raise SandboxNotRunningError(
@@ -723,11 +725,13 @@ class ModalSandbox(SandboxBase):
             return result
 
         except TimeoutError as e:
-            capture_exception(e)
+            if capture_timeout:
+                capture_exception(e)
             raise SandboxTimeoutError(
                 f"Execution timed out after {timeout_seconds} seconds",
                 {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
                 cause=e,
+                capture=capture_timeout,
             )
         except Exception as e:
             redacted_error = redact_sandbox_command(str(e))

@@ -38,7 +38,9 @@ logger = get_logger(__name__)
 
 def _emit_agentsh_log_tail(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
     try:
-        result = sandbox.execute("tail -n 20 /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
+        result = sandbox.execute(
+            "tail -n 20 /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5, capture_timeout=False
+        )
     except Exception:
         logger.exception("Failed to fetch agentsh log tail", task_id=ctx.task_id, run_id=ctx.run_id)
         return
@@ -50,7 +52,9 @@ def _emit_agentsh_log_tail(ctx: TaskProcessingContext, sandbox: SandboxBase) -> 
 
 def _emit_agent_server_log_tail(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
     try:
-        result = sandbox.execute("tail -n 40 /tmp/agent-server.log 2>/dev/null || true", timeout_seconds=5)
+        result = sandbox.execute(
+            "tail -n 40 /tmp/agent-server.log 2>/dev/null || true", timeout_seconds=5, capture_timeout=False
+        )
     except Exception:
         logger.exception("Failed to fetch agent-server log tail", task_id=ctx.task_id, run_id=ctx.run_id)
         return

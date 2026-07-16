@@ -550,6 +550,8 @@ class DockerSandbox(SandboxBase):
         self,
         command: str,
         timeout_seconds: Optional[int] = None,
+        *,
+        capture_timeout: bool = True,
     ) -> ExecutionResult:
         if not self.is_running():
             raise SandboxExecutionError(
@@ -581,6 +583,7 @@ class DockerSandbox(SandboxBase):
                 f"Execution timed out after {timeout_seconds} seconds",
                 {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
                 cause=e,
+                capture=capture_timeout,
             )
         except Exception as e:
             logger.exception(f"Failed to execute command: {e}")
@@ -947,7 +950,9 @@ class DockerSandbox(SandboxBase):
         # If branch flag was used, the installed agent-server version may not support --baseBranch.
         # Kill the failed process and retry without it.
         if branch:
-            log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
+            log_result = self.execute(
+                "cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5, capture_timeout=False
+            )
             logger.warning(
                 f"Agent-server health check failed for sandbox {self.id} with --baseBranch. "
                 f"Retrying without branch flag. Log output:\n{log_result.stdout}"
@@ -980,7 +985,9 @@ class DockerSandbox(SandboxBase):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")
                 return
 
-        log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
+        log_result = self.execute(
+            "cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5, capture_timeout=False
+        )
         logger.warning(f"Agent-server health check failed for sandbox {self.id}. Log output:\n{log_result.stdout}")
 
         # Transient timeout Temporal retries — skip error-tracking capture to avoid noisy issues.
@@ -995,7 +1002,9 @@ class DockerSandbox(SandboxBase):
         if self._wait_for_health_check(max_attempts=240):
             logger.info(f"Agent-server ready on port {self._host_port}")
             return
-        log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
+        log_result = self.execute(
+            "cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5, capture_timeout=False
+        )
         logger.warning(f"Agent-server health check failed for sandbox {self.id}. Log output:\n{log_result.stdout}")
         # Transient timeout Temporal retries — skip error-tracking capture to avoid noisy issues.
         raise SandboxExecutionError(

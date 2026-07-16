@@ -28,6 +28,7 @@ import structlog
 from pydantic import BaseModel, model_validator
 
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_FILESYSTEM, SnapshotKind
+from products.tasks.backend.exceptions import SandboxTimeoutError
 from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
@@ -219,7 +220,9 @@ class SandboxBase(ABC):
     def get_status(self) -> SandboxStatus: ...
 
     @abstractmethod
-    def execute(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult: ...
+    def execute(
+        self, command: str, timeout_seconds: int | None = None, *, capture_timeout: bool = True
+    ) -> ExecutionResult: ...
 
     @abstractmethod
     def execute_stream(self, command: str, timeout_seconds: int | None = None) -> ExecutionStream: ...
@@ -431,7 +434,19 @@ def wait_for_health_check(
         f"done; "
         f"exit 1"
     )
-    result = execute(health_script, timeout_seconds=max(30, int(max_attempts * poll_interval) + 5))
+    try:
+        result = execute(
+            health_script,
+            timeout_seconds=max(30, int(max_attempts * poll_interval) + 5),
+            capture_timeout=False,
+        )
+    except SandboxTimeoutError:
+        # The in-sandbox poll loop can outlast the docker exec / provider timeout when the
+        # agent-server binds its port but never answers /health. That's a failed health check,
+        # not an exceptional condition — return False so the caller raises its own quiet,
+        # non-capturing "failed to start" error instead of this timeout escaping as a noisy issue.
+        _logger.info(f"Agent-server health check timed out in sandbox {sandbox_id}")
+        return False
     if result.exit_code == 0:
         _logger.info(f"Agent-server health check passed in sandbox {sandbox_id} ({result.stdout.strip()})")
         return True
