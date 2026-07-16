@@ -7,6 +7,7 @@ import pytest
 from unittest import mock
 
 import requests
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_duo.cisco_duo import (
     CiscoDuoHostNotAllowedError,
@@ -391,6 +392,26 @@ class TestListV1Rows:
         batches = _run("integrations", session, _manager())
 
         assert batches == [[{"integration_key": "DI123", "name": "web sdk"}]]
+
+    @parameterized.expand([("integrations", False), ("users", True)])
+    def test_http_capture_disabled_when_response_needs_redaction(self, endpoint: str, expected_capture: bool):
+        # Sample capture records the raw response before redaction, so it must be off for
+        # endpoints whose responses carry secrets (integrations), and left on otherwise.
+        session = _FakeSession([self._page([])])
+        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session) as make_session:
+            list(
+                get_rows(
+                    api_hostname=HOST,
+                    integration_key=IKEY,
+                    secret_key=SKEY,
+                    endpoint=endpoint,
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=_manager(),
+                    team_id=1,
+                )
+            )
+
+        assert make_session.call_args.kwargs["capture"] is expected_capture
 
 
 class TestValidateCredentials:

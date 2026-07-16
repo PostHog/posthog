@@ -413,8 +413,10 @@ def get_rows(
     last_value = db_incremental_field_last_value if should_use_incremental_field else None
 
     # One session reused across every page so urllib3 keeps the connection alive instead of
-    # re-handshaking per request.
-    session = make_tracked_session()
+    # re-handshaking per request. HTTP sample capture records the raw response before
+    # redact_fields is applied, so disable it for endpoints whose responses carry secrets the
+    # name-based sample scrubbers can't recognise (e.g. an integration's secret_key).
+    session = make_tracked_session(capture=not bool(config.redact_fields))
 
     if config.api_style == "log_v2":
         yield from _get_log_v2_rows(
