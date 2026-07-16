@@ -175,7 +175,8 @@ describe('RerunPaginatorService integration', () => {
                  WHERE team_id = ${team.id} AND invocation_id = '${invocationId}'`
             )
             expect(Number(got[0]?.c ?? 0)).toBeGreaterThanOrEqual(1)
-        }, 30_000)
+            // Same backlogged-pipe allowance as seedRows above.
+        }, 90_000)
     }
 
     beforeAll(async () => {
