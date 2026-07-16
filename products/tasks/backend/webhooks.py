@@ -10,11 +10,11 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.integration import Integration
+from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
 
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import Task, TaskRun
 
 logger = structlog.get_logger(__name__)
 
@@ -132,6 +132,8 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     )
     if task_run is not None and is_internal_branch:
         _record_run_pr_url(task_run, pr_url)
+        if action == "opened":
+            _maybe_promote_signals_pr_to_ready(task_run, payload, pull_request)
 
     # Deterministic UUID dedupes duplicate webhook deliveries of the same PR action.
     event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
@@ -167,6 +169,33 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
         task_run.output = {**(task_run.output if isinstance(task_run.output, dict) else {}), "pr_url": pr_url}
     except Exception:
         logger.warning("github_pr_webhook_record_pr_url_failed", run_id=str(task_run.id), exc_info=True)
+
+
+def _maybe_promote_signals_pr_to_ready(task_run: TaskRun, payload: dict, pull_request: dict) -> None:
+    """Flip a freshly opened signals-initiated PR from draft to ready-for-review.
+
+    The agent opens signal-report PRs as drafts; the Inbox merge flow needs them
+    ready for review, so we promote them the moment GitHub reports the ``opened``
+    event. Guarded to the installation the webhook came from and skipped when the
+    PR is already non-draft. Tolerant: a failure here must not fail the webhook.
+    """
+    if task_run.task.origin_product != Task.OriginProduct.SIGNAL_REPORT:
+        return
+    if not pull_request.get("draft"):
+        return
+    pr_url = pull_request.get("html_url")
+    installation_id = (payload.get("installation") or {}).get("id")
+    if not pr_url or installation_id is None:
+        return
+    integration = Integration.objects.filter(
+        team_id=task_run.team_id, kind="github", integration_id=str(installation_id)
+    ).first()
+    if integration is None:
+        return
+    try:
+        GitHubIntegration(integration).mark_pull_request_ready_for_review(pr_url)
+    except Exception:
+        logger.warning("github_pr_webhook_mark_ready_failed", run_id=str(task_run.id), pr_url=pr_url, exc_info=True)
 
 
 # Nulled on external PRs so their schema matches task-originated PR events.

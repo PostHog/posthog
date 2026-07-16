@@ -474,6 +474,127 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.assertEqual(self.report.status, SignalReport.Status.READY)
 
 
+class TestGitHubPRWebhookPromotesSignalsPR(TestCase):
+    """A freshly opened signals-initiated draft PR is promoted to ready-for-review."""
+
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.user = User.objects.create(email="promote@example.com", distinct_id="user-promote")
+        cls.integration = Integration.objects.create(
+            team=cls.team,
+            kind="github",
+            integration_id="90210",
+            config={"account": {"name": "posthog"}},
+        )
+
+    def setUp(self):
+        self.client = APIClient()
+        self.webhook_secret = "test-webhook-secret"
+
+    def _make_task(self, origin_product: str) -> TaskRun:
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Task",
+            description="desc",
+            origin_product=origin_product,
+            repository="posthog/posthog",
+        )
+        return TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/signals-fix",
+            output={},
+        )
+
+    def _post_opened(self, *, draft: bool, head_repo: str = "posthog/posthog", installation_id: int | None = 90210):
+        payload: dict = {
+            "action": "opened",
+            "repository": {"full_name": "posthog/posthog"},
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/321",
+                "merged": False,
+                "draft": draft,
+                "head": {"ref": "feature/signals-fix", "repo": {"full_name": head_repo}},
+            },
+        }
+        if installation_id is not None:
+            payload["installation"] = {"id": installation_id}
+        payload_bytes = json.dumps(payload).encode("utf-8")
+        signature = generate_github_signature(payload_bytes, self.webhook_secret)
+        return self.client.post(
+            "/webhooks/github/pr/",
+            data=payload_bytes,
+            content_type="application/json",
+            headers={"x-hub-signature-256": signature, "x-github-event": "pull_request"},
+        )
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.webhooks.GitHubIntegration")
+    def test_signals_draft_pr_is_promoted(self, mock_github, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        self._make_task(Task.OriginProduct.SIGNAL_REPORT)
+
+        response = self._post_opened(draft=True)
+
+        self.assertEqual(response.status_code, 200)
+        mock_github.assert_called_once()
+        mock_github.return_value.mark_pull_request_ready_for_review.assert_called_once_with(
+            "https://github.com/posthog/posthog/pull/321"
+        )
+
+    @parameterized.expand(
+        [
+            ("not_draft", {"draft": False}),
+            ("fork_head", {"draft": True, "head_repo": "attacker/posthog"}),
+            ("no_installation", {"draft": True, "installation_id": None}),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.webhooks.GitHubIntegration")
+    def test_signals_pr_not_promoted(self, _name, kwargs, mock_github, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        self._make_task(Task.OriginProduct.SIGNAL_REPORT)
+
+        response = self._post_opened(**kwargs)
+
+        self.assertEqual(response.status_code, 200)
+        mock_github.return_value.mark_pull_request_ready_for_review.assert_not_called()
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.webhooks.GitHubIntegration")
+    def test_non_signals_draft_pr_is_not_promoted(self, mock_github, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        self._make_task(Task.OriginProduct.USER_CREATED)
+
+        response = self._post_opened(draft=True)
+
+        self.assertEqual(response.status_code, 200)
+        mock_github.return_value.mark_pull_request_ready_for_review.assert_not_called()
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.webhooks.GitHubIntegration")
+    def test_promotion_failure_does_not_fail_webhook(self, mock_github, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        self._make_task(Task.OriginProduct.SIGNAL_REPORT)
+        mock_github.return_value.mark_pull_request_ready_for_review.side_effect = Exception("boom")
+
+        response = self._post_opened(draft=True)
+
+        self.assertEqual(response.status_code, 200)
+
+
 class TestExternalPRWebhook(TestCase):
     """PRs with no matching TaskRun are emitted as external PR events."""
 

@@ -895,6 +895,57 @@ class GitHubIntegrationBase:
             "updated_at": pr.get("updatedAt"),
         }
 
+    _PR_NODE_QUERY = """
+    query($owner: String!, $repo: String!, $number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $number) { id isDraft }
+      }
+    }
+    """
+
+    _MARK_PR_READY_MUTATION = """
+    mutation($pullRequestId: ID!) {
+      markPullRequestReadyForReview(input: {pullRequestId: $pullRequestId}) {
+        pullRequest { number isDraft }
+      }
+    }
+    """
+
+    def mark_pull_request_ready_for_review(self, pr_url: str) -> dict[str, Any]:
+        """Convert a draft PR to ready-for-review. No-op when the PR is already ready.
+
+        Resolves the PR node id via the installation token (rather than trusting a
+        caller-supplied id) and only mutates when the PR is still a draft — GitHub
+        errors if ``markPullRequestReadyForReview`` targets a non-draft PR.
+
+        Returns ``{"success": True, "converted": bool}`` on success, or
+        ``{"success": False, "error": ...}`` on a handled failure. Rate-limit and
+        unexpected errors raise ``GitHubIntegrationError`` so the caller can back off.
+        """
+        parsed = self.parse_pull_request_url(pr_url)
+        if parsed is None:
+            return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
+        owner, repo, pr_number = parsed
+
+        data = self._gh_graphql(
+            self._PR_NODE_QUERY,
+            {"owner": owner, "repo": repo, "number": pr_number},
+            endpoint="/graphql:pullRequestNode",
+        )
+        pr = ((data or {}).get("repository") or {}).get("pullRequest")
+        if not pr or not pr.get("id"):
+            return {"success": False, "error": f"Pull request not found: {pr_url}"}
+        if not pr.get("isDraft"):
+            return {"success": True, "converted": False}
+
+        result = self._gh_graphql(
+            self._MARK_PR_READY_MUTATION,
+            {"pullRequestId": pr["id"]},
+            endpoint="/graphql:markPullRequestReadyForReview",
+        )
+        converted = ((result or {}).get("markPullRequestReadyForReview") or {}).get("pullRequest")
+        return {"success": True, "converted": bool(converted) and converted.get("isDraft") is False}
+
     def list_repositories(self, *, page: int = 1, per_page: int = 100) -> tuple[list[dict], bool]:
         """List one page of installation repositories from the GitHub API.
 

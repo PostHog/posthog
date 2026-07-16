@@ -139,7 +139,9 @@ def _create_implementation_task_if_absent(
             # Full scopes so the implementation agent can log its work on the report (notes,
             # code references) via the task:write artefact tools.
             posthog_mcp_scopes="full",
-            interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
+            # Makes the agent auto-push and open a PR. The agent opens it as a draft; the
+            # `pull_request.opened` webhook then promotes signals PRs to ready-for-review.
+            interaction_origin="signal_report",
             ai_stage="implementation",
         )
         if created.latest_run is None:
