@@ -104,7 +104,8 @@ export function MessageInput({
                     description: sendConfirmationMessage,
                     primaryButton: { children: 'Send', type: 'primary', onClick: doSend },
                     secondaryButton: { children: 'Cancel' },
-                    onClose: () => {
+                    // Reset on every close path (confirm, cancel, Esc, backdrop) so the next send isn't blocked.
+                    onAfterClose: () => {
                         confirmOpenRef.current = false
                     },
                 })
