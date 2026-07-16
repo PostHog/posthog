@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from posthog.temporal.ai_observability.eval_reports.types import (
     CheckCountTriggeredEvalReportOutput,
+    CheckCountTriggeredEvalReportsBatchOutput,
     GenerateAndDeliverEvalReportWorkflowInput,
     PrepareReportContextOutput,
     RunEvalReportAgentInput,
@@ -12,6 +13,7 @@ from posthog.temporal.ai_observability.eval_reports.types import (
 from posthog.temporal.ai_observability.eval_reports.workflow import (
     GenerateAndDeliverEvalReportWorkflow,
     _check_count_triggered_eval_report_candidates,
+    _check_count_triggered_eval_report_candidates_batched,
 )
 
 
@@ -112,5 +114,52 @@ async def test_count_triggered_report_check_continues_after_activity_failure() -
             "skipped_cooldown": 1,
             "skipped_daily_cap": 1,
             "skipped_not_deliverable": 1,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_batched_count_check_aggregates_across_batches_and_isolates_batch_failure() -> None:
+    # One failing batch activity must not sink the others: every report in it is recorded as
+    # failed, while due/skipped reports from the surviving batch still aggregate correctly.
+    async def fake_execute_activity(_activity, inputs, **_kwargs):
+        if any(report_id.startswith("boom") for report_id in inputs.report_ids):
+            raise RuntimeError("clickhouse at capacity")
+        return CheckCountTriggeredEvalReportsBatchOutput(
+            results=[
+                CheckCountTriggeredEvalReportOutput(
+                    report_id=report_id,
+                    due=report_id == "due",
+                    skipped_reason="cooldown" if report_id == "skip" else None,
+                )
+                for report_id in inputs.report_ids
+            ]
+        )
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=fake_execute_activity,
+        ),
+        # Force two activity batches so we exercise cross-batch aggregation and per-batch failure.
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.COUNT_TRIGGER_REPORTS_PER_ACTIVITY", 2),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_reports_found") as record,
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.logger") as logger,
+    ):
+        report_ids = await _check_count_triggered_eval_report_candidates_batched(["due", "skip", "boom1", "boom2"])
+
+    assert report_ids == ["due"]
+    record.assert_called_once_with(1, "count_triggered")
+    logger.warning.assert_called_once()
+    assert logger.warning.call_args.kwargs["extra"]["failed_count"] == 2
+    logger.info.assert_called_once_with(
+        "llma_eval_reports_coordinator_count_triggered_poll",
+        extra={
+            "reports_found": 1,
+            "total_checked": 4,
+            "skipped_cooldown": 1,
+            "skipped_daily_cap": 0,
+            "skipped_not_deliverable": 0,
+            "skipped_count_query_error": 0,
         },
     )

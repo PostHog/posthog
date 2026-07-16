@@ -13,6 +13,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.temporal.ai_observability.eval_reports.activities import (
     check_count_triggered_eval_report_activity,
+    check_count_triggered_eval_reports_activity,
     deliver_report_activity,
     fetch_count_triggered_eval_report_candidates_activity,
     fetch_due_eval_reports_activity,
@@ -28,6 +29,7 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
     CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME,
     COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT,
     COUNT_TRIGGER_CHECK_BATCH_SIZE,
+    COUNT_TRIGGER_REPORTS_PER_ACTIVITY,
     DELIVER_ACTIVITY_TIMEOUT,
     DELIVER_HEARTBEAT_TIMEOUT,
     DELIVER_RETRY_POLICY,
@@ -49,6 +51,7 @@ from posthog.temporal.ai_observability.eval_reports.emit_signal import (
 from posthog.temporal.ai_observability.eval_reports.metrics import record_coordinator_reports_found
 from posthog.temporal.ai_observability.eval_reports.types import (
     CheckCountTriggeredEvalReportInput,
+    CheckCountTriggeredEvalReportsBatchInput,
     CheckCountTriggeredReportsWorkflowInputs,
     DeliverReportInput,
     GenerateAndDeliverEvalReportWorkflowInput,
@@ -123,7 +126,13 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
             start_to_close_timeout=FETCH_ACTIVITY_TIMEOUT,
             retry_policy=FETCH_RETRY_POLICY,
         )
-        report_ids = await _check_count_triggered_eval_report_candidates(result.report_ids)
+        # Batched path shares one ClickHouse count query per team instead of firing one per
+        # report. Gated by patched() so a coordinator started before this deployed replays
+        # its original per-report command sequence and doesn't hit a nondeterminism error.
+        if temporalio.workflow.patched("eval-report-batched-count-check-2026-07"):
+            report_ids = await _check_count_triggered_eval_report_candidates_batched(result.report_ids)
+        else:
+            report_ids = await _check_count_triggered_eval_report_candidates(result.report_ids)
 
         if not report_ids:
             return
@@ -184,6 +193,63 @@ async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -
             "skipped_cooldown": skipped_counts["cooldown"],
             "skipped_daily_cap": skipped_counts["daily_cap"],
             "skipped_not_deliverable": skipped_counts["not_deliverable"],
+        },
+    )
+    record_coordinator_reports_found(len(due_report_ids), "count_triggered")
+    return due_report_ids
+
+
+async def _check_count_triggered_eval_report_candidates_batched(report_ids: list[str]) -> list[str]:
+    due_report_ids: list[str] = []
+    failed: list[tuple[str, str]] = []
+    skipped_counts = {
+        "cooldown": 0,
+        "daily_cap": 0,
+        "not_deliverable": 0,
+        # A team's count query failed inside the batch; the report is re-checked next tick.
+        "count_query_error": 0,
+    }
+
+    batches = _batch_report_ids(report_ids, COUNT_TRIGGER_REPORTS_PER_ACTIVITY)
+    tasks = [
+        temporalio.workflow.execute_activity(
+            check_count_triggered_eval_reports_activity,
+            CheckCountTriggeredEvalReportsBatchInput(report_ids=batch),
+            start_to_close_timeout=COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT,
+            retry_policy=FETCH_RETRY_POLICY,
+        )
+        for batch in batches
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for batch, result in zip(batches, results):
+        if isinstance(result, BaseException):
+            # A whole batch failed — attribute every report in it so the failure is visible,
+            # while other batches still contribute their due reports.
+            for report_id in batch:
+                failed.append((report_id, f"{type(result).__name__}: {result}"))
+            continue
+        for output in result.results:
+            if output.due:
+                due_report_ids.append(output.report_id)
+            elif output.skipped_reason is not None:
+                skipped_counts[output.skipped_reason] = skipped_counts.get(output.skipped_reason, 0) + 1
+
+    if failed:
+        temporalio.workflow.logger.warning(
+            "count_triggered_eval_report_check.activity_errors",
+            extra={"failed_count": len(failed), "failures": failed},
+        )
+
+    temporalio.workflow.logger.info(
+        "llma_eval_reports_coordinator_count_triggered_poll",
+        extra={
+            "reports_found": len(due_report_ids),
+            "total_checked": len(report_ids),
+            "skipped_cooldown": skipped_counts["cooldown"],
+            "skipped_daily_cap": skipped_counts["daily_cap"],
+            "skipped_not_deliverable": skipped_counts["not_deliverable"],
+            "skipped_count_query_error": skipped_counts["count_query_error"],
         },
     )
     record_coordinator_reports_found(len(due_report_ids), "count_triggered")

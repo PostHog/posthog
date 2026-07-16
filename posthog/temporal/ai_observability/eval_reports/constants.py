@@ -24,6 +24,12 @@ COORDINATOR_EXECUTION_TIMEOUT = timedelta(hours=2)
 # Activity timeouts
 FETCH_ACTIVITY_TIMEOUT = timedelta(seconds=60)
 COUNT_TRIGGER_CHECK_BATCH_SIZE = 5
+# Number of reports handed to one batched check activity. Candidates are fetched ordered
+# by team, so a batch this size keeps each team's reports together for a shared count query.
+COUNT_TRIGGER_REPORTS_PER_ACTIVITY = 200
+# Max number of per-report countIf columns in a single ClickHouse query, so a team with
+# many reports is split across a few queries instead of one enormous one.
+COUNT_TRIGGER_QUERY_WIDTH = 100
 COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT = timedelta(seconds=60)
 PREPARE_ACTIVITY_TIMEOUT = timedelta(seconds=60)
 AGENT_ACTIVITY_TIMEOUT = timedelta(seconds=660)  # 11 minutes (agent timeout + buffer)

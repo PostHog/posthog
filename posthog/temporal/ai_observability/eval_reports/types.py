@@ -27,6 +27,16 @@ class CheckCountTriggeredEvalReportOutput:
 
 
 @dataclasses.dataclass
+class CheckCountTriggeredEvalReportsBatchInput:
+    report_ids: list[str]
+
+
+@dataclasses.dataclass
+class CheckCountTriggeredEvalReportsBatchOutput:
+    results: list[CheckCountTriggeredEvalReportOutput]
+
+
+@dataclasses.dataclass
 class FetchDueEvalReportsOutput:
     report_ids: list[str]
 
