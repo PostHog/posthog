@@ -359,18 +359,6 @@ export interface maxLogicMeta {
             activeStreamingThreads: number
         ) => Breadcrumb[]
     }
-    __keaTypeGenInternalReducerActions: {
-        'open side panel (scenes.navigation.sidepanel.sidePanelStateLogic)': (
-            tab: SidePanelTab,
-            options?: string
-        ) => {
-            payload: {
-                options: string | undefined
-                tab: SidePanelTab
-            }
-            type: 'open side panel (scenes.navigation.sidepanel.sidePanelStateLogic)'
-        }
-    }
 }
 
 export type maxLogicType = MakeLogicType<maxLogicValues, maxLogicActions, MaxLogicProps, maxLogicMeta>

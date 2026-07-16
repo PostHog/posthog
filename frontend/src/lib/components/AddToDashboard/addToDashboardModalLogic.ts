@@ -138,14 +138,6 @@ export interface addToDashboardModalLogicMeta {
             user: UserType | null
         ) => DashboardBasicType[]
     }
-    __keaTypeGenInternalReducerActions: {
-        'add dashboard success (models.dashboardsModel)': (dashboard: DashboardType<QueryBasedInsightModel>) => {
-            payload: {
-                dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>
-            }
-            type: 'add dashboard success (models.dashboardsModel)'
-        }
-    }
 }
 
 export type addToDashboardModalLogicType = MakeLogicType<
