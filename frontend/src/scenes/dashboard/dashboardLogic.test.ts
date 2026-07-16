@@ -1475,7 +1475,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.loadDashboardFailure(new Error('Revalidation failed'))
+                logic.actions.loadDashboardFailure('Revalidation failed')
             })
                 .toDispatchActions(['loadDashboardMetadataSuccess'])
                 .toMatchValues({
@@ -1496,8 +1496,9 @@ describe('dashboardLogic', () => {
                 ...dashboards[12],
                 tiles: dashboards[12].tiles.slice(0, 7),
             }
-            const streamTilesSpy = jest.spyOn(api.dashboards, 'streamTiles').mockImplementation(
-                async (_id, _params, onMessage, onComplete) => {
+            const streamTilesSpy = jest
+                .spyOn(api.dashboards, 'streamTiles')
+                .mockImplementation(async (_id, _params, onMessage, onComplete) => {
                     onMessage({
                         type: 'metadata',
                         dashboard: { ...freshDashboard, tiles: freshDashboard.tiles.slice(0, 2) },
@@ -1509,15 +1510,17 @@ describe('dashboardLogic', () => {
                     })
                     onComplete()
                     return () => {}
-                }
-            )
+                })
 
             await expectLogic(logic, () => {
                 logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.Update })
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    tiles: truth((tiles) => tiles.length === 7 && new Set(tiles.map((tile) => tile.id)).size === 7),
+                    tiles: truth(
+                        (tiles: DashboardTile<QueryBasedInsightModel>[]) =>
+                            tiles.length === 7 && new Set(tiles.map((tile) => tile.id)).size === 7
+                    ),
                 })
 
             streamTilesSpy.mockRestore()

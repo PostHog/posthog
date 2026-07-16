@@ -3,8 +3,8 @@ import '@testing-library/jest-dom'
 import { render, screen } from '@testing-library/react'
 import { useValues } from 'kea'
 
-import { DashboardRefreshStatusText } from './DashboardReloadAction'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
+import { DashboardRefreshStatusText } from './DashboardReloadAction'
 
 jest.mock('kea', () => ({
     ...jest.requireActual('kea'),
