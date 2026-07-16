@@ -333,20 +333,24 @@ class TestRelaySlackMessage(TestCase):
         _mock_flag,
     ):
         chart_url = "https://us.posthog.com/project/1/insights/abc123"
-        self._create_pending_slack_file_artifact(
+        image_url = "https://us.posthog.com/exporter/export-chart.png?token=abc"
+        artifact, _storage_path = self._create_pending_slack_file_artifact(
             name="Signups by week",
             filename="signups.v1.png",
             content_type="image/png",
-            metadata={"posthog_url": chart_url},
+            metadata={"posthog_url": chart_url, "image_url": image_url},
         )
-        slack = self._mock_slack_upload(mock_integration_for_mapping, title="Signups by week")
-        # Slack rejects block references to a file it hasn't finished processing; the first
-        # attempt failing exercises the retry.
+        slack = unittest.mock.MagicMock()
+        slack_integration = unittest.mock.MagicMock()
+        slack_integration.client = slack
+        # No files:write — url-referenced charts must deliver without any file scope.
+        slack_integration.missing_scopes.return_value = {"files:write"}
+        mock_integration_for_mapping.return_value = slack_integration
+        # First post rejected transiently to exercise the retry.
         slack.chat_postMessage.side_effect = [
             SlackApiError("invalid_blocks", {"ok": False, "error": "invalid_blocks"}),
             {"ok": True, "ts": "1111.2"},
         ]
-        mock_read_bytes.return_value = b"png bytes"
 
         with patch("products.tasks.backend.logic.services.living_artifacts.time.sleep") as mock_sleep:
             relay_slack_message(
@@ -358,10 +362,10 @@ class TestRelaySlackMessage(TestCase):
             )
         mock_sleep.assert_called_once()
 
-        # Image uploads must not share into the channel — the composed chat message
-        # carries the image, keeping thread order deterministic.
-        complete_payload = slack.api_call.call_args_list[1].kwargs["data"]
-        self.assertNotIn("channel_id", complete_payload)
+        # url-referenced images involve no upload at all: no files.* API calls, no
+        # object storage read — Slack fetches the PNG from the url in the block.
+        slack.api_call.assert_not_called()
+        mock_read_bytes.assert_not_called()
         self.assertEqual(slack.chat_postMessage.call_count, 2)
         composed_call = slack.chat_postMessage.call_args
         self.assertEqual(composed_call.kwargs["channel"], "C123")
@@ -369,14 +373,18 @@ class TestRelaySlackMessage(TestCase):
         answer_block, header_block, image_block, actions_block = composed_call.kwargs["blocks"]
         self.assertEqual(answer_block["text"]["text"], "<@U123> Here's the trend.")
         self.assertEqual(header_block["text"]["text"], "*Signups by week*")
-        self.assertEqual(image_block["type"], "image")
-        self.assertEqual(image_block["slack_file"], {"id": "F123"})
+        self.assertEqual(image_block, {"type": "image", "image_url": image_url, "alt_text": "Signups by week"})
         button = actions_block["elements"][0]
         self.assertEqual(button["url"], chart_url)
         self.assertEqual(button["text"]["text"], "Open in PostHog")
 
         # The composed message carries the answer text — nothing posted via the handler.
         mock_post.assert_not_called()
+
+        artifact.refresh_from_db()
+        self.assertEqual(artifact.location["delivery_status"], "delivered")
+        self.assertNotIn("slack_file_id", artifact.versions[0])
+        self.assertEqual(artifact.versions[0]["delivery_status"], "delivered")
 
     @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")

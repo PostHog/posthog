@@ -801,14 +801,17 @@ def deliver_pending_slack_file_artifacts(
 ) -> SlackFileDeliveryResult:
     """Deliver pending slack_file artifacts to the mapped thread.
 
-    Images (chart PNGs) upload without a channel share and then compose into a
-    single chat message together with ``answer_sections`` (the relay's converted
-    answer text): text sections first, then one card per chart (title/description,
-    image block, "Open in PostHog" button). chat.postMessage is synchronous, so the
-    whole answer lands atomically — unlike channel file shares, which Slack
-    materializes asynchronously. Non-image files still deliver as channel shares,
-    after the composed message. ``answer_posted`` tells the caller whether the
-    answer text went out in the composed message so it isn't posted twice.
+    Images compose into a single chat message together with ``answer_sections``
+    (the relay's converted answer text): text sections first, then one card per
+    chart (title, image block, "Open in PostHog" button). Chart images carry a
+    public ``image_url`` in metadata — Slack's image proxy fetches the PNG from
+    us, so no file upload (and no files:write scope) is involved; other images
+    upload without a channel share and are referenced by file id. chat.postMessage
+    is synchronous, so the whole answer lands atomically — unlike channel file
+    shares, which Slack materializes asynchronously. Non-image files still deliver
+    as channel shares (these do need files:write), after the composed message.
+    ``answer_posted`` tells the caller whether the answer text went out in the
+    composed message so it isn't posted twice.
     """
     result = SlackFileDeliveryResult()
     mapping = _get_slack_mapping(run, raise_if_missing=False)
@@ -820,27 +823,37 @@ def deliver_pending_slack_file_artifacts(
         return result
 
     slack_integration = _slack_integration_for_mapping(mapping)
-    missing_scopes = slack_integration.missing_scopes(frozenset({SLACK_FILE_SCOPE}))
-    if missing_scopes:
-        logger.warning(
-            "task_artifact.slack_file_delivery_missing_scope",
-            task_run_id=str(run.id),
-            missing_scopes=sorted(missing_scopes),
-        )
-        return result
+    has_file_scope = not slack_integration.missing_scopes(frozenset({SLACK_FILE_SCOPE}))
 
     slack = slack_integration.client
-    pending_files: list[tuple[TaskArtifact, dict[str, Any], bytes, str]] = []
+    pending_files: list[tuple[TaskArtifact, dict[str, Any], str]] = []
     for artifact in _pending_slack_file_queryset(run):
-        loaded = _load_pending_slack_file(artifact)
-        if loaded is not None:
-            pending_files.append((artifact, *loaded))
+        pending = _pending_slack_file_version(artifact)
+        if pending is None:
+            continue
+        _version_index, version_payload = pending
+        pending_files.append((artifact, version_payload, _pending_slack_content_type(artifact, version_payload)))
 
-    image_files = [f for f in pending_files if f[3].startswith("image/")]
-    other_files = [f for f in pending_files if not f[3].startswith("image/")]
+    image_files = [f for f in pending_files if f[2].startswith("image/")]
+    other_files = [f for f in pending_files if not f[2].startswith("image/")]
 
-    image_cards: list[tuple[TaskArtifact, dict[str, Any], str, dict[str, Any]]] = []
-    for artifact, version_payload, payload, content_type in image_files:
+    image_cards: list[_SlackImageCard] = []
+    for artifact, version_payload, content_type in image_files:
+        image_url = (artifact.metadata or {}).get("image_url")
+        if isinstance(image_url, str) and image_url:
+            # Slack fetches the image from the url in the card — nothing to upload.
+            image_cards.append((artifact, version_payload, None, None))
+            continue
+        if not has_file_scope:
+            logger.warning(
+                "task_artifact.slack_file_delivery_missing_scope",
+                artifact_id=str(artifact.id),
+                missing_scopes=[SLACK_FILE_SCOPE],
+            )
+            continue
+        payload = _read_pending_slack_file_bytes(artifact, version_payload)
+        if payload is None:
+            continue
         try:
             file_id, file_response = _upload_slack_file(
                 slack, channel=None, thread_ts=None, name=artifact.name, content=payload, content_type=content_type
@@ -873,7 +886,17 @@ def deliver_pending_slack_file_artifacts(
             _post_thread_text(slack, mapping=mapping, text=section)
         result.answer_posted = bool(sections)
 
-    for artifact, version_payload, payload, content_type in other_files:
+    for artifact, version_payload, content_type in other_files:
+        if not has_file_scope:
+            logger.warning(
+                "task_artifact.slack_file_delivery_missing_scope",
+                artifact_id=str(artifact.id),
+                missing_scopes=[SLACK_FILE_SCOPE],
+            )
+            continue
+        payload = _read_pending_slack_file_bytes(artifact, version_payload)
+        if payload is None:
+            continue
         try:
             file_id, file_response = _upload_slack_file(
                 slack,
@@ -909,11 +932,7 @@ def _pending_slack_file_queryset(run: TaskRun) -> Any:
     )
 
 
-def _load_pending_slack_file(artifact: TaskArtifact) -> tuple[dict[str, Any], bytes, str] | None:
-    pending = _pending_slack_file_version(artifact)
-    if pending is None:
-        return None
-    _version_index, version_payload = pending
+def _read_pending_slack_file_bytes(artifact: TaskArtifact, version_payload: dict[str, Any]) -> bytes | None:
     raw_location = version_payload.get("location")
     location = raw_location if isinstance(raw_location, dict) else {}
     storage_path = str(location.get("storage_path") or (artifact.location or {}).get("storage_path") or "")
@@ -928,7 +947,7 @@ def _load_pending_slack_file(artifact: TaskArtifact) -> tuple[dict[str, Any], by
             storage_path=storage_path,
         )
         return None
-    return version_payload, payload, _pending_slack_content_type(artifact, version_payload)
+    return payload
 
 
 def _pending_slack_content_type(artifact: TaskArtifact, version_payload: dict[str, Any]) -> str:
@@ -947,7 +966,9 @@ def _pending_slack_content_type(artifact: TaskArtifact, version_payload: dict[st
 _SLACK_MESSAGE_BLOCK_LIMIT = 50
 
 
-_SlackImageCard = tuple[TaskArtifact, dict[str, Any], str, dict[str, Any]]
+# (artifact, pending version, uploaded file id, upload response) — the last two are
+# None for url-referenced images, which involve no upload.
+_SlackImageCard = tuple[TaskArtifact, dict[str, Any], "str | None", "dict[str, Any] | None"]
 
 
 def _post_composed_answer_message(
@@ -1045,11 +1066,16 @@ _RATE_LIMIT_MAX_WAIT_S = 10.0
 _SLACK_BUTTON_URL_MAX_CHARS = 3000
 
 
-def _chart_card_blocks(artifact: TaskArtifact, file_id: str) -> list[dict[str, Any]]:
+def _chart_card_blocks(artifact: TaskArtifact, file_id: str | None) -> list[dict[str, Any]]:
     metadata = artifact.metadata or {}
+    image_url = metadata.get("image_url")
+    if isinstance(image_url, str) and image_url:
+        image_block: dict[str, Any] = {"type": "image", "image_url": image_url, "alt_text": artifact.name}
+    else:
+        image_block = {"type": "image", "slack_file": {"id": file_id}, "alt_text": artifact.name}
     blocks: list[dict[str, Any]] = [
         {"type": "section", "text": {"type": "mrkdwn", "text": f"*{_escape_slack_mrkdwn_text(artifact.name)}*"}},
-        {"type": "image", "slack_file": {"id": file_id}, "alt_text": artifact.name},
+        image_block,
     ]
     posthog_url = metadata.get("posthog_url")
     if isinstance(posthog_url, str) and 0 < len(posthog_url) <= _SLACK_BUTTON_URL_MAX_CHARS:
@@ -1132,9 +1158,11 @@ def _mark_slack_file_artifact_delivered(
     *,
     artifact: TaskArtifact,
     version_number: int,
-    file_id: str,
-    file_response: dict[str, Any],
+    file_id: str | None,
+    file_response: dict[str, Any] | None,
 ) -> bool:
+    """``file_id``/``file_response`` are None for url-referenced images, which post
+    without a Slack file upload."""
     with transaction.atomic():
         locked = TaskArtifact.objects.for_team(artifact.team_id).select_for_update().get(pk=artifact.pk)
         pending = _pending_slack_file_version(locked)
@@ -1145,28 +1173,20 @@ def _mark_slack_file_artifact_delivered(
         if int(version_payload.get("version") or 0) != version_number:
             return False
 
-        file_title = str(file_response.get("title") or locked.name)
-        file_permalink = file_response.get("permalink")
-        delivered_location = {
-            **(locked.location or {}),
-            "file_id": file_id,
-            "delivery_status": "delivered",
-        }
-        delivered_version = {
-            **version_payload,
-            "slack_file_id": file_id,
-            "slack_file_title": file_title,
-            "delivery_status": "delivered",
-        }
-        delivered_metadata = {
-            **(locked.metadata or {}),
-            "slack_file_id": file_id,
-            "slack_file_title": file_title,
-            "delivery_status": "delivered",
-        }
-        if file_permalink:
-            delivered_version["slack_file_permalink"] = file_permalink
-            delivered_metadata["slack_file_permalink"] = file_permalink
+        delivered_location = {**(locked.location or {}), "delivery_status": "delivered"}
+        delivered_version = {**version_payload, "delivery_status": "delivered"}
+        delivered_metadata = {**(locked.metadata or {}), "delivery_status": "delivered"}
+        if file_id:
+            file_title = str((file_response or {}).get("title") or locked.name)
+            file_permalink = (file_response or {}).get("permalink")
+            delivered_location["file_id"] = file_id
+            delivered_version["slack_file_id"] = file_id
+            delivered_version["slack_file_title"] = file_title
+            delivered_metadata["slack_file_id"] = file_id
+            delivered_metadata["slack_file_title"] = file_title
+            if file_permalink:
+                delivered_version["slack_file_permalink"] = file_permalink
+                delivered_metadata["slack_file_permalink"] = file_permalink
 
         versions = list(locked.versions or [])
         versions[version_index] = delivered_version
