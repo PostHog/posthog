@@ -1,7 +1,7 @@
-import json
 from datetime import datetime
 from enum import StrEnum
 
+from django.db.models import DateTimeField
 from django.db.models.expressions import RawSQL
 from django.utils.timezone import now
 
@@ -58,7 +58,10 @@ def record_dashboard_access(
             COALESCE(most_recent_access, '{}'::jsonb),
             ARRAY[%s]::text[],
             COALESCE(most_recent_access -> %s, '{}'::jsonb) || jsonb_build_object(
-                'timestamp', %s::jsonb,
+                'timestamp', to_jsonb(GREATEST(
+                    COALESCE((most_recent_access -> %s ->> 'timestamp')::timestamptz, '-infinity'::timestamptz),
+                    %s::timestamptz
+                )),
                 'count', COALESCE((most_recent_access -> %s ->> 'count')::bigint, 0) + 1
             ),
             true
@@ -67,16 +70,23 @@ def record_dashboard_access(
         (
             access_key,
             access_key,
-            json.dumps(access_timestamp.isoformat()),
+            access_key,
+            access_timestamp,
             access_key,
         ),
     )
+    updated_last_accessed_at = RawSQL(
+        "GREATEST(COALESCE(last_accessed_at, %s), %s)",
+        (access_timestamp, access_timestamp),
+        output_field=DateTimeField(),
+    )
 
     Dashboard.objects.for_team(dashboard.team_id).filter(pk=dashboard.pk).update(
-        last_accessed_at=access_timestamp,
+        last_accessed_at=updated_last_accessed_at,
         most_recent_access=updated_access,
     )
-    dashboard.last_accessed_at = access_timestamp
+    if dashboard.last_accessed_at is None or access_timestamp > dashboard.last_accessed_at:
+        dashboard.last_accessed_at = access_timestamp
     DASHBOARD_ACCESS_COUNTER.labels(access_method=access_key).inc()
 
 
@@ -100,7 +110,13 @@ def record_dashboard_cache_outcome(
             COALESCE(most_recent_access, '{}'::jsonb),
             ARRAY[%s]::text[],
             COALESCE(most_recent_access -> %s, '{}'::jsonb) || jsonb_build_object(
-                'last_cache_miss_at', %s::jsonb,
+                'last_cache_miss_at', to_jsonb(GREATEST(
+                    COALESCE(
+                        (most_recent_access -> %s ->> 'last_cache_miss_at')::timestamptz,
+                        '-infinity'::timestamptz
+                    ),
+                    %s::timestamptz
+                )),
                 'cache_miss_count', COALESCE((most_recent_access -> %s ->> 'cache_miss_count')::bigint, 0) + 1
             ),
             true
@@ -109,7 +125,8 @@ def record_dashboard_cache_outcome(
         (
             access_key,
             access_key,
-            json.dumps(observation_timestamp.isoformat()),
+            access_key,
+            observation_timestamp,
             access_key,
         ),
     )

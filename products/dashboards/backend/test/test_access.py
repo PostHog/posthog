@@ -54,3 +54,42 @@ class TestDashboardAccess(BaseTest):
                 "cache_miss_count": 1,
             }
         }
+
+    def test_access_timestamps_do_not_move_backwards(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team)
+        latest_access = datetime(2026, 7, 16, 10, tzinfo=UTC)
+
+        record_dashboard_access(dashboard, DashboardAccessMethod.HUMAN, accessed_at=latest_access)
+        record_dashboard_access(
+            dashboard,
+            DashboardAccessMethod.HUMAN,
+            accessed_at=latest_access - timedelta(minutes=5),
+        )
+
+        dashboard.refresh_from_db()
+        assert dashboard.last_accessed_at == latest_access
+        assert dashboard.most_recent_access == {
+            "human": {"timestamp": latest_access.isoformat(), "count": 2},
+        }
+
+    def test_cache_miss_timestamps_do_not_move_backwards(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team)
+        latest_miss = datetime(2026, 7, 16, 10, tzinfo=UTC)
+
+        record_dashboard_cache_outcome(
+            dashboard,
+            DashboardAccessMethod.API,
+            is_cached=False,
+            observed_at=latest_miss,
+        )
+        record_dashboard_cache_outcome(
+            dashboard,
+            DashboardAccessMethod.API,
+            is_cached=False,
+            observed_at=latest_miss - timedelta(minutes=5),
+        )
+
+        dashboard.refresh_from_db()
+        assert dashboard.most_recent_access == {
+            "api": {"last_cache_miss_at": latest_miss.isoformat(), "cache_miss_count": 2},
+        }

@@ -5,13 +5,13 @@ description: Guides changes to insight cache warming, dashboard access signals, 
 
 # Modifying insight cache warming
 
-Refresh this skill's implementation map before reviewing or changing code:
+Generate a fresh, read-only implementation map before reviewing or changing code:
 
 ```bash
 bash .agents/skills/modifying-insight-cache-warming/scripts/refresh-reference.sh
 ```
 
-Then read [references/current-implementation.md](references/current-implementation.md). The refresh step is mandatory: it keeps this skill aligned with the current call sites, constants, metrics, migration state, and tests each time the skill is accessed.
+Then read [references/current-implementation.md](references/current-implementation.md) for the reviewed architecture notes. The refresh step is mandatory and never edits the working tree. Its stdout keeps the review aligned with current call sites, constants, metrics, migration state, and tests.
 
 ## Preserve the access contract
 
@@ -44,4 +44,4 @@ Then read [references/current-implementation.md](references/current-implementati
 - Run `ruff check` and `ruff format` on changed Python files.
 - If the dashboard model changes, invoke `django-migrations`, inspect `sqlmigrate`, and keep `max_migration.txt` current.
 
-After implementation, run the refresh script again and commit the regenerated reference with the code change.
+After implementation, run the refresh script again. Update the reviewed reference only when the architecture or workflow changed; do not paste generated line-number output into it.

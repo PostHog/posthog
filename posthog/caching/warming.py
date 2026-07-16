@@ -1,5 +1,6 @@
 import math
 import itertools
+from collections import Counter as CollectionCounter
 from collections.abc import Generator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -62,18 +63,22 @@ LAST_VIEWED_THRESHOLD = timedelta(days=7)
 SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD = timedelta(days=3)
 MAX_WARMING_CANDIDATES_PER_TEAM = 500
 WARMING_CANDIDATE_POOL_SIZE = 2000
-CACHE_MISS_BOOST = 100.0
+CACHE_MISS_BOOST = 300.0
+CACHE_MISS_BOOST_THRESHOLD = timedelta(days=1)
+DASHBOARD_CANDIDATE_QUERY_CHUNK_SIZE = 100
 
 ACCESS_METHOD_WEIGHTS = {
-    DashboardAccessMethod.HUMAN: 100.0,
-    DashboardAccessMethod.EMBEDDED: 20.0,
-    DashboardAccessMethod.API: 5.0,
+    DashboardAccessMethod.HUMAN: 300.0,
+    DashboardAccessMethod.EMBEDDED: 200.0,
+    DashboardAccessMethod.API: 100.0,
 }
 ACCESS_METHOD_THRESHOLDS = {
     DashboardAccessMethod.HUMAN: LAST_VIEWED_THRESHOLD,
     DashboardAccessMethod.EMBEDDED: SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD,
     DashboardAccessMethod.API: timedelta(days=1),
 }
+ACCESS_RECENCY_BONUS = 40.0
+ACCESS_FREQUENCY_BONUS = 40.0
 
 
 @dataclass(frozen=True)
@@ -106,6 +111,7 @@ def _dashboard_warming_priority(
     best_priority = 0.0
     best_access_method = "none"
     best_has_cache_miss_boost = False
+    latest_structured_access: datetime | None = None
 
     if isinstance(most_recent_access, dict):
         for access_method, weight in ACCESS_METHOD_WEIGHTS.items():
@@ -114,35 +120,46 @@ def _dashboard_warming_priority(
                 continue
 
             accessed_at = _parse_access_timestamp(access_record.get("timestamp"))
-            if accessed_at is None:
-                continue
-
-            threshold = ACCESS_METHOD_THRESHOLDS[access_method]
-            age = current_time - accessed_at
-            if age < timedelta(0) or age > threshold:
-                continue
-
-            count = access_record.get("count", 0)
-            normalized_count = count if isinstance(count, int) and count > 0 else 1
-            frequency_multiplier = 1.0 + min(math.log2(normalized_count + 1), 4.0) / 4.0
-            recency_multiplier = max(0.1, 1.0 - age / threshold)
-            priority = weight * frequency_multiplier * recency_multiplier
+            priority = 0.0
+            if accessed_at is not None:
+                latest_structured_access = max(latest_structured_access or accessed_at, accessed_at)
+                threshold = ACCESS_METHOD_THRESHOLDS[access_method]
+                age = current_time - accessed_at
+                if timedelta(0) <= age <= threshold:
+                    count = access_record.get("count", 0)
+                    normalized_count = count if isinstance(count, int) and count > 0 else 1
+                    frequency_bonus = min(math.log2(normalized_count + 1), 4.0) / 4.0 * ACCESS_FREQUENCY_BONUS
+                    recency_bonus = max(0.0, 1.0 - age / threshold) * ACCESS_RECENCY_BONUS
+                    priority = weight + frequency_bonus + recency_bonus
 
             cache_miss_at = _parse_access_timestamp(access_record.get("last_cache_miss_at"))
-            has_cache_miss_boost = cache_miss_at is not None and current_time - cache_miss_at <= threshold
-            if has_cache_miss_boost:
-                priority += CACHE_MISS_BOOST * recency_multiplier
+            cache_miss_age = current_time - cache_miss_at if cache_miss_at is not None else None
+            has_cache_miss_boost = (
+                cache_miss_age is not None and timedelta(0) <= cache_miss_age < CACHE_MISS_BOOST_THRESHOLD
+            )
+            if has_cache_miss_boost and cache_miss_age is not None:
+                miss_recency_multiplier = 1.0 - cache_miss_age / CACHE_MISS_BOOST_THRESHOLD
+                priority += CACHE_MISS_BOOST * miss_recency_multiplier
 
             if priority > best_priority:
                 best_priority = priority
                 best_access_method = access_method.value
                 best_has_cache_miss_boost = has_cache_miss_boost
 
+    if last_accessed_at is not None and (
+        latest_structured_access is None or last_accessed_at > latest_structured_access
+    ):
+        legacy_age = current_time - last_accessed_at
+        if timedelta(0) <= legacy_age <= LAST_VIEWED_THRESHOLD:
+            legacy_priority = (
+                ACCESS_METHOD_WEIGHTS[DashboardAccessMethod.API]
+                + max(0.0, 1.0 - legacy_age / LAST_VIEWED_THRESHOLD) * ACCESS_RECENCY_BONUS
+            )
+            if legacy_priority > best_priority:
+                return legacy_priority, "legacy", False
+
     if best_priority > 0:
         return best_priority, best_access_method, best_has_cache_miss_boost
-
-    if last_accessed_at is not None and current_time - last_accessed_at <= LAST_VIEWED_THRESHOLD:
-        return ACCESS_METHOD_WEIGHTS[DashboardAccessMethod.API], "legacy", False
 
     return 0.0, "none", False
 
@@ -197,16 +214,17 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
 
     STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(len(combos))
 
-    dashboard_q_filter = Q()
-    insight_ids_single = set()
+    dashboard_pairs: list[tuple[int, int]] = []
+    insight_ids_single: set[int] = set()
 
     for insight_id, dashboard_id in (combo.split(":") for combo in combos):
         if dashboard_id:
-            dashboard_q_filter |= Q(insight_id=insight_id, dashboard_id=dashboard_id)
+            dashboard_pairs.append((int(insight_id), int(dashboard_id)))
         else:
-            insight_ids_single.add(insight_id)
+            insight_ids_single.add(int(insight_id))
 
     candidates: list[WarmingCandidate] = []
+    candidate_metric_counts: CollectionCounter[tuple[str, str, str]] = CollectionCounter()
 
     if insight_ids_single:
         single_insights = team.insight_set.filter(
@@ -226,55 +244,62 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
                 )
             )
 
-    if dashboard_q_filter:
-        if shared_only:
-            dashboard_q_filter &= Q(dashboard__sharingconfiguration__enabled=True)
-
+    if dashboard_pairs:
         current_time = datetime.now(UTC)
-        dashboard_tiles = (
-            DashboardTile.objects.filter(dashboard_q_filter)
-            .distinct()
-            .values_list(
-                "insight_id",
-                "dashboard_id",
-                "dashboard__last_accessed_at",
-                "dashboard__most_recent_access",
-            )
-        )
-        for insight_id, dashboard_id, last_accessed_at, most_recent_access in dashboard_tiles:
-            priority, access_method, has_cache_miss_boost = _dashboard_warming_priority(
-                most_recent_access,
-                last_accessed_at,
-                current_time=current_time,
-            )
-            if priority <= 0:
-                CACHE_WARMING_CANDIDATE_COUNTER.labels(
-                    access_method=access_method,
-                    outcome="ineligible",
-                    cache_miss_boost="false",
-                ).inc()
-                continue
-            candidates.append(
-                WarmingCandidate(
-                    insight_id=insight_id,
-                    dashboard_id=dashboard_id,
-                    priority=priority,
-                    access_method=access_method,
-                    has_cache_miss_boost=has_cache_miss_boost,
+        for dashboard_pair_chunk in itertools.batched(
+            dashboard_pairs, DASHBOARD_CANDIDATE_QUERY_CHUNK_SIZE, strict=False
+        ):
+            dashboard_q_filter = Q()
+            for insight_id, dashboard_id in dashboard_pair_chunk:
+                dashboard_q_filter |= Q(insight_id=insight_id, dashboard_id=dashboard_id)
+            if shared_only:
+                dashboard_q_filter &= Q(dashboard__sharingconfiguration__enabled=True)
+
+            dashboard_tiles = (
+                DashboardTile.objects.filter(dashboard_q_filter)
+                .distinct()
+                .values_list(
+                    "insight_id",
+                    "dashboard_id",
+                    "dashboard__last_accessed_at",
+                    "dashboard__most_recent_access",
                 )
             )
+            for insight_id, dashboard_id, last_accessed_at, most_recent_access in dashboard_tiles:
+                priority, access_method, has_cache_miss_boost = _dashboard_warming_priority(
+                    most_recent_access,
+                    last_accessed_at,
+                    current_time=current_time,
+                )
+                if priority <= 0:
+                    candidate_metric_counts[(access_method, "ineligible", "false")] += 1
+                    continue
+                candidates.append(
+                    WarmingCandidate(
+                        insight_id=insight_id,
+                        dashboard_id=dashboard_id,
+                        priority=priority,
+                        access_method=access_method,
+                        has_cache_miss_boost=has_cache_miss_boost,
+                    )
+                )
 
     candidates.sort(key=lambda candidate: candidate.priority, reverse=True)
     for index, candidate in enumerate(candidates):
         outcome = "selected" if index < MAX_WARMING_CANDIDATES_PER_TEAM else "deprioritized"
-        CACHE_WARMING_CANDIDATE_COUNTER.labels(
-            access_method=candidate.access_method,
-            outcome=outcome,
-            cache_miss_boost=str(candidate.has_cache_miss_boost).lower(),
-        ).inc()
+        candidate_metric_counts[(candidate.access_method, outcome, str(candidate.has_cache_miss_boost).lower())] += 1
         if outcome == "deprioritized":
             continue
         CACHE_WARMING_PRIORITY_HISTOGRAM.labels(access_method=candidate.access_method).observe(candidate.priority)
+
+    for (access_method, outcome, cache_miss_boost), count in candidate_metric_counts.items():
+        CACHE_WARMING_CANDIDATE_COUNTER.labels(
+            access_method=access_method,
+            outcome=outcome,
+            cache_miss_boost=cache_miss_boost,
+        ).inc(count)
+
+    for candidate in candidates[:MAX_WARMING_CANDIDATES_PER_TEAM]:
         yield candidate.insight_id, candidate.dashboard_id
 
 
