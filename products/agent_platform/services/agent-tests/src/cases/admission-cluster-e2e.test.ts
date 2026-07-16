@@ -154,6 +154,10 @@ maybeDescribe('edge admission e2e (Slack, authoritative provider, mocked inferen
         expect(first.body.session_id).toBeUndefined()
         const authorizeUrl = first.body.authorize_url as string
         expect(authorizeUrl).toContain(dog.baseUrl)
+        // The callback the IdP bounces back to must be the configured ingress
+        // base, not a hardcoded fallback host — this is what broke when the base
+        // was unset in prod.
+        expect(new URL(authorizeUrl).searchParams.get('redirect_uri')).toBe('http://callback.test/link/dogs/callback')
         await c.drain() // nothing queued; a no-op
 
         // Complete the link → admission writes the binding + canonical identity.
