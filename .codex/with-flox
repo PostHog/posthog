@@ -23,6 +23,7 @@ fi
 
 env_file="$repo_root/.flox/cache/codex-env"
 fingerprint_inputs=(
+    "$repo_root/.codex/run-with-dotenv.py"
     "$repo_root/.codex/with-flox"
     "$repo_root/.flox/env/manifest.toml"
     "$repo_root/.flox/env/on-activate.sh"
@@ -172,6 +173,7 @@ if is_dependency_change "$@"; then
         LANG="${LANG:-C.UTF-8}" \
         LOGNAME="${LOGNAME:-}" \
         PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+        POSTHOG_SKIP_DOTENV=1 \
         SHELL="${SHELL:-/bin/bash}" \
         TMPDIR="${TMPDIR:-/tmp}" \
         USER="${USER:-}" \
@@ -190,6 +192,8 @@ if [[ "$prepare" -eq 0 ]]; then
     fi
 
     runtime_env=(env -i)
+    protected_environment_names=()
+    dotenv_file=""
     cached_fingerprint=""
     cached_variables=0
     while IFS= read -r -d '' assignment; do
@@ -209,7 +213,11 @@ if [[ "$prepare" -eq 0 ]]; then
             echo "error: Codex environment contains an unexpected variable; rerun setup" >&2
             exit 1
         fi
+        if [[ "$name" == "DOTENV_FILE" ]]; then
+            dotenv_file="${assignment#*=}"
+        fi
         runtime_env+=("$assignment")
+        protected_environment_names+=("$name")
         cached_variables=$((cached_variables + 1))
     done < "$env_file"
     if [[ "$cached_variables" -eq 0 || "$cached_fingerprint" != "$(environment_fingerprint)" ]]; then
@@ -225,37 +233,37 @@ if [[ "$prepare" -eq 0 ]]; then
     runtime_env+=("SHELL=${SHELL:-/bin/bash}")
     runtime_env+=("TMPDIR=${TMPDIR:-/tmp}")
     runtime_env+=("USER=${USER:-}")
-    [[ -n "${CODEX_SANDBOX:-}" ]] && runtime_env+=("CODEX_SANDBOX=$CODEX_SANDBOX")
-    [[ -n "${CODEX_SANDBOX_NETWORK_DISABLED:-}" ]] && runtime_env+=("CODEX_SANDBOX_NETWORK_DISABLED=$CODEX_SANDBOX_NETWORK_DISABLED")
+    protected_environment_names+=(CARGO_TARGET_DIR HOME LANG LOGNAME PYTEST_ADDOPTS SCCACHE_DIR SHELL TMPDIR USER)
+    if [[ -n "${CODEX_SANDBOX:-}" ]]; then
+        runtime_env+=("CODEX_SANDBOX=$CODEX_SANDBOX")
+        protected_environment_names+=(CODEX_SANDBOX)
+    fi
+    if [[ -n "${CODEX_SANDBOX_NETWORK_DISABLED:-}" ]]; then
+        runtime_env+=("CODEX_SANDBOX_NETWORK_DISABLED=$CODEX_SANDBOX_NETWORK_DISABLED")
+        protected_environment_names+=(CODEX_SANDBOX_NETWORK_DISABLED)
+    fi
     runtime_env+=("PYTEST_ADDOPTS=${PYTEST_ADDOPTS:--p no:xdist}")
-    [[ -n "${TERM:-}" ]] && runtime_env+=("TERM=$TERM")
+    if [[ -n "${TERM:-}" ]]; then
+        runtime_env+=("TERM=$TERM")
+        protected_environment_names+=(TERM)
+    fi
     if is_stack_lifecycle "$@"; then
         runtime_env+=("COMPOSE_PROJECT_NAME=posthog")
+        protected_environment_names+=(COMPOSE_PROJECT_NAME)
     fi
 
-    # Start from the prepared toolchain environment, then load current local
-    # application settings without persisting them in the cache.
-    # shellcheck disable=SC2016
-    exec "${runtime_env[@]}" "$BASH" -c '
-        set -euo pipefail
-        repo_root="$1"
-        caller_cwd="$2"
-        shift 2
-        cd "$repo_root"
-        dotenv_file="${DOTENV_FILE:-}"
-        if [[ -n "$dotenv_file" && "$dotenv_file" != /* ]]; then
-            dotenv_file="$repo_root/$dotenv_file"
-        fi
-        if [[ -n "$dotenv_file" && -f "$dotenv_file" ]]; then
-            set -o allexport
-            # shellcheck disable=SC1090
-            source "$dotenv_file"
-            set +o allexport
-        fi
-        cd "$caller_cwd"
-
-        exec "$@"
-    ' bash "$repo_root" "$caller_cwd" "$@"
+    if [[ -n "$dotenv_file" && "$dotenv_file" != /* ]]; then
+        dotenv_file="$repo_root/$dotenv_file"
+    fi
+    cd "$caller_cwd"
+    if [[ -n "$dotenv_file" && -f "$dotenv_file" ]]; then
+        protected_names="$(IFS=:; printf '%s' "${protected_environment_names[*]}")"
+        runtime_env+=("CODEX_PROTECTED_ENV_NAMES=$protected_names")
+        exec "${runtime_env[@]}" \
+            "$repo_root/.flox/cache/venv/bin/python" \
+            "$repo_root/.codex/run-with-dotenv.py" "$dotenv_file" -- "$@"
+    fi
+    exec "${runtime_env[@]}" "$@"
 fi
 
 flox_bin="$(find_flox)"
@@ -275,6 +283,7 @@ exec env -i \
     LANG="${LANG:-C.UTF-8}" \
     LOGNAME="${LOGNAME:-}" \
     PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin" \
+    POSTHOG_SKIP_DOTENV=1 \
     SHELL="${SHELL:-/bin/bash}" \
     TMPDIR="${TMPDIR:-/tmp}" \
     USER="${USER:-}" \
