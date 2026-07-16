@@ -194,6 +194,16 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
             60,
             "CHQueryErrorUnknownTable",
         ),
+        (
+            ServerException(
+                "Code: 20. DB::Exception: Number of columns doesn't match (1 at left, 5 at right).",
+                code=20,
+            ),
+            "CHQueryErrorNumberOfColumnsDoesntMatch",
+            "Number of columns doesn't match (1 at left, 5 at right).",
+            20,
+            "CHQueryErrorNumberOfColumnsDoesntMatch",
+        ),
     ],
 )
 def test_wrap_clickhouse_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):

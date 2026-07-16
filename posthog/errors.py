@@ -153,6 +153,10 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorNumberOfArgumentsDoesntMatch(
             err.message, code=err.code, code_name="number_of_arguments_doesnt_match"
         )
+    elif name == "NUMBER_OF_COLUMNS_DOESNT_MATCH":
+        return CHQueryErrorNumberOfColumnsDoesntMatch(
+            err.message, code=err.code, code_name="number_of_columns_doesnt_match"
+        )
     elif name == "UNKNOWN_IDENTIFIER":
         return CHQueryErrorUnknownIdentifier(err.message, code=err.code, code_name="unknown_identifier")
     elif name == "TOO_MANY_BYTES":
@@ -257,6 +261,10 @@ class CHQueryErrorNumberOfArgumentsDoesntMatch(ExposedCHQueryError):
     pass
 
 
+class CHQueryErrorNumberOfColumnsDoesntMatch(ExposedCHQueryError):
+    pass
+
+
 class CHQueryErrorUnknownIdentifier(InternalCHQueryError):
     pass
 
@@ -341,7 +349,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     15: ErrorCodeMeta("DUPLICATE_COLUMN"),
     16: ErrorCodeMeta("NO_SUCH_COLUMN_IN_TABLE"),
     19: ErrorCodeMeta("SIZE_OF_FIXED_STRING_DOESNT_MATCH"),
-    20: ErrorCodeMeta("NUMBER_OF_COLUMNS_DOESNT_MATCH"),
+    20: ErrorCodeMeta("NUMBER_OF_COLUMNS_DOESNT_MATCH", user_safe=True),
     23: ErrorCodeMeta("CANNOT_READ_FROM_ISTREAM"),
     24: ErrorCodeMeta("CANNOT_WRITE_TO_OSTREAM"),
     25: ErrorCodeMeta("CANNOT_PARSE_ESCAPE_SEQUENCE"),
