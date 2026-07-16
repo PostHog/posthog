@@ -37,6 +37,15 @@ export interface EnrichedReviewer {
 /** P0 (highest) – P4 (lowest). Mirrors desktop `SignalReportPriority`. */
 export type SignalReportPriority = 'P0' | 'P1' | 'P2' | 'P3' | 'P4'
 
+/** Threshold options over SignalReportPriority, strictest first. Shared by the auto-start and Slack min-priority selects. */
+export const PRIORITY_THRESHOLD_OPTIONS: { value: SignalReportPriority; label: string }[] = [
+    { value: 'P0', label: 'P0 only' },
+    { value: 'P1', label: 'P1 and above' },
+    { value: 'P2', label: 'P2 and above' },
+    { value: 'P3', label: 'P3 and above' },
+    { value: 'P4', label: 'P4 and above' },
+]
+
 /** Actionability judgment outcome. Mirrors desktop `SignalReportActionability`. */
 export type SignalReportActionability = 'immediately_actionable' | 'requires_human_input' | 'not_actionable'
 

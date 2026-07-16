@@ -210,25 +210,22 @@ function ScoutTroopWidget(): JSX.Element {
 }
 
 function SelfDrivingWidget(): JSX.Element {
-    const { teamConfig, teamConfigLoading } = useValues(signalTeamConfigLogic)
+    const { teamConfig, teamConfigLoading, autostartEnabled, defaultAutostartPriority } =
+        useValues(signalTeamConfigLogic)
     const { openSetupModal } = useActions(agentSetupModalLogic)
-    // Null (never set) means autostart is on; only an explicit false disables it.
-    const enabled = teamConfig?.autostart_enabled !== false
-    const priority = teamConfig?.default_autostart_priority ?? 'P4'
+    const status = !autostartEnabled
+        ? 'Manual review only'
+        : defaultAutostartPriority === 'P4'
+          ? 'Auto-starts all reports'
+          : `Auto-starts ${defaultAutostartPriority} and above`
     return (
         <SetupWidgetCard
             icon={<IconRocket />}
             title="Self-driving"
             size="md"
-            tone={enabled ? 'done' : 'neutral'}
+            tone={autostartEnabled ? 'done' : 'neutral'}
             loading={teamConfigLoading && teamConfig === null}
-            status={
-                enabled
-                    ? priority === 'P4'
-                        ? 'Auto-starts all reports'
-                        : `Auto-starts ${priority} and above`
-                    : 'Manual review only'
-            }
+            status={status}
             onClick={() => openSetupModal('self-driving')}
         />
     )
