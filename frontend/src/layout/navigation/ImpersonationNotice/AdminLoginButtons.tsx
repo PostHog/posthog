@@ -20,11 +20,7 @@ export function AdminLoginButtons({
     return (
         <div className="flex flex-wrap justify-end gap-2">
             {!email ? (
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    disabledReason="This ticket has no associated email"
-                >
+                <LemonButton type="secondary" size="small" disabledReason="This ticket has no associated email">
                     {useRegionLabels ? 'Login' : 'Login as customer'}
                 </LemonButton>
             ) : (
