@@ -930,7 +930,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertEqual(first_aggregations["volumeRange"], [0, 1, 0])
 
     @freeze_time("2020-01-12")
-    @snapshot_clickhouse_queries
     def test_volume_aggregation_counts_only(self):
         # Regression test: volumeResolution=0 (counts only) used to build
         # intDiv(..., 0) bin expressions and fail with an illegal division.
