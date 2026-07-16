@@ -49,7 +49,7 @@ class E2BSource(ResumableSource[E2BSourceConfig, E2BResumeConfig]):
             caption="""Enter your E2B API key to sync your sandbox infrastructure data into the PostHog Data warehouse.
 
 You can create a team-scoped API key (prefixed `e2b_`) in your [E2B dashboard](https://e2b.dev/dashboard).""",
-            iconPath="/static/services/e2b.svg",
+            iconPath="/static/services/e2b.png",
             docsUrl="https://posthog.com/docs/cdp/sources/e2b",
             keywords=["sandbox", "ai agents", "code execution", "infrastructure"],
             fields=cast(
@@ -109,10 +109,17 @@ You can create a team-scoped API key (prefixed `e2b_`) in your [E2B dashboard](h
     def validate_credentials(
         self, config: E2BSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_e2b_credentials(config.api_key):
-            return True, None
-
-        return False, "Invalid E2B API key"
+        try:
+            if validate_e2b_credentials(config.api_key):
+                return True, None
+            return False, "Invalid E2B API key"
+        except Exception:
+            # The probe couldn't reach E2B (timeout, rate limit, or a 5xx). That says nothing about the
+            # key, so point the user at retrying rather than at their credentials.
+            return (
+                False,
+                "Couldn't reach E2B to validate your API key. This is usually temporary, so try again in a moment.",
+            )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[E2BResumeConfig]:
         return ResumableSourceManager[E2BResumeConfig](inputs, E2BResumeConfig)

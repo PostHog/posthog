@@ -39,17 +39,24 @@ def _get_headers(api_key: str) -> dict[str, str]:
 
 
 def validate_credentials(api_key: str) -> bool:
-    # Cheapest authenticated probe: list a single sandbox. 200 means the team-scoped key is genuine.
-    try:
-        response = make_tracked_session().get(
-            f"{E2B_BASE_URL}/v2/sandboxes",
-            headers=_get_headers(api_key),
-            params={"limit": 1},
-            timeout=10,
-        )
-        return response.status_code == 200
-    except Exception:
+    # Cheapest authenticated probe: list a single sandbox. 200 means the team-scoped key is genuine,
+    # 401/403 means it isn't. Anything else — a timeout, connection error, rate limit, or 5xx — is a
+    # transient upstream problem that says nothing about the key, so raise rather than mislabel a valid
+    # key "invalid" and send the user down the wrong recovery path.
+    # `redact_values` masks the key from tracked HTTP samples (the `X-API-Key` header isn't on the
+    # generic scrubber's denylist); `allow_redirects=False` keeps the key from replaying to another host.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
+    response = session.get(
+        f"{E2B_BASE_URL}/v2/sandboxes",
+        headers=_get_headers(api_key),
+        params={"limit": 1},
+        timeout=10,
+    )
+    if response.status_code == 200:
+        return True
+    if response.status_code in (401, 403):
         return False
+    raise E2BRetryableError(f"E2B credential probe failed (retryable): status={response.status_code}")
 
 
 @retry(
@@ -93,8 +100,9 @@ def get_rows(
     config = E2B_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # One session reused across every page so urllib3 keeps the connection alive. `redact_values` masks
+    # the key from tracked HTTP samples; `allow_redirects=False` keeps it from replaying to another host.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
     url = f"{E2B_BASE_URL}{config.path}"
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None

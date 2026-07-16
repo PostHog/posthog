@@ -86,6 +86,22 @@ class TestPagination:
         rows, _ = _collect(_FakeResumableManager(), monkeypatch, pages)
         assert rows == []
 
+    def test_builds_a_redacted_redirect_pinned_session(self, monkeypatch: Any) -> None:
+        # The sync session carries the same X-API-Key header the scrubber can't see, so it must redact the
+        # key and refuse redirects just like the credential probe.
+        session = MagicMock()
+        monkeypatch.setattr(e2b, "_fetch_page", lambda *a, **k: _response([]))
+        with patch.object(e2b, "make_tracked_session", return_value=session) as make_session:
+            list(
+                get_rows(
+                    api_key="e2b_secret",
+                    endpoint="sandboxes",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+        assert make_session.call_args.kwargs == {"redact_values": ("e2b_secret",), "allow_redirects": False}
+
     def test_saves_next_page_cursor_after_yielding_a_batch(self, monkeypatch: Any) -> None:
         # Save-after-yield with the NEXT page's token is what makes resume re-yield (not skip) the last
         # batch on a crash. A full 2000-row page forces the batcher to flush mid-loop.
@@ -137,14 +153,28 @@ class TestValidateCredentials:
     def test_status_code_maps_to_validity(self, _name: str, status: int, expected: bool) -> None:
         session = MagicMock()
         session.get.return_value = MagicMock(status_code=status)
-        with patch.object(e2b, "make_tracked_session", return_value=session):
+        with patch.object(e2b, "make_tracked_session", return_value=session) as make_session:
             assert validate_credentials("e2b_test") is expected
+        # The key rides in the X-API-Key header, which the generic scrubber's denylist doesn't cover, so
+        # the probe must redact it from tracked samples and pin redirects off to stop it replaying elsewhere.
+        assert make_session.call_args.kwargs == {"redact_values": ("e2b_test",), "allow_redirects": False}
 
-    def test_network_error_is_invalid(self) -> None:
+    @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
+    def test_transient_status_raises_rather_than_reporting_invalid(self, _name: str, status: int) -> None:
+        # A rate limit or 5xx says nothing about the key; mapping it to "invalid" sends the user the wrong way.
+        session = MagicMock()
+        session.get.return_value = MagicMock(status_code=status)
+        with patch.object(e2b, "make_tracked_session", return_value=session):
+            with pytest.raises(e2b.E2BRetryableError):
+                validate_credentials("e2b_test")
+
+    def test_network_error_propagates(self) -> None:
+        # A connection failure is transient — it must bubble up, not be swallowed into a False "invalid key".
         session = MagicMock()
         session.get.side_effect = requests.ConnectionError()
         with patch.object(e2b, "make_tracked_session", return_value=session):
-            assert validate_credentials("e2b_test") is False
+            with pytest.raises(requests.ConnectionError):
+                validate_credentials("e2b_test")
 
 
 class TestSourceResponsePartitioning:

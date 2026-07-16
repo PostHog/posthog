@@ -53,6 +53,18 @@ class TestE2BSource:
         ):
             assert self.source.validate_credentials(config, self.team_id) == expected
 
+    def test_validate_credentials_transient_error_is_not_reported_as_invalid(self) -> None:
+        # A probe that can't reach E2B must not brand a possibly-valid key "invalid" and send the user
+        # down the credential-reset path — the message has to point at retrying instead.
+        config = E2BSourceConfig(api_key="e2b_test")
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.e2b.source.validate_e2b_credentials",
+            side_effect=Exception("upstream 503"),
+        ):
+            ok, message = self.source.validate_credentials(config, self.team_id)
+        assert ok is False
+        assert message is not None and "invalid" not in message.lower()
+
     @parameterized.expand(
         [
             ("unauthorized", "401 Client Error: Unauthorized for url: https://api.e2b.app/v2/sandboxes?limit=100"),

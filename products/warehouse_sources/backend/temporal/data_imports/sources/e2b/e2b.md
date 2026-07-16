@@ -4,19 +4,22 @@ posthog.com checkout was available when the source was implemented. Before relea
 `posthog.com/contents/docs/cdp/sources/e2b.md` (served at /docs/cdp/sources/e2b) and run
 `python manage.py audit_source_docs --docs-dir <posthog.com>/contents/docs/cdp/sources`.
 -->
+
 ---
+
 title: Linking E2B as a source
 sidebar: Docs
 showTitle: true
 availability: { free: full, selfServe: full, enterprise: full }
 sourceId: E2B
 beta: true
+
 ---
 
-import SourceSetupIntro from "../_snippets/source-setup-intro.mdx"
-import SyncModes from "../_snippets/sync-modes.mdx"
-import TroubleshootingLink from "../_snippets/dw-troubleshooting-link.mdx"
-import AlphaRelease from "../_snippets/alpha-release.mdx"
+import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
+import SyncModes from "../\_snippets/sync-modes.mdx"
+import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
+import AlphaRelease from "../\_snippets/alpha-release.mdx"
 
 <AlphaRelease />
 
