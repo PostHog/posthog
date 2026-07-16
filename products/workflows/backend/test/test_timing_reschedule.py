@@ -30,6 +30,17 @@ def _window(action_id: str = "wait_1", **config) -> dict:
     return {"id": action_id, "type": "wait_until_time_window", "config": {"day": "any", "time": "any", **config}}
 
 
+def _condition(action_id: str = "cond_1", max_wait: str = "7d", condition: dict | None = None) -> dict:
+    return {
+        "id": action_id,
+        "type": "wait_until_condition",
+        "config": {
+            "condition": condition or {"filters": {"events": [{"id": "$pageview"}]}},
+            "max_wait_duration": max_wait,
+        },
+    }
+
+
 class TestTimingRescheduleDiff(SimpleTestCase):
     @parameterized.expand(
         [
@@ -66,6 +77,27 @@ class TestTimingRescheduleDiff(SimpleTestCase):
     def test_delay_duration_edits(self, _name, before, after, expect_sweep):
         result = get_timing_reschedule_action_ids([_delay(duration=before)], [_delay(duration=after)])
         assert result == (["delay_1"] if expect_sweep else [])
+
+    @parameterized.expand(
+        [
+            ("max_wait_shortened", _condition(max_wait="7d"), _condition(max_wait="1d"), True),
+            ("max_wait_lengthened", _condition(max_wait="1d"), _condition(max_wait="7d"), False),
+            ("max_wait_unchanged", _condition(), _condition(), False),
+            ("max_wait_clamped_shortening", _condition(max_wait="7d"), _condition(max_wait="168h"), True),
+            ("max_wait_unparseable_after", _condition(max_wait="7d"), _condition(max_wait="banana"), True),
+            # Condition edits never move a parked run's wake time (the matcher and the poll
+            # both evaluate live config), so they must not trigger a sweep
+            (
+                "condition_only_change",
+                _condition(),
+                _condition(condition={"filters": {"events": [{"id": "$identify"}]}}),
+                False,
+            ),
+        ]
+    )
+    def test_wait_condition_edits(self, _name, before, after, expect_sweep):
+        result = get_timing_reschedule_action_ids([before], [after])
+        assert result == (["cond_1"] if expect_sweep else [])
 
     @parameterized.expand(
         [
@@ -118,9 +150,9 @@ class TestTimingRescheduleDiff(SimpleTestCase):
             _delay("delay_b"),
             _window("wait_a"),
             {"id": "fn_1", "type": "function", "config": {}},
-            {"id": "cond_1", "type": "wait_until_condition", "config": {}},
+            _condition("cond_c"),
         ]
-        assert get_all_timing_action_ids(actions) == ["delay_b", "wait_a"]
+        assert get_all_timing_action_ids(actions) == ["cond_c", "delay_b", "wait_a"]
         assert get_all_timing_action_ids(None) == []
 
     def test_all_timing_action_ids_over_cap_sweeps_nothing(self):

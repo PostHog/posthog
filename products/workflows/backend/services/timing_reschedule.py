@@ -11,9 +11,11 @@ logger = structlog.get_logger(__name__)
 WORKFLOWS_TIMING_RESCHEDULE_FLAG = "workflows-timing-reschedule"
 
 # Steps whose parked runs a timing edit can strand: delays park up to 30 days out and time
-# windows up to a week. wait_until_condition is deliberately absent - it re-parks on a
-# 10-minute polling cap, so its timing edits converge within one poll on their own.
-TIMING_ACTION_TYPES = {"delay", "wait_until_time_window"}
+# windows up to a week. wait_until_condition currently re-parks on a 10-minute polling cap
+# (so a sweep is a cheap no-op re-park), but the poll is slated for removal in favor of
+# matcher wakes - after which its max-wait deadline parks for the full duration like a
+# delay and shortening it strands runs without a sweep.
+TIMING_ACTION_TYPES = {"delay", "wait_until_time_window", "wait_until_condition"}
 
 # Only jobs parked on this many steps or fewer get swept; a diff touching more than this is
 # pathological (the sweep endpoint caps action_ids at 100 too).
@@ -98,6 +100,9 @@ def get_timing_reschedule_action_ids(
     - delay: trigger on a shortened effective duration; unparseable durations trigger
       conservatively (the worker throws on them at wake, and a spurious sweep is a cheap
       no-op re-park).
+    - wait_until_condition: trigger on a shortened max_wait_duration, same comparison as
+      delay. Condition edits never trigger - they don't move a parked run's wake time
+      (the matcher and the poll both evaluate live config at wake).
     - wait_until_time_window: trigger on any timing-config change - whether a window edit
       moves a given run's wake earlier depends on each person's timezone and position in
       the week, so it isn't statically decidable.
@@ -127,11 +132,12 @@ def get_timing_reschedule_action_ids(
 
         before_config = before.get("config") or {}
         after_config = action.get("config") or {}
-        if after_type == "delay":
-            before_seconds = parse_delay_duration_seconds(before_config.get("delay_duration"))
-            after_seconds = parse_delay_duration_seconds(after_config.get("delay_duration"))
+        if after_type in ("delay", "wait_until_condition"):
+            duration_key = "delay_duration" if after_type == "delay" else "max_wait_duration"
+            before_seconds = parse_delay_duration_seconds(before_config.get(duration_key))
+            after_seconds = parse_delay_duration_seconds(after_config.get(duration_key))
             if before_seconds is None or after_seconds is None:
-                if before_config.get("delay_duration") != after_config.get("delay_duration"):
+                if before_config.get(duration_key) != after_config.get(duration_key):
                     action_ids.add(action["id"])
             elif after_seconds < before_seconds:
                 action_ids.add(action["id"])
