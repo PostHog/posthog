@@ -214,7 +214,7 @@ def build_resource_dependency_graph(
 ) -> tuple[Any, dict[str, EndpointResource], dict[str, Optional[ResolvedParam]]]:
     dependency_graph: graphlib.TopologicalSorter[str] = graphlib.TopologicalSorter()
     endpoint_resource_map: dict[str, EndpointResource] = {}
-    resolved_param_map: dict[str, Optional[ResolvedParam]] = {}
+    resolved_param_map: dict[str, Optional[list[ResolvedParam]]] = {}
 
     for resource_kwargs in resource_list:
         if isinstance(resource_kwargs, dict):
@@ -235,17 +235,23 @@ def build_resource_dependency_graph(
     for resource_name, endpoint_resource in endpoint_resource_map.items():
         assert isinstance(endpoint_resource["endpoint"], dict)
         resolved_params = _find_resolved_params(endpoint_resource["endpoint"])
-        if len(resolved_params) > 1:
-            raise ValueError(f"Multiple resolved params for resource {resource_name}: {resolved_params}")
-        elif len(resolved_params) == 1:
-            resolved_param = resolved_params[0]
-            predecessor = resolved_param.resolve_config["resource"]
+        if len(resolved_params) >= 1:
+            # Multiple resolved params are allowed when they all bind fields of the SAME parent
+            # row (e.g. /docs/{doc_id}/tables/{table_id}/rows where the tables rows carry doc_id
+            # via include_from_parent). Different parent resources per param are not supported.
+            parents = {p.resolve_config["resource"] for p in resolved_params}
+            if len(parents) > 1:
+                raise ValueError(
+                    f"Resolved params for resource {resource_name} must all reference the same "
+                    f"parent resource, got {sorted(parents)}"
+                )
+            predecessor = next(iter(parents))
             if predecessor not in endpoint_resource_map:
                 raise ValueError(
-                    f"A transformer resource {resource_name} refers to non existing parent resource {predecessor} on {resolved_param}"
+                    f"A transformer resource {resource_name} refers to non existing parent resource {predecessor} on {resolved_params[0]}"
                 )
             dependency_graph.add(resource_name, predecessor)
-            resolved_param_map[resource_name] = resolved_param
+            resolved_param_map[resource_name] = resolved_params
         else:
             dependency_graph.add(resource_name)
             resolved_param_map[resource_name] = None
@@ -379,19 +385,24 @@ def create_response_hooks(
 def process_parent_data_item(
     path: str,
     item: dict[str, Any],
-    resolved_param: ResolvedParam,
+    resolved_param: ResolvedParam | list[ResolvedParam],
     include_from_parent: list[str],
 ) -> tuple[str, dict[str, Any]]:
-    parent_resource_name = resolved_param.resolve_config["resource"]
+    # Accept one or many resolved params — all bound from fields of the same parent row
+    # (multi-param paths like /docs/{doc_id}/tables/{table_id}/rows).
+    resolved_params = resolved_param if isinstance(resolved_param, list) else [resolved_param]
+    parent_resource_name = resolved_params[0].resolve_config["resource"]
 
-    field_values = find_values(resolved_param.field_path, item)
-
-    if not field_values:
-        field_path = resolved_param.resolve_config["field"]
-        raise ValueError(
-            f"Transformer expects a field '{field_path}' to be present in the incoming data from resource {parent_resource_name} in order to bind it to path param {resolved_param.param_name}. Available parent fields are {', '.join(item.keys())}"
-        )
-    bound_path = path.format(**{resolved_param.param_name: field_values[0]})
+    bindings: dict[str, Any] = {}
+    for rp in resolved_params:
+        field_values = find_values(rp.field_path, item)
+        if not field_values:
+            field_path = rp.resolve_config["field"]
+            raise ValueError(
+                f"Transformer expects a field '{field_path}' to be present in the incoming data from resource {parent_resource_name} in order to bind it to path param {rp.param_name}. Available parent fields are {', '.join(item.keys())}"
+            )
+        bindings[rp.param_name] = field_values[0]
+    bound_path = path.format(**bindings)
 
     parent_record: dict[str, Any] = {}
     if include_from_parent:
