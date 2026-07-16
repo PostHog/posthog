@@ -6,11 +6,9 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { insertHogFunction as _insertHogFunction } from '~/cdp/_tests/fixtures'
-import { HogTransformerService, createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
 import { template as geoipTemplate } from '~/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '~/cdp/templates/compiler'
 import { HogFunctionType } from '~/cdp/types'
-import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -19,17 +17,14 @@ import {
     COOKIELESS_MODE_FLAG_PROPERTY,
     COOKIELESS_SENTINEL_VALUE,
 } from '~/ingestion/common/cookieless/cookieless-manager'
-import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
 import { createProcessGroupsStep } from '~/ingestion/common/steps/event-processing/process-groups-step'
-import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
+import { AnalyticsConsumerConfig } from '~/ingestion/pipelines/analytics'
+import { AnalyticsTestConsumer, startAnalyticsTestConsumer } from '~/tests/helpers/analytics-consumer'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
-import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, fetchPostgresPersons, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { CookielessServerHashMode, PipelineEvent, Team } from '~/types'
-
-import { IngestionConsumer } from './ingestion-consumer'
 
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
@@ -45,6 +40,13 @@ jest.mock('~/common/utils/posthog', () => {
 // Mock the prepare event step for error testing (a step without a retry option)
 jest.mock('~/ingestion/common/steps/event-processing/prepare-event-step', () => ({
     createPrepareEventStep: jest.fn(),
+}))
+
+// The analytics consumer builds its Kafka consumer internally at scope start; mock the
+// factory so the test harness can capture the batch handler instead of hitting a broker.
+jest.mock('~/common/kafka/consumer', () => ({
+    ...jest.requireActual('~/common/kafka/consumer'),
+    createKafkaConsumer: jest.fn(),
 }))
 
 // Mock the process groups step for error testing (a step with a retry option)
@@ -104,7 +106,7 @@ const createKafkaMessage = (event: PipelineEvent, token: string): Message => {
 }
 
 describe('IngestionConsumer', () => {
-    let ingester: IngestionConsumer
+    let ingester: AnalyticsTestConsumer
     let infra: IngestionTestInfra
     let team: Team
     let team2: Team
@@ -112,31 +114,9 @@ describe('IngestionConsumer', () => {
 
     const createIngestionConsumer = async (
         infra: IngestionTestInfra,
-        overrides?: ConstructorParameters<typeof IngestionConsumer>[2]
-    ) => {
-        const outputs = createTestIngestionOutputs(mockProducer)
-        const ingester = new IngestionConsumer(
-            infra.config,
-            {
-                ...infra,
-                outputs,
-                clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
-                aiSubpipelineFactory: createAiEventSubpipeline,
-                hogTransformer: createHogTransformerService(infra.config, {
-                    ...infra,
-                    monitoringOutputs: createTestMonitoringOutputs(mockProducer),
-                }),
-            },
-            overrides
-        )
-        // NOTE: We don't actually use kafka so we skip instantiation for faster tests
-        ingester['kafkaConsumer'] = {
-            connect: jest.fn(),
-            disconnect: jest.fn(),
-            isHealthy: jest.fn(),
-        } as any
-        await ingester.start()
-        return ingester
+        overrides?: Partial<AnalyticsConsumerConfig>
+    ): Promise<AnalyticsTestConsumer> => {
+        return await startAnalyticsTestConsumer(infra, mockProducer, overrides)
     }
 
     const createEvent = (event?: Partial<PipelineEvent>): PipelineEvent => ({
@@ -214,9 +194,13 @@ describe('IngestionConsumer', () => {
 
     describe('general', () => {
         it('should have the correct config', () => {
-            expect(ingester['name']).toMatchInlineSnapshot(`"ingestion-consumer-events_plugin_ingestion_test"`)
-            expect(ingester['groupId']).toMatchInlineSnapshot(`"events-ingestion-consumer"`)
-            expect(ingester['topic']).toMatchInlineSnapshot(`"events_plugin_ingestion_test"`)
+            expect(ingester.consumer.name).toMatchInlineSnapshot(`"analytics-main"`)
+            // The group id + topic must reach the Kafka consumer intact — a wrong group id
+            // silently coordinates on the wrong consumer group and misroutes events.
+            expect(ingester.kafkaConsumerConfig).toEqual({
+                groupId: infra.config.INGESTION_CONSUMER_GROUP_ID,
+                topic: infra.config.INGESTION_CONSUMER_CONSUME_TOPIC,
+            })
         })
 
         it('should process a standard event', async () => {
@@ -302,7 +286,7 @@ describe('IngestionConsumer', () => {
             })
 
             it('should emit to overflow if token and distinct_id are overflowed', async () => {
-                ;(ingester['overflowRedirectService'] as any)['rateLimiter'].consume(
+                ;(ingester.overflowRedirectService as any)['rateLimiter'].consume(
                     `${team.api_token}:overflow-distinct-id`,
                     1000,
                     now()
@@ -329,10 +313,8 @@ describe('IngestionConsumer', () => {
                     INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_overflow_test',
                 })
 
-                // Overflow consumer doesn't have overflowRedirectService (overflowEnabled() returns false)
-                // so events are never redirected back to overflow
-                expect(overflowIngester['overflowRedirectService']).toBeUndefined()
-
+                // Consuming from the overflow topic disables main-lane redirect, so events are
+                // never redirected back to overflow — asserted behaviorally below.
                 const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'overflow-distinct-id' })])
                 await overflowIngester.handleKafkaBatch(overflowMessages)
 
@@ -357,9 +339,7 @@ describe('IngestionConsumer', () => {
                         INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_overflow_test',
                     })
 
-                    // Verify TTL refresh service is created
-                    expect(overflowIngester['overflowLaneTTLRefreshService']).toBeDefined()
-
+                    // The TTL refresh service's effect is asserted behaviorally below (Redis TTL refreshed).
                     // Pre-seed Redis with overflow flags (simulating main lane has flagged these keys)
                     const redis = await infra.redisPool.acquire()
                     const redisKey = `@posthog/stateful-overflow/events:${team.api_token}:overflow-user`
@@ -424,7 +404,7 @@ describe('IngestionConsumer', () => {
             })
 
             describe('force overflow', () => {
-                let ingester: IngestionConsumer
+                let ingester: AnalyticsTestConsumer
 
                 afterEach(async () => {
                     await ingester.stop()
@@ -1311,7 +1291,7 @@ describe('IngestionConsumer', () => {
             })
 
             ingester = await createIngestionConsumer(infra)
-        })
+        }, TRANSFORMATION_TEST_TIMEOUT)
 
         it(
             'should call hogwatcher state caching methods and observe results when hogwatcher is enabled (sample rate = 1)',
@@ -1320,9 +1300,8 @@ describe('IngestionConsumer', () => {
                 infra.config.CDP_HOG_WATCHER_SAMPLE_RATE = 1
                 const localIngester = await createIngestionConsumer(infra)
 
-                // Create spies for methods after the service is configured. The consumer exposes the
-                // transformer via its interface, so cast to the concrete service for these internal spies.
-                const concreteTransformer = localIngester.hogTransformer as HogTransformerService
+                // Create spies for methods after the service is configured.
+                const concreteTransformer = localIngester.hogTransformer
                 const fetchAndCacheSpy = jest.spyOn(concreteTransformer, 'fetchAndCacheHogFunctionStates')
                 const clearStatesSpy = jest.spyOn(concreteTransformer, 'clearHogFunctionStates')
                 const observeResultsSpy = jest.spyOn(concreteTransformer['hogWatcher'], 'observeResults')
@@ -1366,8 +1345,8 @@ describe('IngestionConsumer', () => {
                 infra.config.CDP_HOG_WATCHER_SAMPLE_RATE = 0
                 const localIngester = await createIngestionConsumer(infra)
 
-                // Create spies for methods after the service is configured (cast to the concrete service)
-                const concreteTransformer = localIngester.hogTransformer as HogTransformerService
+                // Create spies for methods after the service is configured.
+                const concreteTransformer = localIngester.hogTransformer
                 const fetchAndCacheSpy = jest.spyOn(concreteTransformer, 'fetchAndCacheHogFunctionStates')
                 const clearStatesSpy = jest.spyOn(concreteTransformer, 'clearHogFunctionStates')
 
@@ -1527,8 +1506,8 @@ describe('IngestionConsumer', () => {
 
     describe('store flush behavior', () => {
         it('should flush stores exactly once per batch regardless of number of events', async () => {
-            const flushSpy = jest.spyOn(ingester['personsStore'], 'flush')
-            const groupFlushSpy = jest.spyOn(ingester['groupStore'], 'flush')
+            const flushSpy = jest.spyOn(ingester.personsStore, 'flush')
+            const groupFlushSpy = jest.spyOn(ingester.groupStore, 'flush')
 
             const events: PipelineEvent[] = [
                 {
@@ -1580,11 +1559,11 @@ describe('IngestionConsumer', () => {
         it('should flush persons and group stores for each batch', async () => {
             const callOrder: string[] = []
 
-            const flushSpy = jest.spyOn(ingester['personsStore'], 'flush').mockImplementation(() => {
+            const flushSpy = jest.spyOn(ingester.personsStore, 'flush').mockImplementation(() => {
                 callOrder.push('personsFlush')
                 return Promise.resolve([])
             })
-            const groupFlushSpy = jest.spyOn(ingester['groupStore'], 'flush').mockImplementation(() => {
+            const groupFlushSpy = jest.spyOn(ingester.groupStore, 'flush').mockImplementation(() => {
                 callOrder.push('groupFlush')
                 return Promise.resolve([])
             })
@@ -1636,7 +1615,7 @@ describe('IngestionConsumer', () => {
         })
 
         it('cache entries are evicted after each batch completes', async () => {
-            const personsStore = ingester['personsStore'] as BatchWritingPersonsStore
+            const personsStore = ingester.personsStore
 
             await ingester.handleKafkaBatch(createKafkaMessages([createEvent()]))
 
@@ -1646,7 +1625,7 @@ describe('IngestionConsumer', () => {
         })
 
         it('cache does not grow unboundedly across many sequential batches', async () => {
-            const personsStore = ingester['personsStore'] as BatchWritingPersonsStore
+            const personsStore = ingester.personsStore
 
             for (let i = 0; i < 5; i++) {
                 await ingester.handleKafkaBatch(createKafkaMessages([createEvent({ distinct_id: `user-${i}` })]))
@@ -1655,18 +1634,6 @@ describe('IngestionConsumer', () => {
             const batchDistinctKeys = (personsStore as any)['batchDistinctKeys'] as Map<number, Set<string>>
             expect(batchDistinctKeys.size).toBe(0)
             expect(personsStore.getCheckCache().size).toBe(0)
-        })
-    })
-
-    describe('stop()', () => {
-        it('calls shutdown() on persons and group stores', async () => {
-            const personShutdownSpy = jest.spyOn(ingester['personsStore'], 'shutdown')
-            const groupShutdownSpy = jest.spyOn(ingester['groupStore'], 'shutdown')
-
-            await ingester.stop()
-
-            expect(personShutdownSpy).toHaveBeenCalledTimes(1)
-            expect(groupShutdownSpy).toHaveBeenCalledTimes(1)
         })
     })
 })

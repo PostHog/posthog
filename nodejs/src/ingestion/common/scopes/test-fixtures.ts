@@ -1,4 +1,4 @@
-import { Component } from './component'
+import { Component } from '~/common/scopes/component'
 
 export type TrackedComponent = Component<{ name: string }> & { startCalls: number; stopCalls: number }
 

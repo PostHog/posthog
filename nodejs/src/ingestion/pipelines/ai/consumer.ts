@@ -32,7 +32,7 @@ import { Scope, extend } from '~/ingestion/common/scopes'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
 import { createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
-import { TopHog } from '~/ingestion/framework/tophog'
+import { TopHogComponent } from '~/ingestion/framework/tophog'
 import { RedisPool } from '~/types'
 
 import { createAiIngestionPipeline } from './pipeline'
@@ -84,9 +84,10 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
     const splitTokens = (value: string): string[] => value.split(',').filter((x) => !!x)
     const overflowMode = config.INGESTION_OVERFLOW_MODE
     const preservePartitionLocality = config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
+    const lane = config.INGESTION_LANE ?? 'main'
     // Client name for personhog read metrics: pipeline + lane (e.g. "ai/main").
     // The query name is supplied per call (e.g. "person-properties").
-    const clientLabel = `ai/${config.INGESTION_LANE ?? 'main'}`
+    const clientLabel = `ai/${lane}`
 
     // Parent scope: the overflow Redis repository, shared by the main-lane and
     // overflow-lane redirect services below (set up here, not inline per service).
@@ -138,20 +139,17 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             // Personhog client owned by the AI scope (created from common, torn down with it).
             .add('personhogClient', new PersonHogClientComponent(config))
             // TopHog metrics registry for this lane's outputs (drains per-team/partition counters).
-            .add('topHog', {
-                start: () => {
-                    const topHog = new TopHog({
-                        outputs: container.outputs,
-                        pipeline: config.INGESTION_PIPELINE ?? 'unknown',
-                        lane: config.INGESTION_LANE ?? 'unknown',
-                    })
-                    topHog.start()
-                    return Promise.resolve({ value: topHog, stop: () => topHog.stop() })
-                },
-            })
+            .add(
+                'topHog',
+                new TopHogComponent({
+                    outputs: container.outputs,
+                    pipeline: config.INGESTION_PIPELINE ?? 'unknown',
+                    lane: config.INGESTION_LANE ?? 'unknown',
+                })
+            )
     )
 
-    return new CommonIngestionConsumerScope('ai', config, scope, ({ container }) =>
+    return new CommonIngestionConsumerScope('ai', lane, config, scope, ({ container }) =>
         createAiIngestionPipeline({
             outputs: container.outputs,
             teamManager: container.teamManager,

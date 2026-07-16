@@ -11,16 +11,15 @@ import {
     createFeatureFlagCalledDedupRedisConnectionConfig,
     createIngestionRedisConnectionConfig,
 } from '~/common/config/redis-pools'
-import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
-import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
+import { GroupTypeManagerComponent } from '~/common/groups/group-type-manager'
 import { HogTransformerComponent } from '~/common/hog-transformations/hog-transformer-component'
 import { IngestionOutputsComponent } from '~/common/outputs/ingestion-outputs'
-import { PersonHogConfig, buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
-import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { PersonHogConfig } from '~/common/personhog'
+import { PersonHogRoutedRepositoriesComponent } from '~/common/personhog/personhog-routed-repositories-component'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
 import { RedisPoolComponent } from '~/common/utils/db/redis'
+import { EventSchemaEnforcementManagerComponent } from '~/common/utils/event-schema-enforcement-manager'
 import { GeoIPService } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
@@ -35,6 +34,7 @@ import {
 } from '~/ingestion/common/outputs/producers'
 import { createAiConsumer, createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import { createOutputsRegistry as createAiOutputsRegistry } from '~/ingestion/pipelines/ai/outputs/registry'
+import { createAnalyticsConsumer } from '~/ingestion/pipelines/analytics'
 import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
 import { createClientWarningsConsumer } from '~/ingestion/pipelines/clientwarnings'
 import { createHeatmapsConsumer } from '~/ingestion/pipelines/heatmaps'
@@ -58,7 +58,6 @@ import {
     getDefaultIngestionConsumerConfig,
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
-import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { PluginServerService, RedisPool } from '../types'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
@@ -198,7 +197,6 @@ export class IngestionGeneralServer implements NodeServer {
         this.postgres = sharedServices.container.postgres
         this.redisPool = sharedServices.container.redisPool
         const teamManager = sharedServices.container.teamManager
-        const cookielessManager = sharedServices.container.cookielessManager
         this.stopSharedServices = sharedServices.stop
         logger.info('👍', 'Postgres Router ready')
         logger.info('👍', 'Ingestion Redis ready')
@@ -210,34 +208,8 @@ export class IngestionGeneralServer implements NodeServer {
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
         await geoipService.get()
 
-        const personhogClient = createPersonHogClient(this.config)
-        const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
-
-        const postgresPersonRepository = new PostgresPersonRepository(this.postgres, {
-            calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
-        })
-        const personRepository = buildPersonRepository(
-            personhogClient,
-            postgresPersonRepository,
-            this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
-            this.config.PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS,
-            clientLabel
-        )
-        const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
-
-        const groupRepository = buildGroupRepository(
-            personhogClient,
-            postgresGroupRepository,
-            this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
-            this.config.PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS,
-            clientLabel
-        )
-
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
-
-        // 3. Ingestion-specific services
-        const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
 
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
@@ -249,7 +221,6 @@ export class IngestionGeneralServer implements NodeServer {
         // separately by each consumer factory as needed.
         const ingestionProducerRegistry = sharedServices.container.producerRegistry
         const ingestionOutputs = createOutputsRegistry().build(ingestionProducerRegistry, this.config)
-        const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 
         const hogTransformerDeps: HogTransformerServiceDeps = {
             geoipService,
@@ -261,19 +232,60 @@ export class IngestionGeneralServer implements NodeServer {
             teamManager,
         }
 
-        const ingestionDeps: IngestionConsumerDeps = {
-            postgres: this.postgres,
-            redisPool: this.redisPool,
-            featureFlagCalledDedupRedisPool: sharedServices.container.featureFlagCalledDedupRedisPool,
-            outputs: ingestionOutputs,
-            teamManager,
-            groupTypeManager,
-            groupRepository,
-            clickhouseGroupRepository,
-            personRepository,
-            cookielessManager,
-            hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
-            aiSubpipelineFactory: createAiEventSubpipeline,
+        // The analytics lane can't construct the cdp-owned hog transformer itself (boundary),
+        // so the server injects it (and the lane's outputs, which also back the transformer's
+        // monitoring) through an analytics-specific scope. The personhog-routed person/group
+        // repositories are injected here too — like legacy, they carry the personhog rollout and
+        // are shared across combined-mode lanes. The consumer owns everything else (restriction
+        // manager, event filters, overflow redirect, stores, tophog). In combined mode all three
+        // analytics lanes extend this one scope, so — as before — they share a single hog
+        // transformer, outputs, and repositories instance.
+        const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+        const analyticsSharedBase = extend(sharedServicesScope, 'analytics-shared-base', (container, builder) =>
+            builder
+                .add(
+                    'hogTransformer',
+                    new HogTransformerComponent(() => createHogTransformerService(this.config, hogTransformerDeps))
+                )
+                .add('outputs', new IngestionOutputsComponent(() => ingestionOutputs))
+                .add(
+                    'repositories',
+                    new PersonHogRoutedRepositoriesComponent(this.config, container.postgres, clientLabel)
+                )
+        )
+        // The group-type and event-schema-enforcement managers layer on top of the base because
+        // the group-type manager reads the routed group repository added above. Shared across the
+        // combined-mode analytics lanes so their LazyLoader caches warm once rather than per lane.
+        const analyticsSharedScope = extend(analyticsSharedBase, 'analytics-shared', (container, builder) =>
+            builder
+                .add('eventSchemaEnforcementManager', new EventSchemaEnforcementManagerComponent(container.postgres))
+                .add(
+                    'groupTypeManager',
+                    new GroupTypeManagerComponent(container.repositories.groupRepository, container.teamManager)
+                )
+        )
+
+        const startAnalytics = (override?: { topic: string; groupId: string; lane: string }) => {
+            serviceLoaders.push(async () => {
+                const consumerConfig = override
+                    ? {
+                          ...this.config,
+                          INGESTION_CONSUMER_CONSUME_TOPIC: override.topic,
+                          INGESTION_CONSUMER_GROUP_ID: override.groupId,
+                      }
+                    : this.config
+                // Combined mode runs three analytics consumers in one process, so the lane (not the
+                // process-level INGESTION_LANE, which they share) is what makes each service id unique.
+                const lane = override?.lane ?? this.config.INGESTION_LANE ?? 'main'
+                const consumerScope = createAnalyticsConsumer(
+                    consumerConfig,
+                    analyticsSharedScope,
+                    createAiEventSubpipeline,
+                    lane
+                )
+                const { consumer, stop } = await consumerScope.start()
+                return ingestionConsumerService(consumer, stop)
+            })
         }
 
         const startClientWarnings = (override?: { topic: string; groupId: string }) => {
@@ -342,19 +354,24 @@ export class IngestionGeneralServer implements NodeServer {
         if (isCombinedMode) {
             // Local dev / hobby: run multiple consumers for all ingestion topics in one process
             const consumersOptions = [
-                { topic: KAFKA_EVENTS_PLUGIN_INGESTION, group_id: 'clickhouse-ingestion' },
-                { topic: KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL, group_id: 'clickhouse-ingestion-historical' },
-                { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
+                { topic: KAFKA_EVENTS_PLUGIN_INGESTION, group_id: 'clickhouse-ingestion', lane: 'main' },
+                {
+                    topic: KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+                    group_id: 'clickhouse-ingestion-historical',
+                    lane: 'historical',
+                },
+                {
+                    topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+                    group_id: 'clickhouse-ingestion-overflow',
+                    lane: 'overflow',
+                },
             ]
 
             for (const consumerOption of consumersOptions) {
-                serviceLoaders.push(async () => {
-                    const consumer = new IngestionConsumer(this.config, ingestionDeps, {
-                        INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
-                        INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
-                    })
-                    await consumer.start()
-                    return consumer.service
+                startAnalytics({
+                    topic: consumerOption.topic,
+                    groupId: consumerOption.group_id,
+                    lane: consumerOption.lane,
                 })
             }
 
@@ -379,11 +396,7 @@ export class IngestionGeneralServer implements NodeServer {
             startAi()
         } else {
             // Production ingestion-v2: single consumer using config-provided topic
-            serviceLoaders.push(async () => {
-                const consumer = new IngestionConsumer(this.config, ingestionDeps)
-                await consumer.start()
-                return consumer.service
-            })
+            startAnalytics()
         }
 
         // ServerCommands is always created

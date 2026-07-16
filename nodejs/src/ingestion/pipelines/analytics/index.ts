@@ -1,3 +1,10 @@
+export {
+    createAnalyticsConsumer,
+    type AnalyticsConsumerConfig,
+    type AnalyticsOutputs,
+    type AnalyticsSharedScope,
+} from './consumer'
+
 export { createEventSubpipeline, type EventSubpipelineConfig, type EventSubpipelineInput } from './event-subpipeline'
 
 export {

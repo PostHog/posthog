@@ -37,7 +37,7 @@ describe('router', () => {
             expect(res.body).toMatchInlineSnapshot(`
                 {
                   "checks": {
-                    "ingestion-consumer-events_plugin_ingestion_test": "ok",
+                    "analytics-main": "ok",
                     "server-commands": "ok",
                   },
                   "status": "ok",
@@ -52,7 +52,7 @@ describe('router', () => {
             expect(res.body).toMatchInlineSnapshot(`
                 {
                   "checks": {
-                    "ingestion-consumer-events_plugin_ingestion_test": "ok",
+                    "analytics-main": "ok",
                     "server-commands": "ok",
                   },
                   "status": "ok",

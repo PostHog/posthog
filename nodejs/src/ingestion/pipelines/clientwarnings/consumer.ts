@@ -47,7 +47,11 @@ export function createClientWarningsConsumer(
             )
     )
 
-    return new CommonIngestionConsumerScope('clientwarnings', config, scope, ({ container }) =>
-        createClientWarningsPipeline(container)
+    return new CommonIngestionConsumerScope(
+        'clientwarnings',
+        config.INGESTION_LANE ?? 'main',
+        config,
+        scope,
+        ({ container }) => createClientWarningsPipeline(container)
     )
 }

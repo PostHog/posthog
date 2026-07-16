@@ -46,7 +46,11 @@ export function createHeatmapsConsumer(config: HeatmapsConsumerConfig, sharedSco
             )
     )
 
-    return new CommonIngestionConsumerScope('heatmaps', config, scope, ({ container }) =>
-        createHeatmapsPipeline(container)
+    return new CommonIngestionConsumerScope(
+        'heatmaps',
+        config.INGESTION_LANE ?? 'main',
+        config,
+        scope,
+        ({ container }) => createHeatmapsPipeline(container)
     )
 }

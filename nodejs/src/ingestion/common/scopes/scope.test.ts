@@ -1,4 +1,5 @@
-import { Component } from './component'
+import { Component } from '~/common/scopes/component'
+
 import { extend, newScope } from './scope'
 import { makeComponent } from './test-fixtures'
 

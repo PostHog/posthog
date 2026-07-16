@@ -1,4 +1,5 @@
-import { Component } from './component'
+import { Component } from '~/common/scopes/component'
+
 import { EmptyScope } from './empty-scope'
 import { ScopeRunner } from './runner'
 import { ScopeBuilder } from './scope-builder'

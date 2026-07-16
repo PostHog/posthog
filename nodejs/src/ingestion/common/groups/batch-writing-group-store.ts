@@ -10,6 +10,7 @@ import { GroupRepository } from '~/common/groups/repositories/group-repository.i
 import { logger } from '~/common/utils/logger'
 import { promiseRetry } from '~/common/utils/retries'
 import { RaceConditionError } from '~/common/utils/utils'
+import { Component } from '~/ingestion/common/scopes'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
 import { Group, GroupTypeIndex, TeamId } from '~/types'
@@ -1207,5 +1208,35 @@ export class BatchWritingGroupStore implements GroupStore {
 
         this.emitAccumulatedMetrics()
         return Promise.resolve()
+    }
+}
+
+/**
+ * Owns a `BatchWritingGroupStore`'s lifetime as a scope entry. `start()`
+ * constructs the store (which begins its metric-emission timer); `stop()`
+ * shuts it down. Shutdown throws when the cache still holds dirty entries —
+ * a drain-ordering bug the pipeline's per-batch flush is supposed to prevent —
+ * so we log and swallow rather than break the rest of scope teardown, matching
+ * the legacy consumer's stop path.
+ */
+export class BatchWritingGroupStoreComponent implements Component<BatchWritingGroupStore> {
+    constructor(
+        private readonly groupRepository: GroupRepository,
+        private readonly clickhouseGroupRepository: ClickhouseGroupRepository,
+        private readonly options?: Partial<BatchWritingGroupStoreOptions>
+    ) {}
+
+    start(): Promise<{ value: BatchWritingGroupStore; stop: () => Promise<void> }> {
+        const store = new BatchWritingGroupStore(this.groupRepository, this.clickhouseGroupRepository, this.options)
+        return Promise.resolve({
+            value: store,
+            stop: async () => {
+                try {
+                    await store.shutdown()
+                } catch (error) {
+                    logger.error('🚨', 'BatchWritingGroupStore.shutdown() failed', { error })
+                }
+            },
+        })
     }
 }

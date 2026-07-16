@@ -10,18 +10,21 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
-import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
-import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { UUIDT } from '~/common/utils/utils'
-import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
-import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
+import { AnalyticsTestConsumer, startAnalyticsTestConsumer } from '~/tests/helpers/analytics-consumer'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
-import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '~/tests/helpers/sql'
 import { PipelineEvent, PluginsServerConfig, ProjectId, Team } from '~/types'
+
+// The analytics consumer builds its Kafka consumer internally at scope start; mock the factory
+// so the test harness can capture the batch handler instead of connecting to a broker.
+jest.mock('~/common/kafka/consumer', () => ({
+    ...jest.requireActual('~/common/kafka/consumer'),
+    createKafkaConsumer: jest.fn(),
+}))
 
 jest.mock('~/common/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
@@ -137,7 +140,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
         name: string,
         config: { teamOverrides?: Partial<Team>; pluginServerConfig?: Partial<PluginsServerConfig> } = {},
         testFn: (
-            ingester: IngestionConsumer,
+            ingester: AnalyticsTestConsumer,
             infra: IngestionTestInfra,
             team: Team,
             kafkaProducer: KafkaProducerWrapper
@@ -181,24 +184,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
                 throw new Error(`Failed to fetch team ${newTeam.id} from database`)
             }
 
-            const outputs = createTestIngestionOutputs(kafkaProducer)
-            const ingester = new IngestionConsumer(infra.config, {
-                ...infra,
-                aiSubpipelineFactory: createAiEventSubpipeline,
-                hogTransformer: createHogTransformerService(infra.config, {
-                    ...infra,
-                    monitoringOutputs: createTestMonitoringOutputs(kafkaProducer),
-                }),
-                outputs,
-                clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
-            })
-            ingester['kafkaConsumer'] = {
-                connect: jest.fn(),
-                disconnect: jest.fn(),
-                isHealthy: jest.fn(),
-            } as any
-
-            await ingester.start()
+            const ingester = await startAnalyticsTestConsumer(infra, kafkaProducer)
             currentToken = fetchedTeam.api_token
             await testFn(ingester, infra, fetchedTeam, kafkaProducer)
             await ingester.stop()
