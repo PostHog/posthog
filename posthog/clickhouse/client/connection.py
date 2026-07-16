@@ -3,9 +3,13 @@ import json
 import logging
 from collections.abc import Mapping
 from contextlib import contextmanager
-from enum import StrEnum
+from datetime import date, datetime
+from decimal import Decimal
+from enum import Enum, StrEnum
 from functools import cache
+from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from django.conf import settings
 
@@ -151,6 +155,7 @@ def _to_clickhouse_connect_external_data(
         payload = b"\n".join(
             json.dumps(
                 {column: row[column] for column in columns},
+                default=_external_table_json_default,
                 separators=(",", ":"),
             ).encode()
             for row in table["data"]
@@ -162,6 +167,18 @@ def _to_clickhouse_connect_external_data(
             structure=[f"{column} {ch_type}" for column, ch_type in table["structure"]],
         )
     return external_data
+
+
+def _external_table_json_default(value: object) -> object:
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ")
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, (Decimal, UUID, IPv4Address, IPv6Address)):
+        return str(value)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 class ProxyClient:

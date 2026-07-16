@@ -1,3 +1,7 @@
+from datetime import UTC, date, datetime
+from decimal import Decimal
+from uuid import UUID
+
 import pytest
 
 from posthog.clickhouse.client.connection import (
@@ -34,6 +38,43 @@ def test_http_client_forwards_external_tables():
             external_tables=[{"name": "_test_ext", "structure": [("id", "Int64")], "data": [{"id": 2}, {"id": 5}]}],
         )
     assert result == [(2,), (5,)]
+
+
+def test_http_client_serializes_typed_external_table_values():
+    identifier = UUID("12345678-1234-5678-1234-567812345678")
+    with get_http_client(database="default") as client:
+        result = sync_execute(
+            """
+            SELECT
+                toString(recorded_at),
+                toString(recorded_on),
+                toString(amount),
+                toString(identifier)
+            FROM _test_typed_ext
+            """,
+            flush=False,
+            sync_client=client,
+            external_tables=[
+                {
+                    "name": "_test_typed_ext",
+                    "structure": [
+                        ("recorded_at", "DateTime64(6, 'UTC')"),
+                        ("recorded_on", "Date"),
+                        ("amount", "Decimal(18, 4)"),
+                        ("identifier", "UUID"),
+                    ],
+                    "data": [
+                        {
+                            "recorded_at": datetime(2026, 7, 16, 9, 57, 49, 123456, tzinfo=UTC),
+                            "recorded_on": date(2026, 7, 16),
+                            "amount": Decimal("12.3400"),
+                            "identifier": identifier,
+                        }
+                    ],
+                }
+            ],
+        )
+    assert result == [("2026-07-16 09:57:49.123456", "2026-07-16", "12.34", str(identifier))]
 
 
 def test_connection_pool_creation_without_offline_cluster(settings):
