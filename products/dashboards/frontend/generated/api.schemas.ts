@@ -9402,11 +9402,24 @@ export type DashboardsRunInsightsRetrieveParams = {
     filters_override?: string
     format?: DashboardsRunInsightsRetrieveFormat
     /**
-     * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
+     * 'optimized' returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
+     *
+     * * `optimized` - optimized
+     * * `json` - json
+     * @minLength 1
      */
     output_format?: DashboardsRunInsightsRetrieveOutputFormat
     /**
-     * Cache behavior. By default, stale results are returned while refreshing asynchronously, but a cache miss is calculated synchronously. 'force_cache' serves only cached results. 'blocking' uses cache if fresh, otherwise recalculates. 'force_async' always recalculates in the background. 'force_blocking' always recalculates.
+     * Cache behavior. By default, recent cached results are returned and missing or stale results are calculated asynchronously. 'false' and 'force_cache' serve only cached results. 'async_except_on_cache_miss' refreshes stale results asynchronously but calculates cache misses synchronously. 'blocking' uses cache if fresh, otherwise recalculates. 'true' and 'force_blocking' always recalculate synchronously.
+     *
+     * * `false` - false
+     * * `true` - true
+     * * `force_cache` - force_cache
+     * * `async` - async
+     * * `async_except_on_cache_miss` - async_except_on_cache_miss
+     * * `blocking` - blocking
+     * * `force_blocking` - force_blocking
+     * @minLength 1
      */
     refresh?: DashboardsRunInsightsRetrieveRefresh
     /**
@@ -9427,19 +9440,21 @@ export type DashboardsRunInsightsRetrieveOutputFormat =
     (typeof DashboardsRunInsightsRetrieveOutputFormat)[keyof typeof DashboardsRunInsightsRetrieveOutputFormat]
 
 export const DashboardsRunInsightsRetrieveOutputFormat = {
-    Json: 'json',
     Optimized: 'optimized',
+    Json: 'json',
 } as const
 
 export type DashboardsRunInsightsRetrieveRefresh =
     (typeof DashboardsRunInsightsRetrieveRefresh)[keyof typeof DashboardsRunInsightsRetrieveRefresh]
 
 export const DashboardsRunInsightsRetrieveRefresh = {
+    False: 'false',
+    True: 'true',
+    ForceCache: 'force_cache',
+    Async: 'async',
     AsyncExceptOnCacheMiss: 'async_except_on_cache_miss',
     Blocking: 'blocking',
-    ForceAsync: 'force_async',
     ForceBlocking: 'force_blocking',
-    ForceCache: 'force_cache',
 } as const
 
 export type DashboardsRunWidgetsRetrieveParams = {

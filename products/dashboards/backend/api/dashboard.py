@@ -876,6 +876,38 @@ class RunInsightsResponseSerializer(serializers.Serializer):
     )
 
 
+RUN_INSIGHTS_REFRESH_EXECUTION_MODES: dict[str, ExecutionMode] = {
+    "false": ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+    "true": ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+    "force_cache": ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+    "async": ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+    "async_except_on_cache_miss": ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+    "blocking": ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+    "force_blocking": ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+}
+
+
+class RunInsightsQuerySerializer(serializers.Serializer):
+    refresh = serializers.ChoiceField(
+        choices=list(RUN_INSIGHTS_REFRESH_EXECUTION_MODES),
+        default="async",
+        help_text=(
+            "Cache behavior. By default, recent cached results are returned and missing or stale results are "
+            "calculated asynchronously. 'false' and 'force_cache' serve only cached results. "
+            "'async_except_on_cache_miss' refreshes stale results asynchronously but calculates cache misses "
+            "synchronously. 'blocking' uses cache if fresh, otherwise recalculates. 'true' and 'force_blocking' "
+            "always recalculate synchronously."
+        ),
+    )
+    output_format = serializers.ChoiceField(
+        choices=["optimized", "json"],
+        default="optimized",
+        help_text=(
+            "'optimized' returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects."
+        ),
+    )
+
+
 class DashboardWidgetRunResultSerializer(serializers.Serializer):
     tile_id = serializers.IntegerField(help_text="Dashboard tile ID for this widget result.")
     widget_type = serializers.CharField(
@@ -2781,27 +2813,7 @@ class DashboardsViewSet(
 
     @extend_schema(
         parameters=[
-            OpenApiParameter(
-                "refresh",
-                OpenApiTypes.STR,
-                enum=["force_cache", "async_except_on_cache_miss", "blocking", "force_async", "force_blocking"],
-                description=(
-                    "Cache behavior. By default, stale results are returned while refreshing asynchronously, "
-                    "but a cache miss is calculated synchronously. 'force_cache' serves only cached results. "
-                    "'blocking' uses cache if fresh, otherwise recalculates. "
-                    "'force_async' always recalculates in the background. "
-                    "'force_blocking' always recalculates."
-                ),
-            ),
-            OpenApiParameter(
-                "output_format",
-                OpenApiTypes.STR,
-                enum=["optimized", "json"],
-                description=(
-                    "'optimized' (default) returns LLM-friendly formatted text per insight. "
-                    "'json' returns the raw query result objects."
-                ),
-            ),
+            RunInsightsQuerySerializer,
             VARIABLES_OVERRIDE_PARAM,
             FILTERS_OVERRIDE_PARAM,
         ],
@@ -2811,7 +2823,12 @@ class DashboardsViewSet(
     def run_insights(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Run all insights on a dashboard and return their results."""
         dashboard = self.get_object()
-        output_format = request.query_params.get("output_format", "optimized")
+        query_serializer = RunInsightsQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        output_format = query_serializer.validated_data["output_format"]
+
+        refresh = query_serializer.validated_data["refresh"]
+        execution_mode = RUN_INSIGHTS_REFRESH_EXECUTION_MODES[refresh]
 
         access_method = dashboard_access_method(request)
         record_dashboard_access(access_method)
@@ -2819,7 +2836,7 @@ class DashboardsViewSet(
         context = self.get_serializer_context()
         context["dashboard"] = dashboard
         context["dashboard_access_method"] = access_method
-        context["default_execution_mode"] = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+        context["default_execution_mode"] = execution_mode
         # _format_insight_for_llm consumes results as Python data, so raw cached
         # result bytes (orjson.Fragment) must not be used here.
         context["require_parsed_results"] = True

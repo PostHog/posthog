@@ -53,7 +53,7 @@ class TestDashboardRunInsights(APIBaseTest):
             body = self._run(dashboard.id, output_format="json")
 
         self.assertEqual(body["results"], [])
-        record_access.assert_called_once_with(dashboard, DashboardAccessMethod.HUMAN)
+        record_access.assert_called_once_with(DashboardAccessMethod.HUMAN)
         dashboard.refresh_from_db()
         self.assertIsNone(dashboard.last_accessed_at)
 
@@ -62,16 +62,18 @@ class TestDashboardRunInsights(APIBaseTest):
             (
                 "default",
                 None,
-                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
             ),
+            ("false", "false", ExecutionMode.CACHE_ONLY_NEVER_CALCULATE),
             ("force_cache", "force_cache", ExecutionMode.CACHE_ONLY_NEVER_CALCULATE),
+            ("async", "async", ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE),
             (
                 "async_except_on_cache_miss",
                 "async_except_on_cache_miss",
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
             ),
             ("blocking", "blocking", ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE),
-            ("force_async", "force_async", ExecutionMode.CALCULATE_ASYNC_ALWAYS),
+            ("true", "true", ExecutionMode.CALCULATE_BLOCKING_ALWAYS),
             ("force_blocking", "force_blocking", ExecutionMode.CALCULATE_BLOCKING_ALWAYS),
         ]
     )
@@ -104,6 +106,17 @@ class TestDashboardRunInsights(APIBaseTest):
         self._run(dashboard.id, **query_params)
 
         self.assertEqual(mock_calculate.call_args.kwargs["execution_mode"], expected_execution_mode)
+
+    @parameterized.expand(["force_async", "force_cashe", "lazy_async"])
+    def test_rejects_unsupported_refresh_mode(self, refresh: str) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="dash")
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/dashboards/{dashboard.id}/run_insights/",
+            {"refresh": refresh},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
 
     def test_returns_one_result_per_insight_tile(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})

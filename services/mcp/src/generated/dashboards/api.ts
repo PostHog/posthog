@@ -1034,6 +1034,9 @@ export const DashboardsRunInsightsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const dashboardsRunInsightsRetrieveQueryOutputFormatDefault = `optimized`
+export const dashboardsRunInsightsRetrieveQueryRefreshDefault = `async`
+
 export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     filters_override: zod
         .string()
@@ -1043,16 +1046,16 @@ export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.obje
         ),
     format: zod.enum(['json', 'txt']).optional(),
     output_format: zod
-        .enum(['json', 'optimized'])
-        .optional()
+        .enum(['optimized', 'json'])
+        .default(dashboardsRunInsightsRetrieveQueryOutputFormatDefault)
         .describe(
-            "'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects."
+            "'optimized' returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.\n\n* `optimized` - optimized\n* `json` - json"
         ),
     refresh: zod
-        .enum(['async_except_on_cache_miss', 'blocking', 'force_async', 'force_blocking', 'force_cache'])
-        .optional()
+        .enum(['false', 'true', 'force_cache', 'async', 'async_except_on_cache_miss', 'blocking', 'force_blocking'])
+        .default(dashboardsRunInsightsRetrieveQueryRefreshDefault)
         .describe(
-            "Cache behavior. By default, stale results are returned while refreshing asynchronously, but a cache miss is calculated synchronously. 'force_cache' serves only cached results. 'blocking' uses cache if fresh, otherwise recalculates. 'force_async' always recalculates in the background. 'force_blocking' always recalculates."
+            "Cache behavior. By default, recent cached results are returned and missing or stale results are calculated asynchronously. 'false' and 'force_cache' serve only cached results. 'async_except_on_cache_miss' refreshes stale results asynchronously but calculates cache misses synchronously. 'blocking' uses cache if fresh, otherwise recalculates. 'true' and 'force_blocking' always recalculate synchronously.\n\n* `false` - false\n* `true` - true\n* `force_cache` - force_cache\n* `async` - async\n* `async_except_on_cache_miss` - async_except_on_cache_miss\n* `blocking` - blocking\n* `force_blocking` - force_blocking"
         ),
     variables_override: zod
         .string()
