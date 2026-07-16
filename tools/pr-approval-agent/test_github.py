@@ -6,11 +6,13 @@ import pytest
 
 import github
 from github import (
+    CommitProvenance,
     _normalize_discussion_for_prompt,
     _normalize_reviews_for_prompt,
     _reaction_emoji,
     _trusted_reactor_predicate,
     is_bot_author,
+    parse_provenance_trailers,
 )
 
 
@@ -194,6 +196,70 @@ def test_trusted_reactor_predicate_gates_untrusted_and_author(
 )
 def test_is_bot_author(user: dict, expected: bool) -> None:
     assert is_bot_author(user) is expected
+
+
+@pytest.mark.parametrize(
+    "log_output,expected",
+    [
+        pytest.param(
+            "fix: resolve login redirect loop\n\n"
+            "Generated-By: PostHog Code\n"
+            "Task-Id: a95947d1-6e11-4565-9922-1f857cc6f6fe\n\x1e\n",
+            CommitProvenance(
+                commit_count=1,
+                agent_commit_count=1,
+                generated_by=("PostHog Code",),
+                task_ids=("a95947d1-6e11-4565-9922-1f857cc6f6fe",),
+            ),
+            id="single-agent-commit",
+        ),
+        pytest.param(
+            "fix: handle empty cohort\n\x1e\nchore: bump deps\n\x1e\n",
+            CommitProvenance(commit_count=2, agent_commit_count=0, generated_by=(), task_ids=()),
+            id="human-only-commits",
+        ),
+        pytest.param(
+            "feat: add export\n\nGenerated-By: PostHog Code\nTask-Id: task-1\n\x1e\n"
+            "fix: review feedback\n\x1e\n"
+            "fix: more feedback\n\nGenerated-By: PostHog Code\nTask-Id: task-2\n\x1e\n",
+            CommitProvenance(
+                commit_count=3,
+                agent_commit_count=2,
+                generated_by=("PostHog Code",),
+                task_ids=("task-1", "task-2"),
+            ),
+            id="mixed-commits-dedupe-generator-collect-task-ids",
+        ),
+        pytest.param(
+            "feat(insights): retention export (#71452)\n\n"
+            "* feat: first pass\n\n"
+            "Generated-By: PostHog Code\n"
+            "Task-Id: task-1\n\n"
+            "* fix: address review\n\x1e\n",
+            CommitProvenance(
+                commit_count=1, agent_commit_count=1, generated_by=("PostHog Code",), task_ids=("task-1",)
+            ),
+            id="squash-style-message-with-embedded-trailers",
+        ),
+        pytest.param(
+            "chore: retry task\n\ngenerated-by: posthog code\ntask-id: task-9\n\x1e\n",
+            CommitProvenance(
+                commit_count=1, agent_commit_count=1, generated_by=("posthog code",), task_ids=("task-9",)
+            ),
+            id="case-insensitive-trailers",
+        ),
+        pytest.param(
+            "",
+            CommitProvenance(commit_count=0, agent_commit_count=0, generated_by=(), task_ids=()),
+            id="empty-log-output",
+        ),
+    ],
+)
+def test_parse_provenance_trailers(log_output: str, expected: CommitProvenance) -> None:
+    # The provenance dimension (agent-authored % of PRs) is derived entirely
+    # from these trailers — a parsing regression zeroes it silently rather
+    # than failing anything, so the shapes git actually emits are locked here.
+    assert parse_provenance_trailers(log_output) == expected
 
 
 def _worst_case_node_count(query: str) -> int:

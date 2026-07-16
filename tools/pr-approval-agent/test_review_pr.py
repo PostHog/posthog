@@ -12,7 +12,8 @@ sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
 import review_pr  # noqa: E402
-from github import PRData  # noqa: E402
+from familiarity import AuthorFamiliarity  # noqa: E402
+from github import CommitProvenance, PRData  # noqa: E402
 from review_pr import GateResult, Pipeline  # noqa: E402
 
 
@@ -23,6 +24,9 @@ def _no_live_team_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
     # `gh api` mid-test - slow, network-dependent, and it trips tests that
     # assert the pipeline never sleeps (subprocess waits sleep internally).
     monkeypatch.setattr(review_pr, "check_team_membership", lambda *_a, **_k: False)
+    # Familiarity computes on every LLM-reviewed run and shells out to
+    # `gh pr list` / `git blame`; stub it for the same reasons as above.
+    monkeypatch.setattr(review_pr, "compute_familiarity", lambda **_k: None)
 
 
 def _fake_pr(head_sha: str) -> PRData:
@@ -436,6 +440,109 @@ def test_wait_refetch_reclassifies_before_review(monkeypatch: pytest.MonkeyPatch
 
     assert verdict == "REFUSED"
     assert pipeline.classification["deny_categories"] == ["infra_cicd"]
+
+
+@pytest.mark.parametrize(
+    "tier, expect_in_prompt",
+    [
+        pytest.param("T0-deterministic", False, id="t0-telemetry-only"),
+        pytest.param("T2-never", False, id="t2-telemetry-only"),
+        pytest.param("T1-agent", True, id="t1-prompt-and-telemetry"),
+    ],
+)
+def test_familiarity_computed_on_every_tier_but_prompted_only_on_t1(
+    monkeypatch: pytest.MonkeyPatch, tier: str, expect_in_prompt: bool
+) -> None:
+    # Reintroducing the old T1-only guard would silently zero the familiarity
+    # telemetry on T0/T2 runs — the per-subsystem trend data it exists for —
+    # while attaching it to non-T1 classifications would change those prompts.
+    fam = AuthorFamiliarity(
+        band="STRONG",
+        blame_overlap_pct=61.5,
+        modified_lines_owned=8,
+        modified_lines_total=13,
+        prior_prs_in_paths=4,
+        days_since_last_touch=12,
+        files_prev_count=2,
+        files_total=3,
+        capped=False,
+        top_prior_authors=(),
+    )
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="abc123")
+    pipeline.classification = {"tier": tier, "familiarity": None}
+    monkeypatch.setattr(pipeline, "_compute_familiarity", lambda: fam)
+
+    pipeline._maybe_compute_familiarity()
+
+    assert pipeline.familiarity is fam
+    assert pipeline.classification["familiarity"] == (fam if expect_in_prompt else None)
+
+
+@pytest.mark.parametrize(
+    "populated",
+    [
+        pytest.param(True, id="signals-present"),
+        pytest.param(False, id="signals-absent-on-early-exit-paths"),
+    ],
+)
+def test_capture_review_completed_includes_familiarity_and_provenance(
+    monkeypatch: pytest.MonkeyPatch, populated: bool
+) -> None:
+    # Downstream HogQL queries key on these property names and null/empty
+    # defaults; a rename or a crash on the early-exit paths (bot author, WAIT —
+    # familiarity and provenance still None) breaks the provenance and
+    # knowledge-trend dimensions silently.
+    fake_posthog = MagicMock()
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", True)
+    monkeypatch.setattr(review_pr, "posthoganalytics", fake_posthog, raising=False)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="abc123")
+    if populated:
+        pipeline.classification = {
+            "ownership": {"teams": ["@PostHog/team-devex"], "team_count": 1, "individuals": [], "cross_team": False}
+        }
+        pipeline.familiarity = AuthorFamiliarity(
+            band="MODERATE",
+            blame_overlap_pct=12.34,
+            modified_lines_owned=2,
+            modified_lines_total=16,
+            prior_prs_in_paths=2,
+            days_since_last_touch=30,
+            files_prev_count=1,
+            files_total=3,
+            capped=False,
+            top_prior_authors=("Alice",),
+        )
+        pipeline.provenance = CommitProvenance(
+            commit_count=3,
+            agent_commit_count=2,
+            generated_by=("PostHog Code",),
+            task_ids=("task-1", "task-2"),
+        )
+
+    pipeline._capture_review_completed("PASSED", "APPROVE")
+
+    props = fake_posthog.capture.call_args.kwargs["properties"]
+    if populated:
+        assert props["stamphog_owner_teams"] == ["@PostHog/team-devex"]
+        assert props["stamphog_familiarity_band"] == "MODERATE"
+        assert props["stamphog_familiarity_blame_overlap_pct"] == 12.3
+        assert props["stamphog_familiarity_prior_prs_in_paths"] == 2
+        assert props["stamphog_familiarity_days_since_last_touch"] == 30
+        assert props["stamphog_agent_authored"] is True
+        assert props["stamphog_agent_commit_count"] == 2
+        assert props["stamphog_commit_count"] == 3
+        assert props["stamphog_generated_by"] == ["PostHog Code"]
+        assert props["stamphog_task_ids"] == ["task-1", "task-2"]
+    else:
+        assert props["stamphog_owner_teams"] == []
+        assert props["stamphog_familiarity_band"] == ""
+        assert props["stamphog_familiarity_blame_overlap_pct"] is None
+        assert props["stamphog_agent_authored"] is None
+        assert props["stamphog_generated_by"] == []
+        assert props["stamphog_task_ids"] == []
 
 
 def test_capture_review_completed_merges_server_extras_base_wins(monkeypatch: pytest.MonkeyPatch) -> None:
