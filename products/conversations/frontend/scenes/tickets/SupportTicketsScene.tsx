@@ -249,10 +249,7 @@ function SupportTicketsBulkActions(): JSX.Element {
     }, null)
 
     return (
-        <AccessControlAction
-            resourceType={AccessControlResourceType.Ticket}
-            minAccessLevel={AccessControlLevel.Editor}
-        >
+        <AccessControlAction resourceType={AccessControlResourceType.Ticket} minAccessLevel={AccessControlLevel.Editor}>
             <LemonSelect
                 onChange={(value) => {
                     if (!value || value === currentStatus) {
