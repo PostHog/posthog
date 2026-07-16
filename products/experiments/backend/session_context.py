@@ -233,15 +233,16 @@ def _resolve_exposure(team: Team, flag_key: str, exposure_criteria: Optional[dic
     except pydantic.ValidationError:
         criteria = None
     exposure_config = criteria.exposure_config if criteria else None
-    # Only the exact default shape can share the batched `$feature_flag_called` query;
-    # anything else (custom event, action, or the default event narrowed by property filters)
-    # needs its own union branch with conditions from the shared helpers.
-    batchable = exposure_config is None or (
-        isinstance(exposure_config, ExperimentEventExposureConfig)
-        and exposure_config.event == "$feature_flag_called"
-        and not exposure_config.properties
+    event, variant_property = get_exposure_event_and_property(flag_key, criteria)
+    # Only experiments whose criteria resolve to the plain `$feature_flag_called` shape (no
+    # extra property filters) can share the batched query. The literal is deliberate — it names
+    # the batched query's shape, not the default: if DEFAULT_EXPOSURE_EVENT ever changes in
+    # `exposure_query_logic`, criteria-less experiments resolve to the new event here and
+    # automatically take the per-experiment branch path, which follows the criteria.
+    has_property_filters = isinstance(exposure_config, ExperimentEventExposureConfig) and bool(
+        exposure_config.properties
     )
-    _, variant_property = get_exposure_event_and_property(flag_key, criteria)
+    batchable = event == "$feature_flag_called" and not has_property_filters
     conditions: list[ast.Expr] = []
     if not batchable:
         try:
@@ -278,7 +279,14 @@ def _query_default_exposure_events(
     """The session's `$feature_flag_called` events for the given experiment flag keys and
     defined variant names, as flag_key -> [(variant, first_seen)]. Covers every experiment
     whose exposure criteria resolve to the plain default shape (`$feature_flag_called` with
-    no extra property filters)."""
+    no extra property filters).
+
+    Shape-bound to `$feature_flag_called` on purpose — the `$feature_flag` batching key and
+    the `$feature_flag_response` variant property come with that event, so all three are
+    hardcoded together. If DEFAULT_EXPOSURE_EVENT changes in `exposure_query_logic`, this
+    query needs no rewrite: `_resolve_exposure` stops classifying criteria-less experiments
+    as batchable, and this query then serves only experiments explicitly configured on
+    `$feature_flag_called`."""
     query = parse_select(
         """
         SELECT properties.$feature_flag AS flag_key,
