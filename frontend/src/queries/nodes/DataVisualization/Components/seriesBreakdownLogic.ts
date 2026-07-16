@@ -3,7 +3,13 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, selecto
 import { DataColorTheme } from 'lib/colors'
 import { dataThemeLogic, getColorFromToken } from 'scenes/dataThemeLogic'
 
-import { AxisSeries, AxisSeriesSettings, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
+import {
+    AxisSeries,
+    AxisSeriesSettings,
+    SelectedYAxis,
+    clampDecimalPlaces,
+    dataVisualizationLogic,
+} from '../dataVisualizationLogic'
 import type { seriesBreakdownLogicType } from './seriesBreakdownLogicType'
 
 /**
@@ -67,7 +73,9 @@ const parseBreakdownSeriesValue = (value: unknown, selectedYAxis: SelectedYAxis)
 
         if (selectedYAxis.settings.formatting?.decimalPlaces) {
             const parsed = parseFloat(
-                (parseFloat(String(value)) * multiplier).toFixed(selectedYAxis.settings.formatting.decimalPlaces)
+                (parseFloat(String(value)) * multiplier).toFixed(
+                    clampDecimalPlaces(selectedYAxis.settings.formatting.decimalPlaces)
+                )
             )
             return Number.isNaN(parsed) ? null : parsed
         }

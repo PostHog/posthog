@@ -23,7 +23,12 @@ import { ChartDisplayType } from '~/types'
 
 import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
 
-import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
+import {
+    AxisSeries,
+    AxisSeriesSettings,
+    clampDecimalPlaces,
+    formatDataWithSettings,
+} from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { LineGraphProps } from './LineGraph'
 
@@ -259,7 +264,10 @@ export function formatSqlSeriesValue(value: number, settings?: AxisSeriesSetting
     // zero-decimal column would otherwise keep its fraction digits), else at 3. Prefix/suffix
     // don't round, so they don't opt out.
     const hasStyle = !!formatting && (formatting.style ?? 'none') !== 'none'
-    const display = hasStyle || !Number.isFinite(value) ? value : Number(value.toFixed(formatting?.decimalPlaces ?? 3))
+    const display =
+        hasStyle || !Number.isFinite(value)
+            ? value
+            : Number(value.toFixed(clampDecimalPlaces(formatting?.decimalPlaces) ?? 3))
     return String(formatDataWithSettings(display, settings) ?? display)
 }
 

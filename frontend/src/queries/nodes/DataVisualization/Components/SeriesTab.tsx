@@ -460,6 +460,7 @@ export const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps:
                             value={value ?? ''}
                             type="number"
                             min={0}
+                            max={100}
                             disabledReason={
                                 formatting.style === 'short'
                                     ? 'Decimal places has no effect when using short number format'
