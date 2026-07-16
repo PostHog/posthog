@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -6,9 +7,22 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, PropertyGroupFilter
+from posthog.schema import (
+    DateRange,
+    FilterLogicalOperator,
+    LogPropertyFilter,
+    LogPropertyFilterType,
+    LogsQuery,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+)
+
+from posthog.hogql import ast
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.logs.log_attributes3 import TABLE_NAME as LOG_ATTRIBUTES3_TABLE_NAME
+from posthog.clickhouse.logs.logs34 import TABLE_NAME as LOGS_TABLE_NAME
 
 from products.logs.backend.group_by_query_runner import LogsGroupByQueryRunner
 
@@ -16,10 +30,31 @@ _FROZEN_NOW = "2026-06-23T13:00:00Z"
 _WINDOW = DateRange(date_from="2026-06-23T12:00:00Z", date_to="2026-06-23T13:00:00Z")
 
 
+def _filter_group(*filters: LogPropertyFilter) -> PropertyGroupFilter:
+    return PropertyGroupFilter(
+        type=FilterLogicalOperator.AND_,
+        values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=list(filters))],
+    )
+
+
+def _log_property_filter(key: str, filter_type: LogPropertyFilterType, value: str) -> LogPropertyFilter:
+    return LogPropertyFilter(key=key, operator=PropertyOperator.EXACT, type=filter_type, value=[value])
+
+
 class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        # Kept ClickHouse databases outlive the Postgres test database, whose team-id
+        # sequence restarts every run — so a previous run's rows can share this run's team
+        # ids. conftest's reset_clickhouse_tables clears these at session teardown; this
+        # covers what it misses (interrupted runs, SKIP_CLICKHOUSE_RESET).
+        sync_execute(f"TRUNCATE TABLE IF EXISTS {LOGS_TABLE_NAME}")
+        sync_execute(f"TRUNCATE TABLE IF EXISTS {LOG_ATTRIBUTES3_TABLE_NAME}")
+
     def _insert(self, rows: list[dict]) -> None:
         sql = "".join(json.dumps({"team_id": self.team.id, **r}) + "\n" for r in rows)
-        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{sql}")
+        sync_execute(f"INSERT INTO logs_distributed FORMAT JSONEachRow\n{sql}")
 
     def _log(
         self,
@@ -44,22 +79,25 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
             row["resource_attributes"] = resource_attributes
         return row
 
-    def _run(
+    def _runner(
         self,
         group_by: str,
         group_by_source: str = "log",
         order_groups_by: str = "log_count",
         group_limit: int = 100,
         service_names: list[str] | None = None,
-    ) -> dict:
+        severity_levels: list[str] | None = None,
+        search_term: str | None = None,
+        filter_group: PropertyGroupFilter | None = None,
+    ) -> LogsGroupByQueryRunner:
         query = LogsQuery(
             dateRange=_WINDOW,
-            filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
-            severityLevels=[],
+            filterGroup=filter_group or PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
+            severityLevels=severity_levels or [],
             serviceNames=service_names or [],
-            searchTerm=None,
+            searchTerm=search_term,
         )
-        runner = LogsGroupByQueryRunner(
+        return LogsGroupByQueryRunner(
             team=self.team,
             query=query,
             group_by=group_by,
@@ -67,7 +105,9 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
             order_groups_by=order_groups_by,
             group_limit=group_limit,
         )
-        results = runner.calculate().results
+
+    def _run(self, group_by: str, **kwargs: Any) -> dict[str, Any]:
+        results = self._runner(group_by, **kwargs).calculate().results
         assert isinstance(results, dict)
         return results
 
@@ -78,8 +118,8 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 self._log(attributes={"session_id": "s1"}, severity="info", minute=0),
                 self._log(attributes={"session_id": "s1"}, severity="error", minute=1),
                 self._log(attributes={"session_id": "s1"}, severity="fatal", minute=2),
-                self._log(attributes={"session_id": "s2"}, severity="info", minute=5),
-                self._log(attributes={"session_id": "s2"}, severity="info", minute=6),
+                self._log(attributes={"session_id": "s2"}, severity="info", minute=15),
+                self._log(attributes={"session_id": "s2"}, severity="info", minute=16),
                 # No session_id: must not surface as an empty-valued group.
                 self._log(severity="error", minute=7),
             ]
@@ -91,8 +131,9 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results["total_logs"] == 5
         assert results["truncated"] is False
         s1, s2 = results["groups"]
-        assert s1 == {"value": "s1", "log_count": 3, "error_count": 2, "last_seen": "2026-06-23T12:02:00+00:00"}
-        assert s2 == {"value": "s2", "log_count": 2, "error_count": 0, "last_seen": "2026-06-23T12:06:00+00:00"}
+        # last_seen comes from the rollup path here, so it has 10-minute bucket precision.
+        assert s1 == {"value": "s1", "log_count": 3, "error_count": 2, "last_seen": "2026-06-23T12:00:00+00:00"}
+        assert s2 == {"value": "s2", "log_count": 2, "error_count": 0, "last_seen": "2026-06-23T12:10:00+00:00"}
 
     @parameterized.expand(
         [
@@ -143,10 +184,18 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert [g["value"] for g in by_count["groups"]] == ["noisy", "failing"]
         assert [g["value"] for g in by_errors["groups"]] == ["failing", "noisy"]
 
+    @parameterized.expand(
+        [
+            # Rollup path: bounds must land on the right 10-minute buckets.
+            ("rollup", None),
+            # Logs-scan path: the shared filter builder bounds only time_bucket (day precision);
+            # the runner must add per-row timestamp bounds or same-day rows outside the window
+            # leak into counts.
+            ("logs_scan", "log line"),
+        ]
+    )
     @freeze_time(_FROZEN_NOW)
-    def test_window_bounds_are_row_precise_not_day_precise(self) -> None:
-        # The shared filter builder bounds only time_bucket (day precision); the runner must
-        # add per-row timestamp bounds or same-day rows outside the window leak into counts.
+    def test_window_bounds_exclude_same_day_rows_outside_window(self, _name: str, search_term: str | None) -> None:
         self._insert(
             [
                 self._log(attributes={"session_id": "s1"}, hour=11, minute=30),
@@ -154,7 +203,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        results = self._run("session_id")
+        results = self._run("session_id", search_term=search_term)
 
         assert results["total_logs"] == 1
         assert results["groups"][0]["log_count"] == 1
@@ -171,6 +220,104 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run("session_id", service_names=["api"])
 
         assert [g["value"] for g in results["groups"]] == ["s1"]
+
+    @parameterized.expand(
+        [
+            ("no_filters", {}, "log_attributes"),
+            ("resource_source", {"group_by_source": "resource"}, "log_attributes"),
+            ("severity_levels", {"severity_levels": ["error"]}, "log_attributes"),
+            (
+                "severity_level_log_filter",
+                {
+                    "filter_group": _filter_group(
+                        _log_property_filter("severity_level", LogPropertyFilterType.LOG, "error")
+                    )
+                },
+                "log_attributes",
+            ),
+            (
+                "resource_attribute_filter",
+                {
+                    "filter_group": _filter_group(
+                        _log_property_filter("env", LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE, "prod")
+                    )
+                },
+                "log_attributes",
+            ),
+            ("column_source", {"group_by": "severity_level", "group_by_source": "column"}, "logs"),
+            ("search_term", {"search_term": "boom"}, "logs"),
+            (
+                "log_attribute_filter",
+                {
+                    "filter_group": _filter_group(
+                        _log_property_filter("session_id", LogPropertyFilterType.LOG_ATTRIBUTE, "s1")
+                    )
+                },
+                "logs",
+            ),
+            (
+                "non_severity_log_filter",
+                {"filter_group": _filter_group(_log_property_filter("trace_id", LogPropertyFilterType.LOG, "abc"))},
+                "logs",
+            ),
+        ]
+    )
+    @freeze_time(_FROZEN_NOW)
+    def test_routes_to_rollup_only_when_filters_are_expressible(
+        self, _name: str, kwargs: dict[str, Any], expected_table: str
+    ) -> None:
+        # Routing to the wrong table means silently wrong counts (rollup can't express the
+        # filter) or read-cap failures at scale (logs scan where the rollup would do).
+        runner = self._runner(kwargs.pop("group_by", "session_id"), **kwargs)
+
+        outer = runner.to_query()
+        assert outer.select_from is not None
+        inner = outer.select_from.table
+        assert isinstance(inner, ast.SelectQuery)
+        assert inner.select_from is not None
+        table = inner.select_from.table
+        assert isinstance(table, ast.Field)
+        assert table.chain == [expected_table]
+
+    @freeze_time(_FROZEN_NOW)
+    def test_severity_filter_scopes_rollup_counts(self) -> None:
+        # The rollup path must apply severity predicates via its severity_text dimension;
+        # dropping them would count logs of every severity.
+        self._insert(
+            [
+                self._log(attributes={"session_id": "s1"}, severity="error", minute=0),
+                self._log(attributes={"session_id": "s1"}, severity="info", minute=1),
+                self._log(attributes={"session_id": "s2"}, severity="info", minute=2),
+            ]
+        )
+
+        results = self._run("session_id", severity_levels=["error"])
+
+        assert results["total_logs"] == 1
+        assert results["groups"] == [
+            {"value": "s1", "log_count": 1, "error_count": 1, "last_seen": "2026-06-23T12:00:00+00:00"}
+        ]
+
+    @freeze_time(_FROZEN_NOW)
+    def test_resource_attribute_filter_scopes_rollup_counts(self) -> None:
+        # Resource-attribute filters stay on the rollup path (fingerprint subquery); losing
+        # that wiring would silently ignore the filter and overcount.
+        self._insert(
+            [
+                self._log(attributes={"session_id": "s1"}, resource_attributes={"env": "prod"}),
+                self._log(attributes={"session_id": "s2"}, resource_attributes={"env": "dev"}, minute=1),
+            ]
+        )
+
+        results = self._run(
+            "session_id",
+            filter_group=_filter_group(
+                _log_property_filter("env", LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE, "prod")
+            ),
+        )
+
+        assert [g["value"] for g in results["groups"]] == ["s1"]
+        assert results["total_logs"] == 1
 
     @parameterized.expand(
         [
@@ -204,7 +351,7 @@ class TestGroupByAPI(ClickhouseTestMixin, APIBaseTest):
     @freeze_time(_FROZEN_NOW)
     def test_endpoint_returns_grouped_results(self) -> None:
         sync_execute(
-            "INSERT INTO logs FORMAT JSONEachRow\n"
+            "INSERT INTO logs_distributed FORMAT JSONEachRow\n"
             + json.dumps(
                 {
                     "team_id": self.team.id,

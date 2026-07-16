@@ -47,30 +47,35 @@ def create_clickhouse_tables():
     }
 
     def missing(queries):
-        return [q for q in queries if get_table_name(q) not in existing_tables]
+        # Returns the rendered SQL of the statements that still need to run. CREATE OR
+        # REPLACE statements are how the canonical schema repoints an existing table
+        # (e.g. a distributed table cut over to a new data table); they must run even
+        # when the table already exists so kept/reused databases converge.
+        built = map(build_query, queries)
+        return [sql for sql in built if get_table_name(sql) not in existing_tables or "CREATE OR REPLACE" in sql]
 
-    mergetree_queries = list(map(build_query, missing(CREATE_MERGETREE_TABLE_QUERIES)))
+    mergetree_queries = missing(CREATE_MERGETREE_TABLE_QUERIES)
     if mergetree_queries:
         run_clickhouse_statement_in_parallel(mergetree_queries)
 
-    distributed_queries = list(map(build_query, missing(CREATE_DISTRIBUTED_TABLE_QUERIES)))
+    distributed_queries = missing(CREATE_DISTRIBUTED_TABLE_QUERIES)
     if distributed_queries:
         run_clickhouse_statement_in_parallel(distributed_queries)
 
     if settings.IN_EVAL_TESTING:
-        kafka_table_queries = list(map(build_query, missing(CREATE_KAFKA_TABLE_QUERIES)))
+        kafka_table_queries = missing(CREATE_KAFKA_TABLE_QUERIES)
         if kafka_table_queries:
             run_clickhouse_statement_in_parallel(kafka_table_queries)
 
-    mv_queries = list(map(build_query, missing(CREATE_MV_TABLE_QUERIES)))
+    mv_queries = missing(CREATE_MV_TABLE_QUERIES)
     if mv_queries:
         run_clickhouse_statement_in_parallel(mv_queries)
 
-    view_queries = list(map(build_query, missing(CREATE_VIEW_QUERIES)))
+    view_queries = missing(CREATE_VIEW_QUERIES)
     if view_queries:
         run_clickhouse_statement_in_parallel(view_queries)
 
-    dictionary_queries = list(map(build_query, missing(CREATE_DICTIONARY_QUERIES)))
+    dictionary_queries = missing(CREATE_DICTIONARY_QUERIES)
     if dictionary_queries:
         run_clickhouse_statement_in_parallel(dictionary_queries)
 
@@ -90,6 +95,9 @@ def reset_clickhouse_tables():
     # Truncate clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
     from posthog.clickhouse.dead_letter_queue import TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL
+    from posthog.clickhouse.logs.log_attributes2 import TABLE_NAME as LOG_ATTRIBUTES2_TABLE_NAME
+    from posthog.clickhouse.logs.log_attributes3 import TABLE_NAME as LOG_ATTRIBUTES3_TABLE_NAME
+    from posthog.clickhouse.logs.logs34 import TABLE_NAME as LOGS_TABLE_NAME
     from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
     from posthog.heatmaps.sql import TRUNCATE_HEATMAPS_TABLE_SQL
     from posthog.models.ai.pg_embeddings import TRUNCATE_PG_EMBEDDINGS_TABLE_SQL
@@ -149,6 +157,11 @@ def reset_clickhouse_tables():
         TRUNCATE_HEATMAPS_TABLE_SQL(),
         TRUNCATE_PG_EMBEDDINGS_TABLE_SQL(),
         TRUNCATE_AI_EVENTS_TABLE_SQL(),
+        # Logs data tables (no TRUNCATE_* constants exist for these). Team-scoped rows must
+        # not outlive the Postgres test database, whose team-id sequence restarts every run.
+        f"TRUNCATE TABLE IF EXISTS {LOGS_TABLE_NAME}",
+        f"TRUNCATE TABLE IF EXISTS {LOG_ATTRIBUTES2_TABLE_NAME}",
+        f"TRUNCATE TABLE IF EXISTS {LOG_ATTRIBUTES3_TABLE_NAME}",
     ]
 
     # Drop created Kafka tables because some tests don't expect it.

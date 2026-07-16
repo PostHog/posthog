@@ -989,7 +989,13 @@ class _LogsGroupByGroupSerializer(serializers.Serializer):
     error_count = serializers.IntegerField(
         help_text='Number of matching logs in this group at severity "error" or "fatal".',
     )
-    last_seen = serializers.CharField(help_text="ISO 8601 timestamp of the most recent matching log in this group.")
+    last_seen = serializers.CharField(
+        help_text=(
+            "ISO 8601 timestamp of the most recent matching log in this group. When the query is "
+            "served from the pre-aggregated attribute rollup (most queries), this has 10-minute "
+            "bucket precision rather than exact row precision."
+        )
+    )
 
 
 class _LogsGroupByResponseSerializer(serializers.Serializer):

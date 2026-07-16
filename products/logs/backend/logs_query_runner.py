@@ -80,7 +80,7 @@ def _normalise_trace_id_filter(log_filter: LogPropertyFilter) -> None:
         log_filter.value = _trace_id_normalise_to_base64(str(log_filter.value))
 
 
-def _severity_level_to_expr(log_filter: LogPropertyFilter) -> ast.Expr:
+def severity_level_to_expr(log_filter: LogPropertyFilter) -> ast.Expr:
     """Translate a `severity_level` log property filter to a HogQL expression on `severity_text`.
 
     Only equality operators (Exact/IsNot) are exposed in the UI.
@@ -298,6 +298,39 @@ class LogsFilterBuilder:
                 f for f in self.resource_attribute_negative_filters if f.key != self.exclude_resource_attribute
             ]
 
+    def service_names_expr(self) -> ast.Expr | None:
+        if not self.query.serviceNames:
+            return None
+        return parse_expr(
+            "service_name IN {serviceNames}",
+            placeholders={
+                "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
+            },
+        )
+
+    def resource_fingerprint_expr(self) -> ast.Expr | None:
+        if not self.query.resourceFingerprint:
+            return None
+        return parse_expr(
+            "resource_fingerprint = {resourceFingerprint}",
+            placeholders={"resourceFingerprint": ast.Constant(value=str(self.query.resourceFingerprint))},
+        )
+
+    def severity_levels_expr(self) -> ast.Expr | None:
+        if not self.query.severityLevels:
+            return None
+        return parse_expr(
+            "severity_text IN {severityLevels}",
+            placeholders={
+                "severityLevels": ast.Tuple(exprs=[ast.Constant(value=str(sl)) for sl in self.query.severityLevels])
+            },
+        )
+
+    def rollup_context_exprs(self) -> list[ast.Expr]:
+        """Filters that hold for any `log_attributes` rollup row, safe to push into the
+        resource-fingerprint subquery as well as the outer WHERE."""
+        return [expr for expr in (self.service_names_expr(), self.resource_fingerprint_expr()) if expr is not None]
+
     def where(self) -> ast.Expr:
         exprs: list[ast.Expr] = []
 
@@ -312,23 +345,11 @@ class LogsFilterBuilder:
             )
         )
 
-        if self.query.serviceNames and self.exclude_facet_field != "service_name":
-            exprs.append(
-                parse_expr(
-                    "service_name IN {serviceNames}",
-                    placeholders={
-                        "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
-                    },
-                )
-            )
+        if self.exclude_facet_field != "service_name" and (service_names := self.service_names_expr()) is not None:
+            exprs.append(service_names)
 
-        if self.query.resourceFingerprint:
-            exprs.append(
-                parse_expr(
-                    "resource_fingerprint = {resourceFingerprint}",
-                    placeholders={"resourceFingerprint": ast.Constant(value=str(self.query.resourceFingerprint))},
-                )
-            )
+        if (resource_fingerprint := self.resource_fingerprint_expr()) is not None:
+            exprs.append(resource_fingerprint)
 
         if self.query.filterGroup:
             exprs.append(self.resource_filter(existing_filters=exprs))
@@ -340,7 +361,7 @@ class LogsFilterBuilder:
                 for log_filter in self.log_filters:
                     if log_filter.key == "severity_level":
                         if self.exclude_facet_field != "severity_text":
-                            exprs.append(_severity_level_to_expr(log_filter))
+                            exprs.append(severity_level_to_expr(log_filter))
                         continue
                     if log_filter.key in ("trace_id", "span_id"):
                         log_filter = log_filter.copy(deep=True)
@@ -361,17 +382,8 @@ class LogsFilterBuilder:
             exprs.append(get_lowercase_index_hint(search_filter, team=self.team))
             exprs.append(property_to_expr(search_filter, team=self.team))
 
-        if self.query.severityLevels and self.exclude_facet_field != "severity_text":
-            exprs.append(
-                parse_expr(
-                    "severity_text IN {severityLevels}",
-                    placeholders={
-                        "severityLevels": ast.Tuple(
-                            exprs=[ast.Constant(value=str(sl)) for sl in self.query.severityLevels]
-                        )
-                    },
-                )
-            )
+        if self.exclude_facet_field != "severity_text" and (severity_levels := self.severity_levels_expr()) is not None:
+            exprs.append(severity_levels)
 
         if self.query.liveLogsCheckpoint:
             try:
@@ -529,6 +541,18 @@ class LogsQueryRunnerMixin(QueryRunner):
             now=dt.datetime.now(),
             timezone_info=ZoneInfo("UTC"),
             exact_timerange=True,
+        )
+
+    @cached_property
+    def attributes_query_date_range(self) -> QueryDateRange:
+        # log_attributes is bucketed at 10-minute granularity; align bounds to it.
+        return QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=IntervalType.MINUTE,
+            interval_count=10,
+            now=dt.datetime.now(),
+            timezone_info=ZoneInfo("UTC"),
         )
 
     def where(self) -> ast.Expr:
