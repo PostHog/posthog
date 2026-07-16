@@ -1,5 +1,6 @@
 import re
 import json
+import time
 import threading
 import dataclasses
 from collections.abc import Iterator
@@ -101,27 +102,38 @@ def _read_capped_text(response: requests.Response) -> str:
 
     The request is issued with ``stream=True`` so nothing is buffered until this read. Two limits
     protect a shared worker from a hostile customer-supplied host: a byte cap (``MAX_RESPONSE_BYTES``)
-    checked as chunks arrive, and a hard wall-clock deadline (``MAX_DOWNLOAD_SECONDS``) enforced by a
-    watchdog that closes the connection when it elapses. The watchdog — rather than a between-chunks
-    time check — is load-bearing: the socket read timeout only bounds *idle* gaps, so a slow-drip host
-    that sends a byte before each timeout could otherwise keep a single blocking read alive far past
-    the deadline. Closing the socket underneath that read forces it to raise, which we surface as a
-    ``GerritResponseTooLargeError``.
+    checked as chunks arrive, and a hard wall-clock deadline (``MAX_DOWNLOAD_SECONDS``).
+
+    The deadline enforcement does *not* rely on interrupting a blocked read from another thread —
+    ``Response.close()`` is not a portable way to cancel a ``recv()`` that another thread is parked
+    in. What makes the total deadline real is the socket read timeout set on every request: no single
+    body read can block longer than that timeout, so control always returns to this loop within that
+    window (either with a chunk or via a raised timeout). That lets the between-chunks wall-clock
+    check below be the load-bearing guarantee, giving a hard upper bound of roughly
+    ``MAX_DOWNLOAD_SECONDS`` plus one read-timeout interval regardless of platform. The watchdog is
+    kept purely as a best-effort optimisation: on platforms where closing the socket does unblock the
+    read, it aborts a stalled read sooner rather than waiting out the read timeout.
     """
     chunks: list[bytes] = []
     total = 0
+    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
     aborted = threading.Event()
+
+    def _past_deadline() -> bool:
+        return aborted.is_set() or time.monotonic() > deadline
 
     def _abort() -> None:
         aborted.set()
+        # Best-effort only: may unblock an in-flight read on some platforms and tightens latency,
+        # but correctness rests on the socket read timeout + the check below, not on this call.
         response.close()
 
     watchdog = threading.Timer(MAX_DOWNLOAD_SECONDS, _abort)
     watchdog.start()
     try:
         for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_BYTES):
-            if aborted.is_set():
-                break
+            if _past_deadline():
+                raise GerritResponseTooLargeError("Gerrit response body took too long to download")
             if not chunk:
                 continue
             total += len(chunk)
@@ -131,15 +143,15 @@ def _read_capped_text(response: requests.Response) -> str:
     except GerritResponseTooLargeError:
         raise
     except Exception:
-        # A read that raises after the watchdog fired is the deadline hitting: we closed the socket
-        # out from under the blocking read. Anything else is a genuine transport error — re-raise it.
-        if aborted.is_set():
+        # A read that raises once the deadline has passed is the read timeout (or the watchdog's
+        # close) firing under a stalled body — surface it as the deadline, not a transport error.
+        if _past_deadline():
             raise GerritResponseTooLargeError("Gerrit response body took too long to download")
         raise
     finally:
         watchdog.cancel()
         response.close()
-    if aborted.is_set():
+    if _past_deadline():
         raise GerritResponseTooLargeError("Gerrit response body took too long to download")
     return b"".join(chunks).decode(response.encoding or "utf-8", errors="replace")
 

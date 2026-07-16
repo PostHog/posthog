@@ -1,4 +1,3 @@
-import threading
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -278,22 +277,44 @@ class TestGetRows:
             _get_all_rows("changes", [_response(text=body)])
 
     def test_slow_body_is_aborted_at_the_download_deadline(self):
-        # A drip host keeps a single read blocked past the deadline; the watchdog closes the socket,
-        # which raises inside the read. Wire the mock so close() releases the blocked iter_content,
-        # standing in for a real socket raising when closed underneath the read.
-        response = _response(text=")]}'\n[]")
-        released = threading.Event()
+        # A drip host that keeps yielding data past the deadline must be aborted by the between-chunks
+        # wall-clock check — not by close() unblocking a read, which production requests doesn't
+        # guarantee. A shared clock (read by any number of callers, incl. tenacity) is advanced past
+        # the deadline mid-stream; the watchdog's own timer never fires in the test window, so the
+        # abort here is the wall-clock check alone.
+        clock = {"t": 100.0}
 
-        def _blocking_iter(chunk_size=None):
-            # Woken by response.close(); a closed socket read then raises.
-            released.wait(timeout=5)
-            raise OSError("connection closed")
+        def _stream(chunk_size=None):
+            yield b"x"
+            clock["t"] = 10_000.0  # deadline is now in the past
+            yield b"y"
 
-        response.iter_content.side_effect = _blocking_iter
-        response.close.side_effect = lambda: released.set()
+        response = _response(text="")
+        response.iter_content.side_effect = _stream
 
         with (
-            mock.patch.object(gerrit_module, "MAX_DOWNLOAD_SECONDS", 0.05),
+            mock.patch.object(gerrit_module, "MAX_DOWNLOAD_SECONDS", 30.0),
+            mock.patch.object(gerrit_module.time, "monotonic", side_effect=lambda: clock["t"]),
+            pytest.raises(gerrit_module.GerritResponseTooLargeError),
+        ):
+            _get_all_rows("changes", [response])
+
+    def test_read_error_after_deadline_becomes_too_large(self):
+        # Models the socket read timeout (or the watchdog's close) raising under a stalled read once
+        # the deadline has elapsed: a transport error seen past the deadline is surfaced as the
+        # deadline hit rather than propagating as a transient failure to be retried.
+        clock = {"t": 100.0}
+
+        def _raise(chunk_size=None):
+            clock["t"] = 10_000.0  # deadline is now in the past
+            raise OSError("read timed out")
+
+        response = _response(text="")
+        response.iter_content.side_effect = _raise
+
+        with (
+            mock.patch.object(gerrit_module, "MAX_DOWNLOAD_SECONDS", 30.0),
+            mock.patch.object(gerrit_module.time, "monotonic", side_effect=lambda: clock["t"]),
             pytest.raises(gerrit_module.GerritResponseTooLargeError),
         ):
             _get_all_rows("changes", [response])
