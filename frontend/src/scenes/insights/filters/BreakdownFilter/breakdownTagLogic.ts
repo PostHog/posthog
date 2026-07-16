@@ -15,8 +15,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { AvailableFeature, InsightLogicProps } from '~/types'
 
 import type { TaxonomicFilterValue } from '../../../../lib/components/TaxonomicFilter/types'
-import type { BreakdownFilter } from '../../../../queries/schema/schema-general'
-import type { Breakdown } from '../../../../queries/schema/schema-general'
+import type { Breakdown, BreakdownFilter } from '../../../../queries/schema/schema-general'
 import type {
     CohortType,
     PropertyDefinition,
@@ -267,22 +266,23 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
             (s, p) => [s.getPropertyDefinition, p.breakdown, p.breakdownType],
             (
                 getPropertyDefinition: (
-                    s: TaxonomicFilterValue,
-                    type: PropertyDefinitionType,
+                    s: import('lib/components/TaxonomicFilter/types').TaxonomicFilterValue,
+                    type: import('~/types').PropertyDefinitionType,
                     groupTypeIndex?: number
-                ) => PropertyDefinition | null,
+                ) => null | import('~/types').PropertyDefinition,
                 breakdown: number | string,
                 breakdownType: string
             ) => getPropertyDefinition(breakdown, propertyFilterTypeToPropertyDefinitionType(breakdownType)),
         ],
         isHistogramable: [
             (s, p) => [p.isTrends, s.propertyDefinition],
-            (isTrends: boolean, propertyDefinition: PropertyDefinition | null) =>
+            (isTrends: boolean, propertyDefinition: null | import('~/types').PropertyDefinition) =>
                 isTrends && !!propertyDefinition?.is_numerical,
         ],
         isNormalizeable: [
             (s) => [s.propertyDefinition],
-            (propertyDefinition: PropertyDefinition | null) => isURLNormalizeable(propertyDefinition?.name || ''),
+            (propertyDefinition: null | import('~/types').PropertyDefinition) =>
+                isURLNormalizeable(propertyDefinition?.name || ''),
         ],
         multipleBreakdown: [
             (s) => [s.breakdownFilter, s.breakdown, s.breakdownType],
@@ -295,7 +295,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
             (s) => [s.isMultipleBreakdownsEnabled, s.multipleBreakdown, s.globalHistogramBinsUsed],
             (
                 isMultipleBreakdownsEnabled: boolean,
-                multipleBreakdown: Breakdown | undefined,
+                multipleBreakdown: import('../../../../queries/schema').Breakdown | undefined,
                 globalHistogramBinsUsed: boolean
             ) => {
                 if (isMultipleBreakdownsEnabled) {
@@ -311,7 +311,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
                 isMultipleBreakdownsEnabled: boolean,
                 localHistogramBinCount: number | undefined,
                 globalBinCount: number | undefined,
-                multipleBreakdown: Breakdown | undefined
+                multipleBreakdown: import('../../../../queries/schema').Breakdown | undefined
             ) => {
                 if (isMultipleBreakdownsEnabled) {
                     return localHistogramBinCount ?? multipleBreakdown?.histogram_bin_count ?? 10
@@ -331,7 +331,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
                 isMultipleBreakdownsEnabled: boolean,
                 localNormalizeBreakdownURL: boolean | undefined,
                 globalNormalizeBreakdownUrl: boolean,
-                multipleBreakdown: Breakdown | undefined
+                multipleBreakdown: import('../../../../queries/schema').Breakdown | undefined
             ) => {
                 if (isMultipleBreakdownsEnabled) {
                     return localNormalizeBreakdownURL ?? multipleBreakdown?.normalize_url ?? true
@@ -351,7 +351,8 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
         ],
         hasPathCleaningFilters: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null) => (currentTeam?.path_cleaning_filters || []).length > 0,
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType) =>
+                (currentTeam?.path_cleaning_filters || []).length > 0,
         ],
         isPathCleaningAvailable: [
             (s) => [s.isNormalizeable, s.hasAdvancedPaths, s.hasPathCleaningFilters],
@@ -362,8 +363,8 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
             (s) => [s.isMultipleBreakdownsEnabled, s.breakdownFilter, s.multipleBreakdown],
             (
                 isMultipleBreakdownsEnabled: boolean,
-                breakdownFilter: BreakdownFilter,
-                multipleBreakdown: Breakdown | undefined
+                breakdownFilter: import('../../../../queries/schema').BreakdownFilter,
+                multipleBreakdown: import('../../../../queries/schema').Breakdown | undefined
             ): TaxonomicFilterGroupType | undefined => {
                 let breakdownType = isMultipleBreakdownsEnabled
                     ? filterToTaxonomicFilterType(

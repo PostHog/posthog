@@ -56,11 +56,9 @@ export interface accountNotesLogicActions {
     } // customerAnalyticsSceneLogic
     loadUserSuccess: (
         user: UserType | null,
-        payload?:
-            | {
-                  resetOnFailure: boolean | undefined
-              }
-            | undefined
+        payload?: {
+            resetOnFailure: boolean | undefined
+        }
     ) => {
         payload?: {
             resetOnFailure: boolean | undefined
@@ -238,7 +236,7 @@ export const accountNotesLogic = kea<accountNotesLogicType>([
             (s) => [s.accountNotesResponse],
             (response: PaginatedAccountNoteListApi | null): AccountNoteApi[] => response?.results ?? [],
         ],
-        currentUserId: [(s) => [s.user], (user: UserType | null): number | null => user?.id ?? null],
+        currentUserId: [(s) => [s.user], (user: null | import('~/types').UserType): number | null => user?.id ?? null],
         // "My notes" is a shorthand, not separate state: checked iff the created-by filter is exactly [me].
         createdByCurrentUser: [
             (s) => [s.createdByFilter, s.currentUserId],

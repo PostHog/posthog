@@ -46,7 +46,9 @@ import {
     StepOrderValue,
 } from '~/types'
 
+import type { Node } from '../../../../../frontend/src/queries/schema/schema-general'
 import { customerAnalyticsConfigLogic } from '../../customerAnalyticsConfigLogic'
+import type { CustomerJourneyApi } from '../../generated/api.schemas'
 import { customerJourneysLogic } from './customerJourneysLogic'
 
 const JOURNEY_NAME_MAX_LENGTH = 64
@@ -177,7 +179,7 @@ export interface journeyBuilderLogicActions {
         errorObject?: any
     } // customerJourneysLogic
     addJourneySuccess: (
-        journeys: import('../../generated/api.schemas').CustomerJourneyApi[],
+        journeys: CustomerJourneyApi[],
         payload?:
             | {
                   description?: string
@@ -186,7 +188,7 @@ export interface journeyBuilderLogicActions {
               }
             | undefined
     ) => {
-        journeys: import('../../generated/api.schemas').CustomerJourneyApi[]
+        journeys: CustomerJourneyApi[]
         payload?: {
             description?: string
             insightId: number
@@ -206,7 +208,7 @@ export interface journeyBuilderLogicActions {
         errorObject?: any
     } // customerJourneysLogic
     updateJourneySuccess: (
-        journeys: import('../../generated/api.schemas').CustomerJourneyApi[],
+        journeys: CustomerJourneyApi[],
         payload?:
             | {
                   description?: string
@@ -215,7 +217,7 @@ export interface journeyBuilderLogicActions {
               }
             | undefined
     ) => {
-        journeys: import('../../generated/api.schemas').CustomerJourneyApi[]
+        journeys: CustomerJourneyApi[]
         payload?: {
             description?: string
             journeyId: string
@@ -257,8 +259,8 @@ export interface journeyBuilderLogicActions {
     collapsePath: () => {
         value: true
     } // funnelPathsExpansionLogic
-    setInsightQuery: (query: null | import('~/queries/schema').Node<Record<string, any>>) => {
-        query: null | import('~/queries/schema').Node<Record<string, any>>
+    setInsightQuery: (query: Node<Record<string, any>> | null) => {
+        query: Node<Record<string, any>> | null
     } // insightDataLogic
     addStep: (insertAtIndex: number) => {
         insertAtIndex: number

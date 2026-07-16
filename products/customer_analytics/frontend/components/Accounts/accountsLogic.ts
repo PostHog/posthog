@@ -211,11 +211,9 @@ export interface accountsLogicActions {
     } // membersLogic
     loadUserSuccess: (
         user: UserType | null,
-        payload?:
-            | {
-                  resetOnFailure: boolean | undefined
-              }
-            | undefined
+        payload?: {
+            resetOnFailure: boolean | undefined
+        }
     ) => {
         payload?: {
             resetOnFailure: boolean | undefined
@@ -500,7 +498,7 @@ export const accountsLogic = kea<accountsLogicType>([
         ],
     }),
     selectors({
-        currentUserId: [(s) => [s.user], (user: UserType | null): number | null => user?.id ?? null],
+        currentUserId: [(s) => [s.user], (user: null | import('~/types').UserType): number | null => user?.id ?? null],
         // The "My accounts" checkbox is checked exactly when the assigned-to
         // filter is just the current user — i.e. the user-agnostic id filter
         // happens to point at you.

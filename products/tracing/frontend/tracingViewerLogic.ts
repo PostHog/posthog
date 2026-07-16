@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { PREFETCH_SPANS, tracingDataLogic } from './tracingDataLogic'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
+import type { OverlayWindow } from './tracingFiltersLogic'
 import type { Span } from './types'
 
 export interface TracingViewerLogicProps {
@@ -48,11 +49,11 @@ export interface tracingViewerLogicActions {
         ts?: string | null
     } // tracingDataLogic
     updateComparisonWindows: (
-        current: import('./tracingFiltersLogic').OverlayWindow,
-        previous: import('./tracingFiltersLogic').OverlayWindow
+        current: OverlayWindow,
+        previous: OverlayWindow
     ) => {
-        current: import('./tracingFiltersLogic').OverlayWindow
-        previous: import('./tracingFiltersLogic').OverlayWindow
+        current: OverlayWindow
+        previous: OverlayWindow
     } // tracingFiltersLogic
     closeCompareFlame: () => {
         value: true

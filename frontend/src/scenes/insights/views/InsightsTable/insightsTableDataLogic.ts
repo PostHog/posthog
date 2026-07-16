@@ -10,10 +10,10 @@ import { ChartDisplayType, CompareLabelType, InsightLogicProps } from '~/types'
 import type {
     AnyDataWarehouseNode,
     AnyEntityNode,
+    CompareFilter,
     DataWarehouseNode,
     GroupNode,
 } from '../../../../queries/schema/schema-general'
-import type { CompareFilter } from '../../../../queries/schema/schema-general'
 
 export enum AggregationType {
     Total = 'total',
@@ -146,7 +146,17 @@ export const insightsTableDataLogic = kea<insightsTableDataLogicType>([
             (
                 isTrends: boolean,
                 display: ChartDisplayType | null | undefined,
-                series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined
+                series:
+                    | (
+                          | import('../../../../queries/schema').AnyEntityNode<
+                                import('../../../../queries/schema').AnyDataWarehouseNode
+                            >
+                          | import('../../../../queries/schema').GroupNode<
+                                import('../../../../queries/schema').DataWarehouseNode
+                            >
+                      )[]
+                    | null
+                    | undefined
             ) => {
                 if (isTrends && (display === ChartDisplayType.ActionsTable || display === ChartDisplayType.WorldMap)) {
                     return true
@@ -158,7 +168,17 @@ export const insightsTableDataLogic = kea<insightsTableDataLogicType>([
         aggregation: [
             (s) => [s.series, s.persistedAggregationType],
             (
-                series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined,
+                series:
+                    | (
+                          | import('../../../../queries/schema').AnyEntityNode<
+                                import('../../../../queries/schema').AnyDataWarehouseNode
+                            >
+                          | import('../../../../queries/schema').GroupNode<
+                                import('../../../../queries/schema').DataWarehouseNode
+                            >
+                      )[]
+                    | null
+                    | undefined,
                 persistedAggregationType: AggregationType | undefined
             ) => {
                 if (persistedAggregationType) {
@@ -172,7 +192,7 @@ export const insightsTableDataLogic = kea<insightsTableDataLogicType>([
         previousResultMap: [
             (s) => [s.compareFilter, s.indexedResults],
             (
-                compareFilter: CompareFilter | null | undefined,
+                compareFilter: null | import('../../../../queries/schema').CompareFilter | undefined,
                 indexedResults: IndexedTrendResult[]
             ): Map<string, IndexedTrendResult> => {
                 if (!compareFilter?.compare) {
@@ -189,7 +209,10 @@ export const insightsTableDataLogic = kea<insightsTableDataLogicType>([
         ],
         getPreviousResult: [
             (s) => [s.compareFilter, s.previousResultMap],
-            (compareFilter: CompareFilter | null | undefined, previousResultMap: Map<string, IndexedTrendResult>) =>
+            (
+                compareFilter: null | import('../../../../queries/schema').CompareFilter | undefined,
+                previousResultMap: Map<string, IndexedTrendResult>
+            ) =>
                 (item: IndexedTrendResult): IndexedTrendResult | undefined => {
                     if (!compareFilter?.compare) {
                         return undefined
@@ -200,7 +223,7 @@ export const insightsTableDataLogic = kea<insightsTableDataLogicType>([
         displayResults: [
             (s) => [s.compareFilter, s.indexedResults],
             (
-                compareFilter: CompareFilter | null | undefined,
+                compareFilter: null | import('../../../../queries/schema').CompareFilter | undefined,
                 indexedResults: IndexedTrendResult[]
             ): IndexedTrendResult[] => {
                 if (compareFilter?.compare) {

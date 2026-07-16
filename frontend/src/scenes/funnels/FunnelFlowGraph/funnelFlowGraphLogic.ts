@@ -280,7 +280,7 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
             ],
             (
                 steps: FunnelStepWithConversionMetrics[],
-                stepNames: FunnelStepWithNestedBreakdown[],
+                stepNames: import('~/types').FunnelStepWithNestedBreakdown[],
                 isStepOptional: (step: number) => boolean,
                 nodeType: string,
                 nodeWidth: number,
@@ -349,8 +349,8 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
             (s) => [s.funnelNodes, s.expandedPath, s.expandedPathResults, s.pathNodeType],
             (
                 funnelNodes: Node<FunnelFlowNodeData>[],
-                expandedPath: PathExpansion | null,
-                expandedPathResults: PathsLink[] | null,
+                expandedPath: null | import('./pathFlowUtils').PathExpansion,
+                expandedPathResults: import('../../../queries/schema').PathsLink[] | null,
                 pathNodeType: string
             ): {
                 nodes: Node<PathFlowNodeData>[]

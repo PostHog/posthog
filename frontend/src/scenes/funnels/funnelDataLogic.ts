@@ -41,26 +41,26 @@ import {
 } from '~/types'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type { FunnelsQuerySeriesNodeUnion } from '../../queries/schema/schema-general'
 import type {
     AnyDataWarehouseNode,
     AnyEntityNode,
     BreakdownFilter,
     DataWarehouseNode,
+    FunnelsQuerySeriesNodeUnion,
     GoalLine,
     GroupNode,
     InsightFilter,
     LifecycleQuery,
     PathsQuery,
+    ResultCustomizationByValue,
     RetentionQuery,
     StickinessQuery,
     TrendsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../queries/schema/schema-general'
-import type { ResultCustomizationByValue } from '../../queries/schema/schema-general'
-import type { IntervalType, LabelGroupType } from '../../types'
-import type { BreakdownKeyType, FunnelStep } from '../../types'
+import type { BreakdownKeyType, FunnelStep, IntervalType, LabelGroupType } from '../../types'
+import type { QuerySourceUpdate } from '../insights/insightVizDataLogic'
 import {
     TIME_INTERVAL_BOUNDS,
     aggregateBreakdownCompareResult,
@@ -286,8 +286,8 @@ export interface funnelDataLogicActions {
     updateInsightFilter: (insightFilter: InsightFilter) => {
         insightFilter: InsightFilter
     } // insightVizDataLogic
-    updateQuerySource: (querySource: import('scenes/insights/insightVizDataLogic').QuerySourceUpdate) => {
-        querySource: import('scenes/insights/insightVizDataLogic').QuerySourceUpdate
+    updateQuerySource: (querySource: QuerySourceUpdate) => {
+        querySource: QuerySourceUpdate
     } // insightVizDataLogic
     push: (
         url: string,
@@ -592,14 +592,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (
                 vizQuerySource:
                     | FunnelsQuery
-                    | LifecycleQuery
-                    | PathsQuery
-                    | RetentionQuery
-                    | StickinessQuery
-                    | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').LifecycleQuery
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').RetentionQuery
+                    | import('~/queries/schema/schema-general').StickinessQuery
+                    | import('~/queries/schema/schema-general').TrendsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (isFunnelsQuery(vizQuerySource) ? vizQuerySource : null),
         ],
 
@@ -608,15 +608,25 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (
                 vizQuerySource:
                     | FunnelsQuery
-                    | LifecycleQuery
-                    | PathsQuery
-                    | RetentionQuery
-                    | StickinessQuery
-                    | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
-                    | null,
-                series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined
+                    | null
+                    | import('~/queries/schema/schema-general').LifecycleQuery
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').RetentionQuery
+                    | import('~/queries/schema/schema-general').StickinessQuery
+                    | import('~/queries/schema/schema-general').TrendsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery,
+                series:
+                    | (
+                          | import('~/queries/schema/schema-general').AnyEntityNode<
+                                import('~/queries/schema/schema-general').AnyDataWarehouseNode
+                            >
+                          | import('~/queries/schema/schema-general').GroupNode<
+                                import('~/queries/schema/schema-general').DataWarehouseNode
+                            >
+                      )[]
+                    | null
+                    | undefined
             ) => (isFunnelsQuery(vizQuerySource) ? (series as FunnelsQuery['series']) : null),
         ],
 
@@ -679,14 +689,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 insightData: Record<string, any>,
                 vizQuerySource:
                     | FunnelsQuery
-                    | LifecycleQuery
-                    | PathsQuery
-                    | RetentionQuery
-                    | StickinessQuery
-                    | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
-                    | null,
+                    | null
+                    | import('~/queries/schema/schema-general').LifecycleQuery
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').RetentionQuery
+                    | import('~/queries/schema/schema-general').StickinessQuery
+                    | import('~/queries/schema/schema-general').TrendsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery,
                 querySource: FunnelsQuery | null
             ): FunnelResultType => {
                 // Web analytics queries should not be processed as funnels, even though their response
@@ -739,16 +749,16 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 insightData: Record<string, any>,
                 _vizQuerySource:
                     | FunnelsQuery
-                    | LifecycleQuery
-                    | PathsQuery
-                    | RetentionQuery
-                    | StickinessQuery
-                    | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
-                    | null,
+                    | null
+                    | import('~/queries/schema/schema-general').LifecycleQuery
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').RetentionQuery
+                    | import('~/queries/schema/schema-general').StickinessQuery
+                    | import('~/queries/schema/schema-general').TrendsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery,
                 querySource: FunnelsQuery | null,
-                breakdownFilter: BreakdownFilter | null | undefined,
+                breakdownFilter: null | import('~/queries/schema/schema-general').BreakdownFilter | undefined,
                 results: FunnelResultType,
                 isTimeToConvertFunnel: boolean | null,
                 isStepsFunnel: boolean | null
@@ -1242,9 +1252,11 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         getFunnelsColorToken: [
             (s) => [s.resultCustomizations, s.getTheme, s.breakdownFilter, s.querySource],
             (
-                resultCustomizations: Record<string, ResultCustomizationByValue> | undefined,
+                resultCustomizations:
+                    | Record<string, import('~/queries/schema/schema-general').ResultCustomizationByValue>
+                    | undefined,
                 getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
-                breakdownFilter: BreakdownFilter | null | undefined,
+                breakdownFilter: null | import('~/queries/schema/schema-general').BreakdownFilter | undefined,
                 querySource: FunnelsQuery | null
             ) => {
                 return (
@@ -1322,11 +1334,13 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         // Validations
         isFunnelWithEnoughSteps: [
             (s) => [s.series],
-            (series: FunnelsQuerySeriesNodeUnion[] | null) => isFunnelWithEnoughSteps(series),
+            (series: import('~/queries/schema/schema-general').FunnelsQuerySeriesNodeUnion[] | null) =>
+                isFunnelWithEnoughSteps(series),
         ],
         isFunnelWithIncompleteDataWarehouseStep: [
             (s) => [s.series],
-            (series: FunnelsQuerySeriesNodeUnion[] | null) => isFunnelWithIncompleteDataWarehouseStep(series),
+            (series: import('~/queries/schema/schema-general').FunnelsQuerySeriesNodeUnion[] | null) =>
+                isFunnelWithIncompleteDataWarehouseStep(series),
         ],
 
         // Exclusion filters

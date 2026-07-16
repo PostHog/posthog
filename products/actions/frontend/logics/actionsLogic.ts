@@ -226,7 +226,12 @@ export const actionsLogic = kea<actionsLogicType>([
         actionCount: [(s) => [s.actionsResponse], (response: ActionsResponse): number => response.count],
         apiParams: [
             (s) => [s.searchTerm, s.filters, s.page, s.featureFlags],
-            (searchTerm: string, filters: ActionsFilters, page: number, featureFlags: FeatureFlagsSet): string => {
+            (
+                searchTerm: string,
+                filters: ActionsFilters,
+                page: number,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
+            ): string => {
                 const params: Record<string, any> = {
                     limit: ACTIONS_PER_PAGE,
                     offset: (page - 1) * ACTIONS_PER_PAGE,

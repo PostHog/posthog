@@ -25,6 +25,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { AggregatedSpanRow, SpanTreeNode } from '~/queries/schema/schema-general'
 import { PropertyGroupFilter } from '~/types'
 
+import type { DateRange } from '../../../frontend/src/queries/schema/schema-general'
 import type { UniversalFiltersGroup } from '../../../frontend/src/types'
 import {
     type DurationHistogramRow,
@@ -40,7 +41,13 @@ import {
     TRACING_SCENE_VIEWER_ID,
     tracingFiltersLogic,
 } from './tracingFiltersLogic'
-import type { OverlayWindow, TimeComparison } from './tracingFiltersLogic'
+import type {
+    OverlayWindow,
+    TimeComparison,
+    TracingComparison,
+    TracingOrderDirection,
+    TracingViewMode,
+} from './tracingFiltersLogic'
 import type { Span } from './types'
 
 export interface SparklineRow {
@@ -185,8 +192,8 @@ export interface tracingDataLogicActions {
     setComparison: (comparison: TimeComparison | null) => {
         comparison: TimeComparison | null
     } // tracingFiltersLogic
-    setDateRange: (dateRange: import('~/queries/schema').DateRange) => {
-        dateRange: import('~/queries/schema').DateRange
+    setDateRange: (dateRange: DateRange) => {
+        dateRange: DateRange
     } // tracingFiltersLogic
     setFilterGroup: (filterGroup: UniversalFiltersGroup) => {
         filterGroup: UniversalFiltersGroup
@@ -199,13 +206,13 @@ export interface tracingDataLogicActions {
     } // tracingFiltersLogic
     setSort: (
         orderBy: TracingOrderBy,
-        orderDirection: import('./tracingFiltersLogic').TracingOrderDirection
+        orderDirection: TracingOrderDirection
     ) => {
         orderBy: TracingOrderBy
-        orderDirection: import('./tracingFiltersLogic').TracingOrderDirection
+        orderDirection: TracingOrderDirection
     } // tracingFiltersLogic
-    setViewMode: (viewMode: import('./tracingFiltersLogic').TracingViewMode) => {
-        viewMode: import('./tracingFiltersLogic').TracingViewMode
+    setViewMode: (viewMode: TracingViewMode) => {
+        viewMode: TracingViewMode
     } // tracingFiltersLogic
     updateComparisonWindows: (
         current: OverlayWindow,

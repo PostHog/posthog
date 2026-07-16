@@ -84,12 +84,12 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
     selectors({
         retentionEnforced: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): boolean =>
+            (currentTeam: TeamType | null | import('~/types').TeamPublicType): boolean =>
                 !!(currentTeam as TeamType | null)?.events_retention_enforced,
         ],
         retentionMonths: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): number | null =>
+            (currentTeam: TeamType | null | import('~/types').TeamPublicType): number | null =>
                 (currentTeam as TeamType | null)?.event_retention_months ?? null,
         ],
         retentionPeriodLabel: [
@@ -103,7 +103,10 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
         ],
         accountAgeEligible: [
             (s) => [s.currentOrganization, s.retentionMonths],
-            (currentOrganization: OrganizationType | null, retentionMonths: number | null): boolean => {
+            (
+                currentOrganization: null | import('~/types').OrganizationType,
+                retentionMonths: number | null
+            ): boolean => {
                 if (!currentOrganization?.created_at || !retentionMonths) {
                     return false
                 }

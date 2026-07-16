@@ -9,7 +9,8 @@ import { Params } from 'scenes/sceneTypes'
 
 import { Breadcrumb } from '~/types'
 
-import type { AggregatedSpanRow, SpanTreeNode } from '../../../frontend/src/queries/schema/schema-general'
+import type { AggregatedSpanRow, DateRange, SpanTreeNode } from '../../../frontend/src/queries/schema/schema-general'
+import type { UniversalFiltersGroup } from '../../../frontend/src/types'
 import type { TracingDurationHistogramData, VisibleDurationRange } from './durationBuckets'
 import { tracingDataLogic } from './tracingDataLogic'
 import type { TracingSparklineData, VisibleSpanTimeRange } from './tracingDataLogic'
@@ -26,7 +27,14 @@ import {
     type TracingComparison,
     tracingFiltersLogic,
 } from './tracingFiltersLogic'
-import type { OverlayWindow, TracingFilters } from './tracingFiltersLogic'
+import type {
+    OverlayWindow,
+    TimeComparison,
+    TracingFilters,
+    TracingOrderBy,
+    TracingOrderDirection,
+    TracingViewMode,
+} from './tracingFiltersLogic'
 import { tracingViewerLogic } from './tracingViewerLogic'
 import type { Span } from './types'
 
@@ -125,14 +133,14 @@ export interface tracingSceneLogicActions {
         startIndex: number
         stopIndex: number
     } // tracingDataLogic
-    setComparison: (comparison: null | import('./tracingFiltersLogic').TimeComparison) => {
-        comparison: null | import('./tracingFiltersLogic').TimeComparison
+    setComparison: (comparison: TimeComparison | null) => {
+        comparison: TimeComparison | null
     } // tracingFiltersLogic
-    setDateRange: (dateRange: import('~/queries/schema').DateRange) => {
-        dateRange: import('~/queries/schema').DateRange
+    setDateRange: (dateRange: DateRange) => {
+        dateRange: DateRange
     } // tracingFiltersLogic
-    setFilterGroup: (filterGroup: import('~/types').UniversalFiltersGroup) => {
-        filterGroup: import('~/types').UniversalFiltersGroup
+    setFilterGroup: (filterGroup: UniversalFiltersGroup) => {
+        filterGroup: UniversalFiltersGroup
     } // tracingFiltersLogic
     setFilters: (filters: Partial<TracingFilters>) => {
         filters: Partial<TracingFilters>
@@ -141,14 +149,14 @@ export interface tracingSceneLogicActions {
         serviceNames: string[]
     } // tracingFiltersLogic
     setSort: (
-        orderBy: import('./tracingFiltersLogic').TracingOrderBy,
-        orderDirection: import('./tracingFiltersLogic').TracingOrderDirection
+        orderBy: TracingOrderBy,
+        orderDirection: TracingOrderDirection
     ) => {
-        orderBy: import('./tracingFiltersLogic').TracingOrderBy
-        orderDirection: import('./tracingFiltersLogic').TracingOrderDirection
+        orderBy: TracingOrderBy
+        orderDirection: TracingOrderDirection
     } // tracingFiltersLogic
-    setViewMode: (viewMode: import('./tracingFiltersLogic').TracingViewMode) => {
-        viewMode: import('./tracingFiltersLogic').TracingViewMode
+    setViewMode: (viewMode: TracingViewMode) => {
+        viewMode: TracingViewMode
     } // tracingFiltersLogic
     updateComparisonWindows: (
         current: OverlayWindow,

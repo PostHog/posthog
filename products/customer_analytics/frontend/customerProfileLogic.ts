@@ -12,8 +12,14 @@ import { CustomerProfileScope, GroupTypeIndex } from '~/types'
 
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 
+import type { PaginatedResponse } from '../../../frontend/src/lib/api'
 import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFlagLogic'
-import type { CustomerProfileConfigType, TeamPublicType, TeamType } from '../../../frontend/src/types'
+import type {
+    CustomerProfileConfigType,
+    ExternalDataSource,
+    TeamPublicType,
+    TeamType,
+} from '../../../frontend/src/types'
 import { customerProfileConfigLogic } from './customerProfileConfigLogic'
 
 export const DEFAULT_PERSON_PROFILE_SIDEBAR: JSONContent[] = [
@@ -176,27 +182,25 @@ export interface customerProfileLogicActions {
     } // notebookLogic
     loadSourcesSuccess: (
         dataWarehouseSources:
+            | PaginatedResponse<ExternalDataSource>
             | {
                   count: number
                   next: null
                   previous: null
                   results: never[]
-              }
-            | import('lib/api').PaginatedResponse<import('~/types').ExternalDataSource>,
-        payload?:
-            | {
-                  value: true
-              }
-            | undefined
+              },
+        payload?: {
+            value: true
+        }
     ) => {
         dataWarehouseSources:
+            | PaginatedResponse<ExternalDataSource>
             | {
                   count: number
                   next: null
                   previous: null
                   results: never[]
               }
-            | import('lib/api').PaginatedResponse<import('~/types').ExternalDataSource>
         payload?: {
             value: true
         }
@@ -313,7 +317,11 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
     selectors({
         changed: [
             (s) => [s.profileLocalContent, s.storedContent, s.defaultContent],
-            (profileLocalContent: JSONContent[] | null, storedContent: JSONContent[] | null, defaultContent: any[]) => {
+            (
+                profileLocalContent: JSONContent[] | null,
+                storedContent: JSONContent[] | null,
+                defaultContent: JSONContent[]
+            ) => {
                 if (!profileLocalContent) {
                     return false
                 }
@@ -336,7 +344,8 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
         ],
         isProfileConfigEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet) => featureFlags[FEATURE_FLAGS.CUSTOMER_PROFILE_CONFIG_BUTTON],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet) =>
+                featureFlags[FEATURE_FLAGS.CUSTOMER_PROFILE_CONFIG_BUTTON],
         ],
         scopedSidebarContent: [
             () => [(_, props) => props.scope],
@@ -361,10 +370,10 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
             (
                 scopedSidebarContent: JSONContent[],
                 scopedAddAttrFunction: ({ attrs, node, children }: AddAttrsToNodeProps) => JSONContent,
-                featureFlags: FeatureFlagsSet,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 hasZendeskSource: boolean,
                 dataWarehouseSourcesLoading: boolean,
-                currentTeam: TeamPublicType | TeamType | null,
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
                 scope,
                 attrs
             ) => {
@@ -400,12 +409,12 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
                 (_, props) => props.attrs,
             ],
             (
-                customerProfileConfig: CustomerProfileConfigType | undefined,
+                customerProfileConfig: import('~/types').CustomerProfileConfigType | undefined,
                 scopedAddAttrFunction: ({ attrs, node, children }: AddAttrsToNodeProps) => JSONContent,
-                featureFlags: FeatureFlagsSet,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 hasZendeskSource: boolean,
                 dataWarehouseSourcesLoading: boolean,
-                currentTeam: TeamPublicType | TeamType | null,
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
                 attrs
             ): JSONContent[] | null => {
                 if (!customerProfileConfig) {
@@ -438,7 +447,7 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
         content: [
             (s) => [s.defaultContent, s.storedContent, s.profileLocalContent, s.isProfileConfigEnabled],
             (
-                defaultContent: any[],
+                defaultContent: JSONContent[],
                 storedContent: JSONContent[] | null,
                 profileLocalContent: JSONContent[] | null,
                 isProfileConfigEnabled: boolean | string | undefined

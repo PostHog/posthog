@@ -45,7 +45,7 @@ export interface customerJourneysLogicActions {
         journeyId: string,
         journeyName: string,
         stepCount: number,
-        delay?: number | undefined
+        delay?: number
     ) => {
         delay: number | undefined
         journeyId: string
@@ -340,7 +340,7 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         activeJourneyFullQuery: [
             (s) => [s.activeInsight, s.queryOverride],
             (
-                activeInsight: QueryBasedInsightModel<Node<Record<string, any>>> | null,
+                activeInsight: QueryBasedInsightModel | null,
                 queryOverride: InsightVizNode<FunnelsQuery> | null
             ): InsightVizNode<FunnelsQuery> | null => {
                 if (queryOverride) {

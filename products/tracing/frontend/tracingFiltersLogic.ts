@@ -364,7 +364,7 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
                 orderBy: TracingOrderBy,
                 orderDirection: TracingOrderDirection,
                 viewMode: TracingViewMode,
-                comparison: TimeComparison | null
+                comparison: TracingComparison | null
             ): TracingFilters => ({
                 dateRange,
                 serviceNames,

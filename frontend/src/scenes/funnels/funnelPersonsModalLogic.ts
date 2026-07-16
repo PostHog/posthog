@@ -24,8 +24,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import type { FunnelsQuery } from '../../queries/schema/schema-general'
-import type { FunnelsFilter } from '../../queries/schema/schema-general'
+import type { FunnelsFilter, FunnelsQuery } from '../../queries/schema/schema-general'
 import type { FunnelStepWithNestedBreakdown } from '../../types'
 import { funnelDataLogic } from './funnelDataLogic'
 import { parseBreakdownValue, parseEventAndProperty } from './funnelUtils'
@@ -144,7 +143,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
     selectors({
         canOpenPersonModal: [
             (s) => [s.funnelsFilter],
-            (funnelsFilter: FunnelsFilter | null | undefined): boolean => {
+            (funnelsFilter: null | import('~/queries/schema/schema-general').FunnelsFilter | undefined): boolean => {
                 if (funnelsFilter?.customAggregationTarget) {
                     return false
                 }

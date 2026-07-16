@@ -16,6 +16,7 @@ import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { EndpointRequest, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { EndpointType, EndpointVersionType } from '~/types'
 
+import type { ProductIntentProperties } from '../../../frontend/src/lib/utils/product-intents'
 import type { EndpointVersionMaterializationType } from '../../../frontend/src/types'
 import { endpointsLogic } from './endpointsLogic'
 import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLogic'
@@ -47,9 +48,7 @@ export interface endpointLogicActions {
     setScenePanelOpen: (open: boolean) => {
         open: boolean
     } // sceneLayoutLogic
-    addProductIntent: (
-        properties: import('lib/utils/product-intents').ProductIntentProperties
-    ) => import('lib/utils/product-intents').ProductIntentProperties // teamLogic
+    addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     clearMaterializationStatus: () => {
         value: true
     }

@@ -228,7 +228,7 @@ export const funnelPropertyCorrelationLogic = kea<funnelPropertyCorrelationLogic
         ],
         excludedPropertyNames: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): string[] =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string[] =>
                 currentTeam?.correlation_config?.excluded_person_property_names || DEFAULT_EXCLUDED_PERSON_PROPERTIES,
         ],
         isPropertyExcludedFromProject: [

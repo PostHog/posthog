@@ -188,7 +188,7 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
         variableOverridesByShortId: [
             (s) => [s.savedInsights, s.resolvedDateRange, (_, p) => p.externalId],
             (
-                savedInsights: QueryBasedInsightModel<import('~/queries/schema').Node<Record<string, any>>>[] | null,
+                savedInsights: QueryBasedInsightModel[] | null,
                 resolvedDateRange: BillingDateRange,
                 externalId
             ): Record<string, Record<string, HogQLVariable>> => {

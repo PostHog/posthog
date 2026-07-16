@@ -17,11 +17,11 @@ import { InsightLogicProps } from '~/types'
 import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
 
 import type { TaxonomicDefinitionTypes } from '../../../lib/components/TaxonomicFilter/types'
-import type { FunnelsQuery } from '../../../queries/schema/schema-general'
 import type {
     DatabaseSchemaField,
     DatabaseSchemaSchema,
     DatabaseSchemaSource,
+    FunnelsQuery,
 } from '../../../queries/schema/schema-general'
 
 export type FunnelFieldKey = 'id_field' | 'timestamp_field' | 'aggregation_target_field'
@@ -63,8 +63,8 @@ export interface funnelDataWarehouseStepDefinitionPopoverLogicValues {
           }
         | {
               label: string
-              type: any
-              value: any
+              type: DatabaseSerializedFieldType
+              value: string
           }
     )[]
     activeFieldValue: string | undefined
@@ -189,8 +189,8 @@ export interface funnelDataWarehouseStepDefinitionPopoverLogicMeta {
               }
             | {
                   label: string
-                  type: any
-                  value: any
+                  type: DatabaseSerializedFieldType
+                  value: string
               }
         )[]
         activeFieldIsHogQL: (activeFieldValue: string | undefined, table: DataWarehouseTableForInsight) => boolean
@@ -282,8 +282,8 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
         scopedLocalDefinition: [
             (s, p) => [s.definition, s.localDefinition, p.table, s.selectedItemMeta],
             (
-                definition: Partial<TaxonomicDefinitionTypes>,
-                localDefinition: Partial<TaxonomicDefinitionTypes>,
+                definition: Partial<import('lib/components/TaxonomicFilter/types').TaxonomicDefinitionTypes>,
+                localDefinition: Partial<import('lib/components/TaxonomicFilter/types').TaxonomicDefinitionTypes>,
                 table: DataWarehouseTableForInsight,
                 selectedItemMeta
             ) =>
@@ -293,8 +293,10 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
         ],
         activeFieldValue: [
             (s) => [s.scopedLocalDefinition, s.activeFieldKey],
-            (scopedLocalDefinition: Partial<TaxonomicDefinitionTypes>, activeFieldKey: FunnelFieldKey) =>
-                (scopedLocalDefinition as Partial<Record<FunnelFieldKey, string | undefined>>)[activeFieldKey],
+            (
+                scopedLocalDefinition: Partial<import('lib/components/TaxonomicFilter/types').TaxonomicDefinitionTypes>,
+                activeFieldKey: FunnelFieldKey
+            ) => (scopedLocalDefinition as Partial<Record<FunnelFieldKey, string | undefined>>)[activeFieldKey],
         ],
         previewTable: [
             (_, p) => [p.table],
@@ -312,7 +314,7 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
             (
                 table: DataWarehouseTableForInsight,
                 dataWarehousePopoverFields: DataWarehousePopoverField[],
-                scopedLocalDefinition: Partial<TaxonomicDefinitionTypes>
+                scopedLocalDefinition: Partial<import('lib/components/TaxonomicFilter/types').TaxonomicDefinitionTypes>
             ): TablePreviewExpressionColumn[] => {
                 const tableFieldNames = new Set(
                     table.fields ? Object.values(table.fields).map((field) => field.name) : []
@@ -369,8 +371,8 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
             (
                 columnOptions: {
                     label: string
-                    type: any
-                    value: any
+                    type: DatabaseSerializedFieldType
+                    value: string
                 }[],
                 activeField: DataWarehousePopoverField | undefined,
                 activeFieldKey: FunnelFieldKey
@@ -394,12 +396,15 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
         ],
         isAggregatingByGroup: [
             (s) => [s.querySource],
-            (querySource: FunnelsQuery | null) => querySource?.aggregation_group_type_index != null,
+            (querySource: null | import('~/queries/schema/schema-general').FunnelsQuery) =>
+                querySource?.aggregation_group_type_index != null,
         ],
         isAggregatingByHogQL: [
             (s) => [s.querySource, s.isAggregatingByGroup],
-            (querySource: FunnelsQuery | null, isAggregatingByGroup: boolean) =>
-                Boolean(querySource?.funnelsFilter?.funnelAggregateByHogQL) && !isAggregatingByGroup,
+            (
+                querySource: null | import('~/queries/schema/schema-general').FunnelsQuery,
+                isAggregatingByGroup: boolean
+            ) => Boolean(querySource?.funnelsFilter?.funnelAggregateByHogQL) && !isAggregatingByGroup,
         ],
     }),
     listeners(({ values, props }) => ({

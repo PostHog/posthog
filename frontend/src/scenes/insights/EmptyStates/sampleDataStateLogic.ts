@@ -42,8 +42,9 @@ export const sampleDataStateLogic = kea<sampleDataStateLogicType>([
             // omits `ingested_event`, so it reads as `undefined` and would otherwise falsely flag
             // every empty tile on a real, data-carrying project as "never ingested". External
             // viewers should just see the normal "No data" state.
-            (currentTeam: TeamPublicType | TeamType | null): boolean =>
-                !isSharedView() && !!currentTeam && !currentTeam.ingested_event && !currentTeam.is_demo,
+            (
+                currentTeam: null | import('../../../types').TeamPublicType | import('../../../types').TeamType
+            ): boolean => !isSharedView() && !!currentTeam && !currentTeam.ingested_event && !currentTeam.is_demo,
         ],
     }),
 ])

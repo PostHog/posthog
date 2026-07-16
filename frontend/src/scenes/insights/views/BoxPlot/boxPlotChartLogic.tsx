@@ -98,7 +98,10 @@ export const boxPlotChartLogic = kea<boxPlotChartLogicType>([
         ],
         seriesGroups: [
             (s) => [s.boxplotData, s.trendsFilter],
-            (boxplotData: BoxPlotDatum[], trendsFilter: TrendsFilter | null | undefined): BoxPlotSeriesData[] => {
+            (
+                boxplotData: BoxPlotDatum[],
+                trendsFilter: null | import('~/queries/schema/schema-general').TrendsFilter | undefined
+            ): BoxPlotSeriesData[] => {
                 const excludeOutliers = trendsFilter?.excludeBoxPlotOutliers !== false
                 const groupMap = new Map<number, { label: string; data: BoxPlotDatum[] }>()
 

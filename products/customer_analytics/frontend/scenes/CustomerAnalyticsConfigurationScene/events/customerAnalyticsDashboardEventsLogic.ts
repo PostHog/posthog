@@ -267,7 +267,10 @@ export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashbo
     selectors(({ actions }) => ({
         activityEventFilters: [
             (s) => [s.activityEvent, s.activityEventSelection],
-            (activityEvent: AnyEntityNode, activityEventSelection: FilterType | null): FilterType => {
+            (
+                activityEvent: import('~/queries/schema').AnyEntityNode,
+                activityEventSelection: FilterType | null
+            ): FilterType => {
                 if (activityEventSelection) {
                     return activityEventSelection
                 }
@@ -279,7 +282,10 @@ export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashbo
         ],
         signupEventFilters: [
             (s) => [s.signupEvent, s.signupEventSelection],
-            (signupEvent: AnyEntityNode, signupEventSelection: FilterType | null): FilterType | null => {
+            (
+                signupEvent: import('~/queries/schema').AnyEntityNode,
+                signupEventSelection: FilterType | null
+            ): FilterType | null => {
                 if (signupEventSelection) {
                     return signupEventSelection
                 }
@@ -295,7 +301,7 @@ export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashbo
         signupPageviewEventFilters: [
             (s) => [s.signupPageviewEvent, s.signupPageviewEventSelection],
             (
-                signupPageviewEvent: AnyEntityNode,
+                signupPageviewEvent: import('~/queries/schema').AnyEntityNode,
                 signupPageviewEventSelection: FilterType | null
             ): FilterType | null => {
                 if (signupPageviewEventSelection) {
@@ -312,7 +318,10 @@ export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashbo
         ],
         paymentEventFilters: [
             (s) => [s.paymentEvent, s.paymentEventSelection],
-            (paymentEvent: AnyEntityNode, paymentEventSelection: FilterType | null): FilterType | null => {
+            (
+                paymentEvent: import('~/queries/schema').AnyEntityNode,
+                paymentEventSelection: FilterType | null
+            ): FilterType | null => {
                 if (paymentEventSelection) {
                     return paymentEventSelection
                 }
@@ -327,7 +336,10 @@ export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashbo
         ],
         subscriptionEventFilters: [
             (s) => [s.subscriptionEvent, s.subscriptionEventSelection],
-            (subscriptionEvent: AnyEntityNode, subscriptionEventSelection: FilterType | null): FilterType | null => {
+            (
+                subscriptionEvent: import('~/queries/schema').AnyEntityNode,
+                subscriptionEventSelection: FilterType | null
+            ): FilterType | null => {
                 if (subscriptionEventSelection) {
                     return subscriptionEventSelection
                 }
@@ -433,18 +445,18 @@ export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashbo
                 signupEventSelector: EventSelectorProps,
                 subscriptionEventSelector: {
                     caption: string
-                    filters: any
+                    filters: FilterType | null
                     prompt: string
                     relatedSeries: string[]
-                    setFilters: any
+                    setFilters: (filters: FilterType | null) => void
                     title: string
                 },
                 paymentEventSelector: {
                     caption: string
-                    filters: any
+                    filters: FilterType | null
                     prompt: string
                     relatedSeries: string[]
-                    setFilters: any
+                    setFilters: (filters: FilterType | null) => void
                     title: string
                 }
             ): EventSelectorProps[] => [

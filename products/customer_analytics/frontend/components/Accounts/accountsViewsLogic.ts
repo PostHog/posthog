@@ -479,10 +479,10 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                 searchQuery: string,
                 tagsFilter: string[],
                 allRolesUnassigned: boolean,
-                assignedToFilter: RoleFilterValue,
-                sortOrder: AccountSortOrder,
-                tileFilter: TileFilter | null,
-                tiles: AccountsOverviewTile[]
+                assignedToFilter: import('./accountsLogic').RoleFilterValue,
+                sortOrder: import('./accountsLogic').AccountSortOrder,
+                tileFilter: null | import('./accountsOverviewTilesLogic').TileFilter,
+                tiles: import('./accountsOverviewTilesLogic').AccountsOverviewTile[]
             ): AccountsViewState => ({
                 columns: selectColumns,
                 sortOrder,
@@ -513,7 +513,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
         ],
         canEditCurrentView: [
             (s) => [s.currentView, s.user],
-            (currentView: ColumnConfigurationApi | null, user: UserType | null): boolean =>
+            (currentView: ColumnConfigurationApi | null, user: null | import('~/types').UserType): boolean =>
                 !!currentView && !!user && currentView.created_by === user.id,
         ],
     }),

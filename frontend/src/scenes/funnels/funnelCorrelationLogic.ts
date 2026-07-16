@@ -296,7 +296,7 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
         ],
         excludedEventNames: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): string[] =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string[] =>
                 currentTeam?.correlation_config?.excluded_event_names || [],
         ],
         isEventExcluded: [
@@ -308,7 +308,7 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
         // event property correlation
         excludedEventPropertyNames: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): string[] =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string[] =>
                 currentTeam?.correlation_config?.excluded_event_property_names || [],
         ],
         isEventPropertyExcluded: [

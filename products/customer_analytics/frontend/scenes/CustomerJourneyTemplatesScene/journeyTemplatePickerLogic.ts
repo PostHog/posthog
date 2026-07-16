@@ -10,8 +10,7 @@ import { urls } from 'scenes/urls'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { InsightType, QueryBasedInsightModel } from '~/types'
 
-import type { Node } from '../../../../../frontend/src/queries/schema/schema-general'
-import type { AnyEntityNode } from '../../../../../frontend/src/queries/schema/schema-general'
+import type { AnyEntityNode, Node } from '../../../../../frontend/src/queries/schema/schema-general'
 import { customerAnalyticsConfigLogic } from '../../customerAnalyticsConfigLogic'
 
 export type JourneyTemplateKey = 'signup_conversion' | 'free_to_paid' | 'scratch'
@@ -152,13 +151,17 @@ export const journeyTemplatePickerLogic = kea<journeyTemplatePickerLogicType>([
     selectors({
         isSignupConversionAvailable: [
             (s) => [s.signupPageviewEvent, s.signupEvent],
-            (signupPageviewEvent: AnyEntityNode, signupEvent: AnyEntityNode): boolean =>
-                !isEmptyObject(signupPageviewEvent) && !isEmptyObject(signupEvent),
+            (
+                signupPageviewEvent: import('~/queries/schema').AnyEntityNode,
+                signupEvent: import('~/queries/schema').AnyEntityNode
+            ): boolean => !isEmptyObject(signupPageviewEvent) && !isEmptyObject(signupEvent),
         ],
         isFreeToPaidAvailable: [
             (s) => [s.signupEvent, s.paymentEvent],
-            (signupEvent: AnyEntityNode, paymentEvent: AnyEntityNode): boolean =>
-                !isEmptyObject(signupEvent) && !isEmptyObject(paymentEvent),
+            (
+                signupEvent: import('~/queries/schema').AnyEntityNode,
+                paymentEvent: import('~/queries/schema').AnyEntityNode
+            ): boolean => !isEmptyObject(signupEvent) && !isEmptyObject(paymentEvent),
         ],
     }),
 

@@ -91,7 +91,7 @@ export const funnelCorrelationDetailsLogic = kea<funnelCorrelationDetailsLogicTy
             (s) => [s.correlationDetails, s.steps],
             (
                 correlationDetails: FunnelCorrelation | null,
-                steps: FunnelStepWithNestedBreakdown[]
+                steps: import('~/types').FunnelStepWithNestedBreakdown[]
             ): {
                 truePositive: number
                 falsePositive: number

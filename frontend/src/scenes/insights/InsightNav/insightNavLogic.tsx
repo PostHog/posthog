@@ -473,7 +473,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
     selectors({
         activeView: [
             (s) => [s.query],
-            (query: Node<Record<string, any>> | null) => {
+            (query: null | import('~/queries/schema/schema-general').Node) => {
                 if (isDataTableNode(query)) {
                     return InsightType.JSON
                 } else if (containsHogQLQuery(query)) {
@@ -492,7 +492,11 @@ export const insightNavLogic = kea<insightNavLogicType>([
         ],
         tabs: [
             (s) => [s.activeView, s.query, s.featureFlags],
-            (activeView: InsightType, query: Node<Record<string, any>> | null, featureFlags: FeatureFlagsSet) => {
+            (
+                activeView: InsightType,
+                query: null | import('~/queries/schema/schema-general').Node,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
+            ) => {
                 const tabs: Tab[] = [
                     {
                         label: 'Trends',

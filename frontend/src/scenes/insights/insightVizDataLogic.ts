@@ -114,23 +114,40 @@ import {
 import type { DataColorTheme } from '../../lib/colors'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type {
+    AnyResponseType,
+    Breakdown,
+    DataNode,
     DataWarehouseNode,
+    DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaViewTable,
+    ErrorTrackingQueryResponse,
+    EventsQueryResponse,
     FunnelPathsFilter,
     GoalLine,
+    HogQLAutocompleteResponse,
+    HogQLMetadataResponse,
+    HogQLQueryResponse,
+    HogQueryResponse,
     LifecycleFilter,
+    LogAttributesQueryResponse,
+    LogValuesQueryResponse,
+    LogsQueryResponse,
+    MetricsQueryResponse,
     PathsFilter,
     PathsQuery,
+    RefreshType,
     ResultCustomizationBy,
     RetentionFilter,
+    SessionsQueryResponse,
     StickinessFilter,
+    TraceSpansAggregationQueryResponse,
+    TraceSpansAttributeBreakdownQueryResponse,
+    TraceSpansQueryResponse,
+    TraceSpansTreeQueryResponse,
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../queries/schema/schema-general'
-import type { DatabaseSchemaDataWarehouseTable, DatabaseSchemaViewTable } from '../../queries/schema/schema-general'
-import type { Breakdown } from '../../queries/schema/schema-general'
-import type { DataNode } from '../../queries/schema/schema-general'
-import type { GroupTypeIndex } from '../../types'
-import type { AnyPropertyFilter, PropertyGroupFilter } from '../../types'
+import type { AnyPropertyFilter, GroupTypeIndex, PropertyGroupFilter } from '../../types'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 
@@ -256,14 +273,14 @@ export interface insightVizDataLogicActions {
         value: true
     } // insightDataLogic
     loadData: (
-        refresh?: import('~/queries/schema/schema-general').RefreshType | undefined,
+        refresh?: RefreshType | undefined,
         alreadyRunningQueryId?: string | undefined,
         overrideQuery?: DataNode<Record<string, any>> | undefined
     ) => {
         overrideQuery: DataNode<Record<string, any>> | undefined
         pollOnly: boolean
         queryId: string
-        refresh: import('~/queries/schema/schema-general').RefreshType | undefined
+        refresh: RefreshType | undefined
     } // insightDataLogic
     loadDataFailure: (
         error: string,
@@ -274,27 +291,27 @@ export interface insightVizDataLogicActions {
     } // insightDataLogic
     loadDataSuccess: (
         response:
+            | ErrorTrackingQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
             | Record<string, any>
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
             | null
-            | import('~/queries/schema/schema-general').ErrorTrackingQueryResponse
-            | import('~/queries/schema/schema-general').HogQLAutocompleteResponse
-            | import('~/queries/schema/schema-general').HogQLMetadataResponse
-            | import('~/queries/schema/schema-general').HogQLQueryResponse<any[]>
-            | import('~/queries/schema/schema-general').HogQueryResponse
-            | import('~/queries/schema/schema-general').LogAttributesQueryResponse
-            | import('~/queries/schema/schema-general').LogValuesQueryResponse
-            | import('~/queries/schema/schema-general').MetricsQueryResponse
-            | import('~/queries/schema/schema-general').SessionsQueryResponse
-            | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
-            | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
-            | import('~/queries/schema/schema-general').TraceSpansQueryResponse
             | undefined,
         payload?:
             | {
                   overrideQuery: DataNode<Record<string, any>> | undefined
                   pollOnly: boolean
                   queryId: string
-                  refresh: import('~/queries/schema/schema-general').RefreshType | undefined
+                  refresh: RefreshType | undefined
               }
             | undefined
     ) => {
@@ -302,60 +319,60 @@ export interface insightVizDataLogicActions {
             overrideQuery: DataNode<Record<string, any>> | undefined
             pollOnly: boolean
             queryId: string
-            refresh: import('~/queries/schema/schema-general').RefreshType | undefined
+            refresh: RefreshType | undefined
         }
         response:
+            | ErrorTrackingQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
             | Record<string, any>
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
             | null
-            | import('~/queries/schema/schema-general').ErrorTrackingQueryResponse
-            | import('~/queries/schema/schema-general').HogQLAutocompleteResponse
-            | import('~/queries/schema/schema-general').HogQLMetadataResponse
-            | import('~/queries/schema/schema-general').HogQLQueryResponse<any[]>
-            | import('~/queries/schema/schema-general').HogQueryResponse
-            | import('~/queries/schema/schema-general').LogAttributesQueryResponse
-            | import('~/queries/schema/schema-general').LogValuesQueryResponse
-            | import('~/queries/schema/schema-general').MetricsQueryResponse
-            | import('~/queries/schema/schema-general').SessionsQueryResponse
-            | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
-            | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
-            | import('~/queries/schema/schema-general').TraceSpansQueryResponse
             | undefined
     } // insightDataLogic
     setInsightData: (
         response:
+            | ErrorTrackingQueryResponse
+            | EventsQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogsQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
             | Record<string, any>
-            | import('~/queries/schema/schema-general').ErrorTrackingQueryResponse
-            | import('~/queries/schema/schema-general').EventsQueryResponse
-            | import('~/queries/schema/schema-general').HogQLAutocompleteResponse
-            | import('~/queries/schema/schema-general').HogQLMetadataResponse
-            | import('~/queries/schema/schema-general').HogQLQueryResponse<any[]>
-            | import('~/queries/schema/schema-general').HogQueryResponse
-            | import('~/queries/schema/schema-general').LogAttributesQueryResponse
-            | import('~/queries/schema/schema-general').LogsQueryResponse
-            | import('~/queries/schema/schema-general').LogValuesQueryResponse
-            | import('~/queries/schema/schema-general').MetricsQueryResponse
-            | import('~/queries/schema/schema-general').SessionsQueryResponse
-            | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
-            | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
-            | import('~/queries/schema/schema-general').TraceSpansQueryResponse
-            | import('~/queries/schema/schema-general').TraceSpansTreeQueryResponse
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
     ) =>
+        | ErrorTrackingQueryResponse
+        | EventsQueryResponse
+        | HogQLAutocompleteResponse
+        | HogQLMetadataResponse
+        | HogQLQueryResponse<any[]>
+        | HogQueryResponse
+        | LogAttributesQueryResponse
+        | LogsQueryResponse
+        | LogValuesQueryResponse
+        | MetricsQueryResponse
         | Record<string, any>
-        | import('~/queries/schema/schema-general').ErrorTrackingQueryResponse
-        | import('~/queries/schema/schema-general').EventsQueryResponse
-        | import('~/queries/schema/schema-general').HogQLAutocompleteResponse
-        | import('~/queries/schema/schema-general').HogQLMetadataResponse
-        | import('~/queries/schema/schema-general').HogQLQueryResponse<any[]>
-        | import('~/queries/schema/schema-general').HogQueryResponse
-        | import('~/queries/schema/schema-general').LogAttributesQueryResponse
-        | import('~/queries/schema/schema-general').LogsQueryResponse
-        | import('~/queries/schema/schema-general').LogValuesQueryResponse
-        | import('~/queries/schema/schema-general').MetricsQueryResponse
-        | import('~/queries/schema/schema-general').SessionsQueryResponse
-        | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
-        | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
-        | import('~/queries/schema/schema-general').TraceSpansQueryResponse
-        | import('~/queries/schema/schema-general').TraceSpansTreeQueryResponse // insightDataLogic
+        | SessionsQueryResponse
+        | TraceSpansAggregationQueryResponse
+        | TraceSpansAttributeBreakdownQueryResponse
+        | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse // insightDataLogic
     setQuery: (query: Node<Record<string, any>> | null) => {
         query: Node<Record<string, any>> | null
     } // insightDataLogic
@@ -1243,7 +1260,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     selectors({
         querySource: [
             (s) => [s.query],
-            (query: Node<Record<string, any>> | null) => {
+            (query: Node | null) => {
                 if (!isNodeWithSource(query) || !isInsightQueryNode(query.source)) {
                     return null
                 }
@@ -1268,13 +1285,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 querySource:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
-                    | null,
+                    | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery,
                 filterTestAccountsDefault: boolean
             ) => (querySource ? querySource : queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault).source),
         ],
@@ -1285,13 +1302,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => isTrendsQuery(q),
         ],
         isFunnels: [
@@ -1300,13 +1317,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => isFunnelsQuery(q),
         ],
         isRetention: [
@@ -1315,13 +1332,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => isRetentionQuery(q),
         ],
         isPaths: [
@@ -1330,13 +1347,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => isPathsQuery(q),
         ],
         isStickiness: [
@@ -1345,13 +1362,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => isStickinessQuery(q),
         ],
         isLifecycle: [
@@ -1360,13 +1377,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => isLifecycleQuery(q),
         ],
         isWebStatsTable: [
@@ -1375,13 +1392,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => isWebStatsTableQuery(q),
         ],
         isWebOverview: [
@@ -1390,13 +1407,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => isWebOverviewQuery(q),
         ],
         isWebAnalytics: [
@@ -1405,13 +1422,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => isWebAnalyticsInsightQuery(q),
         ],
         isTrendsLike: [
@@ -1420,13 +1437,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q),
         ], // this is for filtering out world map
         supportsDisplay: [
@@ -1435,13 +1452,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => isTrendsQuery(q) || isStickinessQuery(q),
         ],
         supportsCompare: [
@@ -1450,13 +1467,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
-                    | null,
+                    | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery,
                 display: ChartDisplayType | null | undefined,
                 dateRange: DateRange | null | undefined
             ) => {
@@ -1480,13 +1497,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => supportsPercentStackView(q),
         ],
         supportsBarValueStacking: [
@@ -1495,13 +1512,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => supportsBarValueStacking(q),
         ],
         supportsValueOnSeries: [
@@ -1533,13 +1550,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? q.dateRange : null),
         ],
         breakdownFilter: [
@@ -1548,13 +1565,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getBreakdown(q) : null),
         ],
         compareFilter: [
@@ -1563,13 +1580,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getCompareFilter(q) : null),
         ],
         display: [
@@ -1578,13 +1595,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getDisplay(q) : null),
         ],
         formula: [
@@ -1613,13 +1630,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getSeries(q) : null),
         ],
         interval: [
@@ -1628,13 +1645,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getInterval(q) : null),
         ],
         properties: [
@@ -1643,13 +1660,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? q.properties : null),
         ],
         samplingFactor: [
@@ -1658,13 +1675,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q && 'samplingFactor' in q ? q.samplingFactor : null),
         ],
         showAlertThresholdLines: [
@@ -1673,13 +1690,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getShowAlertThresholdLines(q) : null),
         ],
         showAnnotations: [
@@ -1688,13 +1705,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getShowAnnotations(q) : null),
         ],
         showLegend: [
@@ -1703,13 +1720,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getShowLegend(q) : null),
         ],
         legendPosition: [
@@ -1718,13 +1735,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getLegendPosition(q) : null),
         ],
         showValuesOnSeries: [
@@ -1733,13 +1750,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getShowValuesOnSeries(q) : null),
         ],
         showPercentagesOnSeries: [
@@ -1748,13 +1765,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getShowPercentagesOnSeries(q) : null),
         ],
         showLabelOnSeries: [
@@ -1763,13 +1780,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getShowLabelsOnSeries(q) : null),
         ],
         showPercentStackView: [
@@ -1778,13 +1795,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getShowPercentStackView(q) : null),
         ],
         yAxisScaleType: [
@@ -1793,13 +1810,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getYAxisScaleType(q) : null),
         ],
         showMultipleYAxes: [
@@ -1808,13 +1825,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getShowMultipleYAxes(q) : null),
         ],
         resultCustomizationBy: [
@@ -1823,13 +1840,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getResultCustomizationBy(q) : null),
         ],
         aggregationGroupTypeIndex: [
@@ -1838,18 +1855,18 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getAggregationGroupTypeIndex(q) : null),
         ],
         labelGroupType: [
             (s) => [s.aggregationGroupTypeIndex],
-            (aggregationGroupTypeIndex: GroupTypeIndex | null | undefined): LabelGroupType =>
+            (aggregationGroupTypeIndex: null | import('~/types').GroupTypeIndex | undefined): LabelGroupType =>
                 aggregationGroupTypeIndex ?? 'people',
         ],
         goalLines: [
@@ -1858,13 +1875,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (isTrendsQuery(q) || isFunnelsQuery(q) || isRetentionQuery(q) ? getGoalLines(q) : null),
         ],
         insightFilter: [
@@ -1873,13 +1890,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q && !isWebAnalyticsInsightQuery(q) ? filterForQuery(q) : null),
         ],
         trendsFilter: [
@@ -1888,13 +1905,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (isTrendsQuery(q) ? q.trendsFilter : null),
         ],
         detailedResultsAggregationType: [
@@ -1903,13 +1920,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 querySource:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ): AggregationType | undefined => {
                 if (isTrendsQuery(querySource)) {
                     return querySource.trendsFilter?.detailedResultsAggregationType as AggregationType | undefined
@@ -1922,13 +1939,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (isFunnelsQuery(q) ? q.funnelsFilter : null),
         ],
         retentionFilter: [
@@ -1937,13 +1954,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (isRetentionQuery(q) ? q.retentionFilter : null),
         ],
         pathsFilter: [
@@ -1952,13 +1969,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (isPathsQuery(q) ? q.pathsFilter : null),
         ],
         stickinessFilter: [
@@ -1967,13 +1984,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (isStickinessQuery(q) ? q.stickinessFilter : null),
         ],
         lifecycleFilter: [
@@ -1982,13 +1999,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (isLifecycleQuery(q) ? q.lifecycleFilter : null),
         ],
         funnelPathsFilter: [
@@ -1997,13 +2014,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 q:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (isPathsQuery(q) ? q.funnelPathsFilter : null),
         ],
         vizSpecificOptions: [(s) => [s.query], (q: Node) => (isInsightVizNode(q) ? q.vizSpecificOptions : null)],
@@ -2011,9 +2028,19 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isUsingSessionAnalysis: [
             (s) => [s.series, s.breakdownFilter, s.properties],
             (
-                series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined,
+                series:
+                    | (
+                          | AnyEntityNode<AnyDataWarehouseNode>
+                          | GroupNode<import('~/queries/schema/schema-general').DataWarehouseNode>
+                      )[]
+                    | null
+                    | undefined,
                 breakdownFilter: BreakdownFilter | null | undefined,
-                properties: PropertyGroupFilter | AnyPropertyFilter[] | null | undefined
+                properties:
+                    | import('~/types').AnyPropertyFilter[]
+                    | null
+                    | import('~/types').PropertyGroupFilter
+                    | undefined
             ) => {
                 const using_session_breakdown =
                     breakdownFilter?.breakdown_type === 'session' ||
@@ -2039,8 +2066,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
         shouldShowSessionAnalysisWarning: [
             (s) => [s.isUsingSessionAnalysis, s.query],
-            (isUsingSessionAnalysis: boolean | Breakdown, query: Node<Record<string, any>> | null) =>
-                isUsingSessionAnalysis && !(isInsightVizNode(query) && query.suppressSessionAnalysisWarning),
+            (
+                isUsingSessionAnalysis: boolean | import('~/queries/schema/schema-general').Breakdown,
+                query: Node | null
+            ) => isUsingSessionAnalysis && !(isInsightVizNode(query) && query.suppressSessionAnalysisWarning),
         ],
         isNonTimeSeriesDisplay: [
             (s) => [s.display],
@@ -2098,13 +2127,25 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         hasDataWarehouseSeries: [
             (s) => [s.series],
             (
-                series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined
+                series:
+                    | (
+                          | AnyEntityNode<AnyDataWarehouseNode>
+                          | GroupNode<import('~/queries/schema/schema-general').DataWarehouseNode>
+                      )[]
+                    | null
+                    | undefined
             ): boolean => (series || []).length > 0 && !!series?.some((node) => isAnyDataWarehouseNode(node)),
         ],
         hasOnlyDataWarehouseSeries: [
             (s) => [s.series],
             (
-                series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined
+                series:
+                    | (
+                          | AnyEntityNode<AnyDataWarehouseNode>
+                          | GroupNode<import('~/queries/schema/schema-general').DataWarehouseNode>
+                      )[]
+                    | null
+                    | undefined
             ): boolean => {
                 return !!series && series.length > 0 && series.every((node) => isAnyDataWarehouseNode(node))
             },
@@ -2120,12 +2161,22 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 s.dataWarehouseTablesMap,
             ],
             (
-                series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined,
+                series:
+                    | (
+                          | AnyEntityNode<AnyDataWarehouseNode>
+                          | GroupNode<import('~/queries/schema/schema-general').DataWarehouseNode>
+                      )[]
+                    | null
+                    | undefined,
                 isSingleSeriesOutput: boolean,
                 isTrends: boolean,
                 hasDataWarehouseSeries: boolean,
                 isBreakdownSeries: boolean,
-                dataWarehouseTablesMap: Record<string, DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable>
+                dataWarehouseTablesMap: Record<
+                    string,
+                    | import('~/queries/schema/schema-general').DatabaseSchemaDataWarehouseTable
+                    | import('~/queries/schema/schema-general').DatabaseSchemaViewTable
+                >
             ): DatabaseSchemaField[] => {
                 if (!hasDataWarehouseSeries || (isTrends && !isSingleSeriesOutput && !isBreakdownSeries)) {
                     return []
@@ -2175,7 +2226,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         usesInChartLegend: [
             (s) => [s.featureFlags, s.isTrends, s.isStickiness, s.isLifecycle, s.display],
             (
-                featureFlags: FeatureFlagsSet,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 isTrends: boolean,
                 isStickiness: boolean,
                 isLifecycle: boolean,
@@ -2211,15 +2262,21 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         activeUsersMath: [
             (s) => [s.series],
             (
-                series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined
+                series:
+                    | (
+                          | AnyEntityNode<AnyDataWarehouseNode>
+                          | GroupNode<import('~/queries/schema/schema-general').DataWarehouseNode>
+                      )[]
+                    | null
+                    | undefined
             ): BaseMathType.MonthlyActiveUsers | BaseMathType.WeeklyActiveUsers | null => getActiveUsersMath(series),
         ],
         enabledIntervals: [
             (s) => [s.activeUsersMath, s.isTrends, s.featureFlags],
             (
-                activeUsersMath: BaseMathType.WeeklyActiveUsers | BaseMathType.MonthlyActiveUsers | null,
+                activeUsersMath: BaseMathType.MonthlyActiveUsers | BaseMathType.WeeklyActiveUsers | null,
                 isTrends: boolean,
-                featureFlags: FeatureFlagsSet
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): Intervals => {
                 const enabledIntervals: Intervals = { ...intervals }
 
@@ -2290,13 +2347,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 querySource:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
-                    | null,
+                    | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery,
                 actions: import('~/types').ActionType[]
             ) => (querySource ? getAllEventNames(querySource, actions) : []),
         ],
@@ -2304,17 +2361,19 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         theme: [
             (s) => [s.getTheme, s.querySource],
             (
-                getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
+                getTheme: (
+                    themeId: number | string | null | undefined
+                ) => null | import('../../lib/colors').DataColorTheme,
                 querySource:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => getTheme(querySource && 'dataColorTheme' in querySource ? querySource.dataColorTheme : undefined),
         ],
 
@@ -2324,13 +2383,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 querySource:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => {
                 return (
                     (querySource?.kind === NodeKind.TrendsQuery || querySource?.kind === NodeKind.FunnelsQuery) &&
@@ -2344,13 +2403,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 querySource:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => {
                 return (
                     querySource?.kind === NodeKind.TrendsQuery &&
@@ -2366,13 +2425,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 querySource:
                     | FunnelsQuery
                     | LifecycleQuery
-                    | PathsQuery
                     | RetentionQuery
                     | StickinessQuery
                     | TrendsQuery
-                    | WebOverviewQuery
-                    | WebStatsTableQuery
                     | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => {
                 return (
                     querySource?.kind === NodeKind.FunnelsQuery &&

@@ -10,12 +10,12 @@ import {
 } from 'scenes/insights/utils'
 import { retentionOptions } from 'scenes/retention/constants'
 import { MathCategory, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
-import type { mathsLogicType } from 'scenes/trends/mathsLogic'
+import { mathsLogicType } from 'scenes/trends/mathsLogicType'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import type { cohortsModelType } from '~/models/cohortsModel'
+import { cohortsModelType } from '~/models/cohortsModelType'
 import { groupsModel } from '~/models/groupsModel'
-import type { groupsModelType } from '~/models/groupsModel'
+import { groupsModelType } from '~/models/groupsModelType'
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import {
     Breakdown,
