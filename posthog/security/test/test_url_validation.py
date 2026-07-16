@@ -1,5 +1,6 @@
 import ipaddress
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
+from threading import Barrier, BoundedSemaphore
 
 import pytest
 
@@ -51,6 +52,37 @@ class TestUrlValidation:
 
         assert uv.resolve_hosts_ips({"slow.example.com"}) == {"slow.example.com": set()}
         assert pending_future.cancelled()
+
+    def test_resolve_hosts_ips_starts_all_allowed_hosts_within_the_batch_deadline(self, monkeypatch):
+        hosts = {f"host-{index}.example.com" for index in range(20)}
+        all_workers_started = Barrier(len(hosts))
+        public_ip = ipaddress.ip_address("93.184.216.34")
+
+        def resolve_after_all_workers_start(_host):
+            all_workers_started.wait(timeout=1)
+            return {public_ip}
+
+        executor = ThreadPoolExecutor(max_workers=uv.DNS_RESOLUTION_MAX_WORKERS)
+        monkeypatch.setattr(uv, "_dns_resolution_executor", executor)
+        monkeypatch.setattr(uv, "resolve_host_ips", resolve_after_all_workers_start)
+
+        try:
+            assert uv.resolve_hosts_ips(hosts) == {host: {public_ip} for host in hosts}
+        finally:
+            executor.shutdown(wait=True, cancel_futures=True)
+
+    def test_resolve_hosts_ips_fails_closed_when_global_capacity_is_exhausted(self, monkeypatch):
+        capacity = BoundedSemaphore(1)
+        capacity.acquire()
+
+        class Executor:
+            def submit(self, _function, _host):
+                raise AssertionError("capacity exhaustion must prevent queueing")
+
+        monkeypatch.setattr(uv, "_dns_resolution_capacity", capacity)
+        monkeypatch.setattr(uv, "_dns_resolution_executor", Executor())
+
+        assert uv.resolve_hosts_ips({"busy.example.com"}) == {"busy.example.com": set()}
 
     def test_is_url_allowed_disallowed_scheme(self):
         ok, err = uv.is_url_allowed("javascript:alert(1)")

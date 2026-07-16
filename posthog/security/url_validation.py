@@ -1,7 +1,8 @@
 import ipaddress
 import urllib.parse as urlparse
 from collections.abc import Iterable, Mapping
-from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import Future, ThreadPoolExecutor, wait
+from threading import BoundedSemaphore
 
 from django.conf import settings
 
@@ -17,11 +18,12 @@ ResolvedIPs = set[ipaddress.IPv4Address | ipaddress.IPv6Address]
 
 DNS_RESOLUTION_LIFETIME_SECONDS = 2.0
 DNS_RESOLUTION_BATCH_TIMEOUT_SECONDS = 2.5
-DNS_RESOLUTION_MAX_WORKERS = 8
+DNS_RESOLUTION_MAX_WORKERS = 20
 _dns_resolution_executor = ThreadPoolExecutor(
     max_workers=DNS_RESOLUTION_MAX_WORKERS,
     thread_name_prefix="url-validation-dns",
 )
+_dns_resolution_capacity = BoundedSemaphore(DNS_RESOLUTION_MAX_WORKERS)
 
 # Schemes that should never be allowed for external URLs
 DISALLOWED_SCHEMES = {"file", "ftp", "gopher", "ws", "wss", "data", "javascript"}
@@ -69,15 +71,32 @@ def resolve_host_ips(host: str) -> ResolvedIPs:
     return ips
 
 
+def _submit_dns_resolution(host: str) -> Future[ResolvedIPs] | None:
+    if not _dns_resolution_capacity.acquire(blocking=False):
+        logger.warning("url_validation.dns_resolution_capacity_exhausted", host=host)
+        return None
+    try:
+        future = _dns_resolution_executor.submit(resolve_host_ips, host)
+    except Exception as error:
+        _dns_resolution_capacity.release()
+        logger.exception("url_validation.dns_resolution_submit_failed", host=host, error=str(error))
+        return None
+    future.add_done_callback(lambda _future: _dns_resolution_capacity.release())
+    return future
+
+
 def resolve_hosts_ips(hosts: Iterable[str]) -> dict[str, ResolvedIPs]:
     unique_hosts = set(hosts)
-    futures = {host: _dns_resolution_executor.submit(resolve_host_ips, host) for host in unique_hosts}
+    resolved: dict[str, ResolvedIPs] = {host: set() for host in unique_hosts}
+    futures = {host: future for host in unique_hosts if (future := _submit_dns_resolution(host)) is not None}
+    if not futures:
+        return resolved
+
     completed, pending = wait(futures.values(), timeout=DNS_RESOLUTION_BATCH_TIMEOUT_SECONDS)
 
     for future in pending:
         future.cancel()
 
-    resolved: dict[str, ResolvedIPs] = {}
     for host, future in futures.items():
         if future not in completed:
             logger.warning("url_validation.dns_resolution_timed_out", host=host)
