@@ -6,7 +6,7 @@ from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -232,6 +232,14 @@ _FREEZE_EXPOSURE_BLOCKER_MESSAGES: dict[ExposureFreezeBlocker, str] = {
     ),
     "no_groups": "Experiment's feature flag has no release conditions to freeze.",
 }
+
+# Dict literals keyed by a Literal union aren't exhaustiveness-checked, and the union's
+# variants span two modules — fail at import rather than 500 on a missing message.
+_expected_blockers = {variant for literal in get_args(ExposureFreezeBlocker) for variant in get_args(literal)}
+assert set(_FREEZE_EXPOSURE_BLOCKER_MESSAGES) == _expected_blockers, (
+    f"_FREEZE_EXPOSURE_BLOCKER_MESSAGES out of sync with ExposureFreezeBlocker: "
+    f"{_expected_blockers ^ set(_FREEZE_EXPOSURE_BLOCKER_MESSAGES)}"
+)
 
 
 def _restrict_filters_to_frozen_cohort(filters: dict, cohort_id: int) -> dict:
