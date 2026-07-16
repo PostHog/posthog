@@ -12,13 +12,16 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.filters.mixins.utils import cached_property
 
-from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
+from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import (
+    WEB_ANALYTICS_NO_JOIN_SERVED,
+    WebAnalyticsQueryRunner,
+)
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
     can_use_lazy_precompute,
     execute_lazy_precomputed_read,
@@ -43,7 +46,128 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
         self.preaggregated_query_builder = WebOverviewPreAggregatedQueryBuilder(self)
 
     def to_query(self) -> ast.SelectQuery:
+        if self.should_skip_session_join:
+            WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="overview").inc()
+            return self.no_join_select
         return self.outer_select
+
+    @cached_property
+    def no_join_select(self) -> ast.SelectQuery:
+        """Overview metrics from two independent scans, no events↔sessions join.
+
+        Column order must match ``outer_select`` — ``_calculate`` indexes rows
+        positionally. Semantics differ from the join path only at range boundaries:
+        sessions are bucketed by their own start timestamp here, while the join path
+        keeps sessions that had a matching event in range AND started in range; the
+        drift measured on team 2 over 30d is ≤0.15% on sessions and ~0 on
+        bounce/duration.
+        """
+        has_comparison = bool(self.query_compare_to_date_range)
+
+        events_agg = parse_select(
+            """
+SELECT
+    uniqIf(events.person_id, {current_users}) AS unique_users,
+    {previous_users} AS previous_unique_users,
+    countIf({current_views}) AS total_filtered_pageview_count,
+    {previous_views} AS previous_total_filtered_pageview_count
+FROM events
+WHERE and(
+    {events_session_id_present},
+    {event_type_expr},
+    {inside_timestamp_period},
+)
+            """,
+            placeholders={
+                "events_session_id_present": self.events_session_id_present,
+                "event_type_expr": self.event_type_expr,
+                "inside_timestamp_period": self._periods_expression("timestamp"),
+                "current_users": self._current_period_expression("timestamp"),
+                "previous_users": (
+                    parse_expr(
+                        "uniqIf(events.person_id, {previous_period})",
+                        placeholders={"previous_period": self._previous_period_expression("timestamp")},
+                    )
+                    if has_comparison
+                    else ast.Constant(value=None)
+                ),
+                "current_views": self._current_period_expression("timestamp"),
+                "previous_views": (
+                    parse_expr(
+                        "countIf({previous_period})",
+                        placeholders={"previous_period": self._previous_period_expression("timestamp")},
+                    )
+                    if has_comparison
+                    else ast.Constant(value=None)
+                ),
+            },
+        )
+
+        sessions_agg = parse_select(
+            """
+SELECT
+    uniqIf(sessions.session_id, {current_period}) AS unique_sessions,
+    {previous_sessions} AS previous_unique_sessions,
+    avgIf(sessions.$session_duration, {current_period}) AS avg_duration_s,
+    {previous_duration} AS previous_avg_duration_s,
+    avgIf(sessions.$is_bounce, {current_period}) AS bounce_rate,
+    {previous_bounce} AS previous_bounce_rate
+FROM sessions
+WHERE and(
+    {inside_start_timestamp_period},
+    or(sessions.$pageview_count > 0, sessions.$screen_count > 0),
+)
+            """,
+            placeholders={
+                "inside_start_timestamp_period": self._periods_expression("$start_timestamp"),
+                "current_period": self._current_period_expression("$start_timestamp"),
+                "previous_sessions": (
+                    parse_expr(
+                        "uniqIf(sessions.session_id, {previous_period})",
+                        placeholders={"previous_period": self._previous_period_expression("$start_timestamp")},
+                    )
+                    if has_comparison
+                    else ast.Constant(value=None)
+                ),
+                "previous_duration": (
+                    parse_expr(
+                        "avgIf(sessions.$session_duration, {previous_period})",
+                        placeholders={"previous_period": self._previous_period_expression("$start_timestamp")},
+                    )
+                    if has_comparison
+                    else ast.Constant(value=None)
+                ),
+                "previous_bounce": (
+                    parse_expr(
+                        "avgIf(sessions.$is_bounce, {previous_period})",
+                        placeholders={"previous_period": self._previous_period_expression("$start_timestamp")},
+                    )
+                    if has_comparison
+                    else ast.Constant(value=None)
+                ),
+            },
+        )
+
+        combined = parse_select(
+            """
+SELECT
+    events_agg.unique_users AS unique_users,
+    events_agg.previous_unique_users AS previous_unique_users,
+    events_agg.total_filtered_pageview_count AS total_filtered_pageview_count,
+    events_agg.previous_total_filtered_pageview_count AS previous_total_filtered_pageview_count,
+    sessions_agg.unique_sessions AS unique_sessions,
+    sessions_agg.previous_unique_sessions AS previous_unique_sessions,
+    sessions_agg.avg_duration_s AS avg_duration_s,
+    sessions_agg.previous_avg_duration_s AS previous_avg_duration_s,
+    sessions_agg.bounce_rate AS bounce_rate,
+    sessions_agg.previous_bounce_rate AS previous_bounce_rate
+FROM {events_agg} AS events_agg
+CROSS JOIN {sessions_agg} AS sessions_agg
+            """,
+            placeholders={"events_agg": events_agg, "sessions_agg": sessions_agg},
+        )
+        assert isinstance(combined, ast.SelectQuery)
+        return combined
 
     def get_pre_aggregated_response(self):
         should_use_preaggregated = (
@@ -128,7 +252,9 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
 
         response = (
             execute_hogql_query(
-                query_type="web_overview_query",
+                # Distinct tag for the fast path so query_log analysis doesn't need
+                # to text-match the SQL shape (see /evaluating-web-analytics-performance).
+                query_type="web_overview_no_join_query" if self.should_skip_session_join else "web_overview_query",
                 query=self.to_query(),
                 team=self.team,
                 user=self.user,

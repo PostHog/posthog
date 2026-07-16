@@ -52,7 +52,7 @@ User ─────────────────────────
 
 ### PostHog API
 
-`backend/api.py` — `TaskViewSet.run` creates a `TaskRun` (status=QUEUED) and calls `execute_task_processing_workflow()` which starts the Temporal workflow. `TaskRunViewSet.partial_update` handles status transitions and signals the Temporal workflow on terminal statuses via `_signal_workflow_completion`.
+`backend/presentation/views/api.py` (thin viewsets) over `backend/facade/api.py` (behavior) — every user-triggered cloud launch path, including prewarming and task automations, checks server-side PostHog Code access before provisioning or activating a run. Scheduled automations repeat the entitlement check at execution time so revoked access cannot launch later. `TaskViewSet.run` creates a `TaskRun` (status=QUEUED) and starts the Temporal workflow. `TaskRunViewSet.partial_update` handles status transitions and signals the Temporal workflow on terminal statuses via `signal_workflow_completion`. `TaskRunViewSet.cancel` (`POST .../runs/{id}/cancel/`) is the user-facing kill switch: `cancel_task_run` interrupts the in-flight agent turn, signals `complete_task("cancelled")` so the workflow snapshots the session and tears down the sandbox, and falls back to finalizing the run directly when no workflow is running.
 
 ### Temporal workflow
 
@@ -99,7 +99,9 @@ Environment variables consumed inside the sandbox:
 6. **start_agent_server** — Starts `npx agent-server` in sandbox, polls `/health` until ready
 7. **wait_condition** — Workflow blocks with a 2-hour inactivity timeout, extended by `heartbeat` signals from the agent. PostHog Code or the agent server signals completion via the API
 8. Agent server calls `PATCH /api/projects/{team_id}/task_runs/{run_id}/` with terminal status
-9. API handler sends `complete_task(status, error_message)` signal to the Temporal workflow. For wizard cloud runs, the GitHub merge webhook sends the same signal (status `completed`) when the run's PR merges, so the run ends at merge instead of riding out the sandbox TTL
+9. API handler sends `complete_task(status, error_message)` signal to the Temporal workflow
+   - A user can end the run early via `POST .../runs/{run_id}/cancel/`, which sends the same signal with status `cancelled`
+   - For wizard cloud runs, the GitHub merge webhook sends the same signal with status `completed`, so the run ends at merge instead of riding out the sandbox TTL
 10. **cleanup_sandbox** — Sandbox destroyed
 
 ## Data model
@@ -193,7 +195,8 @@ Set `SANDBOX_API_URL` to the ngrok URL. `SITE_URL` stays as `http://localhost:80
 
 | File                                        | Role                                                          |
 | ------------------------------------------- | ------------------------------------------------------------- |
-| `backend/api.py`                            | REST API — TaskViewSet, TaskRunViewSet                        |
+| `backend/presentation/views/api.py`         | REST API — TaskViewSet, TaskRunViewSet                        |
+| `backend/facade/api.py`                     | Facade services behind the viewsets (incl. `cancel_task_run`) |
 | `backend/models.py`                         | Task, TaskRun, SandboxSnapshot, SandboxEnvironment            |
 | `backend/temporal/client.py`                | Workflow triggering, feature flag check                       |
 | `backend/temporal/process_task/workflow.py` | ProcessTaskWorkflow orchestration                             |

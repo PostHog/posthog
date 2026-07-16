@@ -36,17 +36,6 @@
                     }
                 ]
             }
-        },
-        {
-            "type": "slack",
-            "config": {
-                "mention_only": true,
-                "auto_resume_threads": true,
-                "allow_workspace_participants": false,
-                "allow_direct_messages": true,
-                "trusted_workspaces": "*",
-                "ack_reaction": "eyes"
-            }
         }
     ],
     "tools": [

@@ -35,8 +35,6 @@ class TestTodoistSource:
         assert config.name.value == "Todoist"
         assert config.label == "Todoist"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Stays hidden until the source is promoted out of alpha.
-        assert config.unreleasedSource is True
         assert len(config.fields) == 1
 
         token_field = config.fields[0]

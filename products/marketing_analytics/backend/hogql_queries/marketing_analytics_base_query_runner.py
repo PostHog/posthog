@@ -721,7 +721,14 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             )
             if should_create:
                 processor = ConversionGoalProcessor(
-                    goal=conversion_goal, index=index, team=self.team, config=self.config, user=self.user
+                    goal=conversion_goal,
+                    index=index,
+                    team=self.team,
+                    config=self.config,
+                    user=self.user,
+                    # Goals are built in parallel and HogQLTimings is not thread safe, so hand each
+                    # processor its own clone. Merged back in _build_complete_query_ast once joined.
+                    timings=self.timings.clone_for_subquery(index),
                 )
                 processors.append(processor)
         return processors
@@ -817,16 +824,18 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         conversion_aggregator = ConversionGoalsAggregator(processors, self.config) if processors else None
 
         # Build the main SELECT query
-        main_query = self._build_main_select_query(conversion_aggregator)
+        with self.timings.measure("ma_main_select"):
+            main_query = self._build_main_select_query(conversion_aggregator)
 
         # Build CTEs as a dictionary
         ctes: dict[str, ast.CTE] = {}
 
         # Add campaign_costs CTE
-        campaign_cost_select = self._build_campaign_cost_select(union_subquery)
-        campaign_cost_cte = ast.CTE(
-            name=self.config.campaign_costs_cte_name, expr=campaign_cost_select, cte_type="subquery"
-        )
+        with self.timings.measure("ma_campaign_cost_cte"):
+            campaign_cost_select = self._build_campaign_cost_select(union_subquery)
+            campaign_cost_cte = ast.CTE(
+                name=self.config.campaign_costs_cte_name, expr=campaign_cost_select, cte_type="subquery"
+            )
         ctes[self.config.campaign_costs_cte_name] = campaign_cost_cte
 
         # Add unified conversion goal CTE if any. Skip building it entirely at levels
@@ -836,14 +845,19 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         # win at hierarchy levels.
         level_config = DRILL_DOWN_LEVEL_CONFIG.get(self.config.drill_down_level, {})
         if conversion_aggregator and not level_config.get("excludes_conversion_goals"):
-            # Check if this is an aggregated query (no GROUP BY)
-            group_by_exprs = self._get_group_by_expressions()
-            if not group_by_exprs:
-                # For aggregated queries, create aggregated conversion goals CTE
-                unified_cte = self._generate_aggregated_conversion_goals_cte(conversion_aggregator, date_range)
-            else:
-                # For table queries, use the normal conversion goals CTE
-                unified_cte = conversion_aggregator.generate_unified_cte(date_range, self._get_where_conditions)
+            with self.timings.measure("ma_unified_conversion_cte"):
+                # Check if this is an aggregated query (no GROUP BY)
+                group_by_exprs = self._get_group_by_expressions()
+                if not group_by_exprs:
+                    # For aggregated queries, create aggregated conversion goals CTE
+                    unified_cte = self._generate_aggregated_conversion_goals_cte(conversion_aggregator, date_range)
+                else:
+                    # For table queries, use the normal conversion goals CTE
+                    unified_cte = conversion_aggregator.generate_unified_cte(date_range, self._get_where_conditions)
+
+            # The per-goal pool has joined, so folding each processor's cloned timings back in is safe here.
+            for processor in processors:
+                self.timings.timings.update(processor.timings.timings)
 
             if unified_cte:
                 ctes[UNIFIED_CONVERSION_GOALS_CTE_ALIAS] = unified_cte

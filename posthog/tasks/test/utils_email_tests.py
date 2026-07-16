@@ -4,7 +4,10 @@ from typing import Any
 
 from unittest.mock import MagicMock
 
+from django.utils import timezone
+
 from posthog.email import EmailMessage
+from posthog.models.messaging import MessagingRecord
 from posthog.utils import get_absolute_path
 
 
@@ -43,9 +46,11 @@ def mock_email_messages(MockEmailMessage: MagicMock, path: str = "tasks/test/__e
 
     def _email_message_side_effect(**kwargs: Any) -> EmailMessage:
         email_message = EmailMessage(**kwargs)
-        _original_send = email_message.send
 
-        def _send_side_effect(send_async: bool = True) -> Any:
+        def _send_side_effect(send_async: bool = True) -> None:
+            if not email_message.to:
+                raise ValueError("No recipients provided! Use EmailMessage.add_recipient() first!")
+
             # Already appended before send() runs, so subtract 1 to get this message's index.
             index_in_test = len(mocked_email_messages) - 1
             base = test_name or email_message.campaign_key
@@ -58,7 +63,16 @@ def mock_email_messages(MockEmailMessage: MagicMock, path: str = "tasks/test/__e
 
             print(f"Email rendered to {output_file}")  # noqa: T201
 
-            return _original_send()
+            for recipient in email_message.to:
+                sent_at = timezone.now()
+                record, created = MessagingRecord.objects.get_or_create(
+                    raw_email=recipient["raw_email"],
+                    campaign_key=email_message.campaign_key,
+                    defaults={"sent_at": sent_at},
+                )
+                if not created and record.sent_at is None:
+                    record.sent_at = sent_at
+                    record.save(update_fields=["sent_at"])
 
         email_message.send = MagicMock()  # type: ignore
         email_message.send.side_effect = _send_side_effect

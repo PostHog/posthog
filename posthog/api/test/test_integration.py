@@ -14,10 +14,17 @@ from django.test import override_settings
 from django.test.client import Client as HttpClient
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.github_callback.state import store_unified_authorize_state
+from posthog.api.github_callback.team_services import (
+    GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
+    authorize_link_existing_installation,
+    link_existing_team_github_integration,
+)
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
 from posthog.models.integration import (
@@ -2955,6 +2962,108 @@ class TestGitHubTeamIntegrationComplete:
         assert response["Location"].startswith("https://github.com/login/oauth/authorize")
         mock_build_oauth_url.assert_called_once()
 
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_admin_links_existing_org_installation_without_personal_github(self, mock_from_install, client: HttpClient):
+        # A GitHub App installs once per org, so a second project hits the Setup URL with
+        # setup_action=update and no OAuth code. A team admin must be able to complete that link
+        # off the installation already connected to a sibling team, without a personal GitHub link.
+        sibling = Team.objects.create(organization=self.organization, name="Sibling Team")
+        Integration.objects.create(
+            team=sibling,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345", "connecting_user_github_login": "owneruser"},
+            sensitive_config={"access_token": "ghs_sibling"},
+        )
+        # self.user is an org admin with no UserIntegration (personal GitHub link).
+        assert not UserIntegration.objects.filter(user=self.user, kind="github").exists()
+        mock_from_install.side_effect = lambda *args, **kwargs: self._team_github_integration()
+
+        client.force_login(self.user)
+        next_path = f"/project/{self.team.pk}/integrations/github"
+        state_token = "link-existing-token"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=next_path,
+            ),
+        )
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {
+                "installation_id": "12345",
+                "setup_action": "update",
+                "state": urlencode({"next": next_path, "token": state_token}),
+            },
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "github_setup_error" not in response["Location"]
+        assert Integration.objects.filter(team=self.team, kind="github", integration_id="12345").exists()
+
+    def test_authorize_link_existing_requires_personal_github_for_non_admin(self):
+        # The admin bypass must not leak to plain members: without team admin access and without a
+        # personal GitHub link, linking an existing installation still demands the personal token.
+        member = User.objects.create_and_join(
+            self.organization, "member-linker@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+        with pytest.raises(ValidationError) as exc_info:
+            authorize_link_existing_installation(user=member, team=self.team, source_installation_id="12345")
+        codes = exc_info.value.get_codes()
+        assert isinstance(codes, list) and GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED in codes
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_link_existing_auto_resolves_single_org_installation(self, mock_from_install):
+        # The one-click "Link existing installation" UI sends no source_team_id / installation_id;
+        # the service must resolve the org's single existing installation and link it to this team.
+        sibling = Team.objects.create(organization=self.organization, name="Sibling Team")
+        Integration.objects.create(
+            team=sibling,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "ghs_sibling"},
+        )
+        mock_from_install.side_effect = lambda *args, **kwargs: self._team_github_integration()
+
+        result = link_existing_team_github_integration(
+            user=self.user,
+            organization=self.organization,
+            team_id=self.team.pk,
+            source_team_id=None,
+            installation_id_param=None,
+        )
+
+        assert result is not None
+        assert mock_from_install.call_args.args[0] == "12345"
+        assert mock_from_install.call_args.args[1] == self.team.pk
+
+    @parameterized.expand([("no_installations", []), ("ambiguous_installations", ["111", "222"])])
+    def test_link_existing_auto_resolve_rejects_when_not_exactly_one(self, _name, installation_ids):
+        # Auto-resolve is only safe when the org has exactly one installation: zero has nothing to
+        # link, and multiple is ambiguous, so the caller must disambiguate rather than guess.
+        for idx, installation_id in enumerate(installation_ids):
+            team = Team.objects.create(organization=self.organization, name=f"Sibling {idx}")
+            Integration.objects.create(
+                team=team,
+                kind="github",
+                integration_id=installation_id,
+                config={"installation_id": installation_id},
+                sensitive_config={"access_token": "ghs_sibling"},
+            )
+        with pytest.raises(ValidationError):
+            link_existing_team_github_integration(
+                user=self.user,
+                organization=self.organization,
+                team_id=self.team.pk,
+                source_team_id=None,
+                installation_id_param=None,
+            )
+
     def test_cross_user_state_rejected_on_unified_callback(self, client: HttpClient):
         # State tokens are bound to a user via the pending-pointer cache key.
         # Another admin in the same team must not be able to finish a callback
@@ -3378,6 +3487,121 @@ class TestStripeIntegration:
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert not Integration.objects.filter(team_id=self.team.pk, kind="stripe").exists()
+
+
+class TestOauthIntegrationRevokeOnDisconnect:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db, settings):
+        settings.SALESFORCE_CONSUMER_KEY = "sf-key"
+        settings.SALESFORCE_CONSUMER_SECRET = "sf-secret"
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def _create_salesforce_integration(
+        self,
+        sensitive_config: dict | None = None,
+        instance_url: str = "https://example.my.salesforce.com",
+    ) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="salesforce",
+            config={"instance_url": instance_url},
+            sensitive_config=(
+                {"access_token": "sf-access", "refresh_token": "sf-refresh"}
+                if sensitive_config is None
+                else sensitive_config
+            ),
+            integration_id=instance_url,
+            created_by=self.user,
+        )
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_salesforce_revokes_token_at_provider(self, mock_post, client: HttpClient):
+        integration = self._create_salesforce_integration()
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()
+        mock_post.assert_called_once_with(
+            "https://example.my.salesforce.com/services/oauth2/revoke",
+            data={"token": "sf-refresh"},
+            timeout=10,
+            allow_redirects=False,
+        )
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_sandbox_salesforce_revokes_at_sandbox_host(self, mock_post, client: HttpClient):
+        # Sandbox integrations are stored as kind "salesforce" with a sandbox instance_url; revoking
+        # must hit that host, not login.salesforce.com, or the sandbox grant is never invalidated.
+        integration = self._create_salesforce_integration(
+            instance_url="https://example--sandbox.sandbox.my.salesforce.com"
+        )
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()
+        mock_post.assert_called_once_with(
+            "https://example--sandbox.sandbox.my.salesforce.com/services/oauth2/revoke",
+            data={"token": "sf-refresh"},
+            timeout=10,
+            allow_redirects=False,
+        )
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_still_deletes_when_revoke_fails(self, mock_post, client: HttpClient):
+        client.force_login(self.user)
+
+        raising = self._create_salesforce_integration()
+        mock_post.side_effect = Exception("Salesforce is down")
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{raising.id}/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=raising.id).exists()
+
+        rejected = self._create_salesforce_integration()
+        mock_post.side_effect = None
+        rejecting_response = MagicMock(status_code=400)
+        rejecting_response.raise_for_status.side_effect = requests.HTTPError(
+            "400 Client Error", response=rejecting_response
+        )
+        mock_post.return_value = rejecting_response
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{rejected.id}/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=rejected.id).exists()
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_without_tokens_skips_revoke(self, mock_post, client: HttpClient):
+        integration = self._create_salesforce_integration(sensitive_config={})
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()
+        mock_post.assert_not_called()
+
+    @patch("posthog.models.integration.requests.post")
+    def test_destroy_kind_without_revoke_url_skips_revoke(self, mock_post, client: HttpClient):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            config={"authed_user": {"id": "U123"}},
+            sensitive_config={"access_token": "xoxb-test"},
+            created_by=self.user,
+        )
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()
+        mock_post.assert_not_called()
 
 
 class TestStripeIntegrationOAuthTokens:

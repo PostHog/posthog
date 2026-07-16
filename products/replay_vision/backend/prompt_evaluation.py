@@ -12,7 +12,10 @@ from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import ReplayScannerPromptSuggestion
-from products.replay_vision.backend.temporal.constants import EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT
+
+# Sized for a full run at the session cap (100 sessions, 4 concurrent, a few minutes each).
+# Lives here rather than temporal/constants so quota-path imports don't drag in the temporal package.
+EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT = dt.timedelta(hours=3)
 
 # Each evaluated session is a full scanner run, so keep the bill bounded.
 EVALUATION_SESSION_CAP = 100

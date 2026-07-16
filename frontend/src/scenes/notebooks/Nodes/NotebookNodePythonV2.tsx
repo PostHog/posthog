@@ -1,14 +1,17 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 
 import { IconCornerDownRight, IconPlayFilled } from '@posthog/icons'
 
+import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
+import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
+import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import type { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
@@ -50,9 +53,21 @@ const Component = ({
         updateAttributes,
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
+        getContent: () => notebookLogic.values.content ?? null,
     })
-    const { isRunning, runError, page, pageSize, pageResult, pageLoading, operationBlockReason } = useValues(dataLogic)
-    const { setPage, setPageSize } = useActions(dataLogic)
+    const {
+        isRunning,
+        runError,
+        page,
+        pageSize,
+        pageResult,
+        pageLoading,
+        operationBlockReason,
+        isStale,
+        isChainRunning,
+        staleDownstreamCount,
+    } = useValues(dataLogic)
+    const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
 
     const result = attributes.result ?? null
     const dataframeResult = useMemo(() => {
@@ -82,6 +97,19 @@ const Component = ({
                 onMouseDown={(event) => event.stopPropagation()}
                 onDragStart={(event) => event.stopPropagation()}
             >
+                {isStale ? (
+                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                        <NotebookStaleCellBanner />
+                    </div>
+                ) : staleDownstreamCount > 0 && !isChainRunning ? (
+                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                        <NotebookRunDownstreamBanner
+                            count={staleDownstreamCount}
+                            onRun={() => runStaleChain(notebookLogic.values.content ?? null, nodeId)}
+                            disabledReason={isRunning ? 'This cell is running' : (operationBlockReason ?? undefined)}
+                        />
+                    </div>
+                ) : null}
                 {hasStreamOutput ? (
                     <div className="shrink-0 space-y-2 px-2 pt-1" onClick={(event) => event.stopPropagation()}>
                         {result?.stdout ? (
@@ -168,17 +196,28 @@ const Settings = ({
         updateAttributes,
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
+        getContent: () => notebookLogic.values.content ?? null,
     })
-    const { isRunning, operationBlockReason } = useValues(dataLogic)
-    const { runQuery } = useActions(dataLogic)
+    const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
+    const { runQuery, interruptRun } = useActions(dataLogic)
 
     const run = (): void => {
+        // Guard here (not just on the button) so Cmd+Enter can't fire a second run mid-flight —
+        // overlapping runs race the poller and can strand the spinner.
+        if (isRunning) {
+            return
+        }
         // The refs map sibling SQLV2 frames; the backend materializes only the ones the code reads.
         runQuery(attributes.code ?? '', collectSqlV2Refs(notebookLogic.values.content, nodeId), {
             nodeType: 'python',
             outputName: attributes.returnVariable,
         })
     }
+    // Monaco binds Cmd+Enter once at editor mount, so a plain `run` closure would capture the
+    // initial (empty) code and the guard would drop the run. Route through a ref that always
+    // points at the latest run so the keybinding sees the current code, output name, and run state.
+    const runRef = useRef(run)
+    runRef.current = run
 
     return (
         <div className="flex h-full min-h-0 flex-col">
@@ -187,21 +226,26 @@ const Settings = ({
                 className="flex w-full shrink-0 flex-row items-center gap-2 border-t border-b bg-white py-1 pl-2 pr-2 dark:bg-black"
                 onClick={(event) => event.stopPropagation()}
             >
+                {/* Run flips to Cancel while the cell runs, mirroring the SQL editor's affordance. */}
                 <LemonButton
                     data-attr="notebook-python-v2-run-button"
                     size="small"
                     type="primary"
-                    icon={<IconPlayFilled color="var(--success)" />}
+                    icon={isRunning ? <IconCancel /> : <IconPlayFilled color="var(--success)" />}
                     onClick={() => {
-                        if (!isRunning) {
+                        if (isRunning) {
+                            if (!isInterrupting) {
+                                interruptRun()
+                            }
+                        } else {
                             run()
                         }
                     }}
-                    loading={isRunning}
+                    loading={isInterrupting}
                     disabledReason={operationBlockReason ?? undefined}
-                    tooltip="Run Python (⌘⏎)"
+                    tooltip={isRunning ? 'Stop the running cell' : 'Run Python (⌘⏎)'}
                 >
-                    Run
+                    {isRunning ? 'Cancel' : 'Run'}
                 </LemonButton>
             </div>
             <div className="min-h-0 flex-1">
@@ -209,7 +253,7 @@ const Settings = ({
                     language="python"
                     value={typeof attributes.code === 'string' ? attributes.code : ''}
                     onChange={(value) => updateAttributes({ code: value ?? '' })}
-                    onPressCmdEnter={run}
+                    onPressCmdEnter={() => runRef.current()}
                     allowManualResize={false}
                     minHeight={160}
                     embedded

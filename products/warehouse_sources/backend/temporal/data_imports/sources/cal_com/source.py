@@ -69,7 +69,6 @@ You can create an API key under **Settings → Security → API keys** in [Cal.c
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

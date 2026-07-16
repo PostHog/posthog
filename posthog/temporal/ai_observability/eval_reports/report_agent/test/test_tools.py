@@ -4,6 +4,7 @@ import json
 import datetime as dt
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -23,6 +24,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     add_citation,
     add_section,
     get_report_run,
+    get_summary_metrics,
     list_recent_report_runs,
     set_title,
 )
@@ -36,6 +38,7 @@ _add_section_fn = add_section.func  # type: ignore[attr-defined]
 _add_citation_fn = add_citation.func  # type: ignore[attr-defined]
 _list_recent_report_runs_fn = list_recent_report_runs.func  # type: ignore[attr-defined]
 _get_report_run_fn = get_report_run.func  # type: ignore[attr-defined]
+_get_summary_metrics_fn = get_summary_metrics.func  # type: ignore[attr-defined]
 
 
 def _state_with_empty_report() -> dict:
@@ -86,6 +89,82 @@ class TestWidenedTsWindow(SimpleTestCase):
         ts_start, ts_end = _widened_ts_window(state)
         self.assertEqual(ts_start.year, 2020)
         self.assertEqual(ts_end.year, 2099)
+
+
+class TestSummaryMetrics(SimpleTestCase):
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_boolean_keeps_pass_rate_separate_from_outcome_distribution(self, mock_execute_hogql):
+        mock_execute_hogql.side_effect = [
+            [[80, 18, 2, 100]],
+            [[7, 2, 1, 10]],
+        ]
+        state = {
+            "team_id": 1,
+            "evaluation_id": "eval-id",
+            "output_type": "boolean",
+            "period_start": "2026-04-08T14:00:00+00:00",
+            "period_end": "2026-04-08T15:00:00+00:00",
+            "previous_period_start": "2026-04-08T13:00:00+00:00",
+        }
+
+        result = json.loads(_get_summary_metrics_fn(state=state))
+
+        self.assertEqual(
+            result["current_period"]["result_rates"],
+            {"pass": 80.0, "fail": 18.0, "na": 2.0},
+        )
+        self.assertEqual(result["current_period"]["pass_rate"], 81.63)
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_boolean_current_period_preserves_zero_pass_rate_when_no_results_are_applicable(self, mock_execute_hogql):
+        mock_execute_hogql.side_effect = [
+            [[0, 0, 4, 4]],
+            [[0, 0, 3, 3]],
+        ]
+        state = {
+            "team_id": 1,
+            "evaluation_id": "eval-id",
+            "output_type": "boolean",
+            "period_start": "2026-04-08T14:00:00+00:00",
+            "period_end": "2026-04-08T15:00:00+00:00",
+            "previous_period_start": "2026-04-08T13:00:00+00:00",
+        }
+
+        result = json.loads(_get_summary_metrics_fn(state=state))
+
+        self.assertEqual(result["current_period"]["pass_rate"], 0.0)
+        self.assertIsNone(result["previous_period"]["pass_rate"])
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_sentiment_uses_label_predicates_and_returns_distribution(self, mock_execute_hogql):
+        mock_execute_hogql.side_effect = [
+            [[2, 1, 1, 4]],
+            [[1, 1, 0, 2]],
+        ]
+        state = {
+            "team_id": 1,
+            "evaluation_id": "eval-id",
+            "output_type": "sentiment",
+            "period_start": "2026-04-08T14:00:00+00:00",
+            "period_end": "2026-04-08T15:00:00+00:00",
+            "previous_period_start": "2026-04-08T13:00:00+00:00",
+        }
+
+        result = json.loads(_get_summary_metrics_fn(state=state))
+
+        self.assertEqual(result["output_type"], "sentiment")
+        self.assertEqual(
+            result["current_period"]["result_counts"],
+            {"positive": 2, "neutral": 1, "negative": 1},
+        )
+        self.assertEqual(
+            result["current_period"]["result_rates"],
+            {"positive": 50.0, "neutral": 25.0, "negative": 25.0},
+        )
+        current_query = mock_execute_hogql.call_args_list[0].args[1]
+        self.assertIn("properties.$ai_sentiment_label = 'positive'", current_query)
+        self.assertIn("properties.$ai_evaluation_result_type = 'sentiment'", current_query)
+        self.assertNotIn("properties.$ai_evaluation_result = true", current_query)
 
 
 class TestUuidRegex(SimpleTestCase):
@@ -305,6 +384,7 @@ class TestListAndGetReportRun(BaseTest):
         self.assertEqual(result[0]["title"], "Recent report")
         self.assertEqual(result[0]["pass_rate"], 94.2)
         self.assertEqual(result[0]["total_runs"], 53)
+        self.assertNotIn("result_rates", result[0])
         self.assertIn("run_id", result[0])
         # Full content intentionally omitted
         self.assertNotIn("content", result[0])
@@ -324,6 +404,8 @@ class TestListAndGetReportRun(BaseTest):
         self.assertEqual(result["content"]["title"], "Recent report")
         self.assertEqual(len(result["content"]["sections"]), 1)
         self.assertEqual(result["metadata"]["pass_rate"], 94.2)
+        self.assertNotIn("result_counts", result["metadata"])
+        self.assertNotIn("result_rates", result["metadata"])
 
     def test_list_includes_back_to_back_previous_run(self):
         # Regression: period_end exactly equal to the current period_start used to be
@@ -354,7 +436,10 @@ class TestListAndGetReportRun(BaseTest):
             content={
                 "title": "Content-only metrics",
                 "sections": [],
-                "metrics": {"pass_rate": 42.5, "total_runs": 8},
+                "metrics": {
+                    "total_runs": 8,
+                    "result_counts": {"pass": 6, "fail": 2, "na": 0},
+                },
             },
             metadata={},
             period_start=now - dt.timedelta(hours=2),
@@ -362,7 +447,8 @@ class TestListAndGetReportRun(BaseTest):
         )
         result = json.loads(_list_recent_report_runs_fn(state=self.state))
         entry = next(r for r in result if r["run_id"] == str(content_only_run.id))
-        self.assertEqual(entry["pass_rate"], 42.5)
+        self.assertEqual(entry["pass_rate"], 75.0)
+        self.assertEqual(entry["result_rates"], {"pass": 75.0, "fail": 25.0, "na": 0.0})
         self.assertEqual(entry["total_runs"], 8)
 
     def test_get_rejects_non_uuid(self):

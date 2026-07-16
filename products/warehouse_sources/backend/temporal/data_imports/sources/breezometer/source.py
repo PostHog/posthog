@@ -49,7 +49,6 @@ class BreezometerSource(SimpleSource[BreezometerSourceConfig]):
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="BreezoMeter",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your API key and the locations you want to track to pull air-quality and pollen data into the PostHog Data warehouse.
 
 BreezoMeter is now part of **Google Maps Platform** — this source uses the [Air Quality API](https://developers.google.com/maps/documentation/air-quality) and the [Pollen API](https://developers.google.com/maps/documentation/pollen). Create an API key in the [Google Cloud console](https://console.cloud.google.com/apis/credentials) and enable both APIs for your project.

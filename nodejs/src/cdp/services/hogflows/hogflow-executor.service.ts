@@ -34,6 +34,7 @@ import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
 import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 import {
+    WorkflowChangedError,
     actionIdForLogging,
     ensureCurrentAction,
     findContinueAction,
@@ -114,6 +115,7 @@ export class HogFlowExecutorService {
             random_cohort_branch: new RandomCohortBranchHandler(),
             function: hogFunctionHandler,
             function_sms: hogFunctionHandler,
+            function_push: hogFunctionHandler,
             function_email: hogFunctionEmailHandler,
             exit: new ExitHandler(),
         }
@@ -492,16 +494,47 @@ export class HogFlowExecutorService {
                     this.goToNextAction(result, currentAction, handlerResult.nextAction, 'succeeded')
                 }
             } catch (err) {
-                // Add logs and metric specifically for this action
-                this.logAction(result, currentAction, 'error', `Errored: ${String(err)}`) // TODO: Is this enough detail?
-                this.trackActionMetric(result, currentAction, 'failed')
+                // A live-edit WorkflowChangedError is not this action failing - the graph moved
+                // underneath the run - so it skips the failure log/metric and is classified by the
+                // outer catch. The same error from an untouched flow is a malformed definition and
+                // keeps the failure treatment.
+                if (!this.isLiveEditWorkflowChange(err, invocation)) {
+                    // Add logs and metric specifically for this action
+                    this.logAction(result, currentAction, 'error', `Errored: ${String(err)}`) // TODO: Is this enough detail?
+                    this.trackActionMetric(result, currentAction, 'failed')
+                }
 
                 throw err
             }
         } catch (err) {
+            // The workflow was edited underneath this run and its current step (or that step's next
+            // edge) no longer exists. That's a user action, not a defect: finish the run as a
+            // deliberate exit - no result.error, so it doesn't count towards the workflow's failure
+            // rate - with its own metric so exits are attributable per workflow.
+            if (this.isLiveEditWorkflowChange(err, invocation)) {
+                result.finished = true
+                this.log(
+                    result,
+                    'info',
+                    `Workflow exited: the workflow was edited and this run's current step no longer exists (${err.message})`
+                )
+                result.metrics.push({
+                    team_id: invocation.hogFlow.team_id,
+                    app_source_id: invocation.parentRunId ?? invocation.hogFlow.id,
+                    instance_id: invocation.state.currentAction?.id,
+                    metric_kind: 'other',
+                    metric_name: 'exited_workflow_changed',
+                    count: 1,
+                })
+
+                return result
+            }
+
             // The final catch - in this case we are always just logging the final outcome
             result.error = err.message
             result.finished = true // Explicitly set to true to prevent infinite loops
+            // (a WorkflowChangedError from an untouched flow lands here too: the graph was malformed
+            // all along, so it stays a failure the author can see rather than a quiet exit)
 
             this.maybeContinueToNextActionOnError(result)
 
@@ -513,6 +546,19 @@ export class HogFlowExecutorService {
         }
 
         return result
+    }
+
+    // A structural lookup miss only counts as a live edit when the flow was actually updated after
+    // the run arrived at its current step. Otherwise the graph was malformed from the start (a bad
+    // save, a lenient draft in a test run) and hiding it as a deliberate exit would bury the defect.
+    private isLiveEditWorkflowChange(err: unknown, invocation: CyclotronJobInvocationHogFlow): boolean {
+        if (!(err instanceof WorkflowChangedError)) {
+            return false
+        }
+        const stepStartedAt = invocation.state.currentAction?.startedAtTimestamp
+        // updated_at is a Date from pg in production and epoch millis in fixtures - normalize
+        const updatedAt = invocation.hogFlow.updated_at ? new Date(invocation.hogFlow.updated_at).getTime() : null
+        return Boolean(stepStartedAt && updatedAt && updatedAt > stepStartedAt)
     }
 
     private goToNextAction(

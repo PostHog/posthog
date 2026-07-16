@@ -44,6 +44,7 @@ import {
     IconPlay,
     IconPlaylist,
     IconPlug,
+    IconPullRequest,
     IconReceipt,
     IconRetention,
     IconRewindPlay,
@@ -64,6 +65,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
+import { IconStamphog } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import {
@@ -356,6 +358,12 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     visual_review: {
         icon: <IconApp />,
+    },
+    code_review: {
+        icon: <IconPullRequest />,
+    },
+    stamphog: {
+        icon: <IconStamphog />,
     },
     exports: {
         icon: <IconDownload />,

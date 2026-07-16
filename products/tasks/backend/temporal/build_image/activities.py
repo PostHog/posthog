@@ -19,6 +19,7 @@ from products.tasks.backend.logic.services.image_spec import (
     validate_image_repository,
     validate_spec_buildable,
 )
+from products.tasks.backend.metrics import observe_custom_image_build
 from products.tasks.backend.models import SandboxCustomImage
 from products.tasks.backend.temporal.observability import log_activity_execution
 
@@ -136,6 +137,7 @@ def scan_image_spec(input: ImageBuildActivityInput) -> ScanImageSpecOutput:
             image.status = SandboxCustomImage.Status.SCAN_FAILED
             image.error = "Security scan failed: " + ("; ".join(filter(None, high_findings)) or "unsafe spec")
             image.save(update_fields=["scan_result", "status", "error", "updated_at"])
+            observe_custom_image_build("scan_rejected")
         return result
 
 
@@ -322,6 +324,7 @@ def build_and_publish_image(input: ImageBuildActivityInput) -> str:
         image.status = SandboxCustomImage.Status.READY
         image.error = ""
         image.save(update_fields=["version", "modal_image_name", "status", "error", "updated_at"])
+        observe_custom_image_build("succeeded")
 
         logger.info(
             "custom_image_published",
@@ -352,3 +355,4 @@ def mark_image_build_failed(input: MarkImageBuildFailedInput) -> None:
             image.status = SandboxCustomImage.Status.BUILD_FAILED
             image.error = input.error[:2000]
             image.save(update_fields=["status", "error", "updated_at"])
+            observe_custom_image_build("failed")

@@ -25,6 +25,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { SessionAnalysisWarning } from './SessionAnalysisWarning'
 import { SuggestionBanner } from './SuggestionBanner'
 
@@ -53,8 +55,12 @@ export function EditorFiltersShell({ query, showing, embedded, children }: Edito
         []
     )
     const { desiredSize: panelWidth, isResizeInProgress: isResizing } = useValues(resizerLogic(resizerProps))
-    // MaxTool should not be active when insights are embedded (e.g., in notebooks)
-    const maxToolActive = !embedded
+    // MaxTool should not be active when its editor is hidden or embedded (e.g., in notebooks)
+    const maxToolActive = showing && !embedded
+
+    useAttachedContext([{ type: 'insight_query', value: JSON.stringify(querySource), label: 'Current query' }], {
+        active: maxToolActive,
+    })
 
     const QueryTypeIcon = QUERY_TYPES_METADATA[query.kind].icon
 

@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, path } from 'kea'
+import { afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -12,8 +12,13 @@ import type { logsConfigLogicType } from './logsConfigLogicType'
 // SDK convention before `logs_config` resolves.
 export const DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY = 'posthogDistinctId'
 
+// Mirrors the backend default in products/logs/backend/models.py. Ordered: session ID
+// detection checks keys in list order and the first match wins.
+export const DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS = ['posthogSessionId']
+
 export interface LogsConfig {
     logs_distinct_id_attribute_key: string
+    logs_session_id_attribute_keys: string[]
 }
 
 export const logsConfigLogic = kea<logsConfigLogicType>([
@@ -34,6 +39,14 @@ export const logsConfigLogic = kea<logsConfigLogicType>([
             },
         ],
     })),
+    selectors({
+        // Undefined until logs_config resolves — session detection falls back to its
+        // built-in convention list (which contains the default) in the meantime.
+        configuredSessionIdKeys: [
+            (s) => [s.logsConfig],
+            (logsConfig): string[] | undefined => logsConfig?.logs_session_id_attribute_keys,
+        ],
+    }),
     afterMount(({ actions }) => {
         actions.loadLogsConfig()
     }),

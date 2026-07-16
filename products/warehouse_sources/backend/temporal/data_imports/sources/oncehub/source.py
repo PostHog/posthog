@@ -68,7 +68,6 @@ You can generate an API key in [OnceHub](https://app.oncehub.com) under **Settin
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

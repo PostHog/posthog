@@ -9,7 +9,7 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType, appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { heatmapDataLogic, MAX_HEATMAP_HEIGHT } from 'lib/components/heatmaps/heatmapDataLogic'
 import { dayjs } from 'lib/dayjs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -352,7 +352,8 @@ export function HeatmapsBrowser(): JSX.Element {
     const logic = heatmapsBrowserLogic({ iframeRef })
     const clickmapLogic = recordingClickmapLogic({ iframeRef })
 
-    const { displayUrl, isBrowserUrlAuthorized, hasValidReplayIframeData, isBrowserUrlValid } = useValues(logic)
+    const { displayUrl, isBrowserUrlAuthorized, hasValidReplayIframeData, isBrowserUrlValid, isHeightCapped } =
+        useValues(logic)
     const { clickmapAvailable } = useValues(clickmapLogic)
 
     return (
@@ -371,6 +372,12 @@ export function HeatmapsBrowser(): JSX.Element {
                     />
                     <LemonDivider className="my-4" />
                     <div className="relative border">
+                        {isHeightCapped && (
+                            <LemonBanner type="info">
+                                This heatmap is capped at {MAX_HEATMAP_HEIGHT.toLocaleString()}px tall to keep rendering
+                                fast, so data below that point isn't shown.
+                            </LemonBanner>
+                        )}
                         {hasValidReplayIframeData ? (
                             <FixedReplayHeatmapBrowser iframeRef={iframeRef} />
                         ) : displayUrl ? (

@@ -52,7 +52,6 @@ Create a free API key (v3 auth) in your [TMDB account settings](https://www.them
             iconPath="/static/services/tmdb.png",
             docsUrl="https://posthog.com/docs/cdp/sources/tmdb",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

@@ -291,7 +291,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(Evaluation.objects.filter(name="Will Rollback").count(), 0)
         self.assertEqual(EvaluationReport.objects.count(), 0)
 
-    def test_can_create_sentiment_evaluation_without_default_report(self):
+    def test_can_create_sentiment_evaluation_with_default_report(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",
             {
@@ -311,7 +311,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(evaluation.evaluation_config, {"source": "user_messages"})
         self.assertEqual(evaluation.output_type, "sentiment")
         self.assertEqual(evaluation.output_config, {})
-        self.assertEqual(EvaluationReport.objects.filter(evaluation=evaluation).count(), 0)
+        self.assertEqual(EvaluationReport.objects.filter(evaluation=evaluation).count(), 1)
 
     def test_rejects_sentiment_evaluation_with_trace_target(self):
         response = self.client.post(
