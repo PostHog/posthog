@@ -411,6 +411,47 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
 
         assert response.results == [("id", "fail_soft_customers", "id", None, None)]
 
+    @parameterized.expand(
+        [
+            ("field_name", {"field_name": "buyer"}),
+            ("source_key", {"source_table_key": "buyer_id"}),
+            ("joining_key", {"joining_table_key": "buyer_id"}),
+            ("configuration", {"configuration": {"experiments_optimized": True}}),
+        ]
+    )
+    def test_editing_accepted_join_drops_stale_provenance(self, _name: str, edit: dict) -> None:
+        # The created join is editable with warehouse_view:write alone; approval rights are not
+        # required. If it diverges from the reviewed snapshot, its confidence/reasoning must drop so
+        # an unreviewed join can't masquerade as reviewed.
+        source = self._create_warehouse_table("prov_orders")
+        self._create_warehouse_table("prov_customers")
+        proposal = propose_relationship(
+            team=self.team,
+            user=self.user,
+            source_table_name=source.name,
+            source_table_key="id",
+            joining_table_name="prov_customers",
+            joining_table_key="id",
+            field_name="customer",
+            confidence=0.9,
+            reasoning="Reviewed join",
+        )
+        self._accept_relationship(proposal)
+        proposal.refresh_from_db()
+
+        query = (
+            "SELECT confidence, reasoning FROM system.information_schema.relationships "
+            "WHERE source_table = 'prov_orders'"
+        )
+        before = execute_hogql_query(query, team=self.team, context=self._context())
+        assert (0.9, "Reviewed join") in before.results
+
+        DataWarehouseJoin.objects.filter(pk=proposal.created_join_id).update(**edit)
+
+        after = execute_hogql_query(query, team=self.team, context=self._context())
+        assert after.results, "the active join should still be discoverable after an edit"
+        assert all(row == (None, None) for row in after.results)
+
     @parameterized.expand([("proposed", False), ("rejected", True)])
     def test_unaccepted_relationship_is_not_query_discoverable(self, _name: str, rejected: bool) -> None:
         source = self._create_warehouse_table("catalog_orders")

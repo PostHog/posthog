@@ -1014,7 +1014,16 @@ def _catalog_table_visible(context: "HogQLContext", table_name: str) -> bool:
 def _catalog_accepted_relationships(
     context: "HogQLContext", allowed: Optional[frozenset[str]]
 ) -> dict[_RelationshipProvenanceKey, tuple[Optional[float], Optional[str]]]:
-    """Accepted proposals keyed by their active created join's full identity (fail-soft)."""
+    """Accepted proposals keyed by their created join's identity, only while that join still matches
+    what was reviewed (fail-soft).
+
+    The join is a mutable ``DataWarehouseJoin``: editing its tables, keys, field name, or
+    configuration needs only ``warehouse_view:write``, not ``data_catalog_approval:write``. Keying
+    provenance off the join's current fields alone would let such an edit inherit the old proposal's
+    confidence/reasoning, making an unreviewed join look reviewed. So we compare every reviewed
+    snapshot field (identity + configuration) against the live join and drop provenance the moment
+    they diverge.
+    """
     team_id = context.team_id
     if team_id is None or not _can_read_catalog(context):
         return {}
@@ -1031,22 +1040,47 @@ def _catalog_accepted_relationships(
             accepted = accepted.filter(created_join__source_table_name__in=allowed)
         result: dict[_RelationshipProvenanceKey, tuple[Optional[float], Optional[str]]] = {}
         for (
+            p_source_table,
+            p_source_key,
+            p_target_table,
+            p_target_key,
+            p_field_name,
+            p_configuration,
             source_table,
-            field_name,
             source_key,
             target_table,
             target_key,
+            field_name,
+            configuration,
             confidence,
             reasoning,
         ) in accepted.values_list(
+            "source_table_name",
+            "source_table_key",
+            "joining_table_name",
+            "joining_table_key",
+            "field_name",
+            "configuration",
             "created_join__source_table_name",
-            "created_join__field_name",
             "created_join__source_table_key",
             "created_join__joining_table_name",
             "created_join__joining_table_key",
+            "created_join__field_name",
+            "created_join__configuration",
             "confidence",
             "reasoning",
         ):
+            # Trust provenance only if the live join is still identical to the reviewed snapshot.
+            if (p_source_table, p_source_key, p_target_table, p_target_key, p_field_name) != (
+                source_table,
+                source_key,
+                target_table,
+                target_key,
+                field_name,
+            ):
+                continue
+            if (p_configuration or {}) != (configuration or {}):
+                continue
             if not _catalog_table_visible(context, source_table) or not _catalog_table_visible(context, target_table):
                 continue
             result[(source_table, field_name, source_key, target_table, target_key)] = (
