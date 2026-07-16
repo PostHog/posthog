@@ -319,14 +319,14 @@ class _PinnedIPAdapter(HTTPAdapter):
         return super().send(request, stream=stream, timeout=timeout, verify=verify, cert=cert, proxies=proxies)
 
     def cert_verify(self, conn: object, url: str, verify: bool | str, cert: None | str | tuple[str, str]) -> None:
-        super().cert_verify(conn, url, verify, cert)  # type: ignore[arg-type]
+        super().cert_verify(conn, url, verify, cert)
         original = self._current_original_host
         if not original:
             return
         # Mutating urllib3 pool internals so TLS SNI / cert verification use the original hostname,
         # not the pinned IP. These attrs exist at runtime but aren't visible to static checkers.
         if hasattr(conn, "assert_hostname"):
-            conn.assert_hostname = original  # type: ignore[attr-defined]  # ty: ignore[invalid-assignment]
+            conn.assert_hostname = original  # pyright: ignore[reportAttributeAccessIssue]  # ty: ignore[invalid-assignment]
         conn_kw = getattr(conn, "conn_kw", None)
         if isinstance(conn_kw, dict):
             conn_kw["server_hostname"] = original
