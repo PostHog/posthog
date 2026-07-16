@@ -13,6 +13,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
+from rest_framework.views import APIView
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -39,10 +40,11 @@ logger = structlog.get_logger(__name__)
 class PulseProjectWritePermission(BasePermission):
     message = "Project admin access is required to modify Pulse briefs."
 
-    def has_permission(self, request: Request, view: TeamAndOrgViewSetMixin) -> bool:
+    def has_permission(self, request: Request, view: APIView) -> bool:
         if request.method in SAFE_METHODS or is_service_auth(request):
             return True
-        return view.user_access_control.check_access_level_for_object(view.team, required_level="admin")
+        pulse_view = cast(TeamAndOrgViewSetMixin, view)
+        return pulse_view.user_access_control.check_access_level_for_object(pulse_view.team, required_level="admin")
 
 
 def _validate_anchor_access(*, anchors: dict, team_id: int, user_access_control: UserAccessControl) -> None:
