@@ -11630,3 +11630,151 @@ class TestGetDirectConnectionMetadata(SimpleTestCase):
 
         self.assertEqual(result, {})
         mock_capture.assert_called_once_with(error)
+
+
+class TestGithubMultiRepoPatch(APIBaseTest):
+    def _create_github_source(self, job_inputs: dict) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Github",
+            created_by=self.user,
+            prefix="gh",
+            job_inputs=job_inputs,
+        )
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.GithubSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_patch_adding_repo_creates_qualified_rows_and_pins_legacy_marker(self, _mock_validate):
+        source = self._create_github_source(
+            {
+                "auth_method": {"selection": "pat", "personal_access_token": "ghp_secret"},
+                "repository": "org/repo",
+            }
+        )
+        legacy_row = ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source_id=source.pk, name="issues", should_sync=True
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "auth_method": {"selection": "pat"},
+                    "repositories": ["org/repo", "acme/other"],
+                    # A client must not be able to re-point the bare-naming marker: renaming it
+                    # would detach the legacy rows' tables.
+                    "repository": "attacker/override",
+                }
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        source.refresh_from_db()
+        assert source.job_inputs["repository"] == "org/repo"
+        assert source.job_inputs["repositories"] == ["org/repo", "acme/other"]
+
+        legacy_row.refresh_from_db()
+        assert legacy_row.should_sync is True
+        assert legacy_row.name == "issues"
+
+        new_row = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="acme/other.issues")
+        assert new_row.should_sync is False
+        assert new_row.sync_type_config.get("schema_metadata") == {
+            "source_repository": "acme/other",
+            "source_endpoint": "issues",
+        }
+        # The legacy repo keeps bare names — no qualified duplicates for it.
+        assert not ExternalDataSchema.objects.filter(
+            team_id=self.team.pk, source_id=source.pk, name="org/repo.issues"
+        ).exists()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.GithubSource.delete_webhooks_for_repositories",
+        return_value=[],
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.GithubSource.ensure_webhooks_for_repositories",
+        return_value=[],
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.GithubSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_patch_repo_change_reconciles_webhooks_and_prunes_mapping(self, _mock_validate, mock_ensure, mock_delete):
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+        from products.warehouse_sources.backend.temporal.data_imports.sources.github.webhook_template import (
+            template as github_webhook_template,
+        )
+
+        source = self._create_github_source(
+            {
+                "auth_method": {"selection": "pat", "personal_access_token": "ghp_secret"},
+                "repository": "org/repo",
+                "repositories": ["org/repo", "acme/other"],
+            }
+        )
+        legacy_webhook_row = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="workflow_runs",
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+        )
+        removed_webhook_row = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="acme/other.workflow_runs",
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+            sync_type_config={
+                "schema_metadata": {"source_repository": "acme/other", "source_endpoint": "workflow_runs"}
+            },
+        )
+        hog_function = HogFunction.objects.create(
+            team=self.team,
+            type="warehouse_source_webhook",
+            name="GitHub webhook",
+            enabled=True,
+            inputs_schema=github_webhook_template.inputs_schema,
+            inputs={
+                "source_id": {"value": str(source.pk)},
+                "schema_mapping": {
+                    "value": {
+                        "workflow_run": str(legacy_webhook_row.id),
+                        "acme/other.workflow_run": str(removed_webhook_row.id),
+                    }
+                },
+                "signing_secret": {"value": "sekret"},
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "auth_method": {"selection": "pat"},
+                    "repositories": ["org/repo", "new/repo"],
+                }
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        # New repo's hooks are pinned to the source's existing secret; removed repo's hook deleted.
+        assert mock_ensure.call_args.args[3] == ["new/repo"]
+        assert mock_ensure.call_args.args[4] == "sekret"
+        assert mock_delete.call_args.args[3] == ["acme/other"]
+
+        # Mapping is rewritten, pruning the removed repo — a merge would leave its key routing
+        # events into a disabled schema forever.
+        hog_function.refresh_from_db()
+        assert hog_function.inputs is not None
+        mapping = hog_function.inputs["schema_mapping"]["value"]
+        assert mapping == {"workflow_run": str(legacy_webhook_row.id)}
+
+        removed_webhook_row.refresh_from_db()
+        assert removed_webhook_row.deleted is True or removed_webhook_row.should_sync is False

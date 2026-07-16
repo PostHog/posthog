@@ -49,3 +49,9 @@ export type { UseToolStreamListenerOptions } from '../hooks/useToolStream'
 // header back button — outside the lazy panel chunk (Tier 1 `api/runner`).
 export { runnerPanelLogic } from '../logics/runnerPanelLogic'
 export type { RunnerPanelLogicProps, ActiveCreation } from '../logics/runnerPanelLogic'
+
+// --- Composer seed hand-off (headless) ---
+// A one-shot store that lets a host seed a not-yet-mounted composer with an initial prompt (optionally
+// auto-submitting it); the paired `taskTrackerSceneLogic` consumes it on mount or when it arrives.
+export { composerSeedLogic } from '../logics/composerSeedLogic'
+export type { ComposerSeed, ComposerSeedLogicProps } from '../logics/composerSeedLogic'

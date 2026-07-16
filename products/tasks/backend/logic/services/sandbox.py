@@ -59,6 +59,10 @@ class SandboxTemplate(str, Enum):
     VM_BASE = "vm_base"
 
     STREAMLIT_BASE = "streamlit_base"
+    # Minimal template (git, node, uv — no agent server, no skills). For review/exec
+    # sandboxes like stamphog that never run the agent server. See
+    # Dockerfile.sandbox-slim and modal_sandbox.py's SLIM_BASE image definition.
+    SLIM_BASE = "slim_base"
 
 
 class ExecutionResult(BaseModel):

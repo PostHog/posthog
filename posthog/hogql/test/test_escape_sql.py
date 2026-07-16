@@ -16,7 +16,7 @@ from posthog.hogql.escape_sql import (
 from posthog.hogql.parser import parse_expr
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models.utils import UUIDT
+from posthog.uuidt import UUIDT
 
 _ROUNDTRIP_IDENTIFIER_SAMPLES = [
     "back`tick",
