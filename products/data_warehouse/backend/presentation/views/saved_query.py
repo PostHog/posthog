@@ -21,7 +21,7 @@ from posthog.schema import DataWarehouseManagedViewsetKind
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, SerializedField, serialize_fields
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import prepare_and_print_ast
@@ -453,6 +453,11 @@ class DataWarehouseSavedQuerySerializer(
                     view.set_columns(columns)
 
                 view.external_tables = view.s3_tables
+            except (QueryError, ResolutionError, ExposedHogQLError) as e:
+                # Expected user-input errors (inaccessible/unknown tables, invalid HogQL). The user
+                # still gets a clear validation error — don't report these to error tracking.
+                logger.warning("Failed to retrieve types for view %s: %s", view.name, e)
+                raise serializers.ValidationError("Failed to retrieve types for view")
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to retrieve types for view %s", view.name)
@@ -596,6 +601,11 @@ class DataWarehouseSavedQuerySerializer(
                     view.external_tables = view.s3_tables
                 except RecursionError:
                     raise serializers.ValidationError("Model contains a cycle")
+                except (QueryError, ResolutionError, ExposedHogQLError) as e:
+                    # Expected user-input errors (inaccessible/unknown tables, invalid HogQL). The user
+                    # still gets a clear validation error — don't report these to error tracking.
+                    logger.warning("Failed to retrieve types for view %s: %s", view.name, e)
+                    raise serializers.ValidationError("Failed to retrieve types for view")
                 except Exception as e:
                     capture_exception(e)
                     logger.exception("Failed to retrieve types for view %s", view.name)
