@@ -1,6 +1,6 @@
 ---
 name: adopting-shared-alerting
-description: "How PostHog's shared alerting primitives work and how a product adopts them. Use when working on alert lifecycle transitions, notification destinations backed by HogFunctions, fixed-cadence scheduling, the shared AlertWizard, or when a product needs alerting behavior. Covers common/alerting, products/alerts/backend, product adapters, delivery rollback, and the single-mutator rule. Trigger terms: alert state machine, AlertPolicy, CheckInput, EventKindSpec, build_alert_destination_config, due alerts, alert destinations, AlertWizard."
+description: "How PostHog's shared alerting primitives work and how a product adopts them. Use when working on alert lifecycle transitions, HogFunction or email delivery, fixed-cadence scheduling, the shared AlertWizard, or when a product needs alerting behavior. Covers common/alerting, products/alerts/backend, product adapters, delivery rollback, and the single-mutator rule. Trigger terms: alert state machine, AlertPolicy, CheckInput, EventKindSpec, build_alert_destination_config, send_alert_email, due alerts, alert destinations, AlertWizard."
 ---
 
 # Adopting shared alerting
@@ -12,12 +12,12 @@ PostHog follows the Prometheus and Alertmanager split: evaluation stays product-
 
 ## Architecture
 
-| Layer                | Location                                            | Responsibility                                                                                     |
-| -------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Pure decision logic  | `common/alerting/`                                  | Lifecycle state machine and fixed-cadence scheduling math                                          |
-| Shared alert product | `products/alerts/backend/`                          | Destination validation/configuration, HogFunction persistence, and internal-event delivery helpers |
-| Product adapter      | `products/<name>/backend/`                          | Model translation, evaluation, due-alert eligibility, event payloads, and orchestration            |
-| Shared frontend      | `frontend/src/lib/components/Alerting/AlertWizard/` | Reusable destination, trigger, and configuration flow for HogFunction-based alerts                 |
+| Layer                | Location                                            | Responsibility                                                                                 |
+| -------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Pure decision logic  | `common/alerting/`                                  | Lifecycle state machine and fixed-cadence scheduling math                                      |
+| Shared alert product | `products/alerts/backend/`                          | Destination configuration, HogFunction persistence, internal-event delivery, and email sending |
+| Product adapter      | `products/<name>/backend/`                          | Model translation, evaluation, due-alert eligibility, event payloads, and orchestration        |
+| Shared frontend      | `frontend/src/lib/components/Alerting/AlertWizard/` | Reusable destination, trigger, and configuration flow for HogFunction-based alerts             |
 
 `common/alerting/` must remain pure Python with no Django or product imports. Django-aware destination code belongs to the alerts product, not the pure layer or a top-level PostHog package.
 
@@ -67,26 +67,54 @@ Products should define a thin event-content module like `products/logs/backend/a
 
 ### `destinations.py` and `facade/api.py`
 
-Use `products.alerts.backend.facade.api` from product APIs for:
+Use `products.alerts.backend.facade.api` as the product-facing import boundary for:
 
 - `validate_destination_data`
 - `build_alert_destination_config`
 - `create_alert_destination_hog_functions`
 - `soft_delete_alert_destinations`
 - `soft_delete_all_alert_destinations`
+- `send_alert_email`
 
 Deletion is intentionally strict. Always pass `team_id`, `alert_id`, and the product's allowed event IDs. By-ID deletion also validates every HogFunction ID belongs to that alert before deleting anything.
 
-Worker dispatch uses `produce_alert_internal_event`, `flush_alert_internal_events`, and `alert_internal_event_delivered` from `products.alerts.backend.destinations`. Kafka enqueue is not delivery. Flush and verify the produce result before persisting a transition that depends on notification delivery.
-
 Discord support in the shared layer does not mean every product must expose Discord. The product's allowed destination types remain the public contract.
+
+## Notification delivery
+
+### HogFunction destinations
+
+Worker dispatch uses `produce_alert_internal_event`, `flush_alert_internal_events`, and `alert_internal_event_delivered` from `products.alerts.backend.destinations`.
+
+- Keep the `ProduceResult` returned by `produce_alert_internal_event(...)`; `None` means enqueue failed.
+- Flush the shared internal-event producer before checking delivery. Batch workers should flush once after producing the batch, not once per alert.
+- Call `alert_internal_event_delivered(...)` for each result after the flush. A successful enqueue alone is not confirmed delivery.
+- If delivery fails, restore the pre-check lifecycle outcome before persistence. Do not advance `state`, `consecutive_failures`, or notification timestamps that depend on successful delivery.
+- Keep evaluation bookkeeping and schedule advancement product-specific. Logs still advances `next_check_at` after an undelivered notification so the next cycle can reevaluate and retry.
+
+The shared helpers capture and log transport failures. The product adapter still decides which lifecycle writes are conditional on delivery.
+
+### Email notifications
+
+Use `send_alert_email(...)` from `products.alerts.backend.facade.api`. It creates one `EmailMessage`, adds every recipient, and sends it.
+
+The caller owns:
+
+- Recipient selection and authorization.
+- A stable `campaign_key` for the required retry and deduplication semantics.
+- Subject, template name, and template context.
+- Lifecycle decisions and error handling around the send.
+
+The helper does not choose templates, build product URLs, suppress duplicates, or convert send failures into alert state. Insight alerts are the reference adopter in `posthog/tasks/alerts/utils.py`.
 
 ## Scheduling
 
 `common/alerting/scheduling.py` shares fixed-minute cadence math:
 
-- `compute_shard_offset_seconds(...)`: deterministically spreads alerts across scheduler ticks.
-- `advance_next_check_at(...)`: advances and snaps `next_check_at` to the cadence grid.
+- `compute_shard_offset_seconds(...)`: deterministically spreads UUID-keyed alerts across scheduler ticks. Pass the product scheduler's actual interval when it differs from the 60-second default.
+- `advance_next_check_at(...)`: advances from the previous scheduled time, skips missed intervals, snaps to the midnight-anchored cadence grid, and applies the optional shard offset.
+
+Use a positive `check_interval_minutes`. Keep the same shard function when creating, updating, and advancing an alert so it remains on one stable grid. Existing drifted timestamps self-heal on their next advancement.
 
 Due-alert eligibility is product-specific. Logs keeps `due_alerts_q(...)` in `products/logs/backend/alert_utils.py` because enabled fields, state names, snooze fields, and tenancy constraints can differ. Reuse the math, but write and test the predicate against your product model.
 
@@ -113,11 +141,12 @@ The wizard only offers compatible destination/trigger pairs defined by HogFuncti
 2. Add one product state adapter and route every lifecycle write through `apply_outcome`.
 3. Define `EventKindSpec`s, allowed destination types, and the product's internal event properties.
 4. Validate, create, and delete destinations through the alerts product facade.
-5. Treat notification delivery and state persistence as one logical operation; roll back delivery-dependent outcomes on failure.
-6. Reuse fixed-cadence math or keep the product's calendar model, then implement a product-specific due-alert query.
-7. Keep evaluation, check history, model persistence, and Temporal orchestration in the product.
-8. If the product uses HogFunction alerts in the UI, configure and mount the shared `AlertWizard` rather than copying it.
-9. Extend the single-mutator semgrep rule and add focused tests at each product-owned boundary.
+5. Use shared internal-event delivery helpers for HogFunctions and `send_alert_email` for email transport.
+6. Treat notification delivery and state persistence as one logical operation; roll back delivery-dependent outcomes on failure.
+7. Reuse fixed-cadence math or keep the product's calendar model, then implement a product-specific due-alert query.
+8. Keep evaluation, check history, model persistence, and Temporal orchestration in the product.
+9. If the product uses HogFunction alerts in the UI, configure and mount the shared `AlertWizard` rather than copying it.
+10. Extend the single-mutator semgrep rule and add focused tests at each product-owned boundary.
 
 ## Not available yet
 
