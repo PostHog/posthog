@@ -165,14 +165,15 @@ class TestPaddleWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
         )
         self.mock_produce_to_warehouse_webhooks.assert_called_once()
 
-    def test_omitted_variance_skips_replay_check(self):
-        # No maximum_variance_seconds input is the shape of every already-deployed function; the
-        # drift check must be skipped, not raise on a null comparison (Hog `and` doesn't short-circuit).
+    def test_omitted_variance_defaults_to_active_and_rejects_stale(self):
+        # The webhook-creation path doesn't persist the schema default, so an omitted input (the
+        # shape of every created function) must still default to an active 5s check — not silently
+        # disable replay protection. A stale timestamp is rejected without the input being supplied.
         secret = "pdl_ntfset_test"
         ts = str(int(time.time()) - 3600)
         headers = self._make_signed_request(TRANSACTION_PAYLOAD, secret, timestamp=ts)
         globals = self._request_globals(TRANSACTION_PAYLOAD, headers)
-        self.run_function(
+        res = self.run_function(
             {
                 "signing_secret": secret,
                 "bypass_signature_check": False,
@@ -180,7 +181,8 @@ class TestPaddleWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
             },
             globals=globals,
         )
-        self.mock_produce_to_warehouse_webhooks.assert_called_once()
+        assert res.result == {"httpResponse": {"status": 400, "body": "Signature timestamp too old"}}
+        self.mock_produce_to_warehouse_webhooks.assert_not_called()
 
     def test_non_numeric_timestamp_with_variance_is_rejected(self):
         # A parseable header with a non-numeric ts must 400, not raise (toInt returns null).

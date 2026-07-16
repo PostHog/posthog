@@ -73,10 +73,11 @@ if (not inputs.bypass_signature_check) {
   }
 
   // Replay protection: reject deliveries whose signature timestamp is older than
-  // maximum_variance_seconds, mirroring the Paddle SDK's Verifier. 0 or unset disables it.
-  // Null-coalesce both operands: Hog's `and` does not short-circuit, and a non-numeric ts
-  // makes toInt return null, so a bare comparison would raise instead of returning a 400.
-  let maxVariance := inputs.maximum_variance_seconds ?? 0
+  // maximum_variance_seconds, mirroring the Paddle SDK's Verifier. Defaults to 5 when unset — the
+  // webhook-creation path only persists schema_mapping/source_id/signing_secret, not input defaults,
+  // so `?? 0` would silently disable the check in production. An explicit 0 still disables it (`??`
+  // coalesces null only, not 0). toInt is null-coalesced too: a non-numeric ts would otherwise raise.
+  let maxVariance := inputs.maximum_variance_seconds ?? 5
   if (maxVariance > 0) {
       if (toUnixTimestamp(now()) - (toInt(timestamp) ?? 0) > maxVariance) {
           return {
