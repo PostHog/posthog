@@ -576,10 +576,10 @@ export interface dashboardLogicActions {
     }
     refreshDashboardItems: (payload: {
         action: DashboardLoadAction | RefreshDashboardItemsAction
-        forceRefresh?: boolean
+        refresh: DashboardInsightRefreshMode
     }) => {
         action: DashboardLoadAction | RefreshDashboardItemsAction
-        forceRefresh?: boolean | undefined
+        refresh: DashboardInsightRefreshMode
     }
     refreshDashboardWidgets: (payload: { forceRefresh?: boolean; tileIds: number[] }) => {
         forceRefresh?: boolean | undefined
