@@ -282,7 +282,7 @@ describe('ToolExecutor', () => {
                 expect(commandDescription.includes('- analytics:')).toBe(expectGuides)
                 expect(advertisesSkills).toBe(expectSkills)
                 expect(commandDescription.includes('**SKILLS FIRST: HARD REQUIREMENT**')).toBe(expectSkills)
-                expect(commandDescription.includes('do not batch or parallelize it')).toBe(expectSkills)
+                expect(commandDescription.includes('never batch or parallelize it')).toBe(expectSkills)
                 expect(commandDescription.includes('learn <topic...>')).toBe(expectGuides)
 
                 const result = (await skillExecutor.handleToolCall(
