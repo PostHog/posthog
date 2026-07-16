@@ -113,6 +113,10 @@ class Ticket(UUIDTModel):
     # (team + zendesk_ticket_id), mirroring the GitHub issue-number pattern.
     zendesk_ticket_id = models.BigIntegerField(null=True, blank=True)
 
+    # Plain import dedup — set when a ticket is imported from Plain (thread ids are strings like "t_...").
+    # No standalone index: the partial unique constraint below covers the dedup lookup.
+    plain_thread_id = models.CharField(max_length=255, null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -166,6 +170,11 @@ class Ticket(UUIDTModel):
                 fields=["team", "zendesk_ticket_id"],
                 condition=models.Q(zendesk_ticket_id__isnull=False),
                 name="posthog_con_zendesk_ticket_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "plain_thread_id"],
+                condition=models.Q(plain_thread_id__isnull=False),
+                name="posthog_con_plain_thread_uniq",
             ),
         ]
 

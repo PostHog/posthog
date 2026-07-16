@@ -1,6 +1,11 @@
 from posthog.api.routing import RouterRegistry
 
-from products.conversations.backend.api import TicketViewSet, TicketViewViewSet, ZendeskImportViewSet
+from products.conversations.backend.api import (
+    PlainImportViewSet,
+    TicketViewSet,
+    TicketViewViewSet,
+    ZendeskImportViewSet,
+)
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -14,6 +19,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"conversations/zendesk_imports",
         ZendeskImportViewSet,
         "project_conversations_zendesk_imports",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"conversations/plain_imports",
+        PlainImportViewSet,
+        "project_conversations_plain_imports",
         ["team_id"],
     )
     # Dual-route surface preserved for existing clients (project + environment).

@@ -30,6 +30,8 @@ import type {
     PatchedConversationApi,
     PatchedTicketApi,
     PatchedTicketViewApi,
+    PlainImportJobApi,
+    PlainImportStartApi,
     SandboxMessageResponseApi,
     SandboxOpenApi,
     TicketApi,
@@ -288,6 +290,37 @@ export const conversationsQueueClearCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(conversationApi),
+    })
+}
+
+export const getConversationsPlainImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/plain_imports/`
+}
+
+export const conversationsPlainImportsCreate = async (
+    projectId: string,
+    plainImportStartApi: PlainImportStartApi,
+    options?: RequestInit
+): Promise<PlainImportJobApi> => {
+    return apiMutator<PlainImportJobApi>(getConversationsPlainImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(plainImportStartApi),
+    })
+}
+
+export const getConversationsPlainImportsStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/plain_imports/status/`
+}
+
+export const conversationsPlainImportsStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PlainImportJobApi> => {
+    return apiMutator<PlainImportJobApi>(getConversationsPlainImportsStatusRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

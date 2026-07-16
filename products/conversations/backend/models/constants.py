@@ -38,6 +38,15 @@ class Priority(models.TextChoices):
     HIGH = "high", "High"
 
 
+class ImportJobStatus(models.TextChoices):
+    """Shared status for historical import jobs (Zendesk, Plain, …)."""
+
+    PENDING = "pending", "Pending"
+    RUNNING = "running", "Running"
+    COMPLETED = "completed", "Completed"
+    FAILED = "failed", "Failed"
+
+
 class RuleType(models.TextChoices):
     TONE = "tone", "Tone"
     ESCALATION = "escalation", "Escalation"

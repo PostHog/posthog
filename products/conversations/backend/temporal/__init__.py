@@ -18,6 +18,16 @@ from products.conversations.backend.temporal.pipeline import (
     support_safety_filter_activity,
     support_validate_activity,
 )
+from products.conversations.backend.temporal.plain_import.activities import (
+    plain_import_batch_activity,
+    plain_import_enumerate_threads_activity,
+    plain_import_update_job_progress_activity,
+    plain_import_update_job_status_activity,
+)
+from products.conversations.backend.temporal.plain_import.workflows import (
+    PlainImportBatchWorkflow,
+    PlainImportCoordinatorWorkflow,
+)
 from products.conversations.backend.temporal.zendesk_import.activities import (
     zendesk_import_batch_activity,
     zendesk_import_enumerate_tickets_activity,
@@ -34,6 +44,8 @@ WORKFLOWS = [
     SupportReplyCoordinatorWorkflow,
     ZendeskImportCoordinatorWorkflow,
     ZendeskImportBatchWorkflow,
+    PlainImportCoordinatorWorkflow,
+    PlainImportBatchWorkflow,
 ]
 
 ACTIVITIES = [
@@ -53,4 +65,8 @@ ACTIVITIES = [
     zendesk_import_batch_activity,
     zendesk_import_update_job_status_activity,
     zendesk_import_update_job_progress_activity,
+    plain_import_enumerate_threads_activity,
+    plain_import_batch_activity,
+    plain_import_update_job_status_activity,
+    plain_import_update_job_progress_activity,
 ]
