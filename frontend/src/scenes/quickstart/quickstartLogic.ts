@@ -5,6 +5,8 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { addProductIntent } from 'lib/utils/product-intents'
+import type { HealthIssuesResponse } from 'scenes/health/healthSceneLogic'
+import type { HealthIssue } from 'scenes/health/types'
 import { getFiltersFromSubTemplateId } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { availableOnboardingProducts, toSentenceCase } from 'scenes/onboarding/shared/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -25,7 +27,9 @@ export type QuickstartToolLevel = 'needs_setup' | 'ready' | 'live'
 /** Which primary action the card should offer */
 export type QuickstartToolCta = 'install' | 'enable' | 'setup' | 'open'
 
-export type QuickstartTaskAction = 'setup' | 'enable' | 'open_product' | 'docs'
+export type QuickstartTaskAction = 'setup' | 'enable' | 'open_product' | 'open_url' | 'docs'
+
+export type QuickstartCompanionSetup = 'slack' | 'mcp'
 
 export interface QuickstartTaskGuide {
     description: string
@@ -114,6 +118,7 @@ interface StatusContext {
     team: TeamType
     signals: QuickstartToolSignals
     resources: QuickstartResources
+    healthIssues: HealthIssue[] | null
 }
 
 /**
@@ -124,6 +129,8 @@ interface ToolMilestone {
     key: string
     label: string
     achieved: (ctx: StatusContext) => boolean
+    applies?: (ctx: StatusContext) => boolean
+    recommended?: boolean
     guide: QuickstartTaskGuide
 }
 
@@ -132,6 +139,7 @@ export interface QuickstartJourneyStep {
     label: string
     kind: 'activation' | 'quality'
     achieved: boolean
+    recommended?: boolean
     guide: QuickstartTaskGuide
 }
 
@@ -234,17 +242,22 @@ function deriveToolStatus(definition: QuickstartProductDefinition, ctx: StatusCo
             achieved: rung.achieved(ctx),
             guide: rung.guide,
         })),
-        ...definition.quality.map((rung) => ({
-            key: rung.key,
-            label: rung.label,
-            kind: 'quality' as const,
-            achieved: rung.achieved(ctx),
-            guide: rung.guide,
-        })),
+        ...definition.quality
+            .filter((rung) => rung.applies?.(ctx) ?? true)
+            .map((rung) => ({
+                key: rung.key,
+                label: rung.label,
+                kind: 'quality' as const,
+                achieved: rung.achieved(ctx),
+                recommended: rung.recommended,
+                guide: rung.guide,
+            })),
     ]
     const journey = orderJourneyAchievements(rawJourney, live)
     const nextStep = live
-        ? (journey.find((step) => step.kind === 'quality' && !step.achieved) ?? null)
+        ? (journey.find((step) => step.kind === 'quality' && !step.achieved && step.recommended) ??
+          journey.find((step) => step.kind === 'quality' && !step.achieved) ??
+          null)
         : (journey.find((step) => step.kind === 'activation' && !step.achieved) ?? null)
 
     let cta: QuickstartToolCta
@@ -439,6 +452,25 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 guide: productionTraffic.guide,
             },
             { ...firstCustomEvent, label: 'Capture custom events to measure conversions' },
+            {
+                key: 'authorized_urls',
+                label: 'Add your web analytics domains',
+                achieved: () => false,
+                applies: ({ healthIssues }) => healthIssues?.some((issue) => issue.kind === 'authorized_urls') ?? false,
+                recommended: true,
+                guide: {
+                    description:
+                        'Add the domains where your site runs so web analytics filters and toolbar links use the right URLs.',
+                    instructions: [
+                        'Open Settings and select Web analytics.',
+                        'Under Web analytics domains, add the full URL for each production domain.',
+                        'Save your changes. This recommendation will disappear after PostHog checks the project again.',
+                    ],
+                    action: 'open_url',
+                    actionLabel: 'Configure domains',
+                    url: urls.settings('environment-web-analytics', 'web-analytics-authorized-urls'),
+                },
+            },
         ],
         stat: ({ signals }) => ({ value: signals.pageviews, label: 'pageviews · 30d' }),
     },
@@ -1035,6 +1067,25 @@ function buildProduct(key: ProductKey, ctx: StatusContext): QuickstartProduct | 
     }
 }
 
+export function getQuickstartTrackingProperties(
+    team: TeamType,
+    products: QuickstartProduct[]
+): Record<string, unknown> {
+    const onboardedProducts = Object.entries(team.has_completed_onboarding_for ?? {})
+        .filter(([, completed]) => completed)
+        .map(([productKey]) => productKey)
+    const liveProducts = products.filter((product) => product.status.level === 'live').map((product) => product.key)
+    const isPostOnboarding = team.completed_snippet_onboarding || onboardedProducts.length > 0
+
+    return {
+        is_post_onboarding: isPostOnboarding,
+        has_ingested_event: team.ingested_event,
+        onboarded_products: onboardedProducts,
+        live_products: liveProducts,
+        live_product_count: liveProducts.length,
+    }
+}
+
 export const quickstartLogic = kea<quickstartLogicType>([
     path(['scenes', 'quickstart', 'quickstartLogic']),
     connect(() => ({
@@ -1047,6 +1098,8 @@ export const quickstartLogic = kea<quickstartLogicType>([
         closeToolSetupModal: true,
         openTaskGuidance: (productKey: ProductKey, stepKey: string) => ({ productKey, stepKey }),
         closeTaskGuidance: true,
+        openCompanionSetup: (companion: QuickstartCompanionSetup) => ({ companion }),
+        closeCompanionSetup: true,
         setPublicationsHasMore: (feed: PublicationFeedKey, hasMore: boolean) => ({ feed, hasMore }),
     }),
     loaders(({ actions, values }) => {
@@ -1241,6 +1294,25 @@ export const quickstartLogic = kea<quickstartLogicType>([
                     },
                 },
             ],
+            healthIssues: [
+                null as HealthIssue[] | null,
+                {
+                    loadHealthIssues: async (): Promise<HealthIssue[] | null> => {
+                        const teamId = values.currentTeam?.id
+                        if (!teamId) {
+                            return null
+                        }
+                        try {
+                            const response = await api.get<HealthIssuesResponse>(
+                                `api/environments/${teamId}/health_issues/?status=active&dismissed=false&kind=authorized_urls`
+                            )
+                            return response.results
+                        } catch {
+                            return null
+                        }
+                    },
+                },
+            ],
             blogPublications: [
                 [] as QuickstartPublication[],
                 {
@@ -1291,12 +1363,19 @@ export const quickstartLogic = kea<quickstartLogicType>([
                 closeTaskGuidance: () => null,
             },
         ],
+        companionSetup: [
+            null as QuickstartCompanionSetup | null,
+            {
+                openCompanionSetup: (_, { companion }) => companion,
+                closeCompanionSetup: () => null,
+            },
+        ],
     }),
     selectors({
         hasIngestedEvent: [(s) => [s.currentTeam], (currentTeam): boolean => !!currentTeam?.ingested_event],
         products: [
-            (s) => [s.currentTeam, s.activationData],
-            (currentTeam, activationData): QuickstartProduct[] => {
+            (s) => [s.currentTeam, s.activationData, s.healthIssues],
+            (currentTeam, activationData, healthIssues): QuickstartProduct[] => {
                 if (!isFullTeam(currentTeam)) {
                     return []
                 }
@@ -1304,6 +1383,7 @@ export const quickstartLogic = kea<quickstartLogicType>([
                     team: currentTeam,
                     signals: activationData.signals ?? EMPTY_TOOL_SIGNALS,
                     resources: activationData.resources,
+                    healthIssues,
                 }
                 return QUICKSTART_PRODUCT_ORDER.map((key) => buildProduct(key, ctx)).filter(
                     (product): product is QuickstartProduct => product !== null
@@ -1366,14 +1446,18 @@ export const quickstartLogic = kea<quickstartLogicType>([
         },
         // Fires after signals settle so the payload reflects real data, not the empty fallback
         loadActivationDataSuccess: () => {
+            if (!isFullTeam(values.currentTeam)) {
+                return
+            }
             posthog.capture('quickstart viewed', {
-                has_ingested_event: values.hasIngestedEvent,
-                live_products: values.products.filter((product) => product.status.level === 'live').map((p) => p.key),
+                ...getQuickstartTrackingProperties(values.currentTeam, values.products),
+                activation_signals_loaded: values.activationData.signals !== null,
             })
         },
     })),
     afterMount(({ actions }) => {
         actions.loadActivationData()
+        actions.loadHealthIssues()
         actions.loadBlogPublications()
         actions.loadNewsletterPublications()
     }),

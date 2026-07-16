@@ -20,10 +20,12 @@ export const liveUserCountLogic = kea<liveUserCountLogicType>([
     props({ pollIntervalMs: 30000 } as LiveUserCountLogicProps),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
+        actions: [teamLogic, ['loadCurrentTeamSuccess']],
     })),
     actions(() => ({
         pollStats: true,
         setStats: (stats: LiveUserCountStats, now: Date) => ({ stats, now }),
+        clearStats: true,
         setNow: (now: Date) => ({ now }),
         setIsHovering: (isHovering: boolean) => ({ isHovering }),
         pauseStream: true,
@@ -34,12 +36,14 @@ export const liveUserCountLogic = kea<liveUserCountLogicType>([
             null as LiveUserCountStats | null,
             {
                 setStats: (_, { stats }) => stats,
+                clearStats: () => null,
             },
         ],
         statsUpdatedTime: [
             null as Date | null,
             {
                 setStats: (_, { now }) => now,
+                clearStats: () => null,
             },
         ],
         now: [
@@ -76,20 +80,34 @@ export const liveUserCountLogic = kea<liveUserCountLogicType>([
     listeners(({ actions, values, cache, props }) => ({
         pollStats: async () => {
             try {
-                if (!values.currentTeam) {
+                const team = values.currentTeam
+                if (!team) {
                     return
                 }
 
                 const response = await fetch(`${liveEventsHostOrigin()}/stats`, {
                     headers: {
-                        Authorization: `Bearer ${values.currentTeam.live_events_token}`,
+                        Authorization: `Bearer ${team.live_events_token}`,
                     },
                 })
+                if (!response.ok) {
+                    throw new Error(`Live user count request failed with status ${response.status}`)
+                }
                 const data: LiveUserCountStats = await response.json()
+                if (
+                    values.currentTeam?.id !== team.id ||
+                    values.currentTeam.live_events_token !== team.live_events_token
+                ) {
+                    return
+                }
                 actions.setStats(data, new Date())
             } catch (error) {
                 console.error('Failed to poll stats:', error)
             }
+        },
+        loadCurrentTeamSuccess: () => {
+            actions.clearStats()
+            actions.pollStats()
         },
         setIsHovering: ({ isHovering }) => {
             if (isHovering) {

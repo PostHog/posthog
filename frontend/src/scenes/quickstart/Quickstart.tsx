@@ -11,21 +11,25 @@ import {
     IconBuilding,
     IconCheckCircle,
     IconChevronDown,
+    IconCopy,
     IconFolder,
     IconGear,
     IconGraduationCap,
     IconLogomark,
     IconPeople,
     IconReceipt,
+    IconSearch,
     IconSparkles,
     IconTerminal,
 } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonSkeleton, LemonTag, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonSkeleton, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { commandLogic } from 'lib/components/Command/commandLogic'
 import { liveUserCountLogic } from 'lib/components/LiveUserCount'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
@@ -35,8 +39,10 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { humanFriendlyCurrency, humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { SlackIntegration } from 'scenes/integrations/components/SlackIntegration'
 import {
     AIObservabilitySDKInstructions,
     AIObservabilitySDKTagOverrides,
@@ -60,12 +66,12 @@ import { getProductIcon } from 'scenes/onboarding/shared/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import MCPServerSettings from 'scenes/settings/environment/MCPServerSettings'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
-import { teamLogic } from 'scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ProductKey } from '~/queries/schema/schema-general'
 import {
@@ -84,17 +90,49 @@ import {
     QUICKSTART_NEWSLETTER_URL,
     QuickstartPublication,
 } from './publications'
-import { QuickstartJourneyStep, QuickstartProduct, QuickstartToolStatus, quickstartLogic } from './quickstartLogic'
+import {
+    QuickstartJourneyStep,
+    QuickstartProduct,
+    QuickstartToolStatus,
+    getQuickstartTrackingProperties,
+    quickstartLogic,
+} from './quickstartLogic'
+
+const QUICKSTART_LIVE_USERS_POLL_INTERVAL_MS = 1000
 
 export const scene: SceneExport = {
     component: Quickstart,
     logic: quickstartLogic,
 }
 
-function captureQuickstartAction(action: string, productKey?: string, properties?: Record<string, string>): void {
+function captureQuickstartAction(action: string, productKey?: string, properties?: Record<string, unknown>): void {
+    const quickstartValues = quickstartLogic.findMounted()?.values
+    const currentTeam = quickstartValues?.currentTeam
+    const products = quickstartValues?.products ?? []
+    const product = productKey ? products.find((candidate) => candidate.key === productKey) : undefined
+    const trackingProperties = isAuthenticatedTeam(currentTeam)
+        ? getQuickstartTrackingProperties(currentTeam, products)
+        : {}
+    const onboardedProducts = new Set(
+        Array.isArray(trackingProperties.onboarded_products) ? trackingProperties.onboarded_products : []
+    )
+    const isCrossSell =
+        !!product &&
+        trackingProperties.is_post_onboarding === true &&
+        !onboardedProducts.has(product.key) &&
+        product.status.level !== 'live'
+
     posthog.capture('quickstart action clicked', {
+        ...trackingProperties,
         action,
         ...(productKey ? { product_key: productKey } : {}),
+        ...(product
+            ? {
+                  product_status: product.status.level,
+                  product_was_onboarded: onboardedProducts.has(product.key),
+                  is_cross_sell: isCrossSell,
+              }
+            : {}),
         ...properties,
     })
 }
@@ -120,11 +158,12 @@ function WaitingForEventsIndicator(): JSX.Element {
     )
 }
 
-function LiveUsersRightNow(): JSX.Element | null {
-    const logicProps = { pollIntervalMs: 30000 }
+function LiveUsersRightNow(): JSX.Element {
+    const logicProps = { pollIntervalMs: QUICKSTART_LIVE_USERS_POLL_INTERVAL_MS }
     const { liveUserCount } = useValues(liveUserCountLogic(logicProps))
     const { pauseStream, resumeStream } = useActions(liveUserCountLogic(logicProps))
     const { isVisible } = usePageVisibility()
+    const hasLiveUsers = (liveUserCount ?? 0) > 0
 
     useEffect(() => {
         if (isVisible) {
@@ -142,14 +181,19 @@ function LiveUsersRightNow(): JSX.Element | null {
             data-attr="quickstart-live-users"
         >
             <span className="relative flex items-center justify-center shrink-0">
-                <span className="absolute w-3 h-3 bg-success rounded-full animate-ping opacity-75" />
-                <span className="relative w-2 h-2 bg-success rounded-full" />
+                {hasLiveUsers && (
+                    <span className="absolute size-2.5 bg-success rounded-full animate-pulse opacity-30" />
+                )}
+                <span className={`relative size-1.5 rounded-full ${hasLiveUsers ? 'bg-success' : 'bg-muted-alt'}`} />
             </span>
-            <span>
-                {liveUserCount === null
-                    ? 'Live users'
-                    : `${humanFriendlyLargeNumber(liveUserCount)} live ${liveUserCount === 1 ? 'user' : 'users'}`}
-            </span>
+            {liveUserCount === null ? (
+                <span>View live users</span>
+            ) : (
+                <span>
+                    <strong className="font-semibold text-primary">{humanFriendlyLargeNumber(liveUserCount)}</strong>{' '}
+                    live {liveUserCount === 1 ? 'user' : 'users'}
+                </span>
+            )}
         </Link>
     )
 }
@@ -160,25 +204,29 @@ function ProjectToken({ inline = false }: { inline?: boolean }): JSX.Element | n
     if (!currentTeam?.api_token) {
         return null
     }
+    const projectToken = currentTeam.api_token
 
     // Once data is flowing the token is reference material, not a setup step, so it
     // collapses to a quiet single line
     if (inline) {
         return (
-            <div
-                className="flex items-center gap-1.5 text-xs text-tertiary min-w-0"
-                onClick={() => captureQuickstartAction('copy_project_token')}
-                data-attr="quickstart-copy-project-token"
-            >
-                <span className="whitespace-nowrap">Project token</span>
-                <CopyToClipboardInline
-                    explicitValue={currentTeam.api_token}
-                    description="project token"
-                    iconSize="xsmall"
-                    className="font-mono min-w-0"
-                >
-                    {currentTeam.api_token}
-                </CopyToClipboardInline>
+            <div className="inline-flex items-stretch rounded border bg-bg-light overflow-hidden max-w-full min-w-0">
+                <span className="flex items-center px-3 border-r bg-fill-tertiary text-xs font-medium text-secondary whitespace-nowrap">
+                    Project token
+                </span>
+                <span className="font-mono text-xs min-w-0 max-w-80 px-3 py-2 truncate">{projectToken}</span>
+                <div className="flex items-center px-2 border-l">
+                    <LemonButton
+                        noPadding
+                        icon={<IconCopy />}
+                        tooltip="Copy project token"
+                        onClick={() => {
+                            captureQuickstartAction('copy_project_token')
+                            void copyToClipboard(projectToken, 'project token')
+                        }}
+                        data-attr="quickstart-copy-project-token"
+                    />
+                </div>
             </div>
         )
     }
@@ -193,7 +241,7 @@ function ProjectToken({ inline = false }: { inline?: boolean }): JSX.Element | n
                 Project token
             </LemonLabel>
             <CodeSnippet compact wrap thing="project token">
-                {currentTeam.api_token}
+                {projectToken}
             </CodeSnippet>
         </div>
     )
@@ -240,6 +288,7 @@ function UsageThisPeriod(): JSX.Element | null {
 function WorkspaceStrip(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { toggleCommand } = useActions(commandLogic)
 
     return (
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-tertiary">
@@ -259,6 +308,18 @@ function WorkspaceStrip(): JSX.Element {
                 ) : null}
             </div>
             <div className="flex flex-wrap items-center gap-x-3">
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconSearch />}
+                    onClick={() => {
+                        captureQuickstartAction('open_search_shortcut')
+                        toggleCommand()
+                    }}
+                    data-attr="quickstart-search-shortcut"
+                >
+                    <span>Search</span>
+                    <RenderKeybind keybind={[keyBinds.search]} minimal />
+                </LemonButton>
                 <UsageThisPeriod />
                 <LiveUsersRightNow />
             </div>
@@ -283,8 +344,8 @@ function InstallHeroCard(): JSX.Element {
         <LemonCard hoverEffect={false} className="rounded-lg border-transparent shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
                 <SectionHeader
-                    title="Get your data flowing"
-                    subtitle="PostHog needs events from your app. One install powers every tool below."
+                    title="Connect your product's context"
+                    subtitle="Install an SDK or connect a source so PostHog can receive events and business data."
                 />
                 <WaitingForEventsIndicator />
             </div>
@@ -347,28 +408,6 @@ function SubsectionHeader({ title }: { title: string }): JSX.Element {
     return <h3 className="text-sm font-semibold mb-3">{title}</h3>
 }
 
-function ProductStatusTag({ level }: { level: QuickstartToolStatus['level'] }): JSX.Element {
-    if (level === 'live') {
-        return (
-            <Tooltip title="Real data came in during the last 30 days" delayMs={0}>
-                <LemonTag type="success">Live</LemonTag>
-            </Tooltip>
-        )
-    }
-    if (level === 'ready') {
-        return (
-            <Tooltip title="Set up and waiting for its first data" delayMs={0}>
-                <LemonTag type="highlight">Ready</LemonTag>
-            </Tooltip>
-        )
-    }
-    return (
-        <Tooltip title="Needs an install or configuration before it can collect data" delayMs={0}>
-            <LemonTag type="muted">Needs setup</LemonTag>
-        </Tooltip>
-    )
-}
-
 function JourneyOverlay({
     journey,
     productKey,
@@ -425,6 +464,8 @@ function JourneyOverlay({
 }
 
 function JourneyMeter({ status, productKey }: { status: QuickstartToolStatus; productKey: ProductKey }): JSX.Element {
+    const achievedStepCount = status.journey.filter((step) => step.achieved).length
+
     return (
         <LemonDropdown
             overlay={<JourneyOverlay journey={status.journey} productKey={productKey} />}
@@ -438,13 +479,13 @@ function JourneyMeter({ status, productKey }: { status: QuickstartToolStatus; pr
                 data-attr={`quickstart-journey-${productKey}`}
             >
                 <span className="flex items-center gap-1 flex-1">
-                    {status.journey.map((step) => (
+                    {status.journey.map((step, index) => (
                         <span
                             key={step.key}
                             className={`h-1 flex-1 rounded-full transition-colors ${
-                                step.achieved
+                                index < achievedStepCount
                                     ? 'bg-success'
-                                    : step.key === status.nextStep?.key
+                                    : index === achievedStepCount && status.nextStep
                                       ? 'bg-accent'
                                       : 'bg-fill-tertiary'
                             }`}
@@ -458,22 +499,56 @@ function JourneyMeter({ status, productKey }: { status: QuickstartToolStatus; pr
     )
 }
 
-function getToolActivitySummary(status: QuickstartToolStatus): JSX.Element {
+function ToolActivitySummary({
+    product,
+    status,
+}: {
+    product: QuickstartProduct
+    status: QuickstartToolStatus
+}): JSX.Element {
     if (status.stat) {
         return (
-            <>
-                <span className="font-semibold">{humanFriendlyLargeNumber(status.stat.value)}</span>{' '}
-                <span className="text-secondary">{status.stat.label}</span>
-            </>
+            <div className="flex items-baseline gap-1.5 min-h-5 min-w-0">
+                <span className="size-1.5 rounded-full bg-success shrink-0" />
+                <Link
+                    to={product.url}
+                    onClick={() => captureQuickstartAction('view_tool_activity', product.key)}
+                    className="inline-flex items-baseline gap-1 min-w-0"
+                    data-attr={`quickstart-activity-${product.key}`}
+                >
+                    <span className="text-sm font-semibold tabular-nums text-primary">
+                        {humanFriendlyLargeNumber(status.stat.value)}
+                    </span>
+                    <span className="text-sm text-secondary truncate">{status.stat.label}</span>
+                </Link>
+            </div>
         )
     }
     if (status.level === 'live') {
-        return <span className="text-secondary">Active in the last 30 days</span>
+        return (
+            <div className="flex items-center gap-1.5 min-h-5 min-w-0">
+                <span className="size-1.5 rounded-full bg-success shrink-0" />
+                <span className="text-sm text-secondary">Active in the last 30 days</span>
+            </div>
+        )
     }
     if (status.level === 'ready') {
-        return <span className="text-secondary">Waiting for its first signal</span>
+        return (
+            <div className="flex items-center gap-1.5 min-h-5 min-w-0">
+                <span className="relative flex items-center justify-center size-2">
+                    <span className="absolute size-2 rounded-full bg-warning opacity-25 animate-pulse" />
+                    <span className="relative size-1.5 rounded-full bg-warning" />
+                </span>
+                <span className="text-sm text-secondary">Waiting for first signal</span>
+            </div>
+        )
     }
-    return <span className="text-secondary">Not collecting data yet</span>
+    return (
+        <div className="flex items-center gap-1.5 min-h-5 min-w-0">
+            <span className="size-1.5 rounded-full bg-muted-alt shrink-0" />
+            <span className="text-sm text-secondary">Not collecting data yet</span>
+        </div>
+    )
 }
 
 /** Activity evidence and the best available improvement, without implying a finite completion goal. */
@@ -489,35 +564,23 @@ function ToolStatusPanel({
 
     return (
         <div className="flex flex-col gap-2 border-t pt-3">
-            <div className="text-sm min-w-0 truncate min-h-5">{getToolActivitySummary(status)}</div>
             <JourneyMeter status={status} productKey={productKey} />
-            <div className="min-h-16 text-xs">
-                {nextStep ? (
+            <div className="min-h-11 text-xs">
+                {nextStep && (
                     <>
                         <div className="font-medium text-secondary mb-0.5">Next improvement</div>
-                        <LemonButton
-                            type="tertiary"
-                            size="xsmall"
-                            fullWidth
-                            center={false}
-                            sideIcon={<IconArrowRight />}
+                        <Link
                             onClick={() => {
                                 captureQuickstartAction('open_recommended_task', productKey, {
                                     step_key: nextStep.key,
                                 })
                                 openTaskGuidance(productKey, nextStep.key)
                             }}
+                            className="font-medium text-accent whitespace-normal text-left line-clamp-2"
                             data-attr={`quickstart-recommended-task-${productKey}`}
                         >
-                            <span className="whitespace-normal text-left font-medium text-accent line-clamp-2">
-                                {nextStep.label}
-                            </span>
-                        </LemonButton>
-                    </>
-                ) : (
-                    <>
-                        <div className="font-medium text-secondary">Setup quality</div>
-                        <div className="font-medium">No suggested changes right now</div>
+                            {nextStep.label}
+                        </Link>
                     </>
                 )}
             </div>
@@ -551,7 +614,10 @@ export function ProductCard({ product }: { product: QuickstartProduct }): JSX.El
             type={type}
             size="small"
             loading={!!enablingProducts[product.key]}
-            onClick={() => enableProduct(product.key)}
+            onClick={() => {
+                captureQuickstartAction('enable_product', product.key)
+                enableProduct(product.key)
+            }}
             data-attr={`quickstart-enable-${product.key}`}
         >
             Enable
@@ -571,17 +637,16 @@ export function ProductCard({ product }: { product: QuickstartProduct }): JSX.El
 
     return (
         <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-4 rounded-lg border-transparent shadow-sm">
-            <div className="flex items-start justify-between gap-2">
+            <div className="flex flex-col gap-2 min-w-0">
                 <span className="text-2xl leading-none">
                     {getProductIcon(product.icon, { iconColor: product.iconColor })}
                 </span>
-                <ProductStatusTag level={status.level} />
-            </div>
-            <div>
                 <h3 className="font-semibold text-base mb-0">{product.name}</h3>
-                <div className="text-xs text-tertiary">Best for {product.bestFor}</div>
+                <div className="flex flex-col gap-1">
+                    <p className="text-secondary text-sm leading-relaxed mb-0">{product.description}</p>
+                    <ToolActivitySummary product={product} status={status} />
+                </div>
             </div>
-            <p className="text-secondary text-sm mb-0 flex-1">{product.description}</p>
             <ToolStatusPanel status={status} productKey={product.key} />
             <div className="flex items-center gap-2 mt-1">
                 {status.level === 'live' ? (
@@ -683,7 +748,10 @@ function ToolSetupModalContent({
                 searchTerm={searchTerm}
                 selectedTag={selectedTag}
                 tags={tags}
-                onSDKClick={(sdk: SDK) => selectSDK(sdk)}
+                onSDKClick={(sdk: SDK) => {
+                    captureQuickstartAction('select_sdk', product.key, { sdk_key: sdk.key })
+                    selectSDK(sdk)
+                }}
                 onSearchChange={setSearchTerm}
                 onTagChange={setSelectedTag}
                 currentTeam={currentTeam}
@@ -702,7 +770,10 @@ function ToolSetupModalContent({
                 <LemonButton
                     icon={<IconArrowLeft />}
                     size="xsmall"
-                    onClick={() => setSelectedSDK(null)}
+                    onClick={() => {
+                        captureQuickstartAction('view_all_sdks', product.key, { sdk_key: selectedSDK.key })
+                        setSelectedSDK(null)
+                    }}
                     data-attr="quickstart-sdk-back"
                 >
                     All SDKs
@@ -816,9 +887,11 @@ function TaskGuidanceModal(): JSX.Element {
         const destination =
             step.guide.action === 'docs'
                 ? (step.guide.url ?? product.docsUrl ?? product.setupUrl)
-                : step.guide.action === 'open_product'
-                  ? product.url
-                  : product.setupUrl
+                : step.guide.action === 'open_url'
+                  ? (step.guide.url ?? product.url)
+                  : step.guide.action === 'open_product'
+                    ? product.url
+                    : product.setupUrl
 
         return (
             <LemonButton
@@ -879,7 +952,6 @@ function TaskGuidanceModal(): JSX.Element {
 
 interface LearnQuickLink {
     label: string
-    icon: JSX.Element
     to?: string
     targetBlank?: boolean
     onClick?: () => void
@@ -915,43 +987,40 @@ function LearnCard({
                 <>
                     <ul className="flex flex-col gap-1.5 my-1 flex-1">
                         {quickLinks.map((link) => (
-                            <li key={link.label} className="flex">
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    fullWidth
-                                    center={false}
-                                    icon={link.icon}
+                            <li key={link.label}>
+                                <Link
                                     to={link.to}
-                                    targetBlank={link.targetBlank}
+                                    target={link.targetBlank ? '_blank' : undefined}
+                                    targetBlankIcon={false}
                                     onClick={() => {
                                         captureQuickstartAction(`${action}_quick_link`, undefined, {
                                             link_label: link.label,
                                         })
                                         link.onClick?.()
                                     }}
+                                    subtle
+                                    className="text-sm font-normal"
                                     data-attr={`quickstart-learn-${action}-quick-link`}
                                 >
-                                    <span className="whitespace-normal text-left font-normal">{link.label}</span>
-                                </LemonButton>
+                                    {link.label}
+                                </Link>
                             </li>
                         ))}
                     </ul>
                     <div className="mt-auto flex">
-                        <Link
+                        <LemonButton
+                            type="secondary"
+                            size="small"
                             to={to}
-                            target={targetBlank ? '_blank' : undefined}
-                            targetBlankIcon={targetBlank}
+                            targetBlank={targetBlank}
                             onClick={() => {
                                 captureQuickstartAction(action)
                                 onClick?.()
                             }}
-                            className="text-sm font-medium inline-flex items-center gap-1"
                             data-attr={`quickstart-learn-${action}`}
                         >
                             {buttonLabel}
-                            {!targetBlank && <IconArrowRight />}
-                        </Link>
+                        </LemonButton>
                     </div>
                 </>
             ) : (
@@ -975,6 +1044,39 @@ function LearnCard({
     )
 }
 
+function CompanionSetupModal(): JSX.Element {
+    const { companionSetup } = useValues(quickstartLogic)
+    const { closeCompanionSetup } = useActions(quickstartLogic)
+
+    return (
+        <LemonModal
+            isOpen={companionSetup !== null}
+            onClose={closeCompanionSetup}
+            title={companionSetup === 'slack' ? 'Set up Slack' : 'Set up MCP'}
+            width={640}
+        >
+            {companionSetup === 'slack' ? (
+                <div className="flex flex-col gap-4">
+                    <p className="mb-0">
+                        Connect a Slack workspace to ask PostHog AI questions and send insights or alerts to channels.
+                    </p>
+                    <div className="rounded border bg-bg-light p-4">
+                        <SlackIntegration next={urls.quickstart()} />
+                    </div>
+                    <Link
+                        to={urls.integration('slack')}
+                        onClick={() => captureQuickstartAction('open_slack_integration_settings')}
+                    >
+                        Open the full Slack integration settings
+                    </Link>
+                </div>
+            ) : companionSetup === 'mcp' ? (
+                <MCPServerSettings />
+            ) : null}
+        </LemonModal>
+    )
+}
+
 function PublicationCard({
     publication,
     feed,
@@ -989,9 +1091,9 @@ function PublicationCard({
                 target="_blank"
                 className="flex flex-col h-full text-primary hover:text-primary"
                 onClick={() =>
-                    posthog.capture('quickstart action clicked', {
-                        action: 'open_publication',
+                    captureQuickstartAction('open_publication', undefined, {
                         feed,
+                        publication_title: publication.title,
                         url: publication.url,
                     })
                 }
@@ -1159,7 +1261,7 @@ function PublicationsSection(): JSX.Element | null {
         <div className="flex flex-col gap-6">
             <PublicationRail
                 feed="blog"
-                title="From the blog"
+                title="Recent blog posts"
                 viewAllUrl={QUICKSTART_BLOG_URL}
                 viewAllLabel="View all posts"
                 endLabel="Keep reading on the blog"
@@ -1170,7 +1272,7 @@ function PublicationsSection(): JSX.Element | null {
             />
             <PublicationRail
                 feed="newsletter"
-                title="build mode, our newsletter"
+                title="Recent build mode newsletter issues"
                 viewAllUrl={QUICKSTART_NEWSLETTER_URL}
                 viewAllLabel="Read & subscribe"
                 endLabel="More issues + subscribe"
@@ -1186,7 +1288,7 @@ function PublicationsSection(): JSX.Element | null {
 export function Quickstart(): JSX.Element {
     const { products, activeProductCount, totalProductCount } = useValues(quickstartLogic)
     const { showInviteModal } = useActions(inviteLogic)
-    const { showConfigureHomeModal } = useActions(navigationLogic)
+    const { openCompanionSetup } = useActions(quickstartLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const installationComplete = useInstallationComplete('ingested_event')
@@ -1219,8 +1321,7 @@ export function Quickstart(): JSX.Element {
                         <div className="min-w-0">
                             <h1 className="text-2xl font-bold mb-1">Quickstart</h1>
                             <p className="text-secondary mb-0 max-w-140">
-                                Every tool here runs on the same events. Get data flowing once, then turn things on as
-                                you need them.
+                                Connect your product's context, configure Tools, and choose how you work with PostHog.
                             </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
@@ -1251,14 +1352,11 @@ export function Quickstart(): JSX.Element {
                             <LemonButton
                                 size="small"
                                 icon={<IconGear />}
-                                tooltip="Choose what your Home button opens"
-                                onClick={() => {
-                                    captureQuickstartAction('configure_homepage')
-                                    showConfigureHomeModal()
-                                }}
-                                data-attr="quickstart-header-configure-home"
+                                to={urls.settings('project')}
+                                onClick={() => captureQuickstartAction('open_project_settings_header')}
+                                data-attr="quickstart-header-settings"
                             >
-                                Change homepage
+                                Project settings
                             </LemonButton>
                         </div>
                     </div>
@@ -1275,8 +1373,8 @@ export function Quickstart(): JSX.Element {
             <section>
                 <div className="flex flex-wrap items-start justify-between gap-x-8">
                     <SectionHeader
-                        title="Turn on your tools"
-                        subtitle="What most teams start with. Active tools are collecting data. Ready tools are set up and waiting for their first signal."
+                        title="Tool setup and activity"
+                        subtitle="See which Tools are collecting context, complete their setup, and review the next recommended step."
                     />
                     <HeaderStat icon={<IconApps />}>
                         {activeProductCount} of {totalProductCount} live
@@ -1290,15 +1388,18 @@ export function Quickstart(): JSX.Element {
             </section>
 
             <section>
-                <SectionHeader title="Go further" subtitle="Guides, companion apps, and what's new from PostHog." />
+                <SectionHeader
+                    title="Guides, Products, and publications"
+                    subtitle="Open setup guides, configure Slack or MCP, install PostHog Code, and read recent publications."
+                />
                 <div className="flex flex-col gap-6">
                     <div>
-                        <SubsectionHeader title="Learn the ropes" />
+                        <SubsectionHeader title="Documentation and tutorials" />
                         <div className="grid grid-cols-1 @3xl/main-content:grid-cols-3 gap-4">
                             <LearnCard
                                 icon={<IconSparkles className="text-ai" />}
-                                title="Ask PostHog AI anything"
-                                description="Once events are flowing, ask questions in plain English and get answers from your live data. Try one:"
+                                title="Ask PostHog AI"
+                                description="Ask questions about the events and properties in this project. Example questions:"
                                 buttonLabel="Ask PostHog AI"
                                 onClick={() => openSidePanel(SidePanelTab.Max)}
                                 action="ask_posthog_ai"
@@ -1308,15 +1409,14 @@ export function Quickstart(): JSX.Element {
                                     'Where do users drop off in my app?',
                                 ].map((question) => ({
                                     label: question,
-                                    icon: <IconSparkles className="text-ai" />,
                                     // The ! prefix makes the side panel submit the question right away
                                     onClick: () => openSidePanel(SidePanelTab.Max, `!${question}`),
                                 }))}
                             />
                             <LearnCard
                                 icon={<IconBook />}
-                                title="Read the docs"
-                                description="Guides for every tool, SDK, and framework, from first install to advanced setups. Start here:"
+                                title="Documentation"
+                                description="Reference guides for Tools, SDKs, frameworks, and configuration:"
                                 buttonLabel="Browse all docs"
                                 to="https://posthog.com/docs"
                                 targetBlank
@@ -1324,19 +1424,16 @@ export function Quickstart(): JSX.Element {
                                 quickLinks={[
                                     {
                                         label: 'Capture custom events',
-                                        icon: <IconBook />,
                                         to: 'https://posthog.com/docs/product-analytics/capture-events',
                                         targetBlank: true,
                                     },
                                     {
                                         label: 'Identify your users',
-                                        icon: <IconBook />,
                                         to: 'https://posthog.com/docs/product-analytics/identify',
                                         targetBlank: true,
                                     },
                                     {
                                         label: 'Define actions from events',
-                                        icon: <IconBook />,
                                         to: 'https://posthog.com/docs/data/actions',
                                         targetBlank: true,
                                     },
@@ -1344,8 +1441,8 @@ export function Quickstart(): JSX.Element {
                             />
                             <LearnCard
                                 icon={<IconGraduationCap />}
-                                title="Follow a tutorial"
-                                description="Step-by-step walkthroughs of real setups: funnels, feature flags, A/B tests, and more. Popular picks:"
+                                title="Tutorials"
+                                description="Step-by-step examples for common setups and workflows:"
                                 buttonLabel="Browse all tutorials"
                                 to="https://posthog.com/tutorials"
                                 targetBlank
@@ -1353,19 +1450,16 @@ export function Quickstart(): JSX.Element {
                                 quickLinks={[
                                     {
                                         label: 'Complete guide to event tracking',
-                                        icon: <IconGraduationCap />,
                                         to: 'https://posthog.com/tutorials/event-tracking-guide',
                                         targetBlank: true,
                                     },
                                     {
                                         label: 'Understand behavior with session replays',
-                                        icon: <IconGraduationCap />,
                                         to: 'https://posthog.com/tutorials/explore-insights-session-recordings',
                                         targetBlank: true,
                                     },
                                     {
                                         label: 'Track new and returning users',
-                                        icon: <IconGraduationCap />,
                                         to: 'https://posthog.com/tutorials/track-new-returning-users',
                                         targetBlank: true,
                                     },
@@ -1374,12 +1468,12 @@ export function Quickstart(): JSX.Element {
                         </div>
                     </div>
                     <div>
-                        <SubsectionHeader title="PostHog, wherever you work" />
+                        <SubsectionHeader title="Slack, MCP, and PostHog Code" />
                         <div className="grid grid-cols-1 @3xl/main-content:grid-cols-3 gap-4">
                             <LearnCard
                                 icon={<IconLogomark />}
                                 title="PostHog Code"
-                                description="An AI coding agent that knows your product data. Fix errors, ship features, and query PostHog straight from your editor or terminal."
+                                description="Use context from PostHog while querying data or changing code from your editor or terminal."
                                 buttonLabel="Get PostHog Code"
                                 to="https://posthog.com/code"
                                 targetBlank
@@ -1387,21 +1481,19 @@ export function Quickstart(): JSX.Element {
                             />
                             <LearnCard
                                 icon={<IconSlack />}
-                                title="Slack app"
-                                description="Ask PostHog AI questions and get insights, alerts, and replies without leaving Slack."
-                                buttonLabel="Add to Slack"
-                                to="https://posthog.com/slack"
-                                targetBlank
+                                title="Slack"
+                                description="Use PostHog AI, insights, alerts, and replies from a Slack workspace."
+                                buttonLabel="Set up Slack"
                                 action="open_slack_app"
+                                onClick={() => openCompanionSetup('slack')}
                             />
                             <LearnCard
                                 icon={<IconTerminal />}
-                                title="MCP server"
-                                description="Connect Claude, Cursor, and other AI assistants to your PostHog data with a single command."
+                                title="MCP"
+                                description="Connect an AI assistant to context and actions in PostHog."
                                 buttonLabel="Set up MCP"
-                                to="https://posthog.com/docs/model-context-protocol"
-                                targetBlank
                                 action="open_mcp_docs"
+                                onClick={() => openCompanionSetup('mcp')}
                             />
                         </div>
                     </div>
@@ -1411,6 +1503,7 @@ export function Quickstart(): JSX.Element {
 
             <TaskGuidanceModal />
             <ToolSetupModal installationComplete={installationComplete} />
+            <CompanionSetupModal />
         </SceneContent>
     )
 }
