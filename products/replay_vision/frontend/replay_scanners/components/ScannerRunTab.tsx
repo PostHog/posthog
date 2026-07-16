@@ -64,7 +64,7 @@ function ScanBySessionId({ scannerId }: { scannerId: string }): JSX.Element {
                     data-attr="vision-scanner-scan-session-input"
                 />
                 <AccessControlAction
-                    resourceType={AccessControlResourceType.SessionRecording}
+                    resourceType={AccessControlResourceType.ReplayScanner}
                     minAccessLevel={AccessControlLevel.Editor}
                 >
                     <LemonButton
@@ -163,7 +163,7 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                 } else {
                     content = (
                         <AccessControlAction
-                            resourceType={AccessControlResourceType.SessionRecording}
+                            resourceType={AccessControlResourceType.ReplayScanner}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
                             <LemonButton

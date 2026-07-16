@@ -306,6 +306,7 @@ export enum AccessControlResourceType {
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
     Tracing = 'tracing',
+    ReplayScanner = 'replay_scanner',
 }
 
 interface UserBaseType {

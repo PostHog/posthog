@@ -136,6 +136,13 @@ export enum Scene {
     ReplaySettings = 'ReplaySettings',
     ReplaySingle = 'ReplaySingle',
     ReplayKiosk = 'ReplayKiosk',
+    ReplayVision = 'ReplayVision',
+    ReplayVisionScanner = 'ReplayVisionScanner',
+    ReplayVisionScannerEditor = 'ReplayVisionScannerEditor',
+    ReplayVisionObservation = 'ReplayVisionObservation',
+    ReplayVisionAction = 'ReplayVisionAction',
+    ReplayVisionActionEditor = 'ReplayVisionActionEditor',
+    ReplayVisionActionRun = 'ReplayVisionActionRun',
     ResourceTransfer = 'ResourceTransfer',
     RevenueAnalytics = 'RevenueAnalytics',
     SqlVariableEdit = 'SqlVariableEdit',
@@ -332,6 +339,15 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.Replay]: AccessControlResourceType.SessionRecording,
     [Scene.ReplaySingle]: AccessControlResourceType.SessionRecording,
     [Scene.ReplayPlaylist]: AccessControlResourceType.SessionRecording,
+
+    // Replay vision
+    [Scene.ReplayVision]: AccessControlResourceType.ReplayScanner,
+    [Scene.ReplayVisionScanner]: AccessControlResourceType.ReplayScanner,
+    [Scene.ReplayVisionScannerEditor]: AccessControlResourceType.ReplayScanner,
+    [Scene.ReplayVisionObservation]: AccessControlResourceType.ReplayScanner,
+    [Scene.ReplayVisionAction]: AccessControlResourceType.ReplayScanner,
+    [Scene.ReplayVisionActionEditor]: AccessControlResourceType.ReplayScanner,
+    [Scene.ReplayVisionActionRun]: AccessControlResourceType.ReplayScanner,
 
     // Revenue analytics
     [Scene.RevenueAnalytics]: AccessControlResourceType.RevenueAnalytics,

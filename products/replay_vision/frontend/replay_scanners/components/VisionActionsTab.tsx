@@ -43,12 +43,20 @@ function humanizeSchedule(action: VisionActionApi): string {
     return humanizeCadence(parseRruleToCadence(rrule))
 }
 
-// Every write control on this tab gates on the same session-recording Editor access — wrap once.
-function EditorGate({ children }: { children: JSX.Element }): JSX.Element {
+// Every write control on this tab gates on the same Editor access — wrap once. Pass `userAccessLevel`
+// when a specific action's effective level is known, for object-level overrides.
+function EditorGate({
+    children,
+    userAccessLevel,
+}: {
+    children: JSX.Element
+    userAccessLevel?: AccessControlLevel
+}): JSX.Element {
     return (
         <AccessControlAction
-            resourceType={AccessControlResourceType.SessionRecording}
+            resourceType={AccessControlResourceType.ReplayScanner}
             minAccessLevel={AccessControlLevel.Editor}
+            userAccessLevel={userAccessLevel}
         >
             {children}
         </AccessControlAction>
@@ -139,7 +147,7 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
             key: 'enabled',
             render: (_, action) => (
                 <div className="flex items-center gap-2">
-                    <EditorGate>
+                    <EditorGate userAccessLevel={action.user_access_level}>
                         <LemonSwitch
                             checked={!!action.enabled}
                             onChange={() => toggleActionEnabled(action.id)}
@@ -178,7 +186,7 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
             width: 0, // shrink to content so the buttons hug the right instead of floating in a wide column
             render: (_, action) => (
                 <div className="flex gap-1">
-                    <EditorGate>
+                    <EditorGate userAccessLevel={action.user_access_level}>
                         <LemonButton
                             size="small"
                             type="secondary"
@@ -188,7 +196,7 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
                             to={urls.replayVisionActionEdit(action.id)}
                         />
                     </EditorGate>
-                    <EditorGate>
+                    <EditorGate userAccessLevel={action.user_access_level}>
                         <LemonButton
                             size="small"
                             type="secondary"

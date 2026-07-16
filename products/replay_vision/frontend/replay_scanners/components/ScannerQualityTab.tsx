@@ -386,7 +386,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
     const plannedTestCredits = plannedTestSessions * creditsPerTestSession
     const [historyOpen, setHistoryOpen] = useState(false)
     const editDisabledReason = getAccessControlDisabledReason(
-        AccessControlResourceType.SessionRecording,
+        AccessControlResourceType.ReplayScanner,
         AccessControlLevel.Editor
     )
 

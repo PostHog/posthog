@@ -17,6 +17,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.models.user import User
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
 from products.replay_vision.backend.feature_flag import (
@@ -193,7 +194,8 @@ class DeliveryTargetSerializer(serializers.Serializer):
 MAX_ENABLED_ALERTS_PER_SCANNER = 10
 
 
-class VisionActionSerializer(serializers.ModelSerializer):
+class VisionActionSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    """A Replay Vision action: a scheduled "and then…" automation over a scanner's observations."""
     name = serializers.CharField(
         max_length=255,
         help_text="Human-readable action name. Unique within the team.",
@@ -287,6 +289,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "updated_at",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -296,6 +299,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "updated_at",
+            "user_access_level",
         ]
 
     def validate_trigger_type(self, value: str) -> str:
@@ -467,6 +471,10 @@ class VisionActionSerializer(serializers.ModelSerializer):
 class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations."""
 
+    # Deliberately NOT an AccessControlViewSetMixin: vision_action inherits its access level
+    # from replay_scanner (see RESOURCE_INHERITANCE_MAP) so the product is configured via a
+    # single rule. Exposing `/{id}/access_controls` here would let an object-level grant on
+    # one action bypass that shared resource-level setting.
     scope_object = "vision_action"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy"]

@@ -154,8 +154,9 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                     <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />
                     {obs.status === 'failed' && (
                         <AccessControlAction
-                            resourceType={AccessControlResourceType.SessionRecording}
+                            resourceType={AccessControlResourceType.ReplayScanner}
                             minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={scanner?.user_access_level ?? undefined}
                         >
                             <LemonButton
                                 size="xsmall"

@@ -390,7 +390,7 @@ export function ObservationDockCard({
                     <FailureDetail errorReason={observation.error_reason} />
                     {onRetry && (
                         <AccessControlAction
-                            resourceType={AccessControlResourceType.SessionRecording}
+                            resourceType={AccessControlResourceType.ReplayScanner}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
                             <LemonButton

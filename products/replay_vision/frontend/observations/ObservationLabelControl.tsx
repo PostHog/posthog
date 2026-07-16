@@ -21,7 +21,7 @@ const FEEDBACK_PLACEHOLDER = 'Optional: what did it get right or wrong, and why?
 
 function useEditAccess(): string | null {
     // Editing the shared rating mutates team-wide data, so it needs edit access (matches the "Edit scanner" gate).
-    return getAccessControlDisabledReason(AccessControlResourceType.SessionRecording, AccessControlLevel.Editor)
+    return getAccessControlDisabledReason(AccessControlResourceType.ReplayScanner, AccessControlLevel.Editor)
 }
 
 function FeedbackEditor({

@@ -345,7 +345,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             )}
                             <div>
                                 <AccessControlAction
-                                    resourceType={AccessControlResourceType.SessionRecording}
+                                    resourceType={AccessControlResourceType.ReplayScanner}
                                     minAccessLevel={AccessControlLevel.Editor}
                                 >
                                     <LemonButton

@@ -57,8 +57,9 @@ function ActionOverview({
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <AccessControlAction
-                        resourceType={AccessControlResourceType.SessionRecording}
+                        resourceType={AccessControlResourceType.ReplayScanner}
                         minAccessLevel={AccessControlLevel.Editor}
+                        userAccessLevel={action.user_access_level}
                     >
                         <LemonButton
                             type="secondary"
