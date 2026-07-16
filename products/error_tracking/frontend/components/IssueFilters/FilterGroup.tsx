@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
-import { Popover, PopoverContent } from '@posthog/quill'
+import { Popover, PopoverContent } from 'lib/ui/quill'
 
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
 import { TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
