@@ -136,7 +136,12 @@ export interface dashboardsLogicMeta {
             )[],
             rawDashboards: Record<
                 string,
-                DashboardBasicType | import('~/types').DashboardType<import('~/types').QueryBasedInsightModel>
+                | DashboardBasicType
+                | import('~/types').DashboardType<
+                      import('~/types').QueryBasedInsightModel<
+                          import('../../../queries/schema').Node<Record<string, any>>
+                      >
+                  >
             >,
             searchedDashboards: DashboardBasicType[] | null,
             filters: DashboardsFilters,

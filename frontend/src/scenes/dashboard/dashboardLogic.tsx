@@ -1072,83 +1072,11 @@ export interface dashboardLogicMeta {
         ) => SidePanelSceneContext | null
         dataColorTheme: (
             dataColorThemeId: number | null,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
         ) => DataColorTheme | null
         maxContext: (
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
         ) => MaxContextInput[]
-    }
-    __keaTypeGenInternalReducerActions: {
-        'tile moved to dashboard (models.dashboardsModel)': (
-            tile: DashboardTile<QueryBasedInsightModel>,
-            dashboardId: number
-        ) => {
-            payload: {
-                dashboardId: number
-                tile: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>
-            }
-            type: 'tile moved to dashboard (models.dashboardsModel)'
-        }
-        'update dashboard insight (models.dashboardsModel)': (
-            insight: QueryBasedInsightModel,
-            extraDashboardIds?: number[],
-            sourceDashboardId?: number
-        ) => {
-            payload: {
-                extraDashboardIds: number[] | undefined
-                insight: QueryBasedInsightModel<Node<Record<string, any>>>
-                sourceDashboardId: number | undefined
-            }
-            type: 'update dashboard insight (models.dashboardsModel)'
-        }
-        'update dashboard success (models.dashboardsModel)': (
-            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined,
-            payload?: any
-        ) => {
-            payload: {
-                dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined
-                payload?: any
-            }
-            type: 'update dashboard success (models.dashboardsModel)'
-        }
-        'rename insight success (models.insightsModel)': (item: QueryBasedInsightModel) => {
-            payload: {
-                item: QueryBasedInsightModel<Node<Record<string, any>>>
-            }
-            type: 'rename insight success (models.insightsModel)'
-        }
-        'update dashboard failure (models.dashboardsModel)': (
-            error: string,
-            errorObject?: any
-        ) => {
-            payload: {
-                error: string
-                errorObject?: any
-            }
-            type: 'update dashboard failure (models.dashboardsModel)'
-        }
-        'duplicate insight success (models.insightsModel)': (item: QueryBasedInsightModel) => {
-            payload: {
-                item: QueryBasedInsightModel<Node<Record<string, any>>>
-            }
-            type: 'duplicate insight success (models.insightsModel)'
-        }
-        'tile added to dashboard (models.dashboardsModel)': (dashboardId: number) => {
-            payload: {
-                dashboardId: number
-            }
-            type: 'tile added to dashboard (models.dashboardsModel)'
-        }
-        'load variables success (queries.nodes.DataVisualization.Components.Variables.variableDataLogic)': (
-            variables: Variable[],
-            payload?: any
-        ) => {
-            payload: {
-                payload?: any
-                variables: Variable[]
-            }
-            type: 'load variables success (queries.nodes.DataVisualization.Components.Variables.variableDataLogic)'
-        }
     }
 }
 

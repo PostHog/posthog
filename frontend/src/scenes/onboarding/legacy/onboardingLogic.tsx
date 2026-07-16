@@ -105,18 +105,18 @@ export interface onboardingLogicActions {
     } // onboardingEventUsageLogic
     openSidePanel: (
         tab: SidePanelTab,
-        options?: string
+        options?: string | undefined
     ) => {
         options: string | undefined
         tab: SidePanelTab
     } // sidePanelStateLogic
-    recordProductIntentOnboardingComplete: ({ product_type }: { product_type: ProductKey }) => {
+    recordProductIntentOnboardingComplete: (args_0: { product_type: ProductKey }) => {
         product_type: ProductKey
     } // teamLogic
     updateCurrentTeam: (payload: Partial<TeamType>) => Partial<TeamType> // teamLogic
     updateCurrentTeamSuccess: (
         currentTeam: TeamPublicType | TeamType,
-        payload?: Partial<TeamType>
+        payload?: Partial<TeamType> | undefined
     ) => {
         currentTeam: TeamPublicType | TeamType
         payload?: Partial<TeamType>

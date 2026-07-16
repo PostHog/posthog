@@ -105,10 +105,7 @@ export interface revenueAnalyticsSettingsLogicActions {
     deleteJoin: (join: DataWarehouseViewLink) => {
         join: DataWarehouseViewLink
     } // sourceManagementLogic
-    updateSourceRevenueAnalyticsConfig: ({
-        source,
-        config,
-    }: {
+    updateSourceRevenueAnalyticsConfig: (args_0: {
         config: Partial<ExternalDataSourceRevenueAnalyticsConfig>
         source: ExternalDataSource
     }) => {

@@ -281,7 +281,7 @@ export interface billingLogicActions {
         value: true
     } // lemonBannerLogic
     loadCurrentOrganization: () => any // organizationLogic
-    loadUser: (resetOnFailure?: boolean) => {
+    loadUser: (resetOnFailure?: boolean | undefined) => {
         resetOnFailure: boolean | undefined
     } // userLogic
     deactivateProduct: (key: string) => string

@@ -51,7 +51,7 @@ export interface passkeyLogicActions {
         code: string
         detail: string
     } // loginLogic
-    loadUser: (resetOnFailure?: boolean) => {
+    loadUser: (resetOnFailure?: boolean | undefined) => {
         resetOnFailure: boolean | undefined
     } // userLogic
     beginPasskeyLogin: (

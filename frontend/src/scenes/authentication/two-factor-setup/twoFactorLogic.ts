@@ -79,7 +79,7 @@ export interface twoFactorLogicActions {
     loadAllMembers: () => {
         value: true
     } // membersLogic
-    loadUser: (resetOnFailure?: boolean) => {
+    loadUser: (resetOnFailure?: boolean | undefined) => {
         resetOnFailure: boolean | undefined
     } // userLogic
     clearGeneralError: () => {
