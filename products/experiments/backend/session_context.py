@@ -60,11 +60,14 @@ MAX_EXPOSURE_ROWS = 10_000
 @dataclass(frozen=True)
 class _ResolvedExposure:
     """An experiment's exposure criteria resolved to what its exposure query needs: which
-    property carries the variant, the event/action + property conditions, and whether the
-    experiment can share the batched default `$feature_flag_called` query."""
+    property carries the variant, whether the experiment can share the batched default
+    `$feature_flag_called` query, and the normalized criteria + flag key from which the
+    per-experiment branch conditions are built — lazily, after the branch cap, since
+    action-based conditions cost a Postgres lookup each."""
 
+    flag_key: str
     variant_property: str
-    conditions: list[ast.Expr]
+    criteria: Optional[ExperimentExposureCriteria]
     batchable: bool
 
 
@@ -145,7 +148,7 @@ def get_session_experiment_context(
             continue
         flag_key_by_id[experiment_id] = flag_key
         all_variant_keys |= variant_keys
-        resolution = _resolve_exposure(team, flag_key, exposure_criteria)
+        resolution = _resolve_exposure(flag_key, exposure_criteria)
         if resolution.batchable:
             batchable_ids.add(experiment_id)
         else:
@@ -228,7 +231,7 @@ def get_session_experiment_context(
     return sorted(items, key=lambda item: item.experiment_name.lower())
 
 
-def _resolve_exposure(team: Team, flag_key: str, exposure_criteria: Optional[dict]) -> _ResolvedExposure:
+def _resolve_exposure(flag_key: str, exposure_criteria: Optional[dict]) -> _ResolvedExposure:
     """Resolve an experiment's exposure criteria through the shared `exposure_query_logic`
     helpers — the single seam that keeps this surface in sync with the experiment analysis.
     Malformed stored criteria fall back to the default exposure event rather than failing the
@@ -249,19 +252,9 @@ def _resolve_exposure(team: Team, flag_key: str, exposure_criteria: Optional[dic
         exposure_config.properties
     )
     batchable = event == "$feature_flag_called" and not has_property_filters
-    conditions: list[ast.Expr] = []
-    if not batchable:
-        try:
-            conditions = build_exposure_event_conditions(criteria, team, flag_key)
-        except (Cohort.DoesNotExist, BaseHogQLError):
-            # Criteria this project can't resolve — a cohort filter whose cohort doesn't exist
-            # here (e.g. a duplicated experiment carrying the source project's cohort id), or a
-            # property filter HogQL can't compile — must not fail the whole surface. Match
-            # nothing instead, like `_build_action_filter` does for missing actions: the
-            # experiment still surfaces through stamped properties, and no exposure moment is
-            # fabricated from criteria the analysis can't honor either.
-            conditions = [ast.Constant(value=False)]
-    return _ResolvedExposure(variant_property=variant_property, conditions=conditions, batchable=batchable)
+    return _ResolvedExposure(
+        flag_key=flag_key, variant_property=variant_property, criteria=criteria, batchable=batchable
+    )
 
 
 def _variant_keys_from_filters(filters: Optional[dict]) -> set[str]:
@@ -348,6 +341,18 @@ def _query_exposure_event_branches(
     """
     branches: list[ast.SelectQuery] = []
     for experiment_id, resolution, variants in branch_meta:
+        # Built here, after the branch cap, so classification stays DB-free for experiments
+        # the slice discards (action-based conditions cost a Postgres lookup each).
+        try:
+            conditions = build_exposure_event_conditions(resolution.criteria, team, resolution.flag_key)
+        except (Cohort.DoesNotExist, BaseHogQLError):
+            # Criteria this project can't resolve — a cohort filter whose cohort doesn't exist
+            # here (e.g. a duplicated experiment carrying the source project's cohort id), or a
+            # property filter HogQL can't compile — must not fail the whole surface. Match
+            # nothing instead, like `_build_action_filter` does for missing actions: the
+            # experiment still surfaces through stamped properties and flag evaluations, and no
+            # exposure moment is fabricated from criteria the analysis can't honor either.
+            conditions = [ast.Constant(value=False)]
         branch = parse_select(
             """
             SELECT {experiment_id} AS experiment_id,
@@ -364,9 +369,7 @@ def _query_exposure_event_branches(
             placeholders={
                 "experiment_id": ast.Constant(value=experiment_id),
                 "variant_field": ast.Field(chain=["properties", resolution.variant_property]),
-                "exposure_conditions": ast.And(exprs=resolution.conditions)
-                if resolution.conditions
-                else ast.Constant(value=True),
+                "exposure_conditions": ast.And(exprs=conditions) if conditions else ast.Constant(value=True),
                 "session_id": ast.Constant(value=session_id),
                 "variants": ast.Constant(value=sorted(variants)),
                 "window_start": ast.Constant(value=window_start),
