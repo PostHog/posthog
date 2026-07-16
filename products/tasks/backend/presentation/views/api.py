@@ -2160,21 +2160,32 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     )
     def chart(self, request, *args, **kwargs):
         task_id = self._ensure_task_accessible()
+        # The render below is expensive (executes the query, blocks on the export
+        # workflow) — refuse unknown runs before it, like every sibling action does.
+        if not tasks_facade.task_run_exists(self._run_id(), task_id, self.team_id):
+            raise NotFound()
         name = request.validated_data["name"]
         query = request.validated_data.get("query")
         if query is not None:
-            # SQL rendering is unreliable until the exporter defaults chartSettings/display
-            # server-side — a DataVisualizationNode without display renders a table image.
-            if query.get("kind") in ("DataVisualizationNode", "HogQLQuery"):
+            # Allow-list, not deny-list: QuerySchemaRoot admits dozens of kinds
+            # (DataTableNode, EventsQuery, bare HogQLQuery, ...) that render as table
+            # dumps or nothing. Only InsightVizNode renders a chart deterministically;
+            # its source schema excludes SQL, so this also covers the SQL-unsupported rule.
+            if not isinstance(query, dict) or query.get("kind") != "InsightVizNode":
                 return Response(
                     TaskRunErrorResponseSerializer(
-                        {"error": "SQL queries can't be charted yet — use an insight query such as TrendsQuery"}
+                        {
+                            "error": "Only insight queries wrapped in an InsightVizNode can be charted — "
+                            "SQL and table queries are not supported yet"
+                        }
                     ).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             try:
                 QuerySchemaRoot.model_validate(upgrade(query))
-            except pydantic.ValidationError:
+            # upgrade() raises TypeError/KeyError/ValueError on malformed shapes an LLM
+            # plausibly produces (string versions, list kinds) — all must stay typed 400s.
+            except (pydantic.ValidationError, TypeError, KeyError, ValueError):
                 return Response(
                     TaskRunErrorResponseSerializer({"error": "Invalid insight query"}).data,
                     status=status.HTTP_400_BAD_REQUEST,

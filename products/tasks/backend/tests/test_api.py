@@ -7297,7 +7297,7 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
     }
 
-    def _post_chart(self, scopes, body):
+    def _post_chart(self, scopes, body, run_id=None):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         api_key_value = generate_random_token_personal()
@@ -7309,7 +7309,7 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         )
         self.client.force_authenticate(None)
         return self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/chart/",
+            f"/api/projects/@current/tasks/{task.id}/runs/{run_id or run.id}/living_artifacts/chart/",
             body,
             format="json",
             headers={"authorization": f"Bearer {api_key_value}"},
@@ -7375,22 +7375,38 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
             (
                 "dataviz_node",
                 {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+                "InsightVizNode",
             ),
-            ("bare_hogql", {"kind": "HogQLQuery", "query": "SELECT 1"}),
+            ("bare_hogql", {"kind": "HogQLQuery", "query": "SELECT 1"}, "InsightVizNode"),
+            (
+                "datatable_node",
+                {"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+                "InsightVizNode",
+            ),
+            ("string_query", "SELECT 1", "InsightVizNode"),
+            ("list_kind", {"kind": ["TrendsQuery"]}, "InsightVizNode"),
+            (
+                "invalid_source_kind",
+                {"kind": "InsightVizNode", "source": {"kind": "NotAQuery"}},
+                "Invalid insight query",
+            ),
         ]
     )
     @patch("products.tasks.backend.presentation.views.api.render_png_export")
-    def test_sql_queries_rejected_before_render(self, _name, query, mock_render):
+    def test_non_chartable_queries_rejected_before_render(self, _name, query, expected_error, mock_render):
         response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": query})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("can't be charted yet", response.json()["error"])
+        self.assertIn(expected_error, response.json()["error"])
         mock_render.assert_not_called()
 
     @patch("products.tasks.backend.presentation.views.api.render_png_export")
-    def test_invalid_query_fails_before_render(self, mock_render):
-        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": {"kind": "NotAQuery"}})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "Invalid insight query")
+    def test_unknown_run_rejected_before_render(self, mock_render):
+        response = self._post_chart(
+            ["task:write", "query:read"],
+            {"name": "Chart", "query": self.CHART_QUERY},
+            run_id="00000000-0000-0000-0000-000000000000",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         mock_render.assert_not_called()
 
     @patch("products.tasks.backend.presentation.views.api.render_png_export")

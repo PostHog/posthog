@@ -378,6 +378,49 @@ class TestRelaySlackMessage(TestCase):
         # The composed message carries the answer text — nothing posted via the handler.
         mock_post.assert_not_called()
 
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
+    @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_failed_chart_post_leaves_artifact_pending(
+        self,
+        _mock_delete_progress,
+        _mock_post,
+        _mock_update,
+        mock_integration_for_mapping,
+        mock_read_bytes,
+        _mock_requests_post,
+        _mock_flag,
+    ):
+        artifact, _storage_path = self._create_pending_slack_file_artifact(
+            name="Signups by week",
+            filename="signups.v1.png",
+            content_type="image/png",
+            metadata={"posthog_url": "https://us.posthog.com/project/1/insights/abc123"},
+        )
+        slack = self._mock_slack_upload(mock_integration_for_mapping, title="Signups by week")
+        # A non-retryable post failure must leave the artifact pending for the next
+        # relay — marking it delivered would lose the chart (it was never shared).
+        slack.chat_postMessage.side_effect = SlackApiError(
+            "channel_not_found", {"ok": False, "error": "channel_not_found"}
+        )
+        mock_read_bytes.return_value = b"png bytes"
+
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-chart-post-fails",
+                text="Here's the trend.",
+            )
+        )
+
+        artifact.refresh_from_db()
+        self.assertEqual(artifact.versions[0]["delivery_status"], "pending")
+        self.assertEqual(artifact.location["delivery_status"], "pending")
+
 
 class TestMarkdownToSlackMrkdwn(unittest.TestCase):
     @parameterized.expand(
