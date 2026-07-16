@@ -23,8 +23,7 @@ from posthog.hogql.restricted_properties import restricted_property_keys_for_tab
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
-from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
-from posthog.models.team.team import WeekStartDay
+from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
 
 
@@ -260,6 +259,8 @@ class ClickHousePrinter(BasePrinter):
                 args = [*args[:-1], "6", *args[-1:]]
 
         if node.name == "toStartOfWeek" and len(node.args) == 1:
+            from posthog.models.team.team import WeekStartDay  # noqa: PLC0415
+
             # If week mode hasn't been specified, use the project's default.
             # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)
             args.insert(1, WeekStartDay(self._get_week_start_day()).clickhouse_mode)
