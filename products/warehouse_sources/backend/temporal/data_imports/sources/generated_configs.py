@@ -2276,7 +2276,9 @@ class KnockSourceConfig(config.Config):
 
 @config.config
 class KongKonnectSourceConfig(config.Config):
-    pass
+    api_token: str
+    lookback_days: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+    region: Literal["us", "eu", "au", "me", "in", "sg"] = config.value(default="us")
 
 
 @config.config
