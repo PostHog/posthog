@@ -47,17 +47,16 @@ def _parse_channel(digest_raw: object, repository: str) -> str | None:
 def load_repo_digest_config(repo_config: StamphogRepoConfig) -> RepoDigestConfig | None:
     """Fetch `.stamphog/policy.yml` from the repo's default branch and read its `digest:` section.
 
-    Never raises: a missing file or an absent `digest` key returns None (no declared config, use
-    the default audience cascade); malformed YAML or an unusable `digest`/`channel` value returns
-    None with a warning logged so a repo owner's typo doesn't silently vanish.
+    None means CONFIRMED absence or an unusable config: a missing file, no `digest` key, malformed
+    YAML, or a bad `channel` value (warning logged so a repo owner's typo doesn't silently vanish).
+    A transient fetch failure raises instead — the caller persists the resolved audience on the
+    merged PR and never recomputes it, so swallowing a GitHub blip here would permanently route the
+    merge to the author/team fallback instead of the declared channel. The merge-record Celery task
+    retries on the raised error.
     """
-    try:
-        raw_text = StamphogGitHubClient(repo_config.installation_id).get_default_branch_file(
-            repo_config.repository, DIGEST_CONFIG_PATH
-        )
-    except Exception:
-        logger.warning("stamphog_digest_config_fetch_failed", repository=repo_config.repository, exc_info=True)
-        return None
+    raw_text = StamphogGitHubClient(repo_config.installation_id).get_default_branch_file(
+        repo_config.repository, DIGEST_CONFIG_PATH
+    )
     if raw_text is None:
         return None
 

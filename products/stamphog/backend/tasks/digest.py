@@ -143,7 +143,12 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
     # Proof-of-post, written immediately after Slack accepted the message and before the fuller COMPLETED
     # write below. If the worker dies in between, the reclaim sweeper sees a non-empty slack_message_ts,
     # knows this run already posted, and finalizes it instead of unlinking + re-sending its PRs to Slack.
-    DigestRun.objects.for_team(team_id).filter(id=run.id).update(slack_message_ts=message_ts or "posted")
+    # The metadata rides along so a reclaim-finalized run keeps its real pr_count/summary, not zeros.
+    DigestRun.objects.for_team(team_id).filter(id=run.id).update(
+        slack_message_ts=message_ts or "posted",
+        pr_count=len(prs),
+        summary=summary.to_dict(),
+    )
 
     now = timezone.now()
     with transaction.atomic(using=write_db):
@@ -188,7 +193,7 @@ def _reclaim_stale_pending_runs() -> None:
     # reclaim writes commit on the product DB rather than the default connection.
     write_db = router.db_for_write(DigestRun)
     reclaimed = finalized = 0
-    for run_id, team_id in stale.values_list("id", "team_id").iterator():
+    for run_id, team_id, channel_id in stale.values_list("id", "team_id", "digest_channel_id").iterator():
         with transaction.atomic(using=write_db):
             # Lock and RE-READ inside the transaction: the iterator's snapshot is stale by the time
             # this branch runs, and a slow worker may have recorded slack_message_ts (or finished
@@ -207,9 +212,12 @@ def _reclaim_stale_pending_runs() -> None:
             if slack_ts:
                 # It already posted to Slack (the COMPLETED write just never landed). Finalize the run and
                 # KEEP its PRs linked, so the next digest doesn't re-send PRs Slack already received.
+                # pr_count/summary were persisted with the proof-of-post; only the terminal bits are left.
+                now = timezone.now()
                 DigestRun.objects.for_team(team_id).filter(id=run_id).update(
-                    status=DigestRunStatus.COMPLETED, posted_at=timezone.now()
+                    status=DigestRunStatus.COMPLETED, posted_at=now
                 )
+                DigestChannel.objects.for_team(team_id).filter(id=channel_id).update(last_digest_at=now)
                 finalized += 1
             else:
                 # Never posted — unlink the PRs so the next run retries them.

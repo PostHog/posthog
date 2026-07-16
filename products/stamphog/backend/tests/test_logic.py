@@ -1,10 +1,16 @@
 import json
 
+import pytest
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary
+from products.stamphog.backend.logic.digest_config import load_repo_digest_config
+from products.stamphog.backend.logic.github_client import StamphogGitHubError
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation, parse_reviewer_output
 from products.stamphog.backend.logic.slack_digest import _build_blocks, _build_fallback_text
+from products.stamphog.backend.models import StamphogRepoConfig
 from products.stamphog.backend.temporal import activities as activities_module
 from products.stamphog.backend.temporal.registry import ACTIVITIES
 
@@ -127,6 +133,29 @@ class SlackDigestEscapingTests(SimpleTestCase):
         text = _build_fallback_text(self._summary(title="<!channel>", author="a", body="b", intro="<!everyone>"))
         assert "<!channel>" not in text
         assert "<!everyone>" not in text
+
+    def test_section_text_is_capped_below_slack_limit(self) -> None:
+        # Slack rejects sections whose mrkdwn text exceeds 3000 chars, and a rejected post unlinks the
+        # claimed PRs — an unbounded LLM intro or per-PR summary would make every daily retry fail the
+        # same way forever. The PR link must survive the clip (it sits at the front of the section).
+        blocks = _build_blocks(self._summary(title="t", author="a", body="x" * 10_000, intro="i" * 10_000))
+        sections = [b for b in blocks if b.get("type") == "section"]
+        assert sections and all(len(b["text"]["text"]) <= 3000 for b in sections)
+        pr_section = next(b for b in sections if "pull/7" in b["text"]["text"])
+        assert "<https://github.com/o/r/pull/7|" in pr_section["text"]["text"]
+
+
+class DigestConfigFetchTests(SimpleTestCase):
+    def test_transient_fetch_errors_propagate(self) -> None:
+        # The resolved audience is persisted on the merged PR and never recomputed, so swallowing a
+        # transient GitHub failure here would permanently route the merge to the author/team fallback
+        # instead of the declared channel. Only confirmed absence (404 -> None inside the client) may
+        # yield None; a blip must raise so the merge-record Celery task retries the delivery.
+        config = StamphogRepoConfig(repository="o/r", installation_id="1")
+        with patch("products.stamphog.backend.logic.digest_config.StamphogGitHubClient") as client_cls:
+            client_cls.return_value.get_default_branch_file.side_effect = StamphogGitHubError("503 from GitHub")
+            with pytest.raises(StamphogGitHubError):
+                load_repo_digest_config(config)
 
 
 class TemporalRegistryTests(SimpleTestCase):

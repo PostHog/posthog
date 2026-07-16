@@ -7,6 +7,7 @@ import pytest
 from freezegun import freeze_time
 from unittest.mock import patch
 
+from django.db import transaction
 from django.utils import timezone
 
 from posthog.models.scoping import team_scope
@@ -77,8 +78,51 @@ def test_reclaim_stale_pending_runs(team, slack_ts, expect_status, expect_prs_li
     with team_scope(team.id):
         run.refresh_from_db()
         linked = PullRequest.objects.for_team(team.id).filter(digest_run_id=run.id).count()
+        channel_last_digest_at = DigestChannel.objects.for_team(team.id).get(id=channel_id).last_digest_at
     assert run.status == expect_status
     assert (linked == 2) is expect_prs_linked
+    # A finalized (actually-posted) run advances the channel's clock like a normal completion would.
+    assert (channel_last_digest_at is not None) is (expect_status == DigestRunStatus.COMPLETED)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_proof_of_post_persists_metadata_for_reclaim(team) -> None:
+    # Worker death between Slack accepting the message and the completion transaction: the reclaim
+    # sweeper finalizes from persisted state only, so the proof-of-post write must already carry
+    # pr_count/summary — or the finalized run keeps zeros while its PRs stay linked.
+    with team_scope(team.id):
+        channel_id = _seed_channel_and_prs(team.id, pr_count=2)
+
+    real_atomic = transaction.atomic
+    atomic_calls = {"n": 0}
+
+    def _dying_atomic(*args: Any, **kwargs: Any):
+        # Call 1 is the claim transaction; call 2 is the completion transaction — the crash window
+        # under test sits right after the proof-of-post write, before the completion commits.
+        atomic_calls["n"] += 1
+        if atomic_calls["n"] == 2:
+            raise RuntimeError("worker died before the completion transaction")
+        return real_atomic(*args, **kwargs)
+
+    with (
+        patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
+        patch("products.stamphog.backend.tasks.digest.post_digest", return_value="1234.5"),
+        patch("products.stamphog.backend.tasks.digest.transaction.atomic", side_effect=_dying_atomic),
+    ):
+        with pytest.raises(RuntimeError):
+            send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
+
+    with team_scope(team.id):
+        DigestRun.objects.for_team(team.id).update(
+            created_at=timezone.now() - timedelta(minutes=STALE_PENDING_RUN_MINUTES + 5)
+        )
+    _reclaim_stale_pending_runs()
+
+    with team_scope(team.id):
+        run = DigestRun.objects.for_team(team.id).get()
+    assert run.status == DigestRunStatus.COMPLETED
+    assert run.pr_count == 2
+    assert run.summary  # the summary rode along with the proof-of-post, not just the message ts
 
 
 # ---- Finding 2: a channel's digest must never post to Slack twice ------------------------------

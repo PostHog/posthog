@@ -310,7 +310,11 @@ def test_merge_capture_gates_on_either_flag(team, repo_config, enabled, digest_e
     payload = _pr_payload(action="closed")
     payload["pull_request"]["merged"] = True
     payload["pull_request"]["merged_at"] = "2026-07-14T00:00:00Z"
-    _run_task(payload, f"delivery-merged-{enabled}-{digest_enabled}", team.id)
+    # Digest-eligible merges resolve their audience, which fetches the repo's declared digest
+    # config from GitHub; stub the fetch as "file absent" (a transient error would now retry).
+    with patch("products.stamphog.backend.logic.digest_config.StamphogGitHubClient") as digest_client_cls:
+        digest_client_cls.return_value.get_default_branch_file.return_value = None
+        _run_task(payload, f"delivery-merged-{enabled}-{digest_enabled}", team.id)
 
     with team_scope(team.id):
         captured = PullRequest.objects.filter(repo_config=repo_config, pr_number=42, merged_at__isnull=False).exists()

@@ -10,6 +10,7 @@ one implementation:
 
 from __future__ import annotations
 
+from django.db import router
 from django.utils import timezone
 
 from ..models import PullRequest, ReviewRun, StamphogRepoConfig
@@ -38,8 +39,11 @@ def dismiss_stale_approvals_for_head(
     re-dismiss. Each dismissal is stamped right after its GitHub call so a mid-loop failure resumes
     cleanly on retry.
     """
+    # Writer pin: a head-changing delivery can run this sweep moments after post_verdict committed
+    # posted_review_id — a lagged reader would see no approval and skip the retraction entirely.
     stale_runs = list(
         ReviewRun.objects.for_team(team_id)
+        .using(router.db_for_write(ReviewRun))
         .filter(
             pull_request=pull_request,
             posted_review_id__isnull=False,

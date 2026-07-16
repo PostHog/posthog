@@ -21,6 +21,13 @@ logger = structlog.get_logger(__name__)
 
 # Slack rejects messages with more than 50 blocks; header/intro/divider/footer take a few.
 _MAX_PR_BLOCKS = 40
+# Slack rejects a section whose mrkdwn text exceeds 3000 chars, and the failure path unlinks the
+# claimed PRs — an oversized LLM summary would make every daily retry fail the same way forever.
+_MAX_SECTION_CHARS = 2900
+
+
+def _clip(text: str, limit: int = _MAX_SECTION_CHARS) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 class DigestSlackError(Exception):
@@ -48,7 +55,7 @@ def _build_blocks(summary: DigestSummary) -> list[dict]:
         {"type": "header", "text": {"type": "plain_text", "text": "Merged PRs digest"}},
     ]
     if summary.intro:
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": _escape_mrkdwn(summary.intro)}})
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": _clip(_escape_mrkdwn(summary.intro))}})
     blocks.append({"type": "divider"})
     for pr in summary.prs[:_MAX_PR_BLOCKS]:
         link = _link(pr.url, f"#{pr.pr_number} {pr.title}")
@@ -57,7 +64,7 @@ def _build_blocks(summary: DigestSummary) -> list[dict]:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"{link} — {_escape_mrkdwn(pr.author_login)}\n{_escape_mrkdwn(pr.summary)}",
+                    "text": _clip(f"{link} — {_escape_mrkdwn(pr.author_login)}\n{_escape_mrkdwn(pr.summary)}"),
                 },
             }
         )
