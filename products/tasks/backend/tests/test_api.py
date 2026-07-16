@@ -1896,6 +1896,13 @@ class TestTaskAPI(BaseTaskAPITest):
                 ],
             ),
             (
+                "duplicate_names_differing_case",
+                [
+                    {"type": "http", "name": "MyServer", "url": "https://a.example.com", "headers": []},
+                    {"type": "http", "name": "myserver", "url": "https://b.example.com", "headers": []},
+                ],
+            ),
+            (
                 "too_many_servers",
                 [
                     {"type": "http", "name": f"server-{i}", "url": "https://a.example.com", "headers": []}

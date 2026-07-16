@@ -1560,11 +1560,12 @@ class ImportedMcpServersFieldMixin(serializers.Serializer):
         seen: set[str] = set()
         for server in value:
             name = server["name"]
-            if name.lower() in RESERVED_IMPORTED_MCP_SERVER_NAMES:
+            name_key = name.lower()
+            if name_key in RESERVED_IMPORTED_MCP_SERVER_NAMES:
                 raise serializers.ValidationError(f"'{name}' is a reserved MCP server name.")
-            if name in seen:
+            if name_key in seen:
                 raise serializers.ValidationError(f"Duplicate MCP server name: '{name}'.")
-            seen.add(name)
+            seen.add(name_key)
         if len(json.dumps(value)) > MAX_IMPORTED_MCP_SERVERS_BYTES:
             raise serializers.ValidationError("Imported MCP servers payload is too large.")
         return value
