@@ -594,6 +594,21 @@ jobs:
                     --routers 2 --leaders 3 --partitions 8 --persons 100 --concurrency 10 \
                     --duration 18s --router-kill-after 4s --shutdown-after 8s --kill-handoff-target
 
+            - name: Run the e2e gate under chaos (graceful coordinator handover + drain)
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --routers 2 --leaders 3 --partitions 8 --persons 100 --concurrency 10 \
+                    --duration 15s --router-shutdown-after 4s --shutdown-after 8s
+
+            # A true coordinator crash: no lease is revoked, so the survivor
+            # is blind until the election and registration TTLs expire, and
+            # the drain issued inside that window must complete once they do.
+            - name: Run the e2e gate under chaos (coordinator crash, slow failover + drain)
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --routers 2 --leaders 3 --partitions 8 --persons 100 --concurrency 10 \
+                    --duration 18s --router-kill-after 4s --router-kill-fast false --shutdown-after 8s
+
             - name: Dump service logs on failure
               if: failure()
               run: |

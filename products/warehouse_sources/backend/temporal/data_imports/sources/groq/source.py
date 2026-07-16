@@ -32,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class GroqSource(SimpleSource[GroqSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    api_docs_url = "https://console.groq.com/docs/api-reference"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GROQ

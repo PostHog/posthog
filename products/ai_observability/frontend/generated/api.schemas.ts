@@ -1233,11 +1233,11 @@ export interface EvaluationReportSectionApi {
 }
 
 export interface EvaluationReportCitationApi {
-    /** Generation UUID referenced by this citation. */
+    /** Optional generation UUID for generation-target report citations. */
     generation_id?: string
-    /** Trace identifier containing the referenced generation. */
+    /** Identifier of the trace cited by this report. */
     trace_id?: string
-    /** Short explanation of why the generation is cited. */
+    /** Short explanation of why this example is cited. */
     reason?: string
 }
 
@@ -1304,11 +1304,16 @@ export interface EvaluationReportMetricsApi {
 }
 
 export interface EvaluationReportRunContentApi {
+    /** Evaluation target analyzed by this report run. Legacy runs without this field targeted generations.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace */
+    evaluation_target?: EvaluationTargetEnumApi
     /** Agent-generated report headline. */
     title?: string
     /** Ordered narrative sections in the report. */
     sections?: EvaluationReportSectionApi[]
-    /** Trace references grounding findings in the report. */
+    /** References grounding findings in the report. */
     citations?: EvaluationReportCitationApi[]
     /** Structured metrics computed for the report period. */
     metrics?: EvaluationReportMetricsApi | null
@@ -1316,6 +1321,7 @@ export interface EvaluationReportRunContentApi {
 
 /**
  * * `pending` - Pending
+ * * `generated` - Generated
  * * `delivered` - Delivered
  * * `partial_failure` - Partial Failure
  * * `failed` - Failed
@@ -1324,6 +1330,7 @@ export type DeliveryStatusEnumApi = (typeof DeliveryStatusEnumApi)[keyof typeof 
 
 export const DeliveryStatusEnumApi = {
     Pending: 'pending',
+    Generated: 'generated',
     Delivered: 'delivered',
     PartialFailure: 'partial_failure',
     Failed: 'failed',
@@ -1342,9 +1349,10 @@ export interface EvaluationReportRunApi {
     readonly period_start: string
     /** End of the evaluation window covered by this report. */
     readonly period_end: string
-    /** Delivery result: 'pending', 'delivered', 'partial_failure', or 'failed'.
+    /** Delivery result: 'pending', 'generated', 'delivered', 'partial_failure', or 'failed'.
      *
      * * `pending` - Pending
+     * * `generated` - Generated
      * * `delivered` - Delivered
      * * `partial_failure` - Partial Failure
      * * `failed` - Failed */
@@ -2156,6 +2164,8 @@ export interface LLMPromptListApi {
     readonly version_count: number
     readonly first_version_created_at: string
     readonly outline: readonly LLMPromptOutlineEntryApi[]
+    /** Names of the labels currently pointing at this version. */
+    readonly labels: readonly string[]
     readonly prompt_preview: string
     readonly prompt_size_bytes: number
 }
@@ -2194,6 +2204,8 @@ export interface LLMPromptApi {
     readonly version_count: number
     readonly first_version_created_at: string
     readonly outline: readonly LLMPromptOutlineEntryApi[]
+    /** Names of the labels currently pointing at this version. */
+    readonly labels: readonly string[]
 }
 
 export interface LLMPromptPublicApi {
@@ -2247,6 +2259,26 @@ export interface LLMPromptDuplicateApi {
     new_name: string
 }
 
+export interface LLMPromptSetLabelApi {
+    /**
+     * Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.
+     * @minimum 1
+     */
+    version: number
+}
+
+export interface LLMPromptLabelApi {
+    readonly id: string
+    /** Label name, e.g. 'production'. Points to exactly one version of the prompt. */
+    readonly name: string
+    /** Name of the prompt this label belongs to. */
+    readonly prompt_name: string
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+}
+
 export interface LLMPromptVersionSummaryApi {
     readonly id: string
     readonly version: number
@@ -2255,6 +2287,8 @@ export interface LLMPromptVersionSummaryApi {
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly is_latest: boolean
+    /** Names of the labels currently pointing at this version. */
+    readonly labels: readonly string[]
 }
 
 export interface LLMPromptResolveResponseApi {

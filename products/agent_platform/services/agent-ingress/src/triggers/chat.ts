@@ -13,7 +13,7 @@
 
 import { z } from 'zod'
 
-import { buildClientToolResultMarker } from '@posthog/agent-shared'
+import { buildClientToolResultMarker, TRIGGER_ROUTES } from '@posthog/agent-shared'
 
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
 import { enqueueOrResume } from '../enqueue/enqueue'
@@ -318,35 +318,35 @@ export const chatTrigger: TriggerModule = {
     routes: [
         defineRoute({
             method: 'POST',
-            path: '/run',
+            path: TRIGGER_ROUTES.chat.run,
             auth: 'agent_spec',
             schema: ChatRunBodySchema,
             handler: runHandler,
         }),
         defineRoute({
             method: 'POST',
-            path: '/send',
+            path: TRIGGER_ROUTES.chat.send,
             auth: 'agent_spec',
             schema: ChatSendBodySchema,
             handler: sendHandler,
         }),
         defineRoute({
             method: 'POST',
-            path: '/cancel',
+            path: TRIGGER_ROUTES.chat.cancel,
             auth: 'agent_spec',
             schema: ChatCancelBodySchema,
             handler: cancelHandler,
         }),
         defineRoute({
             method: 'GET',
-            path: '/listen',
+            path: TRIGGER_ROUTES.chat.listen,
             auth: 'agent_spec',
             schema: ChatListenQuerySchema,
             handler: listenHandler,
         }),
         defineRoute({
             method: 'POST',
-            path: '/client_tool_result',
+            path: TRIGGER_ROUTES.chat.client_tool_result,
             auth: 'agent_spec',
             schema: ChatClientToolResultBodySchema,
             handler: clientToolResultHandler,

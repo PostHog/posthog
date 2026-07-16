@@ -66,10 +66,15 @@ _SLACK_MAX_BLOCKS = 49
 _SYSTEM_PROMPT = (
     "You are summarizing automated observations of user session recordings into one concise group summary "
     "for a product team. Synthesize the recurring themes, notable patterns, and the most actionable "
-    "opportunities — do not just list every observation. Write tight Markdown (a short intro plus a "
-    "handful of themed sections). Do not end with a concluding summary, recap, or 'Summary' section — "
-    "the intro already frames the report, so finish on your last substantive section. Aim for under "
-    "~600 words. A header line naming the scanner, the time "
+    "opportunities — do not just list every observation. Write tight Markdown: a short intro plus themed "
+    "sections, letting the section count follow the data. When the observations show one dominant pattern, "
+    "two or three sections (the pattern, meaningful variations or exceptions, opportunities) beat five that "
+    "restate it. Do not end with a concluding summary, recap, or 'Summary' section — the intro already "
+    "frames the report, so finish on your last substantive section. ~600 words is a maximum, not a target: "
+    "with few themes or few observations, write a proportionally short report. Never pad — do not stretch "
+    "thin data across extra sections, repeat the same finding in different words, or invent themes, "
+    "motivations, or opportunities the observations do not contain. "
+    "A header line naming the scanner, the time "
     "window, and the recording count is added automatically above your output — do not restate that "
     "metadata; focus on the observations' content. "
     "Ground every theme and claim in the observations: when a pattern rests on only one or two observations, "
@@ -89,6 +94,10 @@ _SYSTEM_PROMPT = (
 
 _MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}\s*(.+?)\s*#*$", re.MULTILINE)
 _MARKDOWN_BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
+# Markdown links in the report body (e.g. the alert header's scanner link). Only PostHog-hosted links
+# survive `strip_external_links_markdown`, so anything this matches is safe to hand Slack as a link;
+# left unconverted, Slack would render the raw `[label](url)` syntax as literal text.
+_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
 # `[obs N]` citation markers the model emits (see `_fetch_observations`); the in-app view and the Slack pass
 # both resolve them to observation links. The captured group is the 1-based observation number.
 _OBS_CITATION_RE = re.compile(r"\[obs (\d+)\]")
@@ -450,9 +459,11 @@ def _escape_slack_specials(text: str) -> str:
 
 
 def _markdown_to_slack(markdown: str, *, team_id: int, observation_ids: list[str]) -> str:
-    """Light Markdown→Slack-mrkdwn pass: headings and **bold** become *bold*, and `[obs N]` citations become
-    `[N]` links to each observation. Truncates long reports."""
+    """Light Markdown→Slack-mrkdwn pass: headings and **bold** become *bold*, `[obs N]` citations become
+    `[N]` links to each observation, and (PostHog-only) Markdown links become `<url|label>`. Truncates
+    long reports."""
     text = _citations_to_slack_links(_escape_slack_specials(markdown), team_id, observation_ids)
+    text = _MARKDOWN_LINK_RE.sub(lambda m: f"<{m.group(2)}|{m.group(1)}>", text)
     text = _MARKDOWN_HEADING_RE.sub(lambda m: f"*{m.group(1)}*", text)
     text = _MARKDOWN_BOLD_RE.sub(lambda m: f"*{m.group(1)}*", text)
     if len(text) > SLACK_TEXT_MAX:
