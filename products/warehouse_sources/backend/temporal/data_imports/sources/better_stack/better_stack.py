@@ -159,7 +159,7 @@ def probe_credentials(api_token: str, endpoint: str | None = None) -> int | None
     path = config.path if config else "/v2/monitors"
     url = _build_url(f"{BETTER_STACK_BASE_URL}{path}", {"per_page": 1})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_token), timeout=10)
+        response = make_tracked_session(capture=False).get(url, headers=_get_headers(api_token), timeout=10)
     except Exception:
         return None
     return response.status_code
@@ -176,7 +176,9 @@ def get_rows(
     config = BETTER_STACK_ENDPOINTS[endpoint]
     headers = _get_headers(api_token)
     # One session reused across pages so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # capture=False: incident `response_content` and monitor URLs can carry arbitrary
+    # secrets the name-based scrubbers can't recognise, so keep them out of HTTP samples.
+    session = make_tracked_session(capture=False)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_url:
