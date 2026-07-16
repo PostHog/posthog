@@ -5,11 +5,13 @@ import posthog from 'posthog-js'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { uuid } from 'lib/utils/dom'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -119,6 +121,31 @@ const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
     support: 'Contact support',
     feedback: 'Give feedback',
     bug: 'Report a bug',
+}
+
+// The conversations extension loads lazily; poll briefly before deciding how to route so a fast
+// submit right after page load doesn't miss it and fall back to Zendesk. Resolves as soon as it's
+// available, or after the timeout.
+async function waitForConversations(timeoutMs = 5000): Promise<boolean> {
+    const intervalMs = 250
+    for (let waited = 0; waited < timeoutMs; waited += intervalMs) {
+        if (posthog.conversations?.isAvailable()) {
+            return true
+        }
+        await new Promise((resolve) => setTimeout(resolve, intervalMs))
+    }
+    return !!posthog.conversations?.isAvailable()
+}
+
+// Conversations tickets carry just the user's message (like the side panel composer), but for bug
+// reports we still fold the exception in so it survives on email-channel tickets and when the
+// agent's session-scoped exceptions panel can't resolve it. Mirrors how feature-preview feedback
+// names its feature in the message body.
+export function appendExceptionToMessage(message: string, exception_event?: SupportTicketExceptionEvent): string {
+    if (!exception_event) {
+        return message
+    }
+    return `${message}\n\n-----\nException: ${parseExceptionEvent(exception_event)}`
 }
 
 const TARGET_AREA_TO_NAME_GENERAL = [
@@ -457,18 +484,22 @@ export const supportLogic = kea<supportLogicType>([
             ['isCurrentOrganizationNew'],
             sidePanelStateLogic,
             ['sidePanelAvailable'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
     actions(() => ({
         closeSupportForm: true,
         openSupportForm: (values: Partial<SupportFormFields> & { target?: 'modal' | 'sidePanel' }) => values,
-        submitZendeskTicket: (form: SupportFormFields) => form,
+        submitSupportTicket: (form: SupportFormFields) => form,
         ensureZendeskOrganization: true,
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
         setLastSubmittedTicketId: (ticketId: string | null) => ({ ticketId }),
+        viewConversationsTicket: (ticket: { id: string; status: string; created_at: string }) => ({ ticket }),
+        clearPendingViewTicket: true,
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -492,6 +523,15 @@ export const supportLogic = kea<supportLogicType>([
                 openSupportForm: () => null, // Reset when opening a new form
             },
         ],
+        // A conversations ticket the side panel should open on when it next renders — set when the
+        // user clicks "View" on a submission toast, consumed by sidepanelTicketsLogic
+        pendingViewTicket: [
+            null as { id: string; status: string; created_at: string } | null,
+            {
+                viewConversationsTicket: (_, { ticket }) => ticket,
+                clearPendingViewTicket: () => null,
+            },
+        ],
     })),
     forms(({ values }) => ({
         sendSupportRequest: {
@@ -504,20 +544,23 @@ export const supportLogic = kea<supportLogicType>([
                 message: '',
             } as SupportFormFields,
             errors: ({ name, email, message, kind, target_area, severity_level }) => {
+                // Conversations tickets are just a message, like the side panel composer — the
+                // triage fields only exist on the Zendesk form
+                const requiresTriageFields = !values.conversationsFlagEnabled
                 return {
                     name: !values.user && !name ? 'Please enter your name' : undefined,
                     email: !values.user && !email ? 'Please enter your email' : undefined,
                     message: !message ? 'Please enter a message' : undefined,
-                    kind: !kind ? 'Please choose' : undefined,
-                    severity_level: !severity_level ? 'Please choose' : undefined,
-                    target_area: !target_area ? 'Please choose' : undefined,
+                    kind: requiresTriageFields && !kind ? 'Please choose' : undefined,
+                    severity_level: requiresTriageFields && !severity_level ? 'Please choose' : undefined,
+                    target_area: requiresTriageFields && !target_area ? 'Please choose' : undefined,
                 }
             },
             submit: async (formValues) => {
                 // name must be present for zendesk to accept the ticket
                 formValues.name = values.user?.first_name ?? formValues.name ?? 'name not set'
                 formValues.email = values.user?.email ?? formValues.email ?? ''
-                await supportLogic.asyncActions.submitZendeskTicket(formValues)
+                await supportLogic.asyncActions.submitSupportTicket(formValues)
             },
         },
     })),
@@ -532,6 +575,10 @@ export const supportLogic = kea<supportLogicType>([
         targetArea: [
             (s) => [s.sendSupportRequest],
             (sendSupportRequest: SupportFormFields) => sendSupportRequest.target_area,
+        ],
+        conversationsFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL],
         ],
     }),
     listeners(({ actions, props, values }) => ({
@@ -591,16 +638,61 @@ export const supportLogic = kea<supportLogicType>([
 
             actions.updateUrlParams()
         },
-        submitZendeskTicket: async ({
-            name,
-            email,
-            kind,
-            target_area,
-            severity_level,
-            message,
-            exception_event,
-            tags,
-        }: SupportFormFields) => {
+        submitSupportTicket: async (formValues: SupportFormFields) => {
+            const { name, email, kind, target_area, severity_level, message, exception_event, tags } = formValues
+
+            // Conversations is where support is headed, so wait for the extension rather than racing
+            // it to the (temporary) Zendesk fallback
+            if (values.conversationsFlagEnabled && (await waitForConversations())) {
+                try {
+                    const response = await posthog.conversations!.sendMessage(
+                        appendExceptionToMessage(message, exception_event),
+                        { name: name || undefined, email: email || undefined },
+                        true // every form submission starts a new ticket
+                    )
+                    if (response) {
+                        // No support_ticket capture here: the backend fires $conversation_ticket_created
+                        // for every new ticket, so a client-side event would double-count
+                        actions.setLastSubmittedTicketId(response.ticket_id)
+                        lemonToast.success(
+                            values.sidePanelAvailable
+                                ? 'Got the message! You can view replies from our support engineers in the support panel.'
+                                : "Got the message! Our support engineers will follow up by email if there's more to share.",
+                            values.sidePanelAvailable
+                                ? {
+                                      button: {
+                                          label: 'View',
+                                          action: () =>
+                                              actions.viewConversationsTicket({
+                                                  id: response.ticket_id,
+                                                  status: response.ticket_status,
+                                                  created_at: response.created_at,
+                                              }),
+                                      },
+                                  }
+                                : undefined
+                        )
+                        actions.closeEmailForm()
+                        actions.closeSupportForm()
+                        actions.resetSendSupportRequest()
+                        return
+                    }
+                    // null means the extension declined to send (not available) — nothing left the
+                    // browser, so falling through to Zendesk cannot double-file the ticket
+                } catch (e) {
+                    // The request may have reached the server even though the response failed, so
+                    // don't fall back to Zendesk here — that could file the ticket twice
+                    posthog.captureException(e)
+                    lemonToast.error("Oops, the message couldn't be sent. Please try again in a moment.", {
+                        hideButton: true,
+                    })
+                    return
+                }
+            }
+
+            // Fallback path: conversations flag off, or the extension never loaded. Tag flag-on
+            // fallbacks so the (rare) volume is visible while Zendesk is being retired.
+            const conversationsFallback = values.conversationsFlagEnabled
             const zendesk_ticket_uuid = uuid()
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
@@ -674,7 +766,12 @@ export const supportLogic = kea<supportLogicType>([
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
-                    tags: [planLevelTag, accountOwnerTag, ...(tags || [])],
+                    tags: [
+                        planLevelTag,
+                        accountOwnerTag,
+                        ...(conversationsFallback ? ['conversations_fallback'] : []),
+                        ...(tags || []),
+                    ],
                     custom_fields: [
                         {
                             id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.severity,
@@ -713,8 +810,8 @@ export const supportLogic = kea<supportLogicType>([
                         body:
                             message +
                             `\n\n-----` +
-                            `\nKind: ${kind}` +
-                            `\nTarget area: ${target_area}` +
+                            `\nKind: ${kind ?? 'support'}` +
+                            `\nTarget area: ${target_area ?? 'General'}` +
                             `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
                             getSessionReplayLink() +
                             getErrorTrackingLink(exception_event?.uuid) +
@@ -839,6 +936,10 @@ export const supportLogic = kea<supportLogicType>([
                 )
                 // Don't close the form or reset the data so user can try again
             }
+        },
+
+        viewConversationsTicket: () => {
+            actions.openSidePanel(SidePanelTab.Support)
         },
 
         closeSupportForm: () => {

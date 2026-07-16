@@ -64,6 +64,7 @@ export function ExportedInsight({
     const trendsDisplay =
         isInsightVizNode(query) && isTrendsQuery(query.source) ? query.source.trendsFilter?.display : undefined
     const isBoxPlot = trendsDisplay === ChartDisplayType.BoxPlot
+    const isMetric = trendsDisplay === ChartDisplayType.Metric
     const showLegend =
         legend &&
         isInsightVizNode(query) &&
@@ -79,7 +80,7 @@ export function ExportedInsight({
 
     return (
         <BindLogic logic={insightLogic} props={insightLogicProps}>
-            <div className="ExportedInsight">
+            <div className={clsx('ExportedInsight', isMetric && 'ExportedInsight--metric')}>
                 {!noHeader && (
                     <div className="ExportedInsight__header">
                         <div>

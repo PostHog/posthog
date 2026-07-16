@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import {
     CyclotronJobInvocationHogFlow,
@@ -101,19 +102,26 @@ export class HogFunctionHandler implements ActionHandler {
         action: Action,
         hogExecutorOptions?: HogExecutorExecuteAsyncOptions
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> & { skipped?: boolean }> {
-        const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config)
-        const hogFunctionInvocation = await this.hogFlowFunctionsService.buildHogFunctionInvocation(
-            invocation,
-            hogFunction,
-            {
-                event: invocation.state.event,
-                person: invocation.person,
-                groups: invocation.groups,
-                variables: invocation.state.variables,
-            }
+        const hogFunction = await instrumentFn(
+            { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
+            () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config)
+        )
+        const hogFunctionInvocation = await instrumentFn(
+            { key: 'hogFlow.action.hogFunction.buildInvocation', sendException: false },
+            () =>
+                this.hogFlowFunctionsService.buildHogFunctionInvocation(invocation, hogFunction, {
+                    event: invocation.state.event,
+                    person: invocation.person,
+                    groups: invocation.groups,
+                    variables: invocation.state.variables,
+                })
         )
 
-        if (await this.recipientPreferencesService.shouldSkipAction(hogFunctionInvocation, action)) {
+        const shouldSkip = await instrumentFn(
+            { key: 'hogFlow.action.hogFunction.recipientPreferences', sendException: false },
+            () => this.recipientPreferencesService.shouldSkipAction(hogFunctionInvocation, action)
+        )
+        if (shouldSkip) {
             return {
                 finished: true,
                 skipped: true,
@@ -135,7 +143,10 @@ export class HogFunctionHandler implements ActionHandler {
         // Predicted hard bounce (bad syntax / dead domain): skip before the send reaches
         // SES so it never counts against our bounce rate. Runs after the opt-out check so
         // an opted-out recipient never triggers a DNS lookup.
-        const emailSkipReason = await this.emailValidationService.getSkipReason(hogFunctionInvocation, action)
+        const emailSkipReason = await instrumentFn(
+            { key: 'hogFlow.action.hogFunction.emailValidation', sendException: false },
+            () => this.emailValidationService.getSkipReason(hogFunctionInvocation, action)
+        )
         if (emailSkipReason) {
             return {
                 finished: true,
@@ -158,6 +169,8 @@ export class HogFunctionHandler implements ActionHandler {
             }
         }
 
-        return this.hogFlowFunctionsService.executeWithAsyncFunctions(hogFunctionInvocation, hogExecutorOptions)
+        return instrumentFn({ key: 'hogFlow.action.hogFunction.executeWithAsyncFunctions', sendException: false }, () =>
+            this.hogFlowFunctionsService.executeWithAsyncFunctions(hogFunctionInvocation, hogExecutorOptions)
+        )
     }
 }

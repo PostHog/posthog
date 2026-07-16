@@ -219,6 +219,16 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # ("password authentication failed", "SASL authentication failed"), and exclude the volatile
     # millisecond value.
     "authentication did not complete within",
+    # pgcat (a Rust Postgres pooler) refuses to hand out a backend when every server in the pool is
+    # currently banned/down — a failed health check bans a server and pgcat auto-unbans it after
+    # `ban_time` — reporting it as SQLSTATE 58000 ("could not get connection from the pool -
+    # AllServersDown"), which psycopg maps to OperationalError. It's transient by construction (a
+    # banned server rejoins once it passes a health check, or the ban expires), the pgcat analog of
+    # Supavisor's ECHECKOUT* pool-checkout failures above, so a fresh reconnect recovers. It can land
+    # on the first discovery query (`SELECT version()` in `_is_duckdb_connection`), so the discovery
+    # retry must catch it. Match the stable prefix + reason and leave pgcat's non-transient reasons
+    # (e.g. BadConfig) to surface.
+    "could not get connection from the pool - allserversdown",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
@@ -410,11 +420,17 @@ def _raise_if_setup_connection_broken(connection: psycopg.Connection) -> None:
     swallow the follow-up "connection closed" errors, so discovery finishes "successfully"
     and the implicit commit in the enclosing `with connection:` raises a misleading
     `ProgrammingError: Explicit commit() forbidden within a Transaction context`, burying
-    the real cause. Detect the broken connection first and raise the actual
-    dropped-connection error (transient, so it stays retryable) — the activity then retries
-    on a fresh connection instead of failing on a self-inflicted commit error.
+    the real cause.
+
+    A hard drop flips the connection to `broken`, but a drop that lands precisely while
+    psycopg is entering or leaving the probe's `transaction()` block can leave the nesting
+    counter incremented while `broken` stays False (the connection is `INERROR`, not BAD).
+    `commit()` refuses outright whenever that counter is non-zero, so checking `broken` alone
+    misses this case. Detect either signal and raise the actual dropped-connection error
+    (transient, so it stays retryable) — the activity then retries on a fresh connection
+    instead of failing on the self-inflicted commit error.
     """
-    if connection.broken:
+    if connection.broken or getattr(connection, "_num_transactions", 0) > 0:
         raise psycopg.OperationalError("connection to server was lost during table metadata discovery")
 
 
@@ -1065,6 +1081,21 @@ def _is_unsupported_function_error(error: Exception, function_name: str) -> bool
     return any(marker in message for marker in ("does not exist", "unknown function", "not found", "no function"))
 
 
+def _is_unsupported_statement_timeout_error(error: Exception) -> bool:
+    """True when the engine rejects setting `statement_timeout` as an unsupported feature.
+
+    The best-effort `SET statement_timeout` guarding these metadata scans is a Postgres-only
+    convenience. Some Postgres-wire-compatible engines (CrateDB, Materialize, and similar
+    analytical/streaming proxies) accept the connection but expose a limited GUC set, raising
+    `FeatureNotSupported` — `setting configuration parameter "statement_timeout" not supported`.
+    That's an expected engine limitation, not a bug, so callers degrade quietly rather than
+    flooding error tracking (mirrors `_is_unsupported_function_error`). A genuine timeout
+    cancellation reads `canceling statement due to statement timeout`, so it can't match here.
+    """
+    message = str(error).lower()
+    return "statement_timeout" in message and "not supported" in message
+
+
 def _rls_active_from_conn(
     connection: psycopg.Connection,
     schema: str | None,
@@ -1083,11 +1114,19 @@ def _rls_active_from_conn(
     """
     try:
         with connection.cursor() as cursor:
-            cursor.execute(
-                sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
-                    timeout=sql.Literal(1000 * 30)  # 30 secs
+            try:
+                cursor.execute(
+                    sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                        timeout=sql.Literal(1000 * 30)  # 30 secs
+                    )
                 )
-            )
+            except psycopg.errors.FeatureNotSupported:
+                # Some Postgres-wire-compatible engines (e.g. Aurora DSQL) don't implement setting
+                # statement_timeout. This SET is only a best-effort guard against a runaway catalog
+                # scan, so its rejection is an expected incompatibility — degrade quietly instead of
+                # flooding error tracking. Scoped to this statement so an unrelated FeatureNotSupported
+                # from the catalog queries below still reaches the capture path.
+                return {}
             discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
             if not discovered_tables:
                 return {}
@@ -1139,6 +1178,7 @@ def _rls_active_from_conn(
             and not connection.broken
             and not isinstance(e, psycopg.errors.InFailedSqlTransaction)
             and not _is_unsupported_function_error(e, "row_security_active")
+            and not _is_unsupported_statement_timeout_error(e)
         ):
             capture_exception(e)
         return {}
@@ -1195,7 +1235,12 @@ def _xmin_capable_tables_from_conn(
         # Best-effort like the PK/RLS/index lookups it runs alongside: losing the `supports_xmin`
         # hint just hides the option for this listing. A non-Postgres engine may lack `relkind`
         # semantics entirely, so degrade quietly.
-        if not connection.closed and not connection.broken and not isinstance(e, psycopg.errors.InFailedSqlTransaction):
+        if (
+            not connection.closed
+            and not connection.broken
+            and not isinstance(e, psycopg.errors.InFailedSqlTransaction)
+            and not _is_unsupported_statement_timeout_error(e)
+        ):
             structlog.get_logger().warning("Failed to detect xmin-capable tables for Postgres schemas", exc_info=e)
         return set()
 
@@ -2839,11 +2884,22 @@ def postgres_source(
                         )
 
                         # Session, not LOCAL: under autocommit a LOCAL timeout has no transaction to bind to.
-                        cursor.execute(
-                            sql.SQL("SET statement_timeout = {timeout}").format(
-                                timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
+                        # Best-effort: some Postgres-compatible engines and poolers reject `SET
+                        # statement_timeout` with FeatureNotSupported, so fall back to the source's
+                        # default rather than failing the whole sync — mirroring the metadata-probe
+                        # sites in `_get_table`/`_get_columns_for_tables`. A genuine connection
+                        # drop/limit stringifies differently and re-raises so the setup retry recovers
+                        # on a fresh connection instead of silently losing the timeout guard.
+                        try:
+                            cursor.execute(
+                                sql.SQL("SET statement_timeout = {timeout}").format(
+                                    timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
+                                )
                             )
-                        )
+                        except psycopg.Error as e:
+                            if _is_connection_dropped_error(e) or _is_connection_limit_error(e):
+                                raise
+                            logger.debug(f"Source does not support setting statement_timeout; using its default: {e}")
 
                         # Capture the xmin ceiling on this row-serving connection before streaming.
                         if is_xmin:

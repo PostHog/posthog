@@ -16,15 +16,18 @@ TOKEN_USAGE = {"input_tokens": 1200, "output_tokens": 300, "total_tokens": 1500,
 class TestUpdateTaskRunStatusActivity:
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "status,sets_completed_at",
+        "status,environment,sets_completed_at",
         [
-            (TaskRun.Status.IN_PROGRESS, False),
-            (TaskRun.Status.COMPLETED, True),
-            (TaskRun.Status.FAILED, True),
-            (TaskRun.Status.CANCELLED, False),
+            (TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, False),
+            (TaskRun.Status.COMPLETED, TaskRun.Environment.CLOUD, True),
+            (TaskRun.Status.FAILED, TaskRun.Environment.CLOUD, True),
+            (TaskRun.Status.CANCELLED, TaskRun.Environment.CLOUD, True),
+            (TaskRun.Status.CANCELLED, TaskRun.Environment.LOCAL, False),
         ],
     )
-    def test_updates_status(self, activity_environment, test_task_run, status, sets_completed_at):
+    def test_updates_status(self, activity_environment, test_task_run, status, environment, sets_completed_at):
+        test_task_run.environment = environment
+        test_task_run.save(update_fields=["environment"])
         input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=status)
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
 
@@ -114,6 +117,34 @@ class TestUpdateTaskRunStatusActivity:
         mock_record.assert_called_once()
         assert mock_record.call_args.kwargs["rtk_enabled"] is True
         assert mock_record.call_args.kwargs["status"] == status
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "error_type,expected_error_type",
+        [
+            ("ActivityError", "ActivityError"),
+            (None, "unspecified"),
+        ],
+    )
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_failed_transition_carries_error_type_and_message_tail(
+        self, mock_capture, activity_environment, test_task_run, error_type, expected_error_type
+    ):
+        error_message = "x" * 1400 + "TypeError: cannot read boot manifest"
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=TaskRun.Status.FAILED,
+            error_message=error_message,
+            error_type=error_type,
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
+        assert len(captured) == 1
+        props = captured[0].kwargs["properties"]
+        assert props["error_type"] == expected_error_type
+        assert len(props["error_message"]) == 500
+        assert props["error_message"].endswith("TypeError: cannot read boot manifest")
 
     @pytest.mark.django_db(transaction=True)
     @patch("products.tasks.backend.models.posthoganalytics.capture")

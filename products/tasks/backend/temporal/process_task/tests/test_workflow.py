@@ -23,6 +23,7 @@ from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_USER_SE
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities import (
     CleanupSandboxInput,
+    CompleteRunStreamInput,
     CreateSandboxForRepositoryInput,
     CreateSandboxForRepositoryOutput,
     GetSandboxForRepositoryOutput,
@@ -35,6 +36,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     checkout_branch_in_sandbox,
     cleanup_sandbox,
     clone_repository_in_sandbox,
+    complete_run_stream,
     create_sandbox_for_repository,
     emit_progress_activity,
     forward_pending_user_message,
@@ -156,6 +158,7 @@ class TestProcessTaskWorkflow:
                     start_agent_server,
                     read_sandbox_logs,
                     cleanup_sandbox,
+                    complete_run_stream,
                     track_workflow_event,
                     update_task_run_status,
                 ],
@@ -274,6 +277,7 @@ class TestProcessTaskWorkflow:
                     start_agent_server,
                     read_sandbox_logs,
                     cleanup_sandbox,
+                    complete_run_stream,
                     track_workflow_event,
                     update_task_run_status,
                 ],
@@ -296,6 +300,60 @@ class TestProcessTaskWorkflow:
 
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
+    async def test_final_sandbox_cleanup_completes_the_run_stream(self, monkeypatch):
+        cleanup_inputs: list[CleanupSandboxInput] = []
+
+        async def fake_execute_activity(activity_fn, activity_input, **kwargs):
+            assert activity_fn is cleanup_sandbox
+            cleanup_inputs.append(activity_input)
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+
+        await workflow._cleanup_sandbox("sandbox-123", complete_stream=True)
+
+        assert cleanup_inputs == [
+            CleanupSandboxInput(
+                sandbox_id="sandbox-123",
+                run_id="run-id",
+                complete_stream_on_cleanup=True,
+            )
+        ]
+
+    async def test_final_sandbox_cleanup_completes_stream_after_cleanup_retries_fail(self, monkeypatch):
+        activity_calls: list[object] = []
+
+        async def fake_execute_activity(activity_fn, activity_input, **kwargs):
+            activity_calls.append(activity_fn)
+            if activity_fn is cleanup_sandbox:
+                raise RuntimeError("destroy failed")
+            assert activity_fn is complete_run_stream
+            assert activity_input == CompleteRunStreamInput(run_id="run-id")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+
+        with pytest.raises(RuntimeError, match="destroy failed"):
+            await workflow._cleanup_sandbox("sandbox-123", complete_stream=True)
+
+        assert activity_calls == [cleanup_sandbox, complete_run_stream]
+
+    async def test_finalizes_run_stream_without_a_sandbox(self, monkeypatch):
+        stream_inputs: list[CompleteRunStreamInput] = []
+
+        async def fake_execute_activity(activity_fn, activity_input, **kwargs):
+            assert activity_fn is complete_run_stream
+            stream_inputs.append(activity_input)
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        workflow = ProcessTaskWorkflow()
+
+        await workflow._complete_run_stream("run-id")
+
+        assert stream_inputs == [CompleteRunStreamInput(run_id="run-id")]
+
     async def test_send_followup_message_can_arrive_before_context_is_loaded(self, monkeypatch):
         logger = Mock()
         deprecate_patch = Mock()
@@ -612,7 +670,7 @@ class TestProcessTaskWorkflowUnit:
         assert result.error == "clone failed"
         assert result.sandbox_id == "sandbox-123"
         read_sandbox_logs_mock.assert_awaited_once_with("sandbox-123")
-        cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123")
+        cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123", complete_stream=True)
 
     async def test_run_refuses_local_environment_run_without_touching_it(self, monkeypatch):
         # If a local (desktop-driven) run is ever cloud-dispatched again (e.g. the reconciler's
@@ -648,11 +706,13 @@ class TestProcessTaskWorkflowUnit:
         update_task_run_status_mock = AsyncMock()
         track_workflow_event_mock = AsyncMock()
         post_slack_update_mock = AsyncMock()
+        complete_run_stream_mock = AsyncMock()
 
         monkeypatch.setattr(workflow, "_get_task_processing_context", get_task_processing_context_mock)
         monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
         monkeypatch.setattr(workflow, "_track_workflow_event", track_workflow_event_mock)
         monkeypatch.setattr(workflow, "_post_slack_update", post_slack_update_mock)
+        monkeypatch.setattr(workflow, "_complete_run_stream", complete_run_stream_mock)
 
         result = await workflow.run(ProcessTaskInput(run_id="run-id"))
 
@@ -663,9 +723,11 @@ class TestProcessTaskWorkflowUnit:
             "failed",
             error_message="database connection closed",
             run_id="run-id",
+            error_type="RuntimeError",
         )
         track_workflow_event_mock.assert_not_awaited()
         post_slack_update_mock.assert_not_awaited()
+        complete_run_stream_mock.assert_awaited_once_with("run-id")
 
     async def test_run_persists_activity_failure_cause_not_the_wrapper(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
@@ -698,6 +760,7 @@ class TestProcessTaskWorkflowUnit:
             "failed",
             error_message="Sandbox not in running state.",
             run_id="run-id",
+            error_type="ActivityError",
         )
 
     async def test_run_skips_relay_when_sandbox_event_ingest_is_enabled(self, monkeypatch):
@@ -867,8 +930,9 @@ class TestProcessTaskWorkflowUnit:
         update_task_run_status_mock.assert_any_await(
             "completed",
             error_message=SANDBOX_GONE_ERROR_MESSAGE,
+            error_type=None,
         )
-        cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123")
+        cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123", complete_stream=True)
 
     @pytest.mark.parametrize(
         "patched, expected_post_slack_calls",
@@ -1235,7 +1299,7 @@ class TestProcessTaskWorkflowUnit:
 
         await workflow.run(ProcessTaskInput(run_id="run-id"))
 
-        cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123")
+        cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123", complete_stream=True)
         if expect_resume_snapshot_call:
             create_resume_snapshot_mock.assert_awaited_once_with("sandbox-123")
         else:

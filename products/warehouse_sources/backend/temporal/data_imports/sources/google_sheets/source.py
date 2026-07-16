@@ -3,6 +3,7 @@ from typing import Optional, cast
 from django.conf import settings
 
 import gspread
+from google.auth import exceptions as google_auth_exceptions
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
+    api_docs_url = "https://developers.google.com/sheets/api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GOOGLESHEETS
@@ -123,6 +126,23 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
                 False,
                 "Google Sheets could not open this spreadsheet. Please check the URL and that it is shared "
                 "with our service account as described at https://posthog.com/docs/cdp/sources/google-sheets",
+            )
+        except (google_auth_exceptions.RefreshError, google_auth_exceptions.TransportError) as e:
+            # These come from fetching PostHog's own service-account OAuth token (the user only shares
+            # their sheet with our service account), not from the user's credentials. google-auth flags
+            # a transient Google-side blip as retryable; its str() is otherwise a raw server message like
+            # "A server error occurred." A non-retryable failure (e.g. invalid_grant from a rotated key)
+            # is a persistent problem on our side, so don't dress it up as merely temporary.
+            if getattr(e, "retryable", False):
+                return (
+                    False,
+                    "PostHog couldn't verify access to your Google Sheet right now because Google returned a "
+                    "temporary error. Please try again in a moment.",
+                )
+            return (
+                False,
+                "PostHog couldn't authenticate with Google to verify access to your Google Sheet. This looks "
+                "like a problem on our side, so please contact support if it keeps happening.",
             )
         except Exception as e:
             return False, str(e)

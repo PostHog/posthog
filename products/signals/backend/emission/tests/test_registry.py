@@ -146,6 +146,7 @@ class TestAutoRegistered:
             ("Zendesk", "tickets"),
             ("Github", "issues"),
             ("Linear", "issues"),
+            ("Jira", "issues"),
             ("conversations", "tickets"),
         ],
     )

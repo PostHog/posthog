@@ -651,7 +651,8 @@ class Reviewer:
     def _format_ownership(self, cl: dict) -> str:
         ownership = cl.get("ownership", {})
         teams = ownership.get("teams", [])
-        if not teams:
+        individuals = ownership.get("individuals", [])
+        if not teams and not individuals:
             return "Ownership: no ownership-source match"
         summary = cl.get("ownership_summary", "")
         on_team = cl.get("author_on_owning_team", True)
@@ -659,7 +660,9 @@ class Reviewer:
         lines = [f"Ownership: {summary}"]
         if per_team:
             lines.append(f"  Files per team: {json.dumps(per_team)}")
-        if not on_team:
+        # The team-membership note only makes sense when teams own the paths;
+        # for individual-only ownership the summary already says who they are.
+        if teams and not on_team:
             lines.append("  NOTE: Author is NOT on the owning team")
         if ownership.get("cross_team"):
             lines.append("  NOTE: Cross-team change")

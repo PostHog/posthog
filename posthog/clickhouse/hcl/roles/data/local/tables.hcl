@@ -760,6 +760,9 @@ database "posthog" {
     column "client_name" {
       type = "String"
     }
+    column "client_agent" {
+      type = "LowCardinality(String)"
+    }
     column "client_revision" {
       type = "UInt64"
     }
@@ -771,6 +774,9 @@ database "posthog" {
     }
     column "client_version_patch" {
       type = "UInt64"
+    }
+    column "client_agent" {
+      type = "LowCardinality(String)"
     }
     column "http_method" {
       type = "UInt8"

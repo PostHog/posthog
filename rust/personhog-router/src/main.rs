@@ -256,9 +256,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let shared_table = coordination_routing_table.table_handle();
         let leader_port = config.leader_port;
+        // Pods may register with an explicit `host:port` name (local
+        // multi-leader setups, where a single fleet-wide port cannot hold);
+        // those resolve as-is. Bare pod names resolve via DNS on the
+        // fleet-wide leader port.
         let leader_backend = Arc::new(LeaderBackend::new(
             shared_table,
-            Arc::new(move |pod_name: &str| Some(format!("http://{}:{}", pod_name, leader_port))),
+            Arc::new(move |pod_name: &str| {
+                if pod_name.contains(':') {
+                    Some(format!("http://{pod_name}"))
+                } else {
+                    Some(format!("http://{pod_name}:{leader_port}"))
+                }
+            }),
             LeaderBackendConfig {
                 num_partitions,
                 timeout: config.backend_timeout(),

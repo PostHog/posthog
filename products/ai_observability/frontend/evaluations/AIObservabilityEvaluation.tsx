@@ -23,12 +23,13 @@ import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { NotFound } from 'lib/components/NotFound'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { SceneExport } from 'scenes/sceneTypes'
-import { userLogic } from 'scenes/userLogic'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType, HogQLMathType } from '~/types'
+
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
@@ -39,12 +40,15 @@ import { EvaluationReportConfig } from './components/EvaluationReportConfig'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
+import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import {
     evaluationSupportsReports,
+    evaluationSupportsRunSummary,
     evaluationTypeHasEditableCriteria,
-    evaluationTypeSupportsSignalEmission,
     evaluationTypeUsesModelConfiguration,
+    isBooleanEvaluationOutput,
 } from './evaluationCapabilities'
+import { evaluationReportLogic } from './evaluationReportLogic'
 import { DEFAULT_TRACE_WINDOW_SECONDS, LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
 import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
 import { EvaluationTarget, EvaluationType } from './types'
@@ -59,12 +63,11 @@ export function AIObservabilityEvaluation(): JSX.Element {
         isNewEvaluation,
         runsSummary,
         evaluationProviderKeyIssue,
-        signalEmissionEnabled,
         activeTab,
         canEnable,
         canEnableReason,
+        modelSelectionRequired,
     } = useValues(llmEvaluationLogic)
-    const { user } = useValues(userLogic)
     const { searchParams } = useValues(router)
     const {
         setEvaluationName,
@@ -76,12 +79,15 @@ export function AIObservabilityEvaluation(): JSX.Element {
         setEvaluationType,
         setEvaluationTarget,
         setTraceWindowSeconds,
-        setSignalEmission,
         setActiveTab,
     } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
     const triggersRef = useRef<HTMLDivElement>(null)
     const settingsUrl = combineUrl(urls.aiObservabilityEvaluations(), { ...searchParams, tab: 'settings' }).url
+
+    useAttachedContext(
+        evaluation ? [{ type: 'evaluation', key: evaluation.id || 'new', label: evaluation.name ?? undefined }] : null
+    )
 
     if (evaluationLoading) {
         return <LemonSkeleton className="w-full h-96" />
@@ -98,10 +104,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const isHog = evaluation.evaluation_type === 'hog'
     const isSentiment = evaluation.evaluation_type === 'sentiment'
     const isReportableEvaluation = evaluationSupportsReports(evaluation)
+    const supportsRunSummary = evaluationSupportsRunSummary(evaluation)
+    const isBooleanOutput = isBooleanEvaluationOutput(evaluation.output_type)
     const hasEditableCriteria = evaluationTypeHasEditableCriteria(evaluation.evaluation_type)
 
     const trendInsightUrl =
-        isReportableEvaluation && !isNewEvaluation && evaluation.id
+        supportsRunSummary && !isNewEvaluation && evaluation.id
             ? urls.insightNew({
                   query: {
                       kind: NodeKind.InsightVizNode,
@@ -160,6 +168,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         : isSentiment
           ? true
           : evaluation.evaluation_config.prompt.trim().length > 0
+    const hasSelectedJudgeModel = !modelSelectionRequired || Boolean(evaluation.model_configuration?.model.trim())
     const hasName = evaluation.name.length > 0
     const basicFieldsValid = hasName && configValid
     const percentageUnset = evaluation.conditions.some((c) => (c.rollout_percentage ?? 0) === 0)
@@ -173,7 +182,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
           ? isHog
               ? 'Add evaluation code before saving'
               : 'Add an evaluation prompt before saving'
-          : undefined
+          : !hasSelectedJudgeModel
+            ? 'Select a judge model before saving'
+            : undefined
 
     const focusTriggers = (): void => {
         setActiveTab('configuration')
@@ -198,6 +209,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
                 lemonToast.error('Some required fields are missing. Please review the configuration.')
             }
             focusTriggers()
+            return
+        }
+
+        const reportLogic = evaluationReportLogic({ evaluationId: isNewEvaluation ? 'new' : evaluation.id })
+        if (isReportableEvaluation && reportLogic.isMounted() && reportLogic.values.configError) {
+            lemonToast.error(reportLogic.values.configError)
             return
         }
 
@@ -347,35 +364,41 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                 <div className="flex justify-between items-center mb-4">
                                     <p className="text-muted text-sm m-0">
                                         History of when this evaluation has been executed.
+                                        {runsSummary && runsSummary.total > EVALUATION_SUMMARY_MAX_RUNS && (
+                                            <> The table below shows the latest {EVALUATION_SUMMARY_MAX_RUNS} runs.</>
+                                        )}
                                     </p>
                                     {runsSummary && (
-                                        <div className="flex gap-4 text-sm">
-                                            <div className="text-center">
-                                                <div className="font-semibold text-lg">{runsSummary.total}</div>
-                                                <div className="text-muted">Total runs</div>
-                                            </div>
-                                            {isReportableEvaluation && (
+                                        <div className="flex flex-col items-end gap-1">
+                                            <div className="flex gap-4 text-sm">
                                                 <div className="text-center">
-                                                    <div className="font-semibold text-lg text-success">
-                                                        {runsSummary.successRate}%
-                                                    </div>
-                                                    <div className="text-muted">Success rate</div>
+                                                    <div className="font-semibold text-lg">{runsSummary.total}</div>
+                                                    <div className="text-muted">Total runs</div>
                                                 </div>
-                                            )}
-                                            {isReportableEvaluation && evaluation.output_config.allows_na && (
+                                                {supportsRunSummary && (
+                                                    <div className="text-center">
+                                                        <div className="font-semibold text-lg text-success">
+                                                            {runsSummary.successRate}%
+                                                        </div>
+                                                        <div className="text-muted">Success rate</div>
+                                                    </div>
+                                                )}
+                                                {supportsRunSummary && evaluation.output_config.allows_na && (
+                                                    <div className="text-center">
+                                                        <div className="font-semibold text-lg">
+                                                            {runsSummary.applicabilityRate}%
+                                                        </div>
+                                                        <div className="text-muted">Applicable</div>
+                                                    </div>
+                                                )}
                                                 <div className="text-center">
-                                                    <div className="font-semibold text-lg">
-                                                        {runsSummary.applicabilityRate}%
+                                                    <div className="font-semibold text-lg text-danger">
+                                                        {runsSummary.errors}
                                                     </div>
-                                                    <div className="text-muted">Applicable</div>
+                                                    <div className="text-muted">Errors</div>
                                                 </div>
-                                            )}
-                                            <div className="text-center">
-                                                <div className="font-semibold text-lg text-danger">
-                                                    {runsSummary.errors}
-                                                </div>
-                                                <div className="text-muted">Errors</div>
                                             </div>
+                                            <div className="text-muted text-xs">Across all runs, all time</div>
                                         </div>
                                     )}
                                 </div>
@@ -521,7 +544,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 </span>
                                             </div>
 
-                                            {isReportableEvaluation && (
+                                            {isBooleanOutput && (
                                                 <Field
                                                     name="allows_na"
                                                     label={
@@ -556,20 +579,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     </div>
                                                 </Field>
                                             )}
-                                            {!isNewEvaluation &&
-                                                user?.is_staff &&
-                                                evaluationTypeSupportsSignalEmission(evaluation.evaluation_type) && (
-                                                    <div className="flex items-center gap-2">
-                                                        <LemonSwitch
-                                                            checked={signalEmissionEnabled}
-                                                            onChange={setSignalEmission}
-                                                        />
-                                                        <span>Emit signals</span>
-                                                        <Tooltip title="When enabled, true verdicts from this evaluation will be emitted as signals for clustering and investigation.">
-                                                            <IconInfo className="text-muted text-base" />
-                                                        </Tooltip>
-                                                    </div>
-                                                )}
                                         </div>
                                     </div>
 
@@ -629,7 +638,8 @@ function EvaluationModelPicker(): JSX.Element {
         trialModelsLoading,
         providerKeysLoading,
     } = useValues(modelPickerLogic)
-    const { selectedModel, selectedPickerProviderKeyId, requiresProviderKey } = useValues(llmEvaluationLogic)
+    const { selectedModel, selectedPickerProviderKeyId, requiresProviderKey, modelSelectionRequired } =
+        useValues(llmEvaluationLogic)
     const { selectModelFromPicker } = useActions(llmEvaluationLogic)
 
     const showTrialModels = !hasByokKeys && !requiresProviderKey
@@ -649,16 +659,21 @@ function EvaluationModelPicker(): JSX.Element {
 
             <div className="space-y-4">
                 <Field name="model" label="Model">
-                    <ModelPicker
-                        model={selectedModel}
-                        selectedProviderKeyId={selectedPickerProviderKeyId}
-                        onSelect={selectModelFromPicker}
-                        groups={groups}
-                        loading={loading}
-                        footerLink={footerLink}
-                        selectedModelName={selectedModelName}
-                        data-attr="evaluation-model-selector"
-                    />
+                    <div>
+                        <ModelPicker
+                            model={selectedModel}
+                            selectedProviderKeyId={selectedPickerProviderKeyId}
+                            onSelect={selectModelFromPicker}
+                            groups={groups}
+                            loading={loading}
+                            footerLink={footerLink}
+                            selectedModelName={selectedModelName}
+                            data-attr="evaluation-model-selector"
+                        />
+                        {modelSelectionRequired && !selectedModel && (
+                            <p className="text-sm text-danger mt-1">Select a judge model.</p>
+                        )}
+                    </div>
                 </Field>
             </div>
         </div>

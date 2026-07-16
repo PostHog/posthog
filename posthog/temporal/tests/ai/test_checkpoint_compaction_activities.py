@@ -22,16 +22,26 @@ pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
 def _seed_compactable(team, user) -> Conversation:
     conversation = Conversation.objects.create(team=team, user=user)
-    parent = None
-    for _ in range(3):
-        parent = ConversationCheckpoint.objects.create(
-            thread=conversation,
-            checkpoint_ns="",
-            parent_checkpoint=parent,
-            checkpoint={"channel_versions": {}},
-        )
+    for checkpoint_ns in ("", "tools"):
+        parent = None
+        for _ in range(3):
+            parent = ConversationCheckpoint.objects.create(
+                thread=conversation,
+                checkpoint_ns=checkpoint_ns,
+                parent_checkpoint=parent,
+                checkpoint={"channel_versions": {}},
+            )
     Conversation.objects.filter(pk=conversation.id).update(updated_at=timezone.now() - timedelta(days=8))
     return conversation
+
+
+@sync_to_async
+def _checkpoint_namespaces(conversation_id: str) -> list[str]:
+    return list(
+        ConversationCheckpoint.objects.filter(thread_id=conversation_id)
+        .order_by("checkpoint_ns")
+        .values_list("checkpoint_ns", flat=True)
+    )
 
 
 async def test_select_then_compact_activities_end_to_end(ateam, auser, activity_environment):
@@ -46,28 +56,28 @@ async def test_select_then_compact_activities_end_to_end(ateam, auser, activity_
         )
 
     assert result.conversations_compacted == 1
-    assert result.checkpoints_deleted == 2
+    assert result.checkpoints_deleted == 4
 
-    remaining = await sync_to_async(ConversationCheckpoint.objects.filter(thread_id=conversation.id).count)()
-    assert remaining == 1
+    remaining_namespaces = await _checkpoint_namespaces(str(conversation.id))
+    assert remaining_namespaces == ["", "tools"]
 
 
 async def test_one_poison_thread_does_not_sink_the_batch(ateam, auser, activity_environment):
     healthy = await sync_to_async(_seed_compactable)(ateam, auser)
     poison = await sync_to_async(_seed_compactable)(ateam, auser)
 
-    real_compact_thread = compaction.compact_thread
+    real_compact_conversation = compaction.compact_conversation
 
-    def flaky_compact_thread(thread_id, *args, **kwargs):
+    def flaky_compact_conversation(thread_id):
         if thread_id == str(poison.id):
             raise RuntimeError("boom")
-        return real_compact_thread(thread_id, *args, **kwargs)
+        return real_compact_conversation(thread_id)
 
     with (
         patch.object(compaction, "CHECKPOINT_COMPACTION_MAX_TEAM_ID", ateam.id),
         patch(
-            "posthog.temporal.ai.checkpoint_compaction.activities.compact_thread",
-            side_effect=flaky_compact_thread,
+            "posthog.temporal.ai.checkpoint_compaction.activities.compact_conversation",
+            side_effect=flaky_compact_conversation,
         ),
     ):
         result = await activity_environment.run(
@@ -78,5 +88,5 @@ async def test_one_poison_thread_does_not_sink_the_batch(ateam, auser, activity_
     # The poison thread is counted and skipped; the healthy thread that follows it still compacts.
     assert result.conversations_failed == 1
     assert result.conversations_compacted == 1
-    assert await sync_to_async(ConversationCheckpoint.objects.filter(thread_id=healthy.id).count)() == 1
-    assert await sync_to_async(ConversationCheckpoint.objects.filter(thread_id=poison.id).count)() == 3
+    assert await sync_to_async(ConversationCheckpoint.objects.filter(thread_id=healthy.id).count)() == 2
+    assert await sync_to_async(ConversationCheckpoint.objects.filter(thread_id=poison.id).count)() == 6

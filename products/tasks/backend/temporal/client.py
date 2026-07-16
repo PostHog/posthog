@@ -16,6 +16,7 @@ from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import SANDBOX_EVENT_INGEST_FEATURE_FLAG
+from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.metrics import observe_task_run_workflow_start
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.build_image.workflow import BuildSandboxImageInput
@@ -37,6 +38,15 @@ def _normalize_slack_context(slack_thread_context: Optional[Any]) -> Optional[di
     if hasattr(slack_thread_context, "to_dict"):
         return slack_thread_context.to_dict()
     return slack_thread_context
+
+
+def _record_prefixed_workflow_id(run_id: str, workflow_id: str) -> None:
+    """Persist a non-default workflow ID on the run before starting it.
+
+    A prefixed ID isn't derivable from (task_id, run_id), so row→workflow lookups (the heartbeat
+    relay, follow-up signals, Temporal UI links) read it back from `state` via `TaskRun.workflow_id`.
+    """
+    TaskRun.update_state_atomic(run_id, updates={"workflow_id": workflow_id})
 
 
 def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
@@ -65,7 +75,8 @@ def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
     task_run.capture_event(
         "task_run_failed",
         {
-            "error_message": error_message[:500],
+            "error_message": truncate_error_message(error_message),
+            "error_type": "workflow_start_failed",
             "duration_seconds": task_run._duration_seconds(),
         },
     )
@@ -147,6 +158,7 @@ async def execute_task_processing_workflow_async(
     skip_user_check: bool = False,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     prewarmed: bool = False,
+    workflow_id_prefix: Optional[str] = None,
 ) -> None:
     """
     Start the task processing workflow asynchronously. Fire-and-forget.
@@ -167,7 +179,9 @@ async def execute_task_processing_workflow_async(
         await Team.objects.select_related("organization").aget(id=team_id)
         await sync_to_async(_capture_sandbox_event_ingest_flag)(run_id)
 
-        workflow_id = TaskRun.get_workflow_id(task_id, run_id)
+        workflow_id = TaskRun.get_workflow_id(task_id, run_id, workflow_id_prefix)
+        if workflow_id_prefix:
+            await sync_to_async(_record_prefixed_workflow_id)(run_id, workflow_id)
         slack_context_dict = _normalize_slack_context(slack_thread_context)
 
         workflow_input = ProcessTaskInput(
@@ -228,6 +242,7 @@ def execute_task_processing_workflow(
     skip_user_check: bool = False,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     prewarmed: bool = False,
+    workflow_id_prefix: Optional[str] = None,
 ) -> None:
     """
     Start the task processing workflow synchronously. Fire-and-forget.
@@ -247,7 +262,9 @@ def execute_task_processing_workflow(
         Team.objects.get(id=team_id)
         _capture_sandbox_event_ingest_flag(run_id)
 
-        workflow_id = TaskRun.get_workflow_id(task_id, run_id)
+        workflow_id = TaskRun.get_workflow_id(task_id, run_id, workflow_id_prefix)
+        if workflow_id_prefix:
+            _record_prefixed_workflow_id(run_id, workflow_id)
         slack_context_dict = _normalize_slack_context(slack_thread_context)
 
         workflow_input = ProcessTaskInput(
@@ -370,11 +387,14 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
 
     task = task_run.task
     task_id = str(task.id)
-    workflow_id = TaskRun.get_workflow_id(task_id, run_id)
     # create_and_run persists these on the row; the bootstrap/start path does not, so fall back to
     # deriving mcp scopes from run_source exactly as _trigger_task_processing_workflow does.
     pending = task_run.state.get("pending_dispatch") if isinstance(task_run.state, dict) else None
     dispatch_params = pending if isinstance(pending, dict) else {}
+    workflow_id_prefix = dispatch_params.get("workflow_id_prefix")
+    workflow_id = TaskRun.get_workflow_id(task_id, run_id, workflow_id_prefix)
+    if workflow_id_prefix:
+        _record_prefixed_workflow_id(run_id, workflow_id)
     workflow_input = ProcessTaskInput(
         run_id=run_id,
         create_pr=dispatch_params.get("create_pr", True),

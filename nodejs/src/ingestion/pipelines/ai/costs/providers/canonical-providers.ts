@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-10 11:00:36 UTC
+// Generated at: 2026-07-15 20:20:01 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -34,7 +34,6 @@ export type CanonicalProvider =
     | 'chutes-fp4'
     | 'chutes-fp8'
     | 'chutes-int4'
-    | 'clarifai-bf16'
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
@@ -48,6 +47,7 @@ export type CanonicalProvider =
     | 'deepinfra-fp8'
     | 'deepinfra-turbo'
     | 'deepseek'
+    | 'dekallm'
     | 'dekallm-bf16'
     | 'dekallm-fp8'
     | 'digitalocean'
@@ -77,11 +77,9 @@ export type CanonicalProvider =
     | 'inceptron-fp4'
     | 'inceptron-fp8'
     | 'inceptron-int4'
-    | 'infermatic-bf16'
     | 'inflection'
     | 'io-net-fp8'
     | 'ionstream-fp8'
-    | 'liquid'
     | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mara'
@@ -96,7 +94,6 @@ export type CanonicalProvider =
     | 'nebius-base'
     | 'nebius-fp4'
     | 'nebius-fp8'
-    | 'nebius-int4'
     | 'nex-agi-fp8'
     | 'nextbit-bf16'
     | 'nextbit-fp8'
@@ -109,7 +106,6 @@ export type CanonicalProvider =
     | 'novita-int4'
     | 'nvidia'
     | 'nvidia-bf16'
-    | 'open-inference-bf16'
     | 'open-inference-int8'
     | 'openai'
     | 'openai-default'
@@ -145,7 +141,6 @@ export type CanonicalProvider =
     | 'together'
     | 'together-fp4'
     | 'together-fp8'
-    | 'together-int4'
     | 'upstage'
     | 'venice'
     | 'venice-beta'

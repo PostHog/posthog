@@ -22,6 +22,7 @@ import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { ToolbarRequestError } from '~/toolbar/toolbarRequestError'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import {
     elementIsVisible,
@@ -565,12 +566,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     }
 
                     const { href, wildcardHref } = values
-                    // We re-raise below to drive getElementStatsFailure; let the global
-                    // loader handler report it once rather than capturing twice.
                     const options = {
                         context: 'load_heatmap_stats',
                         reauthenticateOnForbidden: true,
-                        captureOnError: false,
                     }
                     const result = url
                         ? // Paginating — the URL came from a previous response body.
@@ -599,7 +597,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                         return emptyElementsStatsPages
                     }
 
-                    if (!result.ok || !Array.isArray(result.data.results)) {
+                    // Tagged throw drives getElementStatsFailure without being reported
+                    // as an exception - a failed request is an expected outcome here.
+                    if (!result.ok) {
+                        throw new ToolbarRequestError('Error loading HeatMap data!', result.status)
+                    }
+                    // A 2xx body without a results array is a contract violation - a real bug.
+                    if (!Array.isArray(result.data.results)) {
                         throw new Error('Error loading HeatMap data!')
                     }
 

@@ -6,8 +6,10 @@ import { funnelInvalidExclusionError, funnelResult } from 'scenes/funnels/__mock
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { funnelsQueryDefault, trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
 import { FunnelsQuery, LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import {
     BaseMathType,
@@ -56,14 +58,13 @@ describe('insightVizDataLogic', () => {
             expectLogic(builtInsightDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateQuerySource({ filterTestAccounts: true })
             }).toMatchValues({
-                query: {
+                query: setLatestVersionsOnQuery({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         ...trendsQueryDefault,
                         filterTestAccounts: true,
-                        version: 2,
                     },
-                },
+                }),
             })
 
             expect(builtInsightVizDataLogic.values.querySource).toMatchObject({ filterTestAccounts: true })
@@ -72,23 +73,23 @@ describe('insightVizDataLogic', () => {
             expectLogic(builtInsightDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateQuerySource({ samplingFactor: 0.1 })
             }).toMatchValues({
-                query: {
+                query: setLatestVersionsOnQuery({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         ...trendsQueryDefault,
                         filterTestAccounts: true,
                         samplingFactor: 0.1,
-                        version: 2,
                     },
-                },
+                }),
             })
 
-            expect(builtInsightVizDataLogic.values.querySource).toEqual({
-                ...trendsQueryDefault,
-                filterTestAccounts: true,
-                samplingFactor: 0.1,
-                version: 2,
-            })
+            expect(builtInsightVizDataLogic.values.querySource).toEqual(
+                setLatestVersionsOnQuery({
+                    ...trendsQueryDefault,
+                    filterTestAccounts: true,
+                    samplingFactor: 0.1,
+                })
+            )
         })
 
         it('handles funnel step range side effects', () => {
@@ -120,7 +121,7 @@ describe('insightVizDataLogic', () => {
                             funnelToStep: 1,
                         },
                         trendsFilter: {}, // we currently don't remove insight filters of previous query kinds
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery], // carried over from the initial trends source, like the stale trendsFilter
                     },
                 },
             })
@@ -169,7 +170,7 @@ describe('insightVizDataLogic', () => {
                             ],
                         },
                         trendsFilter: {},
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery], // carried over from the initial trends source, like the stale trendsFilter
                     },
                 },
             })
@@ -219,7 +220,7 @@ describe('insightVizDataLogic', () => {
                             },
                         ],
                         trendsFilter: {},
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery], // carried over from the initial trends source, like the stale trendsFilter
                     },
                 },
             })
@@ -284,7 +285,7 @@ describe('insightVizDataLogic', () => {
                             },
                         ],
                         trendsFilter: {},
-                        version: 2,
+                        version: LATEST_VERSIONS[NodeKind.TrendsQuery], // carried over from the initial trends source, like the stale trendsFilter
                     },
                 },
             })
@@ -360,7 +361,7 @@ describe('insightVizDataLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    query: {
+                    query: setLatestVersionsOnQuery({
                         kind: NodeKind.InsightVizNode,
                         source: {
                             ...trendsQueryDefault,
@@ -370,9 +371,8 @@ describe('insightVizDataLogic', () => {
                                 date_to: null,
                                 explicitDate: false,
                             },
-                            version: 2,
                         },
-                    },
+                    }),
                 })
 
             expect(builtInsightVizDataLogic.values.dateRange).toEqual({
@@ -389,7 +389,7 @@ describe('insightVizDataLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    query: {
+                    query: setLatestVersionsOnQuery({
                         kind: NodeKind.InsightVizNode,
                         source: {
                             ...trendsQueryDefault,
@@ -399,9 +399,8 @@ describe('insightVizDataLogic', () => {
                                 date_to: '-3d',
                                 explicitDate: false,
                             },
-                            version: 2,
                         },
-                    },
+                    }),
                 })
 
             expect(builtInsightVizDataLogic.values.dateRange).toEqual({
@@ -513,7 +512,7 @@ describe('insightVizDataLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    query: {
+                    query: setLatestVersionsOnQuery({
                         kind: NodeKind.InsightVizNode,
                         source: {
                             ...trendsQueryDefault,
@@ -521,9 +520,8 @@ describe('insightVizDataLogic', () => {
                                 breakdown_type: 'event',
                                 breakdown: '$current_url',
                             },
-                            version: 2,
                         },
-                    },
+                    }),
                 })
 
             expect(builtInsightVizDataLogic.values.breakdownFilter).toEqual({
@@ -539,7 +537,7 @@ describe('insightVizDataLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    query: {
+                    query: setLatestVersionsOnQuery({
                         kind: NodeKind.InsightVizNode,
                         source: {
                             ...trendsQueryDefault,
@@ -547,9 +545,8 @@ describe('insightVizDataLogic', () => {
                                 breakdown_type: 'event',
                                 breakdown: '$browser',
                             },
-                            version: 2,
                         },
-                    },
+                    }),
                 })
 
             expect(builtInsightVizDataLogic.values.breakdownFilter).toEqual({
@@ -567,16 +564,15 @@ describe('insightVizDataLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    query: {
+                    query: setLatestVersionsOnQuery({
                         kind: NodeKind.InsightVizNode,
                         source: {
                             ...trendsQueryDefault,
                             trendsFilter: {
                                 display: 'ActionsAreaGraph',
                             },
-                            version: 2,
                         },
-                    },
+                    }),
                 })
 
             expect(builtInsightVizDataLogic.values.insightFilter).toEqual({ display: 'ActionsAreaGraph' })
@@ -589,7 +585,7 @@ describe('insightVizDataLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    query: {
+                    query: setLatestVersionsOnQuery({
                         kind: NodeKind.InsightVizNode,
                         source: {
                             ...trendsQueryDefault,
@@ -597,9 +593,8 @@ describe('insightVizDataLogic', () => {
                                 display: 'ActionsAreaGraph',
                                 showValuesOnSeries: true,
                             },
-                            version: 2,
                         },
-                    },
+                    }),
                 })
 
             expect(builtInsightVizDataLogic.values.insightFilter).toEqual({
@@ -627,7 +622,7 @@ describe('insightVizDataLogic', () => {
                                 layout: FunnelLayout.horizontal,
                             },
                             trendsFilter: {}, // we currently don't remove insight filters of previous query kinds
-                            version: 2,
+                            version: LATEST_VERSIONS[NodeKind.TrendsQuery], // carried over from the initial trends source, like the stale trendsFilter
                         },
                     },
                 })
@@ -834,7 +829,7 @@ describe('insightVizDataLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    query: {
+                    query: setLatestVersionsOnQuery({
                         kind: NodeKind.InsightVizNode,
                         source: {
                             ...trendsQuery,
@@ -844,9 +839,8 @@ describe('insightVizDataLogic', () => {
                                 date_to: undefined,
                             },
                             trendsFilter: { smoothingIntervals: undefined },
-                            version: 2,
                         },
-                    },
+                    }),
                 })
         })
     })
@@ -1139,22 +1133,10 @@ describe('insightVizDataLogic', () => {
             [FunnelVizType.TimeToConvert, true],
             // FLOW is excluded — the backend ignores compare for it.
             [FunnelVizType.Flow, false],
-        ] as [FunnelVizType, boolean][])('flag on, %s viz → %s', (funnelVizType, expected) => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]: true,
-            })
+        ] as [FunnelVizType, boolean][])('%s viz → %s', (funnelVizType, expected) => {
             setFunnelVizType(funnelVizType)
 
             expect(builtInsightVizDataLogic.values.supportsCompare).toBe(expected)
-        })
-
-        it('flag off → compare unsupported even for steps viz', () => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]: false,
-            })
-            setFunnelVizType(FunnelVizType.Steps)
-
-            expect(builtInsightVizDataLogic.values.supportsCompare).toBe(false)
         })
     })
 })

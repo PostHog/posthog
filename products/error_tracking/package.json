@@ -31,7 +31,7 @@
         "clsx": "*",
         "cva": "1.0.0-beta.3",
         "d3": "*",
-        "fast-deep-equal": "*",
+        "fast-equals": "catalog:",
         "fuse.js": "*",
         "react": "*",
         "react-dom": "*",

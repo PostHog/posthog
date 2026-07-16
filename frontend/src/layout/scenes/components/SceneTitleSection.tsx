@@ -382,7 +382,10 @@ export function SceneTitleSection({
                     {effectiveActions && (
                         <div
                             className={cn(
-                                'flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first',
+                                // relative z-30 keeps the corner actions above the focus-elevated name/description
+                                // editors (z-20) so focusing an edit field can never overlap and swallow their clicks,
+                                // notably on mobile where this container reflows into the corner via order-first.
+                                'relative z-30 flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first',
                                 'gap-1 self-start @max-2xl:self-end flex-wrap'
                             )}
                         >
@@ -565,7 +568,7 @@ export function SceneName({
                         <ButtonPrimitive
                             className={cn(
                                 buttonPrimitiveVariants({ size: 'fit', className: textClasses }),
-                                'flex text-left [&_.LemonIcon]:size-4 focus-visible:z-50'
+                                'flex text-left [&_.LemonIcon]:size-4 focus-visible:z-20'
                             )}
                             onClick={() => {
                                 if (!isGeneratingMetadata) {
@@ -593,7 +596,7 @@ export function SceneName({
 
     if (isLoading) {
         return (
-            <div className="w-full flex-1 focus-within:z-50">
+            <div className="w-full flex-1 focus-within:z-20">
                 <WrappingLoadingSkeleton fullWidth>{Element}</WrappingLoadingSkeleton>
             </div>
         )
@@ -737,7 +740,7 @@ function SceneDescription({
                                 }
                             }}
                             disabled={isGeneratingMetadata}
-                            className="flex text-start px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4 focus-visible:z-50"
+                            className="flex text-start px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4 focus-visible:z-20"
                             autoHeight
                             size="base"
                         >
@@ -785,7 +788,7 @@ function SceneDescription({
     }
 
     return (
-        <div className="scene-description relative focus-within:z-50">
+        <div className="scene-description relative focus-within:z-20">
             <div className="-mx-[var(--button-padding-x-sm)] flex items-center gap-0">{Element}</div>
         </div>
     )

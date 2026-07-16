@@ -503,6 +503,26 @@ export interface WidgetFilterEntryApi {
     value?: string | string[] | null
 }
 
+export type ActivityEventsPropertyFilterApiType =
+    (typeof ActivityEventsPropertyFilterApiType)[keyof typeof ActivityEventsPropertyFilterApiType]
+
+export const ActivityEventsPropertyFilterApiType = {
+    Event: 'event',
+    Person: 'person',
+} as const
+
+export interface ActivityEventsPropertyFilterApi {
+    /**
+     * @minLength 1
+     * @maxLength 400
+     */
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type: ActivityEventsPropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type ActivityEventsListWidgetConfigApiWidgetFilters = { [key: string]: WidgetFilterEntryApi } | null
 
 export interface ActivityEventsListWidgetConfigApi {
@@ -517,6 +537,8 @@ export interface ActivityEventsListWidgetConfigApi {
     limit?: number
     /** Limit the feed to a single event name. Omit or null for all events. */
     eventName?: string | null
+    /** Event and person property filters, matching Activity > Explore events. */
+    properties?: ActivityEventsPropertyFilterApi[] | null
 }
 
 /**
@@ -2440,7 +2462,7 @@ export interface TrendsQueryApi {
     /** Sampling rate */
     samplingFactor?: number | null
     /** Events and actions to include */
-    series: (GroupNodeApi | EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi)[]
+    series: (EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi | GroupNodeApi)[]
     /** Tags that will be added to the Query log comment */
     tags?: QueryLogTagsApi | null
     /** Properties specific to the trends insight */
@@ -2882,7 +2904,7 @@ export interface FunnelsQueryApi {
     /** Sampling rate */
     samplingFactor?: number | null
     /** Events and actions to include */
-    series: (GroupNodeApi | EventsNodeApi | ActionsNodeApi | FunnelsDataWarehouseNodeApi)[]
+    series: (EventsNodeApi | ActionsNodeApi | FunnelsDataWarehouseNodeApi | GroupNodeApi)[]
     /** Tags that will be added to the Query log comment */
     tags?: QueryLogTagsApi | null
     /** version of the node, used for schema migrations */
@@ -3663,6 +3685,8 @@ export interface WebStatsTableQueryResponseApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -4044,6 +4068,8 @@ export interface Response5Api {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -4502,9 +4528,11 @@ export const IntegrationKindApi = {
     CustomerioApp: 'customerio-app',
     CustomerioWebhook: 'customerio-webhook',
     CustomerioTrack: 'customerio-track',
+    Apns: 'apns',
     Postgresql: 'postgresql',
     AwsS3: 'aws-s3',
     S3Compatible: 's3-compatible',
+    Snowflake: 'snowflake',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -4911,6 +4939,7 @@ export const TaxonomicFilterGroupTypeApi = {
     Resources: 'resources',
     ErrorTrackingProperties: 'error_tracking_properties',
     ActivityLogProperties: 'activity_log_properties',
+    McpProperties: 'mcp_properties',
     MaxAiContext: 'max_ai_context',
     WorkflowVariables: 'workflow_variables',
     SuggestedFilters: 'suggested_filters',
@@ -5877,7 +5906,7 @@ export type HogQLQueryApiValues = { [key: string]: unknown } | null
 export type HogQLQueryApiVariables = { [key: string]: HogQLVariableApi } | null
 
 export interface HogQLQueryApi {
-    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
+    /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string | null
     explain?: boolean | null
     filters?: HogQLFiltersApi | null
@@ -8099,6 +8128,52 @@ export interface DashboardTileBasicApi {
     deleted?: boolean | null
 }
 
+export interface DashboardFilterApi {
+    breakdown_filter?: BreakdownFilterApi | null
+    date_from?: string | null
+    date_to?: string | null
+    explicitDate?: boolean | null
+    /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+    filterTestAccounts?: boolean | null
+    /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+    interval?: IntervalTypeApi | null
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+          )[]
+        | null
+}
+
+export interface InsightFilterOverrideContextApi {
+    /** Dashboard filters that remain active after applying tile precedence. */
+    dashboard?: DashboardFilterApi | null
+    /** Tile filters applied above the dashboard filters. */
+    tile?: DashboardFilterApi | null
+    /** Dashboard filters replaced by the tile filters. */
+    overridden_dashboard?: DashboardFilterApi | null
+}
+
 /**
  * @nullable
  */
@@ -8204,6 +8279,8 @@ export interface InsightApi {
     readonly resolved_date_range: InsightApiResolvedDateRange
     _create_in_folder?: string
     readonly alerts: readonly unknown[]
+    /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
+    readonly filter_override_context: InsightFilterOverrideContextApi | null
     /** @nullable */
     readonly last_viewed_at: string | null
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */

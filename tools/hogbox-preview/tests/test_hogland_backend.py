@@ -27,8 +27,23 @@ class _FakePen:
         self.id = "pen-deadbeef"
 
 
+class _FakeSpec:
+    def __init__(self, name: str | None):
+        self.name = name
+
+
+class _FakeBoxView:
+    """What iter_boxes() yields: an id + a spec carrying the box name (+ status)."""
+
+    def __init__(self, box_id: str, name: str | None, status: str = "running"):
+        self.id = box_id
+        self.spec = _FakeSpec(name)
+        self.status = status
+
+
 class _FakeBox:
-    def __init__(self, *, delete_raises: Exception | None = None):
+    def __init__(self, *, box_id: str = "box-new", delete_raises: Exception | None = None):
+        self.id = box_id
         self._delete_raises = delete_raises
         self.deleted = False
 
@@ -40,7 +55,8 @@ class _FakeBox:
 
 class _FakeClient:
     """Minimal stand-in for the SDK client. Each method's behaviour is set by the
-    test; every call is recorded so we can assert teardown reached delete_pen."""
+    test; every call is recorded so we can assert teardown reached delete_pen and
+    reaping deleted the right boxes."""
 
     def __init__(self, *, get=None, get_pen=None, boxes=None, create=None, update_pen=None):
         self._get = get
@@ -50,6 +66,7 @@ class _FakeClient:
         self._update_pen = update_pen
         self.deleted_pens: list[str] = []
         self.update_pen_calls: list[dict] = []
+        self.deleted_box_ids: list[str] = []
 
     def get(self, box_id):
         if callable(self._get):
@@ -79,143 +96,152 @@ class _FakeClient:
         return self._update_pen
 
 
+def _make_backend(client):
+    from hogbox_preview.hogland_backend import HoglandBackend
+
+    backend = HoglandBackend(host="https://example.invalid", name="preview-pr-999", token="test-token")
+    backend._client = client
+    return backend
+
+
+@unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
+class BoxNameIsUniquePerAttemptTest(unittest.TestCase):
+    """Box names must NOT equal the pen name: hogland enforces per-owner name
+    uniqueness across ALL statuses (failed included), and a failed placement
+    holds its name for up to an hour — so a deterministic name makes the 5xx
+    retry 409 against its own corpse. Each create attempt gets a fresh unique
+    suffix so a failed attempt can't block the retry."""
+
+    def _stub_ssh(self):
+        from hogbox_preview import hogland_backend
+
+        return unittest.mock.patch.object(
+            hogland_backend, "_ephemeral_ssh_pubkey", return_value="ssh-ed25519 AAAA fake"
+        )
+
+    def test_create_name_has_unique_suffix(self):
+        client = _FakeClient()
+        backend = _make_backend(client)
+        with self._stub_ssh():
+            kwargs = backend._create_kwargs()
+        self.assertRegex(kwargs["name"], r"^preview-pr-999-[0-9a-f]{6}$")
+
+    def test_two_attempts_use_different_suffixes(self):
+        # A 5xx-failed attempt leaves a failed box holding its unique name; the
+        # retry must NOT reuse that exact name, so the suffix is regenerated per
+        # create attempt.
+        from hogbox_preview import hogland_backend
+        from hogland import ServerError
+
+        seen_names: list[str] = []
+        attempts = {"n": 0}
+        created = _FakeBox()
+
+        def create(**kwargs):
+            seen_names.append(kwargs["name"])
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise ServerError("placement failed: place: EOF", status_code=500)
+            return created
+
+        client = _FakeClient(create=create)
+        backend = _make_backend(client)
+        with self._stub_ssh(), unittest.mock.patch.object(hogland_backend.time, "sleep"):
+            result = backend._restore_fresh()
+
+        self.assertIs(result, created)
+        self.assertEqual(len(seen_names), 2)
+        self.assertNotEqual(seen_names[0], seen_names[1])
+        for name in seen_names:
+            self.assertRegex(name, r"^preview-pr-999-[0-9a-f]{6}$")
+
+
 @unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
 class DestroyReleasesPenTest(unittest.TestCase):
-    """destroy() must always reach delete_pen — a box already TTL-reaped counts
-    as 'already gone', it must not abort teardown and leak the pen."""
-
-    def _backend(self, client):
-        from hogbox_preview.hogland_backend import HoglandBackend
-
-        backend = HoglandBackend(host="https://example.invalid", name="preview-pr-999", token="test-token")
-        backend._client = client
-        return backend
-
-    def test_pen_released_when_box_lookup_404s(self):
-        # The pen still points at a dead box id; resolving it raises NotFoundError.
+    def test_explicit_box_is_deleted_when_pen_is_missing(self):
         from hogland import NotFoundError
 
-        def boom(_box_id):
-            raise NotFoundError("box gone", status_code=404)
-
-        client = _FakeClient(get=boom, get_pen=_FakePen(current_box_id="box-reaped"))
-        backend = self._backend(client)
-        backend._box_id = "box-reaped"  # forces _resolve_box down the direct get() path
-
-        backend.destroy()
-
-        self.assertEqual(client.deleted_pens, ["preview-pr-999"])
-
-    def test_pen_released_when_box_delete_404s(self):
-        # A stale live handle whose box was reaped between resolve and delete.
-        from hogland import NotFoundError
-
-        box = _FakeBox(delete_raises=NotFoundError("box gone", status_code=404))
-        client = _FakeClient()
-        backend = self._backend(client)
-        backend._box = box  # _resolve_box short-circuits to the live handle
-
-        backend.destroy()
-
-        self.assertEqual(client.deleted_pens, ["preview-pr-999"])
-
-    def test_happy_path_deletes_box_then_pen(self):
-        box = _FakeBox()
-        client = _FakeClient()
-        backend = self._backend(client)
-        backend._box = box
+        box = _FakeBox(box_id="box-explicit")
+        client = _FakeClient(get=box)
+        backend = _make_backend(client)
+        backend._box_id = box.id
+        backend._delete_pen_if_current_box = unittest.mock.Mock(side_effect=NotFoundError("no pen", status_code=404))
 
         backend.destroy()
 
         self.assertTrue(box.deleted)
-        self.assertEqual(client.deleted_pens, ["preview-pr-999"])
+        backend._delete_pen_if_current_box.assert_called_once_with(box.id)
+
+    def test_explicit_box_is_deleted_when_pen_was_replaced(self):
+        from hogland import ConflictError
+
+        box = _FakeBox(box_id="box-explicit")
+        backend = _make_backend(_FakeClient(get=box))
+        backend._box_id = box.id
+        backend._delete_pen_if_current_box = unittest.mock.Mock(side_effect=ConflictError("pen moved", status_code=409))
+
+        backend.destroy()
+
+        self.assertTrue(box.deleted)
+        backend._delete_pen_if_current_box.assert_called_once_with(box.id)
+
+    def test_name_only_teardown_deletes_empty_pen(self):
+        backend = _make_backend(_FakeClient(get_pen=_FakePen(current_box_id=None)))
+        backend._delete_pen = unittest.mock.Mock()
+
+        backend.destroy()
+
+        backend._delete_pen.assert_called_once_with()
 
 
 @unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
-class RestoreFreshHandlesStaleConflictTest(unittest.TestCase):
-    """A name conflict on create() means a prior run's box is still in the way.
-    If that box was already reaped (TTL cleanup or a racing teardown) between
-    resolving it and deleting it, the retry must still proceed — not abort."""
+class ResolveBoxNameScanTest(unittest.TestCase):
+    """The last-resort name scan (used by attach() and destroy() when the pen
+    pointer is missing/dangling) matches the exact pen name OR the pen-name '-'
+    prefix, preferring a running box."""
 
-    def _backend(self, client):
-        from hogbox_preview.hogland_backend import HoglandBackend
+    def test_prefix_match_fallback(self):
+        from hogland import NotFoundError
 
-        backend = HoglandBackend(host="https://example.invalid", name="preview-pr-999", token="test-token")
-        backend._client = client
-        return backend
+        def get_pen(_name):
+            raise NotFoundError("no pen", status_code=404)
 
-    def test_retries_create_when_stale_box_already_gone(self):
-        from hogland import ConflictError, NotFoundError
+        target = _FakeBox(box_id="box-corpse")
+        boxes = [
+            _FakeBoxView("box-other", "preview-pr-1000-cccccc"),
+            _FakeBoxView("box-corpse", "preview-pr-999-bbbbbb"),
+        ]
 
-        stale_box = _FakeBox(delete_raises=NotFoundError("box gone", status_code=404))
-        created = object()
-        attempts = {"n": 0}
+        def get(box_id):
+            self.assertEqual(box_id, "box-corpse")
+            return target
 
-        def create(**_kwargs):
-            attempts["n"] += 1
-            if attempts["n"] == 1:
-                raise ConflictError("name taken", status_code=409)
-            return created
+        client = _FakeClient(get=get, get_pen=get_pen, boxes=boxes)
+        backend = _make_backend(client)
 
-        client = _FakeClient(create=create)
-        backend = self._backend(client)
-        backend._box = stale_box  # _resolve_box short-circuits to the live handle
+        self.assertIs(backend._resolve_box(), target)
 
-        result = backend._restore_fresh()
+    def test_prefers_running_box(self):
+        from hogland import NotFoundError
 
-        self.assertIs(result, created)
+        def get_pen(_name):
+            raise NotFoundError("no pen", status_code=404)
 
-    def test_clears_pen_pointer_after_stale_delete(self):
-        # After reaping the stale box, the pen pointer must be cleared right away
-        # so the run dying before provision() repoints it doesn't leave the pen
-        # dangling at a deleted box.
-        from hogland import ConflictError
+        boxes = [
+            _FakeBoxView("box-failed", "preview-pr-999-aaaaaa", status="failed"),
+            _FakeBoxView("box-running", "preview-pr-999-bbbbbb", status="running"),
+        ]
 
-        stale_box = _FakeBox()
-        created = object()
-        attempts = {"n": 0}
+        target = _FakeBox(box_id="box-running")
 
-        def create(**_kwargs):
-            attempts["n"] += 1
-            if attempts["n"] == 1:
-                raise ConflictError("name taken", status_code=409)
-            return created
+        def get(box_id):
+            self.assertEqual(box_id, "box-running")
+            return target
 
-        client = _FakeClient(create=create)
-        backend = self._backend(client)
-        backend._box = stale_box
+        client = _FakeClient(get=get, get_pen=get_pen, boxes=boxes)
+        backend = _make_backend(client)
 
-        result = backend._restore_fresh()
-
-        self.assertIs(result, created)
-        self.assertTrue(stale_box.deleted)
-        self.assertEqual(client.update_pen_calls, [{"name": "preview-pr-999", "current_box_id": ""}])
-
-    def test_clear_pen_pointer_failure_does_not_abort_run(self):
-        # Clearing the pointer is best-effort: the server reconciler sweep is the
-        # real backstop, so a failure to clear must not fail the run.
-        from hogland import ConflictError, NotFoundError
-
-        stale_box = _FakeBox()
-        created = object()
-        attempts = {"n": 0}
-
-        def create(**_kwargs):
-            attempts["n"] += 1
-            if attempts["n"] == 1:
-                raise ConflictError("name taken", status_code=409)
-            return created
-
-        def update_pen(_name, **_kwargs):
-            raise NotFoundError("no pen yet", status_code=404)
-
-        client = _FakeClient(create=create, update_pen=update_pen)
-        backend = self._backend(client)
-        backend._box = stale_box
-
-        result = backend._restore_fresh()
-
-        self.assertIs(result, created)
+        self.assertIs(backend._resolve_box(), target)
 
 
 @unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
@@ -223,12 +249,12 @@ class CreateRetriesTransient5xxTest(unittest.TestCase):
     """A transient placement 5xx (a node dying mid-restore) must be retried onto
     a healthy node, but a 4xx is a real client error and must surface at once."""
 
-    def _backend(self, client):
-        from hogbox_preview.hogland_backend import HoglandBackend
+    def _stub_ssh(self):
+        from hogbox_preview import hogland_backend
 
-        backend = HoglandBackend(host="https://example.invalid", name="preview-pr-999", token="test-token")
-        backend._client = client
-        return backend
+        return unittest.mock.patch.object(
+            hogland_backend, "_ephemeral_ssh_pubkey", return_value="ssh-ed25519 AAAA fake"
+        )
 
     def test_first_create_500s_second_succeeds(self):
         from hogbox_preview import hogland_backend
@@ -244,10 +270,10 @@ class CreateRetriesTransient5xxTest(unittest.TestCase):
             return created
 
         client = _FakeClient(create=create)
-        backend = self._backend(client)
+        backend = _make_backend(client)
 
         # Don't actually sleep the backoff in the test.
-        with unittest.mock.patch.object(hogland_backend.time, "sleep"):
+        with self._stub_ssh(), unittest.mock.patch.object(hogland_backend.time, "sleep"):
             result = backend._restore_fresh()
 
         self.assertIs(result, created)
@@ -264,13 +290,12 @@ class CreateRetriesTransient5xxTest(unittest.TestCase):
             raise ServerError("placement failed", status_code=500)
 
         client = _FakeClient(create=create)
-        backend = self._backend(client)
+        backend = _make_backend(client)
 
-        with unittest.mock.patch.object(hogland_backend.time, "sleep"):
+        with self._stub_ssh(), unittest.mock.patch.object(hogland_backend.time, "sleep"):
             with self.assertRaises(ServerError):
                 backend._restore_fresh()
 
-        # Bounded: exactly _CREATE_5XX_ATTEMPTS, not multiplied by the conflict loop.
         self.assertEqual(attempts["n"], hogland_backend._CREATE_5XX_ATTEMPTS)
 
     def test_4xx_not_retried(self):
@@ -283,10 +308,11 @@ class CreateRetriesTransient5xxTest(unittest.TestCase):
             raise ValidationError("bad spec", status_code=422)
 
         client = _FakeClient(create=create)
-        backend = self._backend(client)
+        backend = _make_backend(client)
 
-        with self.assertRaises(ValidationError):
-            backend._restore_fresh()
+        with self._stub_ssh():
+            with self.assertRaises(ValidationError):
+                backend._restore_fresh()
 
         self.assertEqual(attempts["n"], 1)
 

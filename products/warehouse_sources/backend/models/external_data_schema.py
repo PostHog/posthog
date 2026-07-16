@@ -65,6 +65,11 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType, null=True, blank=True)
+    # User-managed vendor API version override for this schema. NULL (the norm) means the schema
+    # syncs on its source's pinned version; a value here wins over the source pin. Deliberately
+    # ignored by version-migration tooling — only the user changes it. Not available for
+    # webhook-sync schemas (webhook payload versions are configured per source at the vendor).
+    api_version = models.CharField(max_length=128, null=True, blank=True)
     # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str } }
     sync_type_config = models.JSONField(
         default=dict,
@@ -261,6 +266,23 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def last_vacuum_version(self) -> int | None:
+        # Delta version of the schema's snapshot table at its last vacuum (cadence watermark).
+        if self.sync_type_config:
+            return self.sync_type_config.get("last_vacuum_version", None)
+
+        return None
+
+    @property
+    def last_vacuum_version_cdc(self) -> int | None:
+        # Same watermark for the _cdc companion table — a separate delta table whose versions
+        # are unrelated to the snapshot's, so it can't share last_vacuum_version.
+        if self.sync_type_config:
+            return self.sync_type_config.get("last_vacuum_version_cdc", None)
+
+        return None
+
+    @property
     def partition_count_override(self) -> int | None:
         # Operator-pinned partition_count set via the admin repartition action. Unlike
         # `partition_count` (which is auto-detected and wiped on every reset), this key
@@ -423,6 +445,21 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
                 return swap
         return None
 
+    @property
+    def repartition_claim(self) -> dict[str, Any] | None:
+        """The fencing claim of the newest repartition attempt: {"token", "job_id", "claimed_at"}.
+
+        S3 has no locking, so this row is the coordination point between concurrent repartition
+        attempts (a heartbeat-timed-out zombie and its Temporal retry). The newest claimant owns the
+        table; older attempts compare their token against this and stand down. Never cleared — it is
+        only ever compared against a live attempt's token, so a stale claim is inert.
+        """
+        if self.sync_type_config:
+            claim = self.sync_type_config.get("repartition_claim", None)
+            if isinstance(claim, dict):
+                return claim
+        return None
+
     def _save_sync_type_config(self) -> None:
         # Internal bookkeeping write — skip the activity-log SELECT (see save()) since these run
         # inside the sync/repartition activity where a dropped pooler connection would fail the run.
@@ -444,8 +481,29 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config["repartition_swap"] = swap
         self._save_sync_type_config()
 
+    def set_repartition_claim(self, claim: dict[str, Any]) -> None:
+        self.sync_type_config["repartition_claim"] = claim
+        self._save_sync_type_config()
+
     def clear_repartition_swap(self) -> None:
         self.sync_type_config.pop("repartition_swap", None)
+        self._save_sync_type_config()
+
+    @property
+    def delta_revive_required(self) -> dict[str, Any] | None:
+        """Set when the live Delta table is readable but hollow — its log references data files that
+        are gone from S3 (the terminal state an interrupted or interleaved repartition swap leaves).
+        `handle_corrupted_delta_log` honors this to reset + rebuild the table even though the log
+        itself opens fine. Shape: {"reason": str, "missing_path": str, "detected_at": iso8601 str}.
+        """
+        if self.sync_type_config:
+            marker = self.sync_type_config.get("delta_revive_required", None)
+            if isinstance(marker, dict):
+                return marker
+        return None
+
+    def set_delta_revive_required(self, info: dict[str, Any]) -> None:
+        self.sync_type_config["delta_revive_required"] = info
         self._save_sync_type_config()
 
     def stamp_last_repartition_at(self) -> None:

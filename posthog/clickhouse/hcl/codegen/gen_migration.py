@@ -45,7 +45,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))  # .../posthog/clickhouse/hcl/
 HCL_DIR = os.path.dirname(HERE)  # .../posthog/clickhouse/hcl
 REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
 HCL_REL = os.path.relpath(HCL_DIR, REPO_ROOT)  # posthog/clickhouse/hcl (relative: resolves inside the wrapper)
-MANIFEST = os.path.join(HCL_DIR, "nodes")
+MANIFEST = os.path.join(HCL_DIR, "manifest.hcl")
+MANIFEST_REL = os.path.relpath(MANIFEST, REPO_ROOT)  # relative: resolves inside the wrapper's container
 # absolute path to the wrapper (lives at hcl/bin/hclexp); subprocess won't resolve a relative exec via cwd
 HCLEXP = os.path.join(HCL_DIR, "bin", "hclexp")
 
@@ -55,34 +56,30 @@ HCLEXP = os.path.join(HCL_DIR, "bin", "hclexp")
 ROLE_ORDER = ["data", "endpoints", "aux", "ai_events", "sessions", "logs", "ops"]
 
 
-def read_manifest() -> list[tuple[str, str, list[str]]]:
-    out = []
-    for line in open(MANIFEST):
-        s = line.strip()
-        if not s or s.startswith("#"):
-            continue
-        parts = s.split()
-        out.append((parts[0], parts[1], parts[2:]))
-    return out
-
-
 def run(cmd: list[str]) -> str:
     return subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, check=True).stdout
 
 
-def write_manifest_hcl(manifest: list[tuple[str, str, list[str]]], path: str) -> None:
-    """Render the `nodes` text manifest as the HCL manifest `plan` expects (role-first)."""
-    roles: OrderedDict[str, list[tuple[str, list[str]]]] = OrderedDict()
-    for env, role, layers in manifest:
-        roles.setdefault(role, []).append((env, layers))
-    lines = []
-    for role, envs in roles.items():
-        lines.append(f'role "{role}" {{')
-        for env, layers in envs:
-            lst = ", ".join(f'"{layer}"' for layer in layers)
-            lines.append(f'  env "{env}" {{ layers = [{lst}] }}')
-        lines.append("}")
-    open(path, "w").write("\n".join(lines) + "\n")
+def manifest_envs() -> list[str]:
+    """Envs declared in manifest.hcl, first-seen order.
+
+    hclexp wants -env up front on every subcommand, so it cannot enumerate them for us
+    (tracked upstream). Extracting the single-line block labels is safe; comments are skipped.
+    """
+    envs: list[str] = []
+    for line in open(MANIFEST):
+        if line.lstrip().startswith("#"):
+            continue
+        for env in re.findall(r'^\s*env "([^"]+)"', line):
+            if env not in envs:
+                envs.append(env)
+    return envs
+
+
+def manifest_roles(env: str) -> list[str]:
+    """Roles the manifest deploys in `env`, in manifest order (resolved by hclexp)."""
+    out = run([HCLEXP, "load", "-manifest", MANIFEST_REL, "-env", env, "-layer-root", HCL_REL, "-format", "json"])
+    return [r["role"] for r in json.loads(out)["roles"]]
 
 
 def write_dump(env: str, roles: list[str], ref: str, dump_dir: str) -> None:
@@ -107,14 +104,12 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    manifest = read_manifest()
     envs_for_role: dict[str, set[str]] = {}
     env_roles: OrderedDict[str, list[str]] = OrderedDict()  # env -> roles, in manifest order
-    for env, role, _ in manifest:
-        envs_for_role.setdefault(role, set()).add(env)
-        env_roles.setdefault(env, [])
-        if role not in env_roles[env]:
-            env_roles[env].append(role)
+    for env in manifest_envs():
+        env_roles[env] = manifest_roles(env)
+        for role in env_roles[env]:
+            envs_for_role.setdefault(role, set()).add(env)
 
     # stmt -> {op, roles, envs}; identical SQL across envs/roles dedupes to one op.
     merged: dict[str, dict] = {}
@@ -124,8 +119,6 @@ def main() -> None:
     unsafe_notes: dict[str, str] = {}  # object -> reason (recreate-only changes)
 
     with tempfile.TemporaryDirectory() as tmp:
-        manifest_hcl = os.path.join(tmp, "manifest.hcl")
-        write_manifest_hcl(manifest, manifest_hcl)
         for env_idx, (env, roles_in_env) in enumerate(env_roles.items()):
             dump_dir = os.path.join(tmp, f"dump-{env}")
             write_dump(env, roles_in_env, args.ref, dump_dir)
@@ -135,7 +128,7 @@ def main() -> None:
                         HCLEXP,
                         "plan",
                         "-manifest",
-                        manifest_hcl,
+                        MANIFEST_REL,
                         "-env",
                         env,
                         "-dump",

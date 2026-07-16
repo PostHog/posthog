@@ -31,7 +31,11 @@ from products.notebooks.backend.sandbox.kernel import (
     envelope as kernel_envelope,
     runner as kernel_runner,
 )
-from products.notebooks.backend.sandbox.kernel.data_plane import DataPlaneError, decode_arrow_stream
+from products.notebooks.backend.sandbox.kernel.data_plane import (
+    DataPlaneError,
+    DataPlaneInterrupted,
+    decode_arrow_stream,
+)
 from products.notebooks.backend.sql_v2 import (
     SQLV2KernelNotRunning,
     SQLV2PageError,
@@ -45,6 +49,7 @@ from products.notebooks.backend.sql_v2 import (
     sql_v2_page_lock_key,
     verify_data_plane_token,
 )
+from products.notebooks.backend.sql_v2_callback import MAX_ENVELOPE_BYTES
 from products.notebooks.backend.sql_v2_data_plane import _rows_to_arrow_bytes
 from products.notebooks.backend.temporal.sql_v2 import (
     SQLV2RunInput,
@@ -114,6 +119,19 @@ class TestSQLV2Callback(APIBaseTest):
         self.assertEqual(run.envelope["first_page"], [[42]])
         self.assertEqual(str(run.result_id), str(self.node_run.id))
 
+    def test_interrupted_envelope_marks_run_interrupted(self):
+        # A user-requested stop must not surface as a red FAILED run, and the captured
+        # output must be stored for the UI to show.
+        token = mint_callback_token(str(self.node_run.id), self.team.id)
+        response = self._post(
+            token, envelope={"status": "interrupted", "stdout": "partial output", "error": "Run interrupted."}
+        )
+        self.assertEqual(response.status_code, 200)
+        run = self._reload_run()
+        self.assertEqual(run.status, NotebookNodeRun.Status.INTERRUPTED)
+        self.assertEqual(run.envelope["stdout"], "partial output")
+        self.assertEqual(run.error, "Run interrupted.")
+
     def test_redelivery_is_idempotent(self):
         token = mint_callback_token(str(self.node_run.id), self.team.id)
         self._post(token)
@@ -142,6 +160,12 @@ class TestSQLV2Callback(APIBaseTest):
         token = mint_callback_token("00000000-0000-0000-0000-0000000000ff", self.team.id)
         response = self._post(token)
         self.assertEqual(response.status_code, 403)
+        self.assertEqual(self._reload_run().status, NotebookNodeRun.Status.RUNNING)
+
+    def test_oversized_envelope_is_rejected(self):
+        token = mint_callback_token(str(self.node_run.id), self.team.id)
+        response = self._post(token, envelope={**self.envelope, "stdout": "x" * (MAX_ENVELOPE_BYTES + 1)})
+        self.assertEqual(response.status_code, 400)
         self.assertEqual(self._reload_run().status, NotebookNodeRun.Status.RUNNING)
 
     def test_unknown_run_returns_404(self):
@@ -216,7 +240,7 @@ class TestSQLV2Run(APIBaseTest):
             data={
                 "node_id": "join-node",
                 "code": "select * from df1 join df2 on df1.id = df2.id",
-                "refs": {"df1": "node-df1", "df2": "node-df2"},
+                "refs": {"df1": {"node_id": "node-df1"}, "df2": {"node_id": "node-df2"}},
             },
             format="json",
         )
@@ -236,7 +260,7 @@ class TestSQLV2Run(APIBaseTest):
             self._record_done_run("node-df1", "select 2 as new_col")
         response = self.client.post(
             self.run_url,
-            data={"node_id": "c", "code": "select * from df1", "refs": {"df1": "node-df1"}},
+            data={"node_id": "c", "code": "select * from df1", "refs": {"df1": {"node_id": "node-df1"}}},
             format="json",
         )
         self.assertEqual(response.status_code, 200)
@@ -246,15 +270,126 @@ class TestSQLV2Run(APIBaseTest):
 
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_hogql_ref_whose_latest_run_was_duckdb_is_treated_as_not_run(self, _mock_enabled, mock_start):
+        # A SQL node's runs can alternate engines; a duckdb run's code is raw SQL naming
+        # kernel frames, so inlining it as a CTE would ship it to ClickHouse. The stale older
+        # hogql run must not be used either — the node's latest result is a local frame.
+        with freeze_time("2026-07-04T00:00:00Z"):
+            self._record_done_run("node-c", "select id from events")
+        with freeze_time("2026-07-04T00:01:00Z"):
+            with team_scope(self.team.id):
+                NotebookNodeRun.objects.create(
+                    team=self.team,
+                    notebook=self.notebook,
+                    node_id="node-c",
+                    code="select * from df2 join new_events on true",
+                    node_type=NotebookNodeRun.NodeType.DUCKDB,
+                    status=NotebookNodeRun.Status.DONE,
+                )
+        response = self.client.post(
+            self.run_url,
+            data={"node_id": "d", "code": "select * from sql_df", "refs": {"sql_df": {"node_id": "node-c"}}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("has not been run", response.json()["detail"])
+        mock_start.assert_not_called()
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_hogql_typo_with_refs_present_is_a_400_not_a_500(self, _mock_enabled, mock_start):
+        # With refs present the user's code is parsed at dispatch, so a plain typo raises
+        # ExposedHogQLError there — it must surface as a bad request, not a server error.
+        self._record_done_run("node-df1", "select id from events")
+        response = self.client.post(
+            self.run_url,
+            data={"node_id": "c", "code": "selec 1", "refs": {"df1": {"node_id": "node-df1"}}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        mock_start.assert_not_called()
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_run_rejects_referencing_a_never_run_node(self, _mock_enabled, mock_start):
         response = self.client.post(
             self.run_url,
-            data={"node_id": "c", "code": "select * from df1", "refs": {"df1": "node-df1"}},
+            data={"node_id": "c", "code": "select * from df1", "refs": {"df1": {"node_id": "node-df1"}}},
             format="json",
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(NotebookNodeRun.objects.for_team(self.team.id).filter(node_id="c").count(), 0)
         mock_start.assert_not_called()
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_python_node_dispatches_with_materialization_inputs(self, _mock_enabled, mock_start):
+        # A python node keeps its code verbatim and ships the frames it reads as materialization inputs.
+        self._record_done_run("node-df1", "select id from events")
+        response = self.client.post(
+            self.run_url,
+            data={
+                "node_id": "py",
+                "node_type": "python",
+                "code": "df1.head()",
+                "output_name": "result",
+                "refs": {"df1": {"node_id": "node-df1"}},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
+        self.assertEqual(run.code, "df1.head()")  # python code stored as-is, not CTE-resolved
+        dispatched = mock_start.call_args.args[0]
+        self.assertEqual(dispatched.node_type, "python")
+        self.assertEqual(dispatched.output_name, "result")
+        self.assertEqual([i["name"] for i in dispatched.inputs], ["df1"])
+        self.assertEqual(dispatched.inputs[0]["query"], "select id from events")
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_python_node_referencing_a_never_run_node_is_rejected(self, _mock_enabled, mock_start):
+        response = self.client.post(
+            self.run_url,
+            data={
+                "node_id": "py",
+                "node_type": "python",
+                "code": "df1.head()",
+                "refs": {"df1": {"node_id": "node-df1"}},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        mock_start.assert_not_called()
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_sql_node_referencing_a_local_frame_reroutes_to_duckdb(self, _mock_enabled, mock_start):
+        # Journey 5: a local (Python-made) frame can't push to ClickHouse, so the join runs in
+        # the sandbox's DuckDB — SQL as written, hogql refs shipped as materialization inputs.
+        self._record_done_run("node-df2", "select id from persons")
+        code = "select * from df2 join new_events on df2.id = new_events.id"
+        response = self.client.post(
+            self.run_url,
+            data={
+                "node_id": "join-node",
+                "code": code,
+                "refs": {
+                    "df2": {"node_id": "node-df2"},
+                    "new_events": {"node_id": "node-py", "kind": "local"},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
+        self.assertEqual(run.node_type, NotebookNodeRun.NodeType.DUCKDB)
+        self.assertEqual(run.code, code)  # not CTE-rewritten: DuckDB runs the SQL as written
+        dispatched = mock_start.call_args.args[0]
+        self.assertEqual(dispatched.node_type, "duckdb")
+        self.assertEqual(
+            [(i["name"], i["kind"]) for i in dispatched.inputs], [("df2", "hogql"), ("new_events", "local")]
+        )
 
     @patch(
         "products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow",
@@ -356,10 +491,23 @@ class TestSQLV2RunPage(APIBaseTest):
         super().setUp()
         self.notebook = Notebook.objects.create(team=self.team, short_id="nbpage1")
 
-    def _create_run(self, status=NotebookNodeRun.Status.DONE, node_id="n1", code="select 1") -> NotebookNodeRun:
+    def _create_run(
+        self,
+        status=NotebookNodeRun.Status.DONE,
+        node_id="n1",
+        code="select 1",
+        node_type=NotebookNodeRun.NodeType.HOGQL,
+        result_id=None,
+    ) -> NotebookNodeRun:
         with team_scope(self.team.id):
             return NotebookNodeRun.objects.create(
-                team=self.team, notebook=self.notebook, node_id=node_id, status=status, code=code
+                team=self.team,
+                notebook=self.notebook,
+                node_id=node_id,
+                status=status,
+                code=code,
+                node_type=node_type,
+                result_id=result_id,
             )
 
     def _get(self, run_id: str, offset=50, limit=50):
@@ -402,6 +550,16 @@ class TestSQLV2RunPage(APIBaseTest):
     def test_empty_code_run_is_rejected_before_reaching_the_kernel(self, _mock_enabled, mock_fetch):
         # Pre-migration runs stored code="" — paging must fail clearly, not round-trip to an opaque error.
         run = self._create_run(code="")
+        response = self._get(str(run.id))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("re-run", response.json()["detail"])
+        mock_fetch.assert_not_called()
+
+    @patch("products.notebooks.backend.presentation.views.notebook.fetch_sql_v2_page")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_kernel_run_without_result_frame_is_rejected_before_reaching_the_kernel(self, _mock_enabled, mock_fetch):
+        # A python/duckdb run pages by its result frame; no result_id means nothing to slice.
+        run = self._create_run(code="df1.head()", node_type=NotebookNodeRun.NodeType.PYTHON, result_id=None)
         response = self._get(str(run.id))
         self.assertEqual(response.status_code, 400)
         self.assertIn("re-run", response.json()["detail"])
@@ -498,6 +656,29 @@ class TestSQLV2PageDispatch(APIBaseTest):
         self.assertEqual(payload["code"], "select event from events")
         self.assertEqual((payload["offset"], payload["limit"]), (100, 25))
 
+    @patch("products.notebooks.backend.sql_v2.requests.post")
+    def test_kernel_run_pages_by_result_id_not_code(self, mock_post):
+        # A python/duckdb result pages by slicing its on-sandbox frame; its code is not a HogQL
+        # query, so it must never reach the data plane as one.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"columns": [], "types": [], "rows": [], "has_more": False}
+        self._create_runtime()
+        with team_scope(self.team.id):
+            kernel_run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id="py1",
+                status=NotebookNodeRun.Status.DONE,
+                code="df1.head()",
+                node_type=NotebookNodeRun.NodeType.PYTHON,
+                result_id="6f8ec2f4-3f42-4b0e-9a2e-5f5b1c9d0a11",
+            )
+        fetch_sql_v2_page(self.notebook, self.user, kernel_run, offset=50, limit=50)
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertEqual(payload["result_id"], "6f8ec2f4-3f42-4b0e-9a2e-5f5b1c9d0a11")
+        self.assertNotIn("code", payload)
+        self.assertNotIn("data_plane_token", payload)
+
     @parameterized.expand(
         [
             ("outdated_kernel_404", 404, None, SQLV2KernelNotRunning),
@@ -537,6 +718,14 @@ class TestSQLV2RunResult(APIBaseTest):
             (NotebookNodeRun.Status.RUNNING, None, "", None, None),
             (NotebookNodeRun.Status.DONE, {"first_page": [[42]]}, "", {"first_page": [[42]]}, None),
             (NotebookNodeRun.Status.FAILED, None, "boom", None, "boom"),
+            # An interrupted run keeps its envelope: the captured stdout/stderr must reach the UI.
+            (
+                NotebookNodeRun.Status.INTERRUPTED,
+                {"stdout": "partial"},
+                "Run interrupted.",
+                {"stdout": "partial"},
+                "Run interrupted.",
+            ),
         ]
     )
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
@@ -546,7 +735,7 @@ class TestSQLV2RunResult(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["status"], status)
-        # result is only surfaced when done; error only when failed
+        # result is surfaced when done or interrupted; error when failed or interrupted
         self.assertEqual(body["result"], expected_result)
         self.assertEqual(body["error"], expected_error)
 
@@ -572,6 +761,133 @@ class TestSQLV2RunResult(APIBaseTest):
         run = self._create_run(NotebookNodeRun.Status.DONE, envelope={"first_page": [[42]]})
         _restrict_query_access(self)
         self.assertEqual(self.client.get(self._url(str(run.id))).status_code, 403)
+
+
+class TestSQLV2RunInterrupt(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(team=self.team, short_id="nbint01")
+        with team_scope(self.team.id):
+            self.node_run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n1",
+                status=NotebookNodeRun.Status.RUNNING,
+                code="select event from events",
+            )
+
+    def _url(self, run_id: str) -> str:
+        return f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/runs/{run_id}/interrupt/"
+
+    def _create_runtime(self, user=None) -> KernelRuntime:
+        return KernelRuntime.objects.create(
+            team=self.team,
+            notebook=self.notebook,
+            notebook_short_id=self.notebook.short_id,
+            user=user or self.user,
+            status=KernelRuntime.Status.RUNNING,
+            backend=KernelRuntime.Backend.DOCKER,
+            sandbox_id="sbx-1",
+            server_url="http://localhost:12345",
+            server_connect_token="connect-tok",
+        )
+
+    def _reload_run(self) -> NotebookNodeRun:
+        return NotebookNodeRun.objects.for_team(self.team.id).get(id=self.node_run.id)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.sql_v2.requests.post")
+    def test_interrupt_posts_run_scoped_command_to_kernel(self, mock_post, _mock_enabled):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"interrupted": True, "known": True}
+        runtime = self._create_runtime()
+
+        response = self.client.post(self._url(str(self.node_run.id)))
+
+        self.assertEqual(response.status_code, 202)
+        self.assertIn("/interrupt", mock_post.call_args.args[0])
+        headers = mock_post.call_args.kwargs["headers"]
+        self.assertEqual(headers["Authorization"], "Bearer connect-tok")
+        self.assertTrue(
+            kernel_auth.verify_command_token(
+                kernel_server_secret(str(runtime.id)), str(self.node_run.id), headers["X-Command-Token"]
+            )
+        )
+        # The terminal state must come from the sandbox's callback, not from this endpoint.
+        self.assertEqual(self._reload_run().status, NotebookNodeRun.Status.RUNNING)
+
+    @parameterized.expand(
+        [
+            (NotebookNodeRun.Status.DONE,),
+            (NotebookNodeRun.Status.FAILED,),
+            (NotebookNodeRun.Status.INTERRUPTED,),
+        ]
+    )
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.sql_v2.requests.post")
+    def test_interrupt_of_terminal_run_never_reaches_the_kernel(self, status, mock_post, _mock_enabled):
+        self._create_runtime()
+        self.node_run.status = status
+        self.node_run.save(update_fields=["status"])
+
+        response = self.client.post(self._url(str(self.node_run.id)))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], status)
+        mock_post.assert_not_called()
+        self.assertEqual(self._reload_run().status, status)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_unreachable_kernel_marks_run_interrupted(self, _mock_enabled):
+        # No kernel means the callback can never arrive; interrupt is the user's escape
+        # hatch out of a RUNNING-forever row.
+        response = self.client.post(self._url(str(self.node_run.id)))
+
+        self.assertEqual(response.status_code, 200)
+        run = self._reload_run()
+        self.assertEqual(run.status, NotebookNodeRun.Status.INTERRUPTED)
+        self.assertTrue(run.error)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_run_on_a_collaborators_kernel_is_not_marked_terminal(self, _mock_enabled):
+        # Kernels are per user: another editor's kernel may still be executing this run, so
+        # the requester's unreachable-kernel path must not falsely terminate a live run.
+        other_user = self._create_user("collaborator@posthog.com")
+        self._create_runtime(user=other_user)
+
+        response = self.client.post(self._url(str(self.node_run.id)))
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self._reload_run().status, NotebookNodeRun.Status.RUNNING)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.sql_v2.requests.post")
+    def test_run_unknown_to_the_kernel_stays_running(self, mock_post, _mock_enabled):
+        # Dispatch may still be in flight (Temporal): nothing was stopped, so the run must
+        # not be marked terminal and the client is told to retry.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"interrupted": False, "known": False}
+        self._create_runtime()
+
+        response = self.client.post(self._url(str(self.node_run.id)))
+
+        self.assertEqual(response.status_code, 202)
+        self.assertIn("detail", response.json())
+        self.assertEqual(self._reload_run().status, NotebookNodeRun.Status.RUNNING)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_run_from_another_notebook_is_404(self, _mock_enabled):
+        # IDOR guard: a run id from a different notebook must not be interruptible (or even
+        # discoverable) through this notebook's endpoint.
+        other_notebook = Notebook.objects.create(team=self.team, short_id="nbint02")
+        with team_scope(self.team.id):
+            other_run = NotebookNodeRun.objects.create(
+                team=self.team, notebook=other_notebook, node_id="n1", status=NotebookNodeRun.Status.RUNNING
+            )
+        response = self.client.post(self._url(str(other_run.id)))
+        self.assertEqual(response.status_code, 404)
+        reloaded = NotebookNodeRun.objects.for_team(self.team.id).get(id=other_run.id)
+        self.assertEqual(reloaded.status, NotebookNodeRun.Status.RUNNING)
 
 
 class TestSQLV2Activities(APIBaseTest):
@@ -731,6 +1047,18 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         _columns, rows, _types = decode_arrow_stream(response.content)
         self.assertEqual(rows, [(2,), (3,), (4,)])
 
+    def test_materialization_request_is_accepted_and_clipped_at_the_row_ceiling(self):
+        # The kernel executor fetches whole frames with limit=_MATERIALIZE_ROW_CAP (2M, not
+        # importable here: the executor module needs jupyter_client). The serializer must
+        # accept that limit (it once capped at 1000, 400-ing every materialization), and the
+        # async limit context then clips the frame at MAX_SELECT_RETURNED_ROWS (50k) — a
+        # deliberate bound until the object-storage frame store (sql_v2_frame_store.md)
+        # gives big frames a transport that doesn't round-trip through Redis.
+        response = self._run_to_completion({"query": "select number from numbers(50001)", "limit": 2_000_000})
+        self.assertEqual(response.status_code, 200, response.content)
+        _columns, rows, _types = decode_arrow_stream(response.content)
+        self.assertEqual(len(rows), 50_000)
+
     def test_execution_error_surfaces_through_status(self):
         # Valid syntax but fails at execution — the error must reach the sandbox via the poll.
         response = self._run_to_completion({"query": "select nonexistent_column from events"})
@@ -771,9 +1099,11 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         [
             # The wrapper nests the user's query as a subquery; these are the shapes
             # that break naive wrapping (inner LIMIT interacting with the outer one,
-            # and set queries that must stay parenthesized).
+            # set queries that must stay parenthesized, and a trailing line comment that
+            # would swallow the wrapper's closing paren without the newline).
             ("inner_limit_caps_before_outer", "select number from numbers(10) limit 4", 3, 2, [(2,), (3,)]),
             ("union_set_query", "select 1 as n union all select 2 as n", 10, 0, [(1,), (2,)]),
+            ("trailing_line_comment", "select 1 as n -- top events", 10, 0, [(1,)]),
         ]
     )
     def test_query_shapes_survive_the_wrapper(self, _name, query, limit, offset, expected_rows):
@@ -900,6 +1230,15 @@ class TestSQLV2KernelServerHTTP(SimpleTestCase):
                 with post("/page", token=token) as response:
                     self.assertEqual(response.status, 200)  # pages are synchronous
                     self.assertEqual(json.loads(response.read())["rows"], [[1]])
+
+            # /interrupt is run-scoped: the handler passes the payload's run_id through and
+            # reports whether the run was known, so the backend can distinguish a delivered
+            # interrupt from a noop.
+            with patch.object(kernel_server, "request_interrupt", return_value=False) as mock_interrupt:
+                with post("/interrupt", token=token) as response:
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(json.loads(response.read())["known"], False)
+                mock_interrupt.assert_called_once_with("run-1")
 
             with self.assertRaises(urllib.error.HTTPError) as unknown:
                 post("/nope", token=token)
@@ -1028,6 +1367,154 @@ class TestSQLV2KernelPackage(SimpleTestCase):
         self.assertEqual(page["has_more"], expected_has_more)
         self.assertEqual(len(page["rows"]), expected_rows)
 
+    def test_interrupt_mid_fetch_delivers_an_interrupted_callback(self):
+        # The registry must be live while the fetch waits: an /interrupt arriving mid-fetch
+        # has to be known, abort the wait, and turn the callback into `interrupted`.
+        payload = {
+            "run_id": "r-int-1",
+            "code": "select 1",
+            "callback_url": "http://backend/cb",
+            "callback_token": "cbt",
+            "data_plane_url": "http://backend/dp",
+            "data_plane_token": "dpt",
+        }
+        delivered: dict = {}
+        interrupt_known: list[bool] = []
+
+        def fetch_then_interrupted(*args, **kwargs):
+            interrupt_known.append(kernel_runner.request_interrupt("r-int-1"))
+            raise DataPlaneInterrupted("Run interrupted.")
+
+        with (
+            patch.object(kernel_runner, "_post_callback", side_effect=lambda url, token, env: delivered.update(env)),
+            patch(
+                "products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page",
+                side_effect=fetch_then_interrupted,
+            ),
+        ):
+            kernel_runner.execute_run(payload)
+        self.assertEqual(interrupt_known, [True])
+        self.assertEqual(delivered["status"], "interrupted")
+        self.assertEqual(delivered["error"], "Run interrupted.")
+        # The run must be unregistered once finished: a later interrupt is unknown.
+        self.assertFalse(kernel_runner.request_interrupt("r-int-1"))
+
+    def test_real_error_racing_the_interrupt_keeps_its_message(self):
+        # A genuine failure that completes just as the user cancels must not be
+        # relabeled `interrupted` — the UI would lose the actual error.
+        payload = {
+            "run_id": "r-int-3",
+            "code": "select 1",
+            "callback_url": "http://backend/cb",
+            "callback_token": "cbt",
+            "data_plane_url": "http://backend/dp",
+            "data_plane_token": "dpt",
+        }
+        delivered: dict = {}
+
+        def fail_after_interrupt(*args, **kwargs):
+            kernel_runner.request_interrupt("r-int-3")
+            raise DataPlaneError("no such table")
+
+        with (
+            patch.object(kernel_runner, "_post_callback", side_effect=lambda url, token, env: delivered.update(env)),
+            patch(
+                "products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page",
+                side_effect=fail_after_interrupt,
+            ),
+        ):
+            kernel_runner.execute_run(payload)
+        self.assertEqual(delivered["status"], "error")
+        self.assertEqual(delivered["error"], "no such table")
+
+    def test_duplicate_run_for_an_in_flight_run_is_dropped(self):
+        # A backend /run retry while the first thread still runs must not clobber the
+        # cancel state: the duplicate posts no callback and the original stays interruptible.
+        payload = {
+            "run_id": "r-dup-1",
+            "code": "select 1",
+            "callback_url": "http://backend/cb",
+            "callback_token": "cbt",
+            "data_plane_url": "http://backend/dp",
+            "data_plane_token": "dpt",
+        }
+        callbacks: list[dict] = []
+        dispatched: list[bool] = []
+
+        def fetch_with_duplicate_dispatch(*args, **kwargs):
+            if not dispatched:
+                dispatched.append(True)
+                kernel_runner.execute_run(dict(payload))  # the retry, arriving mid-run
+                self.assertTrue(kernel_runner.request_interrupt("r-dup-1"))  # original still registered
+            raise DataPlaneInterrupted("Run interrupted.")
+
+        with (
+            patch.object(kernel_runner, "_post_callback", side_effect=lambda url, token, env: callbacks.append(env)),
+            patch(
+                "products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page",
+                side_effect=fetch_with_duplicate_dispatch,
+            ),
+        ):
+            kernel_runner.execute_run(payload)
+        self.assertEqual(len(callbacks), 1)
+        self.assertEqual(callbacks[0]["status"], "interrupted")
+        # The finished run is unregistered — a fresh retry may now run.
+        self.assertFalse(kernel_runner.request_interrupt("r-dup-1"))
+
+    def test_completed_run_stays_ok_when_the_interrupt_races_it(self):
+        # An interrupt that lands as the fetch completes must not discard a real result.
+        payload = {
+            "run_id": "r-int-2",
+            "code": "select 1",
+            "callback_url": "http://backend/cb",
+            "callback_token": "cbt",
+            "data_plane_url": "http://backend/dp",
+            "data_plane_token": "dpt",
+        }
+        delivered: dict = {}
+
+        def fetch_and_interrupt(*args, **kwargs):
+            kernel_runner.request_interrupt("r-int-2")
+            return (["n"], [(1,)], [["n", "Int64"]])
+
+        with (
+            patch.object(kernel_runner, "_post_callback", side_effect=lambda url, token, env: delivered.update(env)),
+            patch(
+                "products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page",
+                side_effect=fetch_and_interrupt,
+            ),
+        ):
+            kernel_runner.execute_run(payload)
+        self.assertEqual(delivered["status"], "ok")
+        self.assertEqual(delivered["first_page"], [[1]])
+
+    def test_data_plane_poll_aborts_when_the_cancel_event_fires(self):
+        # Without the in-loop cancel check, an interrupted HogQL run keeps a thread polling
+        # for the full 180s budget and the interrupt does nothing for SQL cells.
+        from products.notebooks.backend.sandbox.kernel import data_plane as kernel_data_plane
+
+        class _FakeResponse(io.BytesIO):
+            def __init__(self, body: bytes):
+                super().__init__(body)
+                self.headers = {"Content-Type": "application/json"}
+
+            def __exit__(self, *args):
+                return False
+
+        cancel_event = threading.Event()
+
+        def fake_urlopen(request, timeout=None):
+            if request.full_url.endswith("/dp"):
+                return _FakeResponse(b'{"query_id": "q1"}')
+            cancel_event.set()  # the interrupt lands while the query is still running
+            return _FakeResponse(b'{"status": "running"}')
+
+        with patch.object(kernel_data_plane.urllib.request, "urlopen", side_effect=fake_urlopen):
+            with self.assertRaises(DataPlaneInterrupted):
+                kernel_data_plane.fetch_query_page(
+                    "http://backend/dp", "t", "select 1", limit=5, cancel_event=cancel_event
+                )
+
     def test_kernel_polls_until_the_arrow_result_arrives(self):
         # The kernel must follow the enqueue → poll protocol: accept the 202 query_id,
         # keep polling through "running" responses, and decode the eventual Arrow 200.
@@ -1070,3 +1557,120 @@ class TestSQLV2KernelPackage(SimpleTestCase):
         self.assertIn("nb_kernel/server.py", names)
         self.assertIn("nb_kernel/__init__.py", names)
         self.assertEqual(len(version), 16)
+
+
+class TestSQLV2PythonNodeRun(SimpleTestCase):
+    def test_materialize_query_writes_a_readable_arrow_file(self):
+        # Journey 4 materialization: the server streams a CH result to a local Arrow *file* the
+        # kernel later mmaps. It must be an IPC file (open_file), and the temp must be renamed away.
+        import os
+        import tempfile
+
+        import pyarrow as pa
+
+        from products.notebooks.backend.sandbox.kernel import data_plane as kernel_data_plane
+
+        arrow_bytes = _rows_to_arrow_bytes(["id", "v"], [(1, 10), (2, 20)], [["id", "Int64"], ["v", "Int64"]])
+
+        class _FakeResponse(io.BytesIO):
+            def __init__(self, body: bytes):
+                super().__init__(body)
+                self.headers = {"Content-Type": "application/vnd.apache.arrow.stream"}
+
+            def __exit__(self, *args):
+                return False
+
+        with tempfile.TemporaryDirectory() as directory:
+            dest = os.path.join(directory, "df.arrow")
+            with patch.object(
+                kernel_data_plane.urllib.request,
+                "urlopen",
+                side_effect=lambda request, timeout=None: _FakeResponse(arrow_bytes),
+            ):
+                rows = kernel_data_plane.materialize_query_to_file(
+                    "http://backend/dp", "t", "select 1", dest, limit=1000
+                )
+            self.assertEqual(rows, 2)
+            table = pa.ipc.open_file(pa.memory_map(dest)).read_all()
+            self.assertEqual(table.num_rows, 2)
+            self.assertEqual(table.column_names, ["id", "v"])
+            self.assertFalse(os.path.exists(dest + ".partial"))
+
+    @parameterized.expand([("python_node", "python"), ("duckdb_node", "duckdb")])
+    def test_execute_run_routes_kernel_nodes_to_the_executor(self, _name, node_type):
+        result_envelope = {"status": "ok", "columns": ["a"]}
+        delivered: dict = {}
+        payload = {
+            "run_id": f"r-{node_type}",
+            "node": {"type": node_type, "code": "1 + 1"},
+            "callback_url": "http://backend/cb",
+            "callback_token": "t",
+        }
+        with (
+            patch.object(kernel_runner, "_run_kernel_node", return_value=result_envelope) as run_kernel,
+            patch.object(kernel_runner, "_post_callback", side_effect=lambda url, token, env: delivered.update(env)),
+        ):
+            kernel_runner.execute_run(payload)
+        run_kernel.assert_called_once()
+        self.assertEqual(delivered["status"], "ok")
+
+    def test_result_store_pages_a_stored_frame(self):
+        # Kernel-node results page by slicing the on-disk Arrow frame — offsets, bounds and
+        # has_more must match what the paging UI expects from the data-plane path.
+        import os
+        import tempfile
+
+        import pyarrow as pa
+
+        from products.notebooks.backend.sandbox.kernel import result_store
+
+        result_id = "6f8ec2f4-3f42-4b0e-9a2e-5f5b1c9d0a11"
+        with tempfile.TemporaryDirectory() as tmp:
+            table = pa.table({"id": list(range(10))})
+            with pa.OSFile(os.path.join(tmp, f"{result_id}.arrow"), "wb") as sink:
+                with pa.ipc.new_file(sink, table.schema) as writer:
+                    writer.write_table(table)
+            page = result_store.read_page(result_id, offset=4, limit=3, results_dir=tmp)
+            self.assertEqual(page["columns"], ["id"])
+            self.assertEqual(page["rows"], [[4], [5], [6]])
+            self.assertTrue(page["has_more"])
+            last = result_store.read_page(result_id, offset=8, limit=5, results_dir=tmp)
+            self.assertEqual(last["rows"], [[8], [9]])
+            self.assertFalse(last["has_more"])
+
+    @parameterized.expand(
+        [
+            ("path_traversal_id", "../../etc/passwd"),
+            # Valid UUID whose frame was lost with the sandbox disk.
+            ("missing_frame", "00000000-0000-0000-0000-000000000000"),
+        ]
+    )
+    def test_result_store_rejects_unusable_result_ids(self, _name, result_id):
+        import tempfile
+
+        from products.notebooks.backend.sandbox.kernel import result_store
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(result_store.ResultStoreError):
+                result_store.read_page(result_id, offset=0, limit=10, results_dir=tmp)
+
+    def test_execute_run_keeps_hogql_nodes_off_the_kernel(self):
+        # A pure-HogQL node must stay on the capped data-plane fetch — never spin up the kernel.
+        payload = {
+            "run_id": "r-hogql",
+            "code": "select 1",
+            "callback_url": "http://backend/cb",
+            "callback_token": "t",
+            "data_plane_url": "u",
+            "data_plane_token": "t",
+        }
+        with (
+            patch.object(kernel_runner, "_run_kernel_node") as run_kernel,
+            patch.object(kernel_runner, "_post_callback"),
+            patch(
+                "products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page",
+                return_value=(["n"], [(1,)], [["n", "Int64"]]),
+            ),
+        ):
+            kernel_runner.execute_run(payload)
+        run_kernel.assert_not_called()

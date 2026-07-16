@@ -26,16 +26,19 @@ un-exposed ``--box-id`` box.
 from __future__ import annotations
 
 import os
+import re
 import json
 import time
+import uuid
 import shlex
 import pathlib
 import tempfile
 import subprocess
 import urllib.request
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from hogland import AccessType, AuthenticationError, BoxSpec, ConflictError, Hogland, NotFoundError, ServerError
+from hogland._http import raise_for_status
 
 from . import timing
 from .backend import ExecResult, PreviewBackend
@@ -108,8 +111,13 @@ class HoglandBackend(PreviewBackend):
         self.memory_mib = memory_mib
         self.disk_gib = disk_gib
         self.disk_class = disk_class
-        # `name` is the deterministic PEN name (e.g. preview-pr-123) AND the box
-        # name. The pen persists across pushes; the box behind it rotates.
+        # `name` is the deterministic PEN name (e.g. preview-pr-123) — the stable
+        # identity, conflict-free by design. The box name is NOT this: hogland
+        # enforces per-owner name uniqueness across ALL box statuses (failed
+        # included), and a failed placement holds its name for up to an hour, so a
+        # deterministic box name makes a retry 409 against its own corpse. Each
+        # created box gets `<name>-<6hex>` instead (see _create_kwargs), unique per
+        # attempt. The pen persists across pushes; the box behind it rotates.
         self.name = name
         # kind="preview" gives the box hogland's 24h preview idle-TTL default
         # (sandbox is immortal — a leaked preview would never be reaped).
@@ -129,10 +137,9 @@ class HoglandBackend(PreviewBackend):
             self._wait_exec_ready()
             timing.stage("box exec ready")
             return
-        # Stable identity first, then a fresh box from the golden. _restore_fresh
-        # reaps a stale same-named box (a leaked prior run) via its ConflictError
-        # path, so at most one box holds the name at a time; we then point the pen
-        # at the new box. The pen outlives the box across pushes.
+        # Stable identity first, then a fresh box from the golden. Each box gets a
+        # per-attempt unique name so a failed placement cannot block a retry. The
+        # pen outlives the box across pushes.
         timing.stage("pen resolve/create")
         self._ensure_pen()
         timing.stage("box restore start")
@@ -160,6 +167,14 @@ class HoglandBackend(PreviewBackend):
             wake="on-request",
         )
 
+    def _box_name(self) -> str:
+        # A per-attempt unique box name: `<pen-name>-<6hex>`. hogland's name
+        # uniqueness spans failed boxes and a failed placement holds its name for
+        # up to an hour, so reusing a name (deterministic, or even per-instance)
+        # would make the 5xx retry 409 against its own corpse. Regenerate for
+        # every create attempt so retries never self-conflict.
+        return f"{self.name}-{uuid.uuid4().hex[:6]}"
+
     def _create_kwargs(self) -> dict:
         # The golden is pinned to this sizing; restore must MATCH it exactly.
         return {
@@ -170,7 +185,7 @@ class HoglandBackend(PreviewBackend):
             "disk_class": self.disk_class,
             "access_type": AccessType.ssh_public,
             "ssh_public_key": _ephemeral_ssh_pubkey(),
-            "name": self.name,
+            "name": self._box_name(),
             "kind": self.kind,
             "ttl_seconds": self.ttl_seconds,
             # HTTP-expose the web port so the box gets its own box-front hostname
@@ -183,12 +198,11 @@ class HoglandBackend(PreviewBackend):
 
         Placement can fail on a node death mid-restore (OOM / drain) and comes
         back as a 5xx; a retry seconds later lands on a healthy node. A 4xx is a
-        real client error (bad spec, name conflict) that a retry won't fix, so it
-        propagates immediately — ConflictError in particular flows up to
-        _restore_fresh's own reap-and-retry loop untouched. That keeps the two
-        retry mechanisms from multiplying: a persistent 5xx exhausts these few
-        attempts and raises (breaking the ConflictError loop, which never catches
-        ServerError), and a ConflictError never triggers this backoff."""
+        real client error (bad spec) that a retry won't fix, so it propagates
+        immediately. Each attempt draws a fresh unique box name via
+        _create_kwargs, so a 5xx-failed attempt — which leaves a failed box
+        holding its name for up to an hour — can't make the retry 409 against its
+        own corpse."""
         for attempt in range(_CREATE_5XX_ATTEMPTS):
             try:
                 return self._client.create(**self._create_kwargs())
@@ -200,43 +214,12 @@ class HoglandBackend(PreviewBackend):
         raise RuntimeError("unreachable")
 
     def _restore_fresh(self):
-        """Restore the golden into a new box. If our name is already taken, a
-        prior run left a box behind — teardown only fires on PR *close*, so a
-        failed/cancelled run leaks its box. Replace it so each run is idempotent
-        (retry the create while the freed name propagates)."""
-        try:
-            return self._create()
-        except ConflictError:
-            try:
-                stale = self._resolve_box()
-                if stale is not None:
-                    stale.delete()
-                    # Close the delete-then-repoint window: stale.delete() just
-                    # destroyed the box the pen still points at, but the pen is
-                    # only repointed at the NEW box much later in provision()
-                    # (after exec-ready). If the run dies in between, the pen
-                    # dangles at a deleted box. Clear the pointer now, best-effort
-                    # — the pen may not exist on a first-ever run (NotFoundError),
-                    # and hogland's reconciler sweep heals a dangling pointer
-                    # within ~30s regardless, so a failure here must not fail the
-                    # run (PostHog/hogland#373).
-                    try:
-                        self._client.update_pen(self.name, current_box_id="")
-                    except NotFoundError:
-                        pass  # no pen yet (first-ever run) — nothing to dangle
-                    except Exception as e:  # noqa: BLE001 — the server sweep is the backstop
-                        timing.stage(f"warn: couldn't clear pen pointer after stale delete: {e}")
-            except NotFoundError:
-                # TTL cleanup or a racing teardown already removed it — the
-                # name is free either way, so fall through to the retry loop.
-                pass
-        # Retry while the freed name propagates; the final attempt is outside the
-        # guard so a lingering ConflictError surfaces instead of being swallowed.
-        for _ in range(10):
-            try:
-                return self._create()
-            except ConflictError:
-                time.sleep(3)
+        """Restore the golden into a new box.
+
+        Box names are per-attempt unique (`<pen-name>-<6hex>`), so a create can no
+        longer 409 against a corpse left by a prior run or a prior 5xx attempt —
+        which killed the old resolve-stale/delete/retry dance this used to need.
+        Leftover corpses are swept in provision() after the pen is repointed."""
         return self._create()
 
     def attach(self) -> None:
@@ -336,27 +319,70 @@ class HoglandBackend(PreviewBackend):
     def box_id(self) -> str | None:
         return self._box_id
 
+    @property
+    def pen_id(self) -> str | None:
+        # The pen's stable id (e.g. pen-aa47b706211f) once the pen is ensured.
+        # Used to build the hogland admin/console link for the preview. Mirrors
+        # web_url's guard so an ensured-but-idless pen returns None, never "".
+        return self._pen.id if (self._pen is not None and self._pen.id) else None
+
     def destroy(self) -> None:
-        # PR-close teardown: drop the live box, then release the stable identity.
-        # delete_pen does NOT cascade, so the box must go first. Each step is
-        # best-effort — a half-torn-down preview shouldn't wedge cleanup.
-        #
-        # A box that was already TTL-reaped counts as "already gone": the pen can
-        # still point at a dead current_box_id (previews outlive their boxes — the
-        # box has a 24h idle TTL, the pen has none), so both resolving it and
-        # deleting it can raise NotFoundError. Swallow that so teardown still
-        # reaches delete_pen — otherwise the pen leaks forever, which is the exact
-        # thing this method exists to prevent.
+        # An explicit box id is owned by this invocation. When its pen was
+        # already removed, still release that requested box rather than leaving
+        # it until its TTL.
+        if self._box_id:
+            try:
+                self._delete_pen_if_current_box(self._box_id)
+                return
+            except ConflictError:
+                self._delete_explicit_box()
+                return
+            except NotFoundError:
+                self._delete_explicit_box()
+                return
+
+        # Name-only cleanup is an authoritative teardown for a closed or
+        # opted-out preview, so it intentionally removes the pen's current box.
         try:
-            box = self._resolve_box()
-            if box is not None:
-                box.delete()
+            pen = self._client.get_pen(self.name)
+        except NotFoundError:
+            return
+        if not pen.current_box_id:
+            try:
+                self._delete_pen()
+            except NotFoundError:
+                pass
+            except Exception as e:
+                timing.stage(f"warn: couldn't delete empty pen during teardown: {e}")
+            return
+        try:
+            self._delete_pen_if_current_box(pen.current_box_id)
+        except ConflictError:
+            timing.stage("teardown skipped: preview was replaced by a newer run")
         except NotFoundError:
             pass
+
+    def _delete_pen_if_current_box(self, expected_box_id: str) -> None:
+        # The workflow currently installs an SDK version that predates the
+        # public expected_current_box_id argument. Keep the request explicit so
+        # the safety fence works before that dependency is bumped.
+        response = self._client._http.delete(
+            f"/v1/pens/{quote(self.name, safe='')}",
+            params={"expected_current_box_id": expected_box_id},
+        )
+        raise_for_status(response)
+
+    def _delete_pen(self) -> None:
+        response = self._client._http.delete(f"/v1/pens/{quote(self.name, safe='')}")
+        raise_for_status(response)
+
+    def _delete_explicit_box(self) -> None:
         try:
-            self._client.delete_pen(self.name)
+            self._client.get(self._box_id).delete()
         except NotFoundError:
             pass
+        except Exception as e:
+            timing.stage(f"warn: couldn't delete explicit box during teardown: {e}")
 
     # --- pen: the stable identity over the box lifecycle ---------------------
     def _ensure_pen(self) -> None:
@@ -474,9 +500,24 @@ class HoglandBackend(PreviewBackend):
             raise RuntimeError("provision() must run before the box is usable")
         return self._box
 
+    def _name_matches(self, box_name: str | None) -> bool:
+        # A box belongs to this preview if its name is exactly the pen name
+        # (a legacy box from before per-box names) or the pen name plus exactly
+        # the 6-hex attempt tag _box_name() mints. Anchoring on the full suffix
+        # shape (not a bare prefix) keeps pen names that nest — "foo" vs
+        # "foo-bar" — from cross-matching each other's boxes.
+        if not box_name:
+            return False
+        if box_name == self.name:
+            return True
+        return re.fullmatch(re.escape(self.name) + r"-[0-9a-f]{6}", box_name) is not None
+
     def _resolve_box(self):
         """Find the box to act on: the live handle, an explicit id, the pen's
-        current pointer, or — last resort — a name lookup over live boxes."""
+        current pointer, or — last resort — a name scan over live boxes matching
+        this preview's name (exact or `<name>-` prefix), preferring a running box.
+        Used by attach() (swap-frontend) and destroy() when the pen pointer is
+        missing or dangling."""
         if self._box is not None:
             return self._box
         if self._box_id:
@@ -490,9 +531,18 @@ class HoglandBackend(PreviewBackend):
                     return self._client.get(pen.current_box_id)
             except NotFoundError:
                 pass  # no pen, or its box was already reaped — fall through
+            # iter_boxes returns newest-first; take the first name match, but
+            # prefer a running one over a corpse if the list view carries status.
+            fallback_id = None
             for v in self._client.iter_boxes():
-                if getattr(v.spec, "name", None) == self.name:
+                if not self._name_matches(getattr(v.spec, "name", None)):
+                    continue
+                if getattr(v, "status", None) == "running":
                     return self._client.get(v.id)
+                if fallback_id is None:
+                    fallback_id = v.id
+            if fallback_id is not None:
+                return self._client.get(fallback_id)
         return None
 
     def _wait_exec_ready(self, *, timeout: int = 300, interval: int = 5) -> None:
