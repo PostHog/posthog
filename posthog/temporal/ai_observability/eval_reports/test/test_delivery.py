@@ -409,6 +409,24 @@ class TestDeliverReport(SimpleTestCase):
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_slack_report")
     @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReportRun.objects")
     @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReport.objects")
+    def test_deliver_report_without_targets_marks_generated(self, mock_report_qs, mock_run_qs, mock_slack, mock_email):
+        report = self._make_report([])
+        run = self._make_report_run()
+
+        mock_report_qs.select_related.return_value.get.return_value = report
+        mock_run_qs.get.return_value = run
+
+        deliver_report("report-id", "run-id")
+
+        mock_email.assert_not_called()
+        mock_slack.assert_not_called()
+        self.assertEqual(run.delivery_status, "generated")
+        self.assertEqual(run.delivery_errors, [])
+
+    @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_email_report")
+    @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_slack_report")
+    @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReportRun.objects")
+    @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReport.objects")
     def test_deliver_report_handles_failures(self, mock_report_qs, mock_run_qs, _mock_slack, mock_email):
         targets = [{"type": "email", "value": "test@example.com"}]
         report = self._make_report(targets)

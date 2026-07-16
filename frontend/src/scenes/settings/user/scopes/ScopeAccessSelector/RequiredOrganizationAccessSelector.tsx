@@ -29,7 +29,7 @@ export const RequiredOrganizationAccessSelector = ({
                         if (autoSelectFirst && arrayValue.length === 0 && organizations.length > 0) {
                             onChange([organizations[0].id])
                         }
-                    }, [autoSelectFirst, organizations, arrayValue.length, onChange])
+                    }, [autoSelectFirst, arrayValue.length, onChange])
 
                     return (
                         <OrganizationSelector

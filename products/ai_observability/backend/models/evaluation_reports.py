@@ -181,6 +181,7 @@ def validate_report_rrule(rrule_string: str) -> None:
 class EvaluationReportRun(UUIDTModel):
     class DeliveryStatus(models.TextChoices):
         PENDING = "pending"
+        GENERATED = "generated"
         DELIVERED = "delivered"
         PARTIAL_FAILURE = "partial_failure"
         FAILED = "failed"

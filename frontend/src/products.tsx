@@ -191,6 +191,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/skills/scouts': ['Skills', 'skillsScouts'],
     '/skills/review-hog': ['Skills', 'skillsReviewHog'],
     '/skills/:name': ['Skill', 'skill'],
+    '/stamphog': ['Stamphog', 'stamphog'],
+    '/stamphog/install/callback': ['Stamphog', 'stamphogCallback'],
     '/subscriptions': ['Subscriptions', 'subscriptions'],
     '/subscriptions/new': ['Subscriptions', 'subscriptionNew'],
     '/subscriptions/:subscriptionId/edit': ['Subscriptions', 'subscriptionEdit'],
@@ -770,6 +772,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'llm_prompts',
     },
     Skill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
+    Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog' },
     Subscriptions: {
         projectBased: true,
         name: 'Subscriptions',
@@ -1256,6 +1259,8 @@ export const productUrls = {
             version?: number
         }
     ): string => combineUrl(`/skills/${name}`, params).url,
+    stamphog: (): string => '/stamphog',
+    stamphogCallback: (): string => '/stamphog/install/callback',
     subscriptions: (): string => '/subscriptions',
     subscription: (id: string | number): string => `/subscriptions/${id}`,
     subscriptionNew: (): string => '/subscriptions/new',
