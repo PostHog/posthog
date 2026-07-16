@@ -9,51 +9,37 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
-import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { createOkContext } from '~/ingestion/framework/helpers'
-import { drop, ok } from '~/ingestion/framework/results'
 import { createTestTeam } from '~/tests/helpers/team'
 
-import { HEATMAPS_OUTPUT } from './outputs'
-import { HeatmapsPipelineConfig, createHeatmapsPipeline } from './pipeline'
+import { ClientWarningsPipelineConfig, createClientWarningsPipeline } from './pipeline'
 
 jest.mock('~/common/utils/logger', () => ({
     logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }))
 
-const HEATMAPS_TOPIC = 'clickhouse_heatmap_events_test'
+const WARNINGS_TOPIC = 'clickhouse_ingestion_warnings_test'
 const DLQ_TOPIC = 'events_plugin_ingestion_dlq_test'
 
-describe('HeatmapsPipeline', () => {
+describe('ClientWarningsPipeline', () => {
     let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
     let mockTeamManager: jest.Mocked<TeamManager>
     let mockEventIngestionRestrictionManager: jest.Mocked<EventIngestionRestrictionManager>
     let mockEventFilterManager: jest.Mocked<EventFilterManager>
-    let mockCookielessManager: jest.Mocked<CookielessManager>
     let promiseScheduler: PromiseScheduler
-    let config: HeatmapsPipelineConfig
+    let config: ClientWarningsPipelineConfig
 
-    const team = createTestTeam({ id: 123, api_token: 'token-123', heatmaps_opt_in: true })
+    const team = createTestTeam({ id: 123, api_token: 'token-123' })
 
-    const heatmapProperties = {
-        $session_id: 'session-1',
-        $viewport_width: 1024,
-        $viewport_height: 768,
-        $current_url: 'http://localhost:3000/',
-        $heatmap_data: {
-            'http://localhost:3000/': [{ x: 100, y: 200, target_fixed: false, type: 'click' }],
-        },
-    }
-
-    const createMessage = (event: string, properties: Record<string, any> = heatmapProperties): Message => {
+    const createMessage = (event: string, warningMessage = 'something broke'): Message => {
         const distinctId = 'user-1'
         const eventData = {
             event,
             distinct_id: distinctId,
             uuid: new UUIDT().toString(),
             timestamp: '2024-01-01T00:00:00Z',
-            properties,
+            properties: { $$client_ingestion_warning_message: warningMessage },
         }
         return {
             value: Buffer.from(
@@ -65,7 +51,7 @@ describe('HeatmapsPipeline', () => {
                 // Capture sets the event-name header; the allow-list reads it before the body is parsed.
                 { event: Buffer.from(event) },
             ],
-            topic: 'heatmaps_ingestion',
+            topic: 'client_iwarnings_ingestion',
             partition: 0,
             offset: 0,
             size: 0,
@@ -74,7 +60,7 @@ describe('HeatmapsPipeline', () => {
     }
 
     const runPipeline = async (messages: Message[]): Promise<void> => {
-        const pipeline = createHeatmapsPipeline(config)
+        const pipeline = createClientWarningsPipeline<{ message: Message }, { message: Message }>(config)
         const batch = messages.map((message) => createOkContext({ message }, { message }))
         await pipeline.feed(batch)
         let result = await pipeline.next()
@@ -86,13 +72,13 @@ describe('HeatmapsPipeline', () => {
         await promiseScheduler.waitForAll()
     }
 
-    const heatmapsProducedFor = (): any[] =>
+    const warningsProduced = (): any[] =>
         mockKafkaProducer.queueMessages.mock.calls
             .map((call) => call[0])
-            .filter((arg: any) => arg.topic === HEATMAPS_TOPIC)
+            .filter((arg: any) => arg.topic === WARNINGS_TOPIC)
             .flatMap((arg: any) => arg.messages.map((m: { value: Buffer }) => parseJSON(m.value.toString())))
 
-    const dlqProducedFor = (): any[] =>
+    const dlqProduced = (): any[] =>
         mockKafkaProducer.produce.mock.calls.map((call) => call[0]).filter((arg: any) => arg.topic === DLQ_TOPIC)
 
     beforeEach(() => {
@@ -116,29 +102,17 @@ describe('HeatmapsPipeline', () => {
             getFilter: jest.fn().mockReturnValue(undefined),
         } as unknown as jest.Mocked<EventFilterManager>
 
-        // Passthrough by default: events round-trip unchanged. The apply step reads `.value.event`
-        // from each result, so returning `ok(e)` leaves the distinct id untouched.
-        mockCookielessManager = {
-            doBatch: jest.fn().mockImplementation((events: any[]) => Promise.resolve(events.map((e) => ok(e)))),
-        } as unknown as jest.Mocked<CookielessManager>
-
         promiseScheduler = new PromiseScheduler()
 
         config = {
             outputs: new IngestionOutputs({
-                [HEATMAPS_OUTPUT]: new SingleIngestionOutput(
-                    HEATMAPS_OUTPUT,
-                    HEATMAPS_TOPIC,
+                [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
+                    INGESTION_WARNINGS_OUTPUT,
+                    WARNINGS_TOPIC,
                     mockKafkaProducer,
                     'test'
                 ),
                 [DLQ_OUTPUT]: new SingleIngestionOutput(DLQ_OUTPUT, DLQ_TOPIC, mockKafkaProducer, 'test'),
-                [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
-                    INGESTION_WARNINGS_OUTPUT,
-                    'clickhouse_ingestion_warnings_test',
-                    mockKafkaProducer,
-                    'test'
-                ),
                 [APP_METRICS_OUTPUT]: new SingleIngestionOutput(
                     APP_METRICS_OUTPUT,
                     'clickhouse_app_metrics2_test',
@@ -149,65 +123,28 @@ describe('HeatmapsPipeline', () => {
             teamManager: mockTeamManager,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             eventFilterManager: mockEventFilterManager,
-            cookielessManager: mockCookielessManager,
             promiseScheduler,
         }
     })
 
-    it('extracts heatmap data from $$heatmap events', async () => {
-        await runPipeline([createMessage('$$heatmap')])
+    it('emits a client_ingestion_warning for $$client_ingestion_warning events', async () => {
+        await runPipeline([createMessage('$$client_ingestion_warning', 'localStorage full')])
 
-        const heatmaps = heatmapsProducedFor()
-        expect(heatmaps).toHaveLength(1)
-        expect(heatmaps[0].type).toBe('click')
-        expect(heatmaps[0].session_id).toBe('session-1')
-        expect(dlqProducedFor()).toHaveLength(0)
+        const warnings = warningsProduced()
+        expect(warnings).toHaveLength(1)
+        expect(warnings[0].team_id).toBe(team.id)
+        expect(warnings[0].type).toBe('client_ingestion_warning')
+        expect(parseJSON(warnings[0].details).message).toBe('localStorage full')
+        expect(dlqProduced()).toHaveLength(0)
     })
 
-    it('extracts heatmaps using the cookieless-rewritten distinct id', async () => {
-        // Cookieless events arrive with a sentinel distinct id; the cookieless step rewrites it to a
-        // deterministic hash, which extraction must use.
-        mockCookielessManager.doBatch.mockImplementation((events: any[]) =>
-            Promise.resolve(events.map((e) => ok({ ...e, event: { ...e.event, distinct_id: 'hashed-cookieless-id' } })))
-        )
+    it.each(['$pageview', '$identify', 'custom_event'])(
+        'DLQs %s events instead of emitting warnings',
+        async (event) => {
+            await runPipeline([createMessage(event)])
 
-        await runPipeline([createMessage('$$heatmap')])
-
-        const heatmaps = heatmapsProducedFor()
-        expect(heatmaps).toHaveLength(1)
-        expect(heatmaps[0].distinct_id).toBe('hashed-cookieless-id')
-        expect(mockCookielessManager.doBatch).toHaveBeenCalledTimes(1)
-    })
-
-    it('drops $$heatmap events that cookieless processing rejects', async () => {
-        mockCookielessManager.doBatch.mockImplementation((events: any[]) =>
-            Promise.resolve(events.map(() => drop('cookieless_team_disabled')))
-        )
-
-        await runPipeline([createMessage('$$heatmap')])
-
-        expect(heatmapsProducedFor()).toHaveLength(0)
-        expect(dlqProducedFor()).toHaveLength(0)
-    })
-
-    it.each(['$pageview', '$autocapture', '$identify', '$exception', '$$client_ingestion_warning', 'custom_event'])(
-        'DLQs %s events instead of processing them as heatmaps',
-        async (eventName) => {
-            await runPipeline([createMessage(eventName)])
-
-            expect(dlqProducedFor()).toHaveLength(1)
-            expect(heatmapsProducedFor()).toHaveLength(0)
+            expect(dlqProduced()).toHaveLength(1)
+            expect(warningsProduced()).toHaveLength(0)
         }
     )
-
-    it('drops $$heatmap events when the team has opted out', async () => {
-        const optedOutTeam = createTestTeam({ id: 456, api_token: 'token-456', heatmaps_opt_in: false })
-        mockTeamManager.getTeamByToken.mockResolvedValue(optedOutTeam)
-
-        await runPipeline([createMessage('$$heatmap')])
-
-        // Opt-out is a drop, not a DLQ — nothing is produced anywhere.
-        expect(heatmapsProducedFor()).toHaveLength(0)
-        expect(dlqProducedFor()).toHaveLength(0)
-    })
 })
