@@ -26,7 +26,7 @@ import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { Variable } from '../../types'
 import { NewVariableModal } from './NewVariableModal'
 import { VariableCalendar } from './VariableCalendar'
-import { getListVariableValues } from './VariableFields'
+import { coerceListVariableValue, getListVariableValues } from './VariableFields'
 import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
 
@@ -346,7 +346,7 @@ export const VariableComponent = ({
             <LemonField.Pure label={variable.name} className="gap-0" info={tooltip}>
                 <LemonSelect
                     disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
-                    value={variable.isNull ? null : (variable.value ?? variable.default_value ?? null)}
+                    value={variable.isNull ? null : coerceListVariableValue(variable.value ?? variable.default_value)}
                     onChange={(value) => onChange(variable.id, value, !value)}
                     options={getListVariableValues(variable).map((n) => ({ label: n, value: n }))}
                     size={size}

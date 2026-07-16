@@ -43,10 +43,32 @@ export const formatVariableReference = (codeName: string): string => {
     return `{variables.${codeName}}`
 }
 
-// `values` is backed by a JSONField that can hold non-array data for older records,
-// so coerce defensively before mapping/rendering to avoid runtime crashes.
-export const getListVariableValues = (variable: ListVariable): string[] =>
-    Array.isArray(variable.values) ? variable.values : []
+// `values` and `default_value` are backed by JSONFields, so API-created records can hold
+// shapes the UI never writes: non-arrays, numbers, or `{label, value}` option objects
+// (e.g. from Grafana migration scripts). Coerce to strings before rendering — an object
+// passed to LemonSelect as a label or value crashes React (minified error #31).
+export const coerceListVariableValue = (value: unknown): string | null => {
+    if (typeof value === 'string') {
+        return value
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+        return String(value)
+    }
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+        const { label, value: nestedValue } = value as { label?: unknown; value?: unknown }
+        // Prefer `value` over `label`: it's what queries filter on
+        const scalar = nestedValue ?? label
+        if (typeof scalar === 'string' || typeof scalar === 'number' || typeof scalar === 'boolean') {
+            return String(scalar)
+        }
+    }
+    return null
+}
+
+export const coerceListVariableValues = (values: unknown): string[] =>
+    Array.isArray(values) ? values.map(coerceListVariableValue).filter((value): value is string => value !== null) : []
+
+export const getListVariableValues = (variable: ListVariable): string[] => coerceListVariableValues(variable.values)
 
 // Field components for direct prop binding (used in modal)
 export interface DirectFieldProps<T extends Variable = Variable> {
@@ -100,7 +122,7 @@ export const ListDefaultField = ({ variable, updateVariable }: DirectFieldProps<
     <LemonSelect
         className="w-full"
         placeholder="Select default value"
-        value={variable.default_value}
+        value={coerceListVariableValue(variable.default_value)}
         options={getListVariableValues(variable).map((n: string) => ({ label: n, value: n }))}
         onChange={(value) => updateVariable({ ...variable, default_value: value ?? '' })}
         allowClear

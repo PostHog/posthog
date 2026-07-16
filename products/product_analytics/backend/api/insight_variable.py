@@ -37,6 +37,11 @@ class InsightVariableSerializer(serializers.ModelSerializer):
             values = attrs.get("values", getattr(self.instance, "values", None))
             if not isinstance(values, list):
                 attrs["values"] = []
+            elif "values" in attrs and not all(isinstance(value, str | int | float) for value in values):
+                # Non-scalar entries (e.g. `{label, value}` option objects) can't be rendered
+                # or substituted into HogQL, and used to crash the dashboard variables UI.
+                # Only checked when `values` is being written, so legacy rows stay editable.
+                raise ValidationError({"values": "List variable values must be strings or numbers."})
 
         return attrs
 
