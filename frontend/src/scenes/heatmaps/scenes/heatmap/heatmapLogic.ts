@@ -345,6 +345,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 heatmap_data_url: values.dataUrl ?? '',
                 heatmap_type: values.type,
                 width: values.widthOverride,
+                height: values.heightOverride,
                 heatmap_color_palette: values.heatmapColorPalette,
                 heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
                 common_filters: values.commonFilters,

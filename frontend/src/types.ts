@@ -5601,6 +5601,7 @@ export interface HeatmapExportContext {
     heatmap_fixed_position_mode?: HeatmapFixedPositionMode
     common_filters?: CommonFilters
     width?: number
+    height?: number
 }
 
 export type ExportContext = (
