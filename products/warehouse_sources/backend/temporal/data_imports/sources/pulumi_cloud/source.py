@@ -43,6 +43,13 @@ class PulumiCloudSource(ResumableSource[PulumiCloudSourceConfig, PulumiCloudResu
         return ExternalDataSourceType.PULUMICLOUD
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `organization` selects which Pulumi tenant the stored token queries, so retargeting it
+        # must re-require the token — otherwise a preserved credential could be aimed at another
+        # organization the token can access without the editor knowing the redacted secret.
+        return ["organization"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.PULUMI_CLOUD,

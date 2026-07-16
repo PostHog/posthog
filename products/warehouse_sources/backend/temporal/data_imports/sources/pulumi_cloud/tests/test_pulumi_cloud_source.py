@@ -68,6 +68,11 @@ class TestPulumiCloudSource:
         # get_schemas is a static, no-I/O catalog, so the public docs table list must render.
         assert self.source.lists_tables_without_credentials is True
 
+    def test_connection_host_fields_includes_organization(self) -> None:
+        # `organization` picks which Pulumi tenant the stored token queries; retargeting it must
+        # force token re-entry so a preserved credential can't be aimed at another organization.
+        assert self.source.connection_host_fields == ["organization"]
+
     def test_get_schemas_returns_every_endpoint(self) -> None:
         schemas = self.source.get_schemas(MagicMock(), team_id=1)
         assert {s.name for s in schemas} == set(ENDPOINTS)
