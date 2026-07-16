@@ -63450,7 +63450,7 @@ export namespace Schemas {
       log_count: number;
       /** Number of matching logs in this group at severity "error" or "fatal". */
       error_count: number;
-      /** ISO 8601 timestamp of the most recent matching log in this group. */
+      /** ISO 8601 timestamp of the most recent matching log in this group. When the query is served from the pre-aggregated attribute rollup (most queries), this has 10-minute bucket precision rather than exact row precision. */
       last_seen: string;
     }
 
