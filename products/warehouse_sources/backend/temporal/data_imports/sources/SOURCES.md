@@ -251,6 +251,7 @@ the row lists both.
 | justcall                  | HTTP                        | requests                                                        | ✅                          |
 | justsift                  | HTTP                        | requests                                                        | ✅                          |
 | k6_cloud                  | HTTP                        | requests                                                        | ✅                          |
+| kandji                    | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
 | katana                    | HTTP                        | requests                                                        | ✅                          |
 | kernel                    | HTTP                        | requests                                                        | ✅                          |
 | klaviyo                   | HTTP                        | requests                                                        | ✅                          |
@@ -708,7 +709,6 @@ doesn't conflict with concurrent PRs.
 - justsift
 - kafka
 - kajabi
-- kandji
 - kapa_ai
 - keka
 - kickscale
