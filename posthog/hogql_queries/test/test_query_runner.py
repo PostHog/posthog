@@ -10,6 +10,7 @@ from unittest import mock
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -48,6 +49,7 @@ from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
@@ -178,6 +180,29 @@ class TestQueryRunner(BaseTest):
         self.assertIn("Validation failed", str(context.exception))
         validation_rule.validate.assert_called_once_with(runner.validation_context)
         mock_calculate.assert_not_called()
+
+    @override_settings(EE_AVAILABLE=True, API_QUERIES_ENABLED=True)
+    @mock.patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_query_service_quota_limit_blocks_fresh_calculation(self, mock_list_limited_team_attributes):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        runner.is_query_service = True
+        mock_list_limited_team_attributes.return_value = [self.team.api_token]
+
+        with self.assertRaises(QuotaLimitExceeded):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+    @override_settings(EE_AVAILABLE=True, API_QUERIES_ENABLED=True)
+    @mock.patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_query_quota_limit_does_not_block_in_app_calculation(self, mock_list_limited_team_attributes):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        mock_list_limited_team_attributes.return_value = [self.team.api_token]
+
+        response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        self.assertEqual(response.results[0], ["row", 1, 2, 3])
+        mock_list_limited_team_attributes.assert_not_called()
 
     def test_init_with_query_instance(self):
         TestQueryRunner = self.setup_test_query_runner_class()

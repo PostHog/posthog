@@ -107,6 +107,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_acc
 from posthog.constants import AvailableFeature
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
 from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
@@ -1619,6 +1620,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         Returns:
             Tuple of (query_result, query_duration_ms)
         """
+        self._raise_if_api_query_quota_limited()
         concurrency_limit = self.get_api_queries_concurrency_limit()
         is_materialized_endpoint = get_query_tag_value("workload") == Workload.ENDPOINTS
         is_api_key_access = is_api_key_access_method(get_query_tag_value("access_method"))
@@ -2028,9 +2030,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
             return CachedResponse(**fresh_response_dict)
 
-    def get_api_queries_concurrency_limit(self):
+    def _raise_if_api_query_quota_limited(self) -> None:
+        if not self.is_query_service or not settings.EE_AVAILABLE or not settings.API_QUERIES_ENABLED:
+            return
+
+        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+
+        if self.team.api_token in list_limited_team_attributes(
+            QuotaResource.API_QUERIES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        ):
+            raise QuotaLimitExceeded()
+
+    def get_api_queries_concurrency_limit(self) -> int | None:
         """
-        :return: None - no feature, 0 - rate limited, 1,3,<other> for actual concurrency limit
+        :return: None - no feature, 1,3,<other> for actual concurrency limit
         """
 
         # TODO - remove once no longer needed, as per https://posthog.slack.com/archives/C075D3C5HST/p1766275591753869
@@ -2041,13 +2054,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return None
 
         from posthog.constants import AvailableFeature
-
-        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
-
-        if self.team.api_token in list_limited_team_attributes(
-            QuotaResource.API_QUERIES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-        ):
-            return 0
 
         feature = self.team.organization.get_available_feature(AvailableFeature.API_QUERIES_CONCURRENCY)
         return feature.get("limit") if feature else None
