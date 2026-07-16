@@ -253,9 +253,9 @@ export const onboardingErrorTrackingAlertsLogic = kea<onboardingErrorTrackingAle
                     configuration.inputs = {
                         webhookUrl: { value: formValues.discordWebhookUrl },
                         content: {
-                            value: `**🔴 {event.properties.name} created:** {event.properties.description} (View in [PostHog](${errorTrackingIssueLinkHogTemplate(
+                            value: `**🔴 {event.properties.name} created:** {event.properties.description}\n\n[View in PostHog](${errorTrackingIssueLinkHogTemplate(
                                 'discord'
-                            )}))`,
+                            )})`,
                         },
                     }
                 } else if (values.integration === 'slack') {
