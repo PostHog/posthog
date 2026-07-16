@@ -310,6 +310,7 @@ the row lists both.
 | n8n                              | HTTP                        | requests                                                        | ✅                          |
 | nebius_ai                        | HTTP                        | requests                                                        | ✅                          |
 | netlify                          | HTTP                        | requests                                                        | ✅                          |
+| new_relic                        | HTTP (GraphQL/NerdGraph)    | requests                                                        | ✅                          |
 | new_york_times                   | HTTP                        | requests                                                        | ✅                          |
 | news_api                         | HTTP                        | requests                                                        | ✅                          |
 | newsdata                         | HTTP                        | requests                                                        | ✅                          |
@@ -774,7 +775,6 @@ doesn't conflict with concurrent PRs.
 - navan
 - neon
 - netsuite
-- new_relic
 - news_api
 - nexiopay
 - ninjaone_rmm
