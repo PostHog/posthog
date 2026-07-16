@@ -10,15 +10,18 @@ This resolver walks the team's connected GitHub source(s) to their ``pull_reques
 builders should read. Names are resolved exactly once per request (in the logic layer)
 and threaded down into the builders, so a request hits the warehouse models a single time.
 
-A team can connect GitHub more than once (e.g. one source per repository). A caller may pass
-``source_id`` to read a specific source; otherwise the oldest connected source with both
-endpoints synced is used, or — when a ``repo`` ('owner/name') is passed — the source whose
-``job_inputs.repository`` matches that repo, so a repo-scoped call reads the right source.
+A team reaches a repo in one of two ways, handled uniformly here: one source per repository
+(each with its own bare endpoint names), or one source syncing several repositories (the
+multi-repo GitHub source, whose added repos carry repo-qualified ``owner/repo.endpoint`` schema
+names while its original repo keeps bare names). Every schema row is grouped under its repo via
+the warehouse_sources facade, so both shapes resolve the same way. A caller may pass ``source_id``
+to read a specific source; otherwise the oldest source's repos are tried first, or — when a
+``repo`` ('owner/name') is passed — the matching repo across all sources is preferred.
 """
 
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 from uuid import UUID
 
 from django.db.models import Q, QuerySet
@@ -28,6 +31,7 @@ from posthog.rbac.user_access_control import NO_ACCESS_LEVEL
 
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.sources import github_schema_repo_endpoint
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
@@ -45,6 +49,10 @@ WORKFLOW_JOBS_SCHEMA = "workflow_jobs"
 # timing. Optional and off by default at the source (needs the org Members:Read grant), so reads
 # must degrade gracefully (no membership data) exactly like workflow_jobs.
 TEAM_MEMBERS_SCHEMA = "team_members"
+
+# The curated endpoints we resolve per repo. A source's other synced endpoints (issues, commits,
+# teams, …) are irrelevant to the CI/PR read layer and dropped during grouping.
+_CURATED_ENDPOINTS = frozenset({PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA, TEAM_MEMBERS_SCHEMA})
 
 # Resolved names are interpolated into HogQL ``FROM`` clauses. Warehouse table names are
 # always plain identifiers (the prefix is validated to ``[A-Za-z0-9_]`` at connect time and
@@ -76,19 +84,18 @@ def resolve_github_tables(
 ) -> GitHubTables:
     """Resolve the team's curated GitHub table names from its warehouse models.
 
-    With ``source_id``, reads that specific connected GitHub source; otherwise picks the
-    oldest source with both endpoints synced (oldest = the team's first/established connection)
-    — deterministic when a team has more than one GitHub source (e.g. one per repository).
-    Raises ``GitHubSourceNotConnectedError`` when no matching usable source exists (the
+    With ``source_id``, reads that specific connected GitHub source; otherwise picks the oldest
+    source's first usable repo with both endpoints synced (oldest = the team's first/established
+    connection) — deterministic when a team has more than one source or a source syncs more than
+    one repo. Raises ``GitHubSourceNotConnectedError`` when no matching usable repo exists (the
     presentation layer maps it to a 400, so the UI prompts to connect a source and an agent gets
     an actionable error), or ``ValueError`` when ``source_id`` is not a UUID.
 
-    ``repo`` ('owner/name') scopes a repo-specific call — a team with one source per repository
-    otherwise always resolves the oldest, so a repo-scoped read (e.g. ``resolve_branch``) would
-    search the wrong repo's tables. When ``repo`` is given (and ``source_id`` is not), sources
-    whose ``job_inputs.repository`` equals it (case-insensitively) are tried first; the remaining
-    sources still follow as a fallback, since the ``repository`` input can be empty and the
-    per-source data may still hold the repo.
+    ``repo`` ('owner/name') scopes a repo-specific call — a team with several repos otherwise always
+    resolves the oldest, so a repo-scoped read (e.g. ``resolve_branch``) would search the wrong
+    repo's tables. When ``repo`` is given (and ``source_id`` is not), repos whose resolved identity
+    equals it (case-insensitively) are tried first; the rest still follow as a fallback, since a
+    bare row's repo can be empty while its data holds the repo.
 
     ``user_access_control`` enforces the requesting user's per-source warehouse RBAC (applied in
     ``_github_sources``): a denied ``source_id`` raises (400) and the default-oldest path skips it.
@@ -99,15 +106,21 @@ def resolve_github_tables(
     queryset = _github_sources(team, user_access_control)
     if source_id is not None:
         queryset = queryset.filter(id=_as_source_uuid(source_id))
-    sources: list[ExternalDataSource] = _repo_first(queryset, repo) if repo and source_id is None else list(queryset)
-    for source in sources:
-        tables = _synced_table_names(team=team, source=source)
+    candidates = _repo_candidates(team=team, sources=queryset)
+    if repo and source_id is None:
+        # Stable sort keeps the source-oldest / legacy-repo-first order among equals; the matching
+        # repo(s) just move to the front. The non-matching tail still follows as a fallback, since a
+        # source's `repository` input can be empty while its data holds the repo.
+        wanted = repo.casefold()
+        candidates.sort(key=lambda candidate: candidate.repository.casefold() != wanted)
+    for candidate in candidates:
+        tables = candidate.tables
         pull_requests = tables.get(PULL_REQUESTS_SCHEMA)
         workflow_runs = tables.get(WORKFLOW_RUNS_SCHEMA)
         # Both endpoints are required together, by design: every read surface (cards, PR list,
-        # lifecycle) joins workflow_runs for CI status and the push / re-run rollup, so a source
+        # lifecycle) joins workflow_runs for CI status and the push / re-run rollup, so a repo
         # with only pull_requests synced can't serve a complete result. The trade-off is that a
-        # half-synced source makes the whole product 400 (e.g. while workflow_runs is still
+        # half-synced repo makes the whole product 400 (e.g. while workflow_runs is still
         # backfilling) instead of degrading to PRs-without-CI. Relaxing this to a graceful
         # PR-only mode (null CI columns) is a deliberate future change, not handled here.
         if pull_requests and workflow_runs:
@@ -118,7 +131,7 @@ def resolve_github_tables(
                 workflow_runs=workflow_runs,
                 workflow_jobs=tables.get(WORKFLOW_JOBS_SCHEMA),
                 team_members=tables.get(TEAM_MEMBERS_SCHEMA),
-                repository=_source_repository(source),
+                repository=candidate.repository,
             )
     if source_id is not None:
         raise GitHubSourceNotConnectedError(_NO_SELECTED_SOURCE)
@@ -126,21 +139,22 @@ def resolve_github_tables(
 
 
 def resolve_job_cost_source_pairs(team: Team) -> list[tuple[str, str]]:
-    """``(jobs_table, runs_table)`` for every GitHub source with BOTH the jobs and runs endpoints synced.
+    """``(jobs_table, runs_table)`` for every synced repo with BOTH the jobs and runs endpoints.
 
     Used to build the exposed per-job cost view, which unions across all of a team's qualifying
-    sources. Unlike ``resolve_github_tables`` (which needs pull_requests + workflow_runs and returns
-    one source), this needs workflow_jobs + workflow_runs and returns all of them — the cost view has
-    no PR dependency and shouldn't collapse a team's repos to one. Userless (the view sync runs in a
-    system/Temporal context); team scoping is the boundary.
+    repos. Unlike ``resolve_github_tables`` (which needs pull_requests + workflow_runs and returns
+    one repo), this needs workflow_jobs + workflow_runs and returns all of them — the cost view has
+    no PR dependency and shouldn't collapse a team's repos to one. A multi-repo source contributes
+    one pair per repo, so the view stays complete when one source syncs several repos. Userless
+    (the view sync runs in a system/Temporal context); team scoping is the boundary.
     """
     pairs: list[tuple[str, str]] = []
     for source in _github_sources(team):
-        tables = _synced_table_names(team=team, source=source)
-        runs = tables.get(WORKFLOW_RUNS_SCHEMA)
-        jobs = tables.get(WORKFLOW_JOBS_SCHEMA)
-        if runs and jobs:
-            pairs.append((jobs, runs))
+        for tables in _synced_tables_by_repo(team=team, source=source).values():
+            runs = tables.get(WORKFLOW_RUNS_SCHEMA)
+            jobs = tables.get(WORKFLOW_JOBS_SCHEMA)
+            if runs and jobs:
+                pairs.append((jobs, runs))
     return pairs
 
 
@@ -163,22 +177,31 @@ def list_github_sources(*, team: Team, user_access_control: "UserAccessControl |
     ]
 
 
-def _repo_first(sources: QuerySet[ExternalDataSource], repo: str) -> list[ExternalDataSource]:
-    """Sources whose ``job_inputs.repository`` matches ``repo`` (case-insensitive), then the rest.
+class _RepoCandidate(NamedTuple):
+    # Display repo: the source's original-case ``repository`` for its legacy/bare repo (``''`` when
+    # a bare row has no repo to attribute it to); the parsed ``owner/repo`` for a qualified repo.
+    repository: str
+    # ``{endpoint: table name}`` for this one repo's synced curated schemas.
+    tables: dict[str, str]
 
-    Both groups keep the queryset's oldest-first order, so among equal candidates the established
-    connection still wins; the non-matching tail is a fallback for sources with an empty
-    ``repository`` input whose data may still hold the repo.
+
+def _repo_candidates(*, team: Team, sources: QuerySet[ExternalDataSource]) -> list[_RepoCandidate]:
+    """Every ``(repo, tables)`` a team's GitHub sources expose, in default-resolution order.
+
+    Sources keep their oldest-first order (the established connection wins), and within a source
+    the legacy/bare repo comes first — so a single-repo source resolves exactly as before — then
+    any added repos, sorted, for a deterministic pick. A multi-repo source contributes one entry
+    per repo, so a repo-scoped read can reach a repo that isn't the source's legacy one.
     """
-    wanted = repo.casefold()
-    matching: list[ExternalDataSource] = []
-    others: list[ExternalDataSource] = []
+    candidates: list[_RepoCandidate] = []
     for source in sources:
-        if _source_repository(source).casefold() == wanted:
-            matching.append(source)
-        else:
-            others.append(source)
-    return matching + others
+        display = _source_repository(source)
+        legacy_key = display.casefold()
+        by_repo = _synced_tables_by_repo(team=team, source=source)
+        for repo_key in sorted(by_repo, key=lambda key: (key != legacy_key, key)):
+            repository = display if repo_key == legacy_key else repo_key
+            candidates.append(_RepoCandidate(repository=repository, tables=by_repo[repo_key]))
+    return candidates
 
 
 def _github_sources(team: Team, user_access_control: "UserAccessControl | None" = None) -> QuerySet[ExternalDataSource]:
@@ -234,21 +257,41 @@ def _as_source_uuid(source_id: str) -> UUID:
         raise ValueError(f"source_id must be a UUID, got: {source_id!r}") from err
 
 
-def _synced_table_names(*, team: Team, source: ExternalDataSource) -> dict[str, str]:
-    """Map ``{endpoint: table name}`` for a source's actively-synced PR/CI schemas."""
+def _schema_metadata(schema: ExternalDataSchema) -> dict | None:
+    """The row's persisted ``sync_type_config.schema_metadata`` (repo/endpoint location), or None.
+
+    ``sync_type_config`` is a JSONField that also holds unrelated bookkeeping (xmin cursors), so
+    guard for a non-dict config and a non-dict metadata value before handing it to the resolver.
+    """
+    config = schema.sync_type_config
+    if not isinstance(config, dict):
+        return None
+    metadata = config.get("schema_metadata")
+    return metadata if isinstance(metadata, dict) else None
+
+
+def _synced_tables_by_repo(*, team: Team, source: ExternalDataSource) -> dict[str, dict[str, str]]:
+    """Map ``{repository: {endpoint: table name}}`` for a source's actively-synced curated schemas.
+
+    A source syncs one repo (legacy bare endpoint names like ``pull_requests``) or several
+    (repo-qualified names like ``owner/repo.pull_requests``, the multi-repo GitHub source). Each
+    row resolves to its ``(repository, endpoint)`` through the warehouse_sources facade — persisted
+    metadata first, qualified-name parse second, the source's legacy ``repository`` for bare rows
+    last. Repo keys are normalized (lowercased, since GitHub full names are case-insensitive); a
+    bare row with no legacy repo groups under ``''`` — the pre-multi-repo single-repo shape.
+    """
+    legacy_repo = _source_repository(source) or None
     schemas = (
-        ExternalDataSchema.objects.filter(
-            team_id=team.pk,
-            source_id=source.id,
-            should_sync=True,
-            name__in=(PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA, TEAM_MEMBERS_SCHEMA),
-        )
+        ExternalDataSchema.objects.filter(team_id=team.pk, source_id=source.id, should_sync=True)
         .exclude(deleted=True)
         .select_related("table")
     )
-    resolved: dict[str, str] = {}
+    by_repo: dict[str, dict[str, str]] = {}
     for schema in schemas:
+        repository, endpoint = github_schema_repo_endpoint(schema.name, _schema_metadata(schema), legacy_repo)
+        if endpoint not in _CURATED_ENDPOINTS:
+            continue
         table = schema.table
         if table is not None and not table.deleted and _IDENTIFIER.match(table.name):
-            resolved[schema.name] = table.name
-    return resolved
+            by_repo.setdefault(repository or "", {})[endpoint] = table.name
+    return by_repo

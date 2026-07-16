@@ -28,10 +28,12 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
+    WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
     GitHubTables,
     list_github_sources,
     resolve_github_tables,
+    resolve_job_cost_source_pairs,
 )
 from products.engineering_analytics.backend.logic.views.source_schema import WORKFLOW_JOBS_COLUMNS
 from products.engineering_analytics.backend.tests.test_views import (
@@ -45,7 +47,7 @@ from products.engineering_analytics.backend.tests.test_views import (
     create_warehouse_table_row,
     link_schema,
 )
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
@@ -715,6 +717,118 @@ class TestListGitHubSources(BaseTest):
         other_team = Team.objects.create(organization=self.organization, name="other")
         self._source(prefix="theirs", repository="PostHog/posthog", team=other_team)
         assert list_github_sources(team=self.team) == []
+
+
+class TestMultiRepoGitHubResolution(BaseTest):
+    """One GitHub source can sync several repositories: its added repos carry repo-qualified schema
+    rows (``owner/repo.endpoint`` + location metadata) while its original repo keeps bare names.
+    These guard the regression where the resolver only matched bare endpoint names — which made
+    every repo-qualified row (including a new source's single day-one-qualified repo) invisible, so
+    the product 400'd, and silently dropped a multi-repo source's added repos from the cost view."""
+
+    @staticmethod
+    def _slug(repo: str) -> str:
+        return repo.replace("/", "_").replace(".", "_").lower()
+
+    def _multi_repo_source(
+        self,
+        *,
+        prefix: str,
+        legacy_repository: str = "",
+        repos: dict[str, list[tuple[str, bool]]],
+    ) -> ExternalDataSource:
+        # repos: {repo_full_name: [(endpoint, has_table), ...]}. The repo equal to
+        # legacy_repository keeps bare endpoint names (the source's pre-multi-repo repo); every
+        # other repo is qualified as ``owner/repo.endpoint`` with location metadata, exactly as the
+        # multi-repo GitHub source lands them.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=f"src-{prefix}",
+            connection_id=f"src-{prefix}",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.GITHUB,
+            prefix=prefix,
+            job_inputs={"repository": legacy_repository} if legacy_repository else {},
+        )
+        for repo, endpoints in repos.items():
+            is_legacy = bool(legacy_repository) and repo.casefold() == legacy_repository.casefold()
+            for endpoint, has_table in endpoints:
+                name = endpoint if is_legacy else f"{repo}.{endpoint}"
+                table = (
+                    create_warehouse_table_row(
+                        self.team, name=f"{prefix}github_{self._slug(repo)}_{endpoint}", source=source
+                    )
+                    if has_table
+                    else None
+                )
+                ExternalDataSchema.objects.create(
+                    team=self.team,
+                    source=source,
+                    name=name,
+                    table=table,
+                    should_sync=True,
+                    sync_type_config={}
+                    if is_legacy
+                    else {"schema_metadata": {"source_repository": repo.lower(), "source_endpoint": endpoint}},
+                )
+        return source
+
+    def test_new_source_single_qualified_repo_resolves(self) -> None:
+        # A source created via the multi-repo `repositories` field has no legacy `repository`, so its
+        # one repo is qualified from day one. Bare-name matching would 400 this — the onboarding break.
+        self._multi_repo_source(
+            prefix="fresh",
+            repos={"PostHog/posthog": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)]},
+        )
+        tables = resolve_github_tables(team=self.team)
+        assert tables == GitHubTables(
+            pull_requests="freshgithub_posthog_posthog_pull_requests",
+            workflow_runs="freshgithub_posthog_posthog_workflow_runs",
+            repository="posthog/posthog",
+        )
+
+    @parameterized.expand(
+        [
+            # (repo arg, expected resolved repo, expected pull_requests table)
+            (None, "PostHog/posthog", "mixgithub_posthog_posthog_pull_requests"),
+            ("posthog/posthog.com", "posthog/posthog.com", "mixgithub_posthog_posthog_com_pull_requests"),
+            ("POSTHOG/POSTHOG", "PostHog/posthog", "mixgithub_posthog_posthog_pull_requests"),
+        ]
+    )
+    def test_multi_repo_source_scopes_by_repo(self, repo: str | None, expected_repo: str, expected_pr: str) -> None:
+        # One source, two repos: the legacy repo keeps bare names, the added repo is qualified. A
+        # `repo`-scoped read must reach the added repo's own tables, never mix them with the legacy
+        # repo's; the default (no repo) resolves the legacy repo first, as a single-repo source did.
+        self._multi_repo_source(
+            prefix="mix",
+            legacy_repository="PostHog/posthog",
+            repos={
+                "PostHog/posthog": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+                "posthog/posthog.com": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+            },
+        )
+        tables = resolve_github_tables(team=self.team, repo=repo)
+        assert tables.repository == expected_repo
+        assert tables.pull_requests == expected_pr
+
+    def test_cost_pairs_include_every_repo_in_a_source(self) -> None:
+        # The cost view unions (jobs, runs) across repos. A multi-repo source must contribute one
+        # pair per fully-synced repo — collapsing it to one repo silently under-counts the view.
+        self._multi_repo_source(
+            prefix="cost",
+            legacy_repository="PostHog/posthog",
+            repos={
+                "PostHog/posthog": [(WORKFLOW_RUNS_SCHEMA, True), (WORKFLOW_JOBS_SCHEMA, True)],
+                "posthog/posthog.com": [(WORKFLOW_RUNS_SCHEMA, True), (WORKFLOW_JOBS_SCHEMA, True)],
+                # runs but no jobs — excluded, the view needs both.
+                "posthog/other": [(WORKFLOW_RUNS_SCHEMA, True)],
+            },
+        )
+        pairs = resolve_job_cost_source_pairs(self.team)
+        assert set(pairs) == {
+            ("costgithub_posthog_posthog_workflow_jobs", "costgithub_posthog_posthog_workflow_runs"),
+            ("costgithub_posthog_posthog_com_workflow_jobs", "costgithub_posthog_posthog_com_workflow_runs"),
+        }
 
 
 class TestWorkflowHealthWindowCap(BaseTest):
