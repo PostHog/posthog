@@ -1,12 +1,16 @@
 from typing import TYPE_CHECKING, Literal
 
+import structlog
 from prometheus_client import Counter, Histogram
+
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
 
 
 TaskWorkflowStartOutcome = Literal["attempted", "blocked", "failed", "started"]
+CustomImageBuildOutcome = Literal["started", "succeeded", "failed", "scan_rejected"]
 # Outcome of an SSE task-run stream connection when it closes.
 #   completed         — stream reached its completion sentinel
 #   stream_error      — Redis/stream error sentinel ended the connection
@@ -76,6 +80,12 @@ TASK_RUN_FAILED_TOTAL = Counter(
     ],
 )
 
+CUSTOM_IMAGE_BUILD_TOTAL = Counter(
+    "posthog_tasks_custom_image_build_total",
+    "Custom sandbox image build lifecycle events",
+    labelnames=["outcome"],
+)
+
 
 # Connection lifetimes range from a few seconds (cold reconnect) to the
 # per-connection cap. The 120s bucket isolates connections cut at the
@@ -95,7 +105,7 @@ STREAM_CONNECTION_DURATION_BUCKETS = [
     7_200.0,
     21_600.0,
 ]
-# Stream length is capped at TASK_RUN_STREAM_MAX_LENGTH (~20k); the top buckets
+# Stream length is capped at TASK_RUN_STREAM_MAX_LENGTH (~5k); the top buckets
 # show how close real runs get to the trim threshold.
 STREAM_LENGTH_BUCKETS = [10.0, 50.0, 100.0, 500.0, 1_000.0, 2_500.0, 5_000.0, 10_000.0, 15_000.0, 20_000.0]
 
@@ -141,6 +151,12 @@ TASK_RUN_FOLLOWUP_DELIVERY_FAILED_TOTAL = Counter(
     "posthog_tasks_followup_delivery_failed_total",
     "Follow-up user message deliveries to a live sandbox that failed",
     labelnames=["origin_product", "retryable"],
+)
+
+TASK_RUN_WIZARD_UNBOUND_TOTAL = Counter(
+    "posthog_tasks_wizard_run_unbound_total",
+    "Wizard cloud runs that reached a terminal status without an output.pr_url binding",
+    labelnames=["status"],
 )
 
 PUSH_DISPATCHER_FAILURES_TOTAL = Counter(
@@ -219,6 +235,13 @@ def observe_prewarmed_activated(task_run: "TaskRun") -> None:
     PREWARMED_ACTIVATED_TOTAL.labels(origin_product=origin_product_label(task_run)).inc()
 
 
+def observe_custom_image_build(outcome: CustomImageBuildOutcome) -> None:
+    try:
+        CUSTOM_IMAGE_BUILD_TOTAL.labels(outcome=outcome).inc()
+    except Exception:
+        logger.exception("custom_image_build_metric_failed", outcome=outcome)
+
+
 def origin_product_label(task_run: "TaskRun | None") -> str:
     """Bounded origin_product metric label resolved from the task run's task."""
     if task_run is None:
@@ -268,6 +291,34 @@ def observe_agent_turn_failed(task_run: "TaskRun") -> None:
         run_source=labels["run_source"],
         runtime_adapter=labels["runtime_adapter"],
     ).inc()
+
+
+_WIZARD_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+
+
+def observe_wizard_run_unbound(task_run: "TaskRun") -> None:
+    """Record a wizard run ending without its PR ever binding.
+
+    Safe to call on any status write; only terminal wizard runs without an
+    output.pr_url count. Every binding failure mode is silent (agent used a
+    different branch, webhook undelivered, write swallowed), so this counter
+    is the only signal that the wizard PR pipeline regressed.
+    """
+    if task_run.status not in _WIZARD_TERMINAL_STATUSES:
+        return
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    if not state.get("wizard_head_branch"):
+        return
+    output = task_run.output if isinstance(task_run.output, dict) else {}
+    if output.get("pr_url"):
+        return
+    TASK_RUN_WIZARD_UNBOUND_TOTAL.labels(status=task_run.status).inc()
+    logger.warning(
+        "wizard_run_terminal_without_pr",
+        run_id=str(task_run.id),
+        status=task_run.status,
+        wizard_head_branch=state.get("wizard_head_branch"),
+    )
 
 
 def observe_followup_delivery_failed(task_run: "TaskRun", *, retryable: bool) -> None:

@@ -79,7 +79,7 @@ Native PostHog Metrics stays the user-facing product. The Prometheus-ecosystem r
 
 ## The stack
 
-Twenty-three PRs, each <400 LOC including tests. Each is a separate `gt create` on top of the previous.
+The stack is split into small PRs, each <400 LOC including tests. Each is a separate `gt create` on top of the previous.
 
 ### Phase 0 — Foundations (no user-visible change, lock the seams)
 
@@ -152,7 +152,7 @@ clickhouse-client -h localhost --query "
 INSERT INTO metrics1 (uuid, team_id, timestamp, service_name, metric_name, metric_type, value, attributes_map_str, resource_attributes)
 SELECT generateUUIDv4(), 2, now() - INTERVAL number SECOND, 'capture-logs', 'envoy_5xx_total', 'sum',
        toFloat64(number * 0.1),
-       map('container_str', 'capture-logs', 'envoy_response_code_class_str', '5'),
+       map('container__str', 'capture-logs', 'envoy_response_code_class__str', '5'),
        map('namespace', 'posthog')
 FROM numbers(3600)"
 ```

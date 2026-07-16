@@ -3,12 +3,12 @@ import json
 import uuid as uuid_mod
 import dataclasses
 from datetime import timedelta
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import QuerySet
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -56,8 +56,11 @@ from posthog.models.filters import Filter
 from posthog.plugins.plugin_server_api import (
     create_hog_flow_invocation_test,
     create_hog_flow_scheduled_invocation,
+    get_hog_flow_in_flight_count,
     rerun_hog_invocations,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
@@ -86,6 +89,14 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
 )
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
+from products.workflows.backend.services.batch_audience import (
+    PERSON_BATCH_SIZE as WORKFLOWS_PERSON_BATCH_SIZE,
+    SUPPORTED_DEDUPE_KEYS,
+    get_batch_audience_count,
+    get_batch_audience_person_ids,
+    use_workflows_batch_audience_query,
+)
+from products.workflows.backend.services.revisions import use_workflows_revisions
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
@@ -95,12 +106,27 @@ logger = structlog.get_logger(__name__)
 # (nodejs/src/cdp/services/hogflows/actions/delay.ts) that throws at runtime on mismatch.
 DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhm]$")
 
-# Active workflows are read-only via MCP for now: edits can break runs already scheduled or in flight,
-# and there's no revision history to roll back. Shared by the plain update path and the graph endpoint.
+# Active workflows are read-only via MCP unless the workflows-revisions flag routes edits to the
+# draft (see perform_update / graph): edits can break runs already scheduled or in flight, and
+# there's no revision history to roll back. Shared by the plain update path and the graph endpoint.
 MCP_ACTIVE_EDIT_REJECTION = (
     "Editing an active workflow isn't supported via MCP yet — changes can break runs already "
     "scheduled or in flight, and there's no revision history to roll back. If you need different "
     "behavior, create a new draft workflow."
+)
+
+# The content of a workflow: everything the draft cycle stages and publish promotes, and nothing
+# else. Metadata (name, description) and lifecycle (status) always apply to the live row. The draft
+# blob is a full snapshot of these fields so publish is a plain copy, not a merge.
+DRAFT_CONTENT_FIELDS = (
+    "actions",
+    "edges",
+    "trigger",
+    "trigger_masking",
+    "conversion",
+    "exit_condition",
+    "abort_action",
+    "variables",
 )
 
 # A batch audience is a one-time snapshot of everyone matching the conditions at run time, so each
@@ -124,6 +150,34 @@ def _validation_error_message(error: exceptions.ValidationError) -> str:
     if isinstance(detail, list) and detail:
         return str(detail[0])
     return str(detail)
+
+
+def _first_error_string(detail: Any) -> Optional[str]:
+    if isinstance(detail, str):
+        return detail
+    if isinstance(detail, list):
+        for item in detail:
+            if message := _first_error_string(item):
+                return message
+    if isinstance(detail, dict):
+        for value in detail.values():
+            if message := _first_error_string(value):
+                return message
+    return None
+
+
+def _describe_action_errors(errors: list[Any], actions: list[dict]) -> str:
+    # The many=True error list mirrors the actions list, with {} entries for valid actions. Raising it
+    # as-is gets flattened by the exception handler to that first empty dict, so the client sees "{}".
+    # Name each offending step instead so the error points at what to fix.
+    parts = []
+    for action_data, error in zip(actions, errors):
+        if not error:
+            continue
+        message = _first_error_string(error) or "has an invalid configuration"
+        name = action_data.get("name") if isinstance(action_data, dict) else None
+        parts.append(f"step '{name or 'unnamed'}': {message}")
+    return f"Can't enable this workflow. Fix {'; '.join(parts) or 'the invalid steps'} and try again."
 
 
 def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
@@ -153,12 +207,23 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
     group_type_index = serializers.IntegerField(
         required=False, allow_null=True, help_text="Group type index for group-based targeting"
     )
+    dedupe_key = serializers.ChoiceField(
+        choices=list(SUPPORTED_DEDUPE_KEYS),
+        required=False,
+        allow_null=True,
+        help_text="When 'email', count unique email addresses instead of persons, matching how batch email sends deduplicate recipients.",
+    )
 
 
 class BlastRadiusSerializer(serializers.Serializer):
     affected = serializers.IntegerField(help_text="Number of users matching the filters")
     total = serializers.IntegerField(help_text="Total number of users")
     limit = serializers.IntegerField(help_text="Maximum allowed audience size for batch triggers for this team.")
+    dedupe_key = serializers.ChoiceField(
+        choices=list(SUPPORTED_DEDUPE_KEYS),
+        allow_null=True,
+        help_text="The dedupe key that was actually applied to 'affected'. 'email' means it counts unique email addresses; null means it counts persons.",
+    )
 
 
 class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
@@ -763,7 +828,7 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-class HogFlowMinimalSerializer(serializers.ModelSerializer):
+class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -786,6 +851,28 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "abort_action",
             "variables",
             "billable_action_types",
+            "user_access_level",
+        ]
+        read_only_fields = fields
+
+
+class HogFlowSummarySerializer(HogFlowMinimalSerializer):
+    # Metadata-only listing view. Deliberately omits the action graph (actions/edges) and other
+    # detail-only fields: an action's `config` can hold credential-like values (e.g. a webhook
+    # Authorization header), and a workflow *listing* must not broaden their visibility. Full
+    # definitions stay behind retrieve. Used for MCP list requests; see get_serializer_class.
+    class Meta(HogFlowMinimalSerializer.Meta):
+        fields = [
+            "id",
+            "name",
+            "description",
+            "version",
+            "status",
+            "created_at",
+            "created_by",
+            "updated_at",
+            "trigger",
+            "user_access_level",
         ]
         read_only_fields = fields
 
@@ -858,6 +945,24 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         ),
     )
 
+    draft = serializers.JSONField(
+        read_only=True,
+        help_text=(
+            "Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and "
+            "settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it "
+            "with the publish endpoint or throw it away with discard_draft."
+        ),
+    )
+    draft_updated_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "When the draft was last written; null when there's no staged draft. Pass this to publish (and as "
+            "base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a "
+            "mismatch returns 409."
+        ),
+    )
+
     def to_internal_value(self, data):
         status = data.get("status")
         if status is None and self.instance:
@@ -899,6 +1004,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "variables",
             "billable_action_types",
             "schedules",
+            "user_access_level",
+            "draft",
+            "draft_updated_at",
         ]
         read_only_fields = [
             "id",
@@ -910,6 +1018,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "abort_action",
             "billable_action_types",  # Computed field, not user-editable
             "schedules",  # Managed via the schedules sub-resource, surfaced read-only here
+            "user_access_level",
+            "draft",  # Written by draft routing (see perform_update / graph), never directly
+            "draft_updated_at",
         ]
 
     def validate(self, data):
@@ -921,7 +1032,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         status = data.get("status", instance.status if instance else "draft")
         if status == "active" and instance and instance.status != "active" and "actions" not in data:
             action_serializer = HogFlowActionSerializer(data=instance.actions, many=True, context=self.context)
-            action_serializer.is_valid(raise_exception=True)
+            if not action_serializer.is_valid():
+                # many=True yields a list of per-action errors despite the ReturnDict annotation
+                action_errors = cast(list[Any], action_serializer.errors)
+                raise serializers.ValidationError({"actions": _describe_action_errors(action_errors, instance.actions)})
             actions = action_serializer.validated_data
 
         # The trigger is derived from the actions. We can trust the action level validation and pull it out
@@ -1152,6 +1266,51 @@ class HogFlowInvocationSerializer(serializers.Serializer):
             "returns the next action id."
         ),
     )
+    use_draft = serializers.BooleanField(
+        default=False,
+        write_only=True,
+        help_text=(
+            "Test the workflow's staged draft instead of its live config. Requires an open draft; "
+            "can't be combined with an explicit configuration override."
+        ),
+    )
+
+
+class HogFlowPublishRequestSerializer(serializers.Serializer):
+    confirm = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "False (default) previews the publish: returns how many runs are in flight without changing "
+            "anything. True applies the staged draft to the live workflow."
+        ),
+    )
+    draft_updated_at = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "The draft_updated_at you loaded — required when confirm=true. A mismatch returns 409, so you "
+            "never publish a draft someone else has changed since you read it."
+        ),
+    )
+
+
+class HogFlowPublishResponseSerializer(serializers.Serializer):
+    published = serializers.BooleanField(help_text="Whether the draft was applied to the live workflow.")
+    in_flight_runs = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Runs currently in flight (parked on waits/delays or executing) that will follow the new config "
+            "once published. Null when the count is unavailable."
+        ),
+    )
+    draft_updated_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="Echo of the staged draft's timestamp — pass it back with confirm=true to publish exactly this draft.",
+    )
+    workflow = HogFlowSerializer(
+        required=False,
+        allow_null=True,
+        help_text="The workflow after publishing (only set when published=true).",
+    )
 
 
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
@@ -1180,7 +1339,9 @@ class StaleWorkflowUpdateError(exceptions.APIException):
 
 
 @extend_schema(extensions={"x-product": "workflows"})
-class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
+class HogFlowViewSet(
+    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
+):
     scope_object = "hog_flow"
     scope_object_read_actions = [
         "list",
@@ -1203,6 +1364,8 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         "bulk_delete",
         "rerun",
         "graph",
+        "publish",
+        "discard_draft",
     ]
     queryset = HogFlow.objects.all()
     pagination_class = HogFlowPagination
@@ -1252,7 +1415,15 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         return None
 
     def get_serializer_class(self) -> type[BaseSerializer]:
-        return HogFlowMinimalSerializer if self.action == "list" else HogFlowSerializer
+        if self.action == "list":
+            # MCP list ("workflows-list") is a discovery/summary tool — return metadata only so it
+            # never exposes action config bodies (which can hold credential-like values). The web app
+            # and raw API keep the full graph, which they legitimately need (e.g. client-side
+            # duplication); MCP callers drill into a single workflow via retrieve instead.
+            if self.request is not None and self._is_mcp_request(self.request):
+                return HogFlowSummarySerializer
+            return HogFlowMinimalSerializer
+        return HogFlowSerializer
 
     def get_serializer_context(self) -> dict:
         # Drives draft strictness in the serializers: web-builder drafts stay lenient, programmatic
@@ -1378,14 +1549,11 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         # unaffected). We check the raw request payload, not serializer.validated_data — HogFlowSerializer.validate
         # injects derived fields like 'trigger' and 'billable_action_types' which would otherwise make every
         # status-only PATCH look like a mixed edit.
+        route_to_draft = False
         if self._is_mcp_request(self.request):
             keys = set(self.request.data.keys())
             has_status = "status" in keys
             has_non_status = bool(keys - {"status"})
-
-            # Active workflows are read-only via MCP for now. Status-only PATCHes (lifecycle tools) pass through.
-            if serializer.instance.status == HogFlow.State.ACTIVE and has_non_status:
-                raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
 
             # Status transitions must go through the dedicated lifecycle tools (status-only PATCHes); a mixed
             # status + field payload is rejected so MCP can't sneak a transition through a field update.
@@ -1394,6 +1562,14 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
                     "Status changes via MCP must use workflows-enable / workflows-disable / "
                     "workflows-archive — they can't be combined with other field updates."
                 )
+
+            # Content edits on an active workflow stage a draft when the revisions cycle is on for the
+            # team; otherwise active workflows stay read-only via MCP. Status-only PATCHes (lifecycle
+            # tools) pass through either way, and metadata-only edits apply live once the flag is on.
+            if serializer.instance.status == HogFlow.State.ACTIVE and has_non_status:
+                if not use_workflows_revisions(self.team):
+                    raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
+                route_to_draft = bool(keys & set(DRAFT_CONTENT_FIELDS))
 
         # TODO(team-workflows): Atomically increment version, insert new object instead of default update behavior
         instance_id = serializer.instance.id
@@ -1417,10 +1593,31 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             except HogFlow.DoesNotExist:
                 before_update = None
 
-            if base_updated_at and before_update and before_update.updated_at > base_updated_at:
+            # Draft edits race against other draft edits, not against the live row (which they don't
+            # touch), so the staleness baseline is the draft's own timestamp once a draft exists.
+            guard_timestamp = before_update.updated_at if before_update else None
+            if route_to_draft and before_update and before_update.draft_updated_at:
+                guard_timestamp = before_update.draft_updated_at
+            if base_updated_at and guard_timestamp and guard_timestamp > base_updated_at:
                 raise StaleWorkflowUpdateError()
 
-            serializer.save()
+            if route_to_draft:
+                assert before_update is not None
+                self._write_draft(serializer.instance, before_update, serializer.validated_data)
+                # Metadata in the same payload still applies live. Content (and the fields validate()
+                # derives from it — trigger, billable_action_types) must not leak onto the live row:
+                # they were computed from the draft's graph.
+                remaining = {
+                    k: v
+                    for k, v in serializer.validated_data.items()
+                    if k not in DRAFT_CONTENT_FIELDS and k != "billable_action_types"
+                }
+                if remaining:
+                    serializer.validated_data.clear()
+                    serializer.validated_data.update(remaining)
+                    serializer.save()
+            else:
+                serializer.save()
 
         log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, previous=before_update)
         self._emit_resource_edited(serializer.instance)
@@ -1451,6 +1648,23 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             except Exception as e:
                 logger.warning("Failed to capture hog_flow_activated event", error=str(e))
 
+    def _write_draft(self, instance: HogFlow, locked: HogFlow, validated_data: dict) -> None:
+        # The draft is always a full content snapshot (live config as the base, staged draft on top,
+        # this edit's validated fields last) so publish is a plain copy with no merge logic.
+        snapshot = {field: getattr(locked, field) for field in DRAFT_CONTENT_FIELDS}
+        # The model's legacy default for actions/edges is `{}`, but the API shape is a list — normalize
+        # so publish's re-validation doesn't choke on a snapshot of a never-edited column.
+        for field in ("actions", "edges"):
+            if not snapshot[field]:
+                snapshot[field] = []
+        draft = {**snapshot, **(locked.draft or {})}
+        for field in DRAFT_CONTENT_FIELDS:
+            if field in validated_data:
+                draft[field] = validated_data[field]
+        instance.draft = draft
+        instance.draft_updated_at = timezone.now()
+        instance.save(update_fields=["draft", "draft_updated_at"])
+
     @extend_schema(request=HogFlowGraphUpdateSerializer, responses={200: HogFlowSerializer})
     @action(detail=True, methods=["PATCH"])
     def graph(self, request: Request, *args, **kwargs):
@@ -1468,12 +1682,21 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
 
+            route_to_draft = False
             if self._is_mcp_request(request) and locked.status == HogFlow.State.ACTIVE:
-                raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
+                if not use_workflows_revisions(self.team):
+                    raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
+                route_to_draft = True
 
-            new_actions, new_edges = apply_graph_operations(
-                list(locked.actions or []), list(locked.edges or []), operations
-            )
+            # Draft edits compose on the staged draft, not on live — a second patch must see the first.
+            if route_to_draft and locked.draft:
+                base_actions = list(locked.draft.get("actions") or [])
+                base_edges = list(locked.draft.get("edges") or [])
+            else:
+                base_actions = list(locked.actions or [])
+                base_edges = list(locked.edges or [])
+
+            new_actions, new_edges = apply_graph_operations(base_actions, base_edges, operations)
 
             serializer = self.get_serializer(locked, data={"actions": new_actions, "edges": new_edges}, partial=True)
             # The surgical endpoint is the one path where structural corruption would be newly introduced,
@@ -1483,8 +1706,113 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
-            # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
+            if route_to_draft:
+                self._write_draft(locked, locked, serializer.validated_data)
+            else:
+                # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
+                serializer.save()
+
+        log_activity_from_viewset(self, locked, name=locked.name, previous=before_update)
+        self._emit_resource_edited(locked)
+
+        return Response(self.get_serializer(locked).data)
+
+    def _get_in_flight_run_count(self, hog_flow: HogFlow) -> Optional[int]:
+        # Best-effort: publish must not fail because the counting service is unreachable — the count
+        # is advisory ("N runs in flight will follow the new config"), not a gate.
+        try:
+            res = get_hog_flow_in_flight_count(team_id=self.team_id, hog_flow_id=str(hog_flow.id))
+            if res.status_code == 200:
+                return res.json().get("count")
+            logger.warning(
+                "Failed to fetch in-flight run count for workflow",
+                hog_flow_id=str(hog_flow.id),
+                status_code=res.status_code,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to fetch in-flight run count for workflow", hog_flow_id=str(hog_flow.id), exc_info=True
+            )
+        return None
+
+    @extend_schema(request=HogFlowPublishRequestSerializer, responses={200: HogFlowPublishResponseSerializer})
+    @action(detail=True, methods=["POST"])
+    def publish(self, request: Request, *args, **kwargs):
+        # Promote the staged draft to the live config. Two-step by design: a call without confirm only
+        # echoes impact (how many runs are in flight), so callers — especially agents — never publish blind.
+        if not use_workflows_revisions(self.team):
+            raise exceptions.ValidationError("Publishing drafts isn't enabled for this project yet.")
+
+        param_serializer = HogFlowPublishRequestSerializer(data=request.data)
+        param_serializer.is_valid(raise_exception=True)
+        confirm = param_serializer.validated_data["confirm"]
+
+        instance = self.get_object()
+        if not instance.draft:
+            raise exceptions.ValidationError("This workflow has no staged draft to publish.")
+
+        if not confirm:
+            return Response(
+                {
+                    "published": False,
+                    "in_flight_runs": self._get_in_flight_run_count(instance),
+                    "draft_updated_at": instance.draft_updated_at,
+                }
+            )
+
+        expected_draft_updated_at = param_serializer.validated_data.get("draft_updated_at")
+        if not expected_draft_updated_at:
+            raise exceptions.ValidationError(
+                {"draft_updated_at": "Required when confirming a publish — pass the draft_updated_at you loaded."}
+            )
+
+        with transaction.atomic():
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
+            locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            if not locked.draft:
+                raise exceptions.ValidationError("This workflow has no staged draft to publish.")
+            if locked.draft_updated_at != expected_draft_updated_at:
+                raise StaleWorkflowUpdateError()
+
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
+            before_update = HogFlow.objects.get(pk=instance.pk)
+            # The draft goes back through the normal serializer so publish revalidates strictly and
+            # recompiles bytecode — a stored blob is never trusted to be execution-ready.
+            serializer = self.get_serializer(locked, data=dict(locked.draft), partial=True)
+            serializer.is_valid(raise_exception=True)
             serializer.save()
+            locked.draft = None
+            locked.draft_updated_at = None
+            locked.save(update_fields=["draft", "draft_updated_at"])
+
+        log_activity_from_viewset(self, locked, name=locked.name, previous=before_update)
+        self._emit_resource_edited(locked)
+
+        return Response(
+            {
+                "published": True,
+                "in_flight_runs": None,
+                "draft_updated_at": None,
+                "workflow": self.get_serializer(locked).data,
+            }
+        )
+
+    @extend_schema(request=None, responses={200: HogFlowSerializer})
+    @action(detail=True, methods=["POST"])
+    def discard_draft(self, request: Request, *args, **kwargs):
+        # Throw away the staged draft. Idempotent: discarding when nothing is staged is a no-op.
+        if not use_workflows_revisions(self.team):
+            raise exceptions.ValidationError("Drafts aren't enabled for this project yet.")
+
+        instance = self.get_object()
+        with transaction.atomic():
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
+            locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
+            before_update = HogFlow.objects.get(pk=instance.pk)
+            locked.draft = None
+            locked.draft_updated_at = None
+            locked.save(update_fields=["draft", "draft_updated_at"])
 
         log_activity_from_viewset(self, locked, name=locked.name, previous=before_update)
         self._emit_resource_edited(locked)
@@ -1496,7 +1824,11 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     def invocations(self, request: Request, *args, **kwargs):
         try:
             hog_flow = self.get_object()
-        except Exception:
+        except (Http404, exceptions.NotFound):
+            # Only a genuinely missing workflow lands here (e.g. testing from the builder before first
+            # save) — fall back to testing the submitted payload. Permission failures never reach this
+            # fallback: a resource-level denial 403s upstream before this method runs, and an object-level
+            # PermissionDenied from get_object() is deliberately not caught, so it surfaces as a 403.
             hog_flow = None
 
         serializer = HogFlowInvocationSerializer(
@@ -1505,10 +1837,22 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
 
+        payload = dict(serializer.validated_data)
+        if payload.pop("use_draft", False):
+            # The staged draft was validated when written, so it goes to the executor inline exactly
+            # like an explicit configuration override — workers never read (or cache) the draft column.
+            if payload.get("configuration"):
+                raise exceptions.ValidationError(
+                    {"use_draft": "Pass either use_draft or an explicit configuration override, not both."}
+                )
+            if not hog_flow or not hog_flow.draft:
+                raise exceptions.ValidationError({"use_draft": "This workflow has no staged draft to test."})
+            payload["configuration"] = hog_flow.draft
+
         res = create_hog_flow_invocation_test(
             team_id=self.team_id,
             hog_flow_id=str(hog_flow.id) if hog_flow else "new",
-            payload=serializer.validated_data,
+            payload=payload,
         )
 
         if res.status_code != 200:
@@ -1519,22 +1863,45 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     @extend_schema(request=BlastRadiusRequestSerializer, responses=BlastRadiusSerializer)
     @action(methods=["POST"], detail=False)
     def user_blast_radius(self, request: Request, **kwargs):
-        if "filters" not in request.data:
-            raise exceptions.ValidationError("Missing filters for which to get blast radius")
+        # detail=False, so there's no workflow object for AccessControlPermission to check — it falls back to
+        # "has access to any one workflow" (has_any_specific_access_for_resource). That's too weak for a
+        # project-wide person/group count: require resource-level workflow access so an object-level grant on
+        # a single workflow can't be used as a project-wide audience oracle.
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
+            raise exceptions.PermissionDenied("You do not have access to workflows.")
 
-        filters = request.data.get("filters", {})
-        group_type_index = request.data.get("group_type_index", None)
+        param_serializer = BlastRadiusRequestSerializer(data=request.data)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        filters = params["filters"]
+        group_type_index = params.get("group_type_index")
+        dedupe_key = params.get("dedupe_key")
 
         reject_flag_conditions_in_audience(self.team, filters)
 
-        result = get_user_blast_radius(self.team, filters, group_type_index)
+        # Preview matches the actual send: with dedup active, "affected" is the number of
+        # sends (unique emails + email-less persons), not the number of matching persons —
+        # the legacy person-count query is skipped entirely, "total" comes straight from
+        # the cached team-wide count it would have returned anyway. The applied key is
+        # echoed back so the frontend labels the count from the response instead of
+        # guessing whether the flag-gated dedup actually ran.
+        applied_dedupe_key = None
+        if dedupe_key is not None and group_type_index is None and use_workflows_batch_audience_query(self.team):
+            total = self.team.persons_seen_so_far
+            affected = min(get_batch_audience_count(self.team, filters, dedupe_key), total)
+            applied_dedupe_key = dedupe_key
+        else:
+            result = get_user_blast_radius(self.team, filters, group_type_index)
+            affected, total = result.affected, result.total
 
         return Response(
             BlastRadiusSerializer(
                 {
-                    "affected": result.affected,
-                    "total": result.total,
+                    "affected": affected,
+                    "total": total,
                     "limit": get_hogflow_batch_trigger_limit(self.team_id),
+                    "dedupe_key": applied_dedupe_key,
                 }
             ).data
         )
@@ -1728,8 +2095,18 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         except ValueError:
             return Response({"error": "One or more IDs are not valid UUIDs"}, status=400)
 
-        queryset = self.get_queryset().filter(id__in=validated_ids, status="archived")
-        deleted_count, _ = queryset.delete()
+        # Match the single destroy path: deleting a workflow needs object-level editor access, not just
+        # visibility. filter_queryset_by_access_level only drops effective-"none" (invisible) objects, so an
+        # object-specific viewer override would otherwise be bulk-deletable. Check each candidate explicitly.
+        candidates = list(self.get_queryset().filter(id__in=validated_ids, status="archived"))
+        self.user_access_control.preload_object_access_controls(candidates)
+        deletable_ids = [
+            flow.id
+            for flow in candidates
+            if self.user_access_control.check_access_level_for_object(flow, required_level="editor")
+        ]
+
+        deleted_count, _ = self.get_queryset().filter(id__in=deletable_ids).delete()
 
         return Response({"deleted": deleted_count})
 
@@ -1741,7 +2118,9 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     def batch_jobs(self, request: Request, *args, **kwargs):
         try:
             hog_flow = self.get_object()
-        except Exception:
+        except (Http404, exceptions.NotFound):
+            # A PermissionDenied from the object-level access check propagates as a 403; only a genuine
+            # missing workflow becomes a friendly 404.
             raise exceptions.NotFound(f"Workflow {kwargs.get('pk')} not found")
 
         if request.method == "POST":
@@ -1853,6 +2232,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                         "affected": result.affected,
                         "total": result.total,
                         "limit": get_hogflow_batch_trigger_limit(team.id),
+                        "dedupe_key": None,
                     }
                 ).data
             )
@@ -1881,15 +2261,26 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         filters = request.data.get("filters", {}) or {}
         group_type_index = request.data.get("group_type_index", None)
         cursor = request.data.get("cursor", None)
+        dedupe_key = request.data.get("dedupe_key", None)
+
+        if dedupe_key is not None and dedupe_key not in SUPPORTED_DEDUPE_KEYS:
+            return Response({"error": f"Unsupported dedupe_key: {dedupe_key}"}, status=400)
 
         try:
             reject_flag_conditions_in_audience(team, filters)
-            users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
+            if use_workflows_batch_audience_query(team):
+                users_affected = get_batch_audience_person_ids(
+                    team, filters, group_type_index, cursor, dedupe_key=dedupe_key
+                )
+                batch_size = WORKFLOWS_PERSON_BATCH_SIZE
+            else:
+                users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
+                batch_size = PERSON_BATCH_SIZE
             return Response(
                 {
                     "users_affected": users_affected,
                     "cursor": users_affected[-1] if users_affected else None,
-                    "has_more": len(users_affected) == PERSON_BATCH_SIZE,
+                    "has_more": len(users_affected) == batch_size,
                 }
             )
         except exceptions.ValidationError as e:

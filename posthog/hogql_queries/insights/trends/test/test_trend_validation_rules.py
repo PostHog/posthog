@@ -9,12 +9,19 @@ from posthog.schema import (
     BreakdownFilter,
     BreakdownType,
     DataWarehouseNode,
+    DateRange,
     EventsNode,
     MultipleBreakdownType,
+    PropertyMathType,
+    TrendsFilter,
     TrendsQuery,
 )
 
-from posthog.hogql_queries.insights.trends.trend_validation_rules import ValidateDataWarehouseBreakdown
+from posthog.hogql_queries.insights.trends.trend_validation_rules import (
+    DisallowDaysOfWeekWithSmoothing,
+    DisallowUnsupportedPropertyMathForHistogramBreakdown,
+    ValidateDataWarehouseBreakdown,
+)
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 
 
@@ -251,3 +258,114 @@ class TestValidateDataWarehouseBreakdown(BaseTest):
             context.exception.get_codes(),
             ["data_warehouse_series_unsupported_breakdown"],
         )
+
+
+class TestDisallowUnsupportedPropertyMathForHistogramBreakdown(BaseTest):
+    def _context(self, query: TrendsQuery) -> QueryValidationContext[TrendsQuery]:
+        runner = MagicMock(query=query, team=self.team, user=None)
+        return QueryValidationContext(query=query, team=self.team, user=None, runner=runner)
+
+    @parameterized.expand(
+        [
+            ("no_breakdown", PropertyMathType.MEDIAN, None),
+            ("breakdown_without_bins", PropertyMathType.MEDIAN, BreakdownFilter(breakdown="prop")),
+            (
+                "supported_math_with_bins",
+                PropertyMathType.AVG,
+                BreakdownFilter(breakdown="prop", breakdown_histogram_bin_count=10),
+            ),
+            (
+                "multi_breakdown_without_bins",
+                PropertyMathType.P90,
+                BreakdownFilter(breakdowns=[Breakdown(property="prop")]),
+            ),
+        ]
+    )
+    def test_allows_supported_combinations(
+        self, _name: str, math: PropertyMathType, breakdown_filter: BreakdownFilter | None
+    ) -> None:
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview", math=math, math_property="prop")],
+            breakdownFilter=breakdown_filter,
+        )
+
+        DisallowUnsupportedPropertyMathForHistogramBreakdown().validate(self._context(query))
+
+    @parameterized.expand(
+        [
+            (
+                "single_breakdown",
+                PropertyMathType.MEDIAN,
+                BreakdownFilter(breakdown="prop", breakdown_histogram_bin_count=10),
+            ),
+            (
+                "multi_breakdown",
+                PropertyMathType.P90,
+                BreakdownFilter(breakdowns=[Breakdown(property="prop", histogram_bin_count=10)]),
+            ),
+        ]
+    )
+    def test_disallows_unsupported_math_with_histogram_breakdown(
+        self, _name: str, math: PropertyMathType, breakdown_filter: BreakdownFilter
+    ) -> None:
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview", math=math, math_property="prop")],
+            breakdownFilter=breakdown_filter,
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            DisallowUnsupportedPropertyMathForHistogramBreakdown().validate(self._context(query))
+
+        self.assertEqual(
+            context.exception.get_codes(),
+            ["property_math_unsupported_with_histogram_breakdown"],
+        )
+
+    def test_error_message_names_the_unsupported_math_types(self) -> None:
+        query = TrendsQuery(
+            series=[
+                EventsNode(event="$pageview", math=PropertyMathType.MEDIAN, math_property="prop"),
+                EventsNode(event="$pageview", math=PropertyMathType.SUM, math_property="prop"),
+            ],
+            breakdownFilter=BreakdownFilter(breakdown="prop", breakdown_histogram_bin_count=10),
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            DisallowUnsupportedPropertyMathForHistogramBreakdown().validate(self._context(query))
+
+        self.assertIn("Median is not supported", str(context.exception))
+
+
+class TestDisallowDaysOfWeekWithSmoothing(BaseTest):
+    def _context(self, query: TrendsQuery) -> QueryValidationContext[TrendsQuery]:
+        runner = MagicMock(query=query, team=self.team, user=None)
+        return QueryValidationContext(query=query, team=self.team, user=None, runner=runner)
+
+    @parameterized.expand(
+        [
+            ("smoothing_without_days_restriction", TrendsFilter(smoothingIntervals=7), None),
+            ("days_restriction_without_smoothing", None, [1, 2]),
+            ("smoothing_with_full_week", TrendsFilter(smoothingIntervals=7), [1, 2, 3, 4, 5, 6, 7]),
+            ("smoothing_interval_of_one", TrendsFilter(smoothingIntervals=1), [1, 2]),
+        ]
+    )
+    def test_allows(self, _name: str, trends_filter: TrendsFilter | None, days_of_week: list[int] | None) -> None:
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            trendsFilter=trends_filter,
+            dateRange=DateRange(daysOfWeek=days_of_week),
+        )
+
+        DisallowDaysOfWeekWithSmoothing().validate(self._context(query))
+
+    def test_disallows_smoothing_with_days_restriction(self) -> None:
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            trendsFilter=TrendsFilter(smoothingIntervals=7),
+            dateRange=DateRange(daysOfWeek=[1, 2, 3, 4, 5]),
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            DisallowDaysOfWeekWithSmoothing().validate(self._context(query))
+
+        self.assertEqual(context.exception.get_codes(), ["days_of_week_unsupported_with_smoothing"])

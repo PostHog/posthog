@@ -158,12 +158,25 @@ class Command(BaseCommand):
                 "0 disables the trip"
             ),
         )
+        # Deprecated no-op kept so deploys still passing the flag don't crash;
+        # the legacy status-log claim path was removed and 'state' is the only reader.
+        parser.add_argument(
+            "--claim-path",
+            choices=["legacy", "state"],
+            default=None,
+            help="Deprecated, ignored: readers always use the denormalized state columns",
+        )
 
     def handle(self, *args, **options):
         health_port = options["health_port"]
         health_timeout = options["health_timeout"]
 
         config = build_consumer_config(options)
+
+        if options.get("claim_path") == "legacy":
+            logger.warning(
+                "claim_path_legacy_removed", note="--claim-path is ignored; the legacy claim path no longer exists"
+            )
 
         logger.info(
             "warehouse_sources_load_starting",

@@ -10,6 +10,7 @@ from posthog.schema import (
     SourceFieldFileUploadJsonFormatConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
@@ -287,6 +288,35 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         output = self._run({ExternalDataSourceType.STRIPE: config})
         assert (
             'oauth_integration_id: int = config.value(alias="oauth-integration-id", converter=config.str_to_int)'
+            in output
+        )
+
+    @pytest.mark.parametrize("required", [True, False])
+    def test_source_config_oauth_account_select_multiple_emits_optional_list(self, required):
+        # `multiple` fields must generate an optional list even when the form field is required:
+        # configs stored before the field existed (legacy single-repo GitHub sources) must keep
+        # parsing, so requiredness is enforced by the source, not the dataclass.
+        config = SourceConfig(
+            name=SchemaExternalDataSourceType.GITHUB,
+            iconPath="",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldOauthAccountSelectConfig(
+                        name="repositories",
+                        label="Repositories",
+                        integrationField="github_integration_id",
+                        integrationKind="github",
+                        required=required,
+                        multiple=True,
+                    ),
+                ],
+            ),
+        )
+
+        output = self._run({ExternalDataSourceType.GITHUB: config})
+        assert (
+            "repositories: list[str] | None = config.value(converter=config.str_to_optional_list, default_factory=lambda: None)"
             in output
         )
 

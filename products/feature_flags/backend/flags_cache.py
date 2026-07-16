@@ -230,6 +230,7 @@ def _serialize_cohort(cohort: Cohort) -> dict[str, Any]:
         "groups": cohort.groups,
         "created_by_id": cohort.created_by_id,
         "cohort_type": cohort.cohort_type,
+        "condition_type": cohort.condition_type,
         "last_backfill_person_properties_at": (
             cohort.last_backfill_person_properties_at.isoformat() if cohort.last_backfill_person_properties_at else None
         ),
@@ -824,6 +825,10 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     cache_name="flags",
     get_teams_queryset_fn=get_teams_with_flags_queryset,
     get_team_ids_to_skip_fix_fn=get_team_ids_with_recently_updated_flags,
+    # The refresh loads flags by team id/project_id; it reads no other Team columns.
+    # Narrowing the SELECT keeps it resilient to newly added Team columns the read
+    # replica may not have applied yet (organization_id keeps the select_related valid).
+    refresh_only_fields=["id", "project_id", "organization_id"],
 )
 
 

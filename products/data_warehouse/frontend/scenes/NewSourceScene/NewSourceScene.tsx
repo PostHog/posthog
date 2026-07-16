@@ -29,7 +29,7 @@ import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/typ
 
 import SchemaForm from '../../shared/components/forms/SchemaForm'
 import { supportsDirectQuery } from '../../shared/components/forms/schemaGroupingUtils'
-import SourceForm, { SourceAccessMethodSelector } from '../../shared/components/forms/SourceForm'
+import SourceForm, { SourceAccessMethodSelector, getSourceQueryMode } from '../../shared/components/forms/SourceForm'
 import { SyncProgressStep } from '../../shared/components/forms/SyncProgressStep'
 import { WebhookSetupForm } from '../../shared/components/forms/WebhookSetupForm'
 import { FreeHistoricalSyncsBanner } from '../../shared/components/FreeHistoricalSyncsBanner'
@@ -102,7 +102,7 @@ export function NewSourceScene(): JSX.Element {
 // The wizard endpoint failed (a timeout, a 5xx, or a 403 for members without data-source
 // access). Without this the scene keeps rendering a bare skeleton indefinitely, which reads
 // as a permanently stuck loading state.
-function AvailableSourcesError(): JSX.Element {
+export function AvailableSourcesError(): JSX.Element {
     const { load } = useActions(availableSourcesLogic)
 
     return (
@@ -304,10 +304,17 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                 {showAccessMethodSelector && (
                     <>
                         <SourceAccessMethodSelector
-                            value={selectedAccessMethod}
-                            onChange={(accessMethod) => {
-                                updateSource({ access_method: accessMethod })
+                            value={getSourceQueryMode(
+                                selectedAccessMethod,
+                                (sourceConnectionDetails?.direct_query_enabled as boolean | undefined) ??
+                                    source.direct_query_enabled
+                            )}
+                            onChange={(mode) => {
+                                const accessMethod = mode === 'direct' ? 'direct' : 'warehouse'
+                                const directQueryEnabled = mode === 'warehouse_and_direct'
+                                updateSource({ access_method: accessMethod, direct_query_enabled: directQueryEnabled })
                                 setSourceConnectionDetailsValue('access_method', accessMethod)
+                                setSourceConnectionDetailsValue('direct_query_enabled', directQueryEnabled)
                             }}
                         />
                         <LemonDivider className="my-4" />

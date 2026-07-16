@@ -13,9 +13,9 @@ from pathlib import Path
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
-from gateway import gateway_env, resolve_gateway_config
+from gateway import analytics_extra_properties, gateway_env, resolve_gateway_config
 from github import PRData, write_pr_diff
-from policy import _sanitize_untrusted, review_guidance_path
+from policy import _sanitize_untrusted, review_guidance_path, steering_path
 from version import STAMPHOG_VERSION
 
 # Traced wrapper, bound only with a PostHog key and no gateway route (gateway
@@ -166,9 +166,11 @@ def _validate_verdict(result: dict) -> dict:
 
     # Path validator hook removed — the PreToolUse hook crashes the CLI
     # subprocess (Stream closed) on every invocation, wasting retries.
-    # Security impact is low: dontAsk + allowed_tools already restricts
-    # the agent to Read/Grep/Glob, and it can only read files the OS user
-    # can access anyway (ephemeral CI runner, no secrets on disk).
+    # This reviewer runs with LLM credentials in its environment (AI_GATEWAY_API_KEY /
+    # ANTHROPIC_API_KEY), and Read/Grep/Glob are NOT path-restricted, so the agent can
+    # in principle read those env values. What actually prevents key exfiltration to the
+    # PR / DB is the deterministic server-side output scrub in stamphog's activities.py
+    # (_scrub_credentials in run_review_in_sandbox and post_verdict), not this hook.
     # TODO: re-enable once the SDK hook bug is fixed.
 
 
@@ -191,8 +193,21 @@ def _load_review_guidance() -> str:
     Recomposed with the operational scaffold tail below into REVIEWER_SYSTEM.
     Edits to the file change the production prompt directly; the stamphog_policy
     deny routes every such edit to human review.
+
+    An optional .stamphog/steering.md is appended under a marked section so a repo can
+    extend the norms without replacing the whole guidance file. Trusted default-branch
+    content in both runtimes (the hosted server wipes the PR-head copy before injecting);
+    an absent file leaves the prompt byte-identical.
     """
-    return review_guidance_path().read_text()
+    guidance = review_guidance_path().read_text()
+    steering = steering_path()
+    if steering.is_file():
+        guidance += (
+            "\n\n# Repository-specific steering\n\n"
+            "Guidance from this repository's maintainers, supplementing the operating philosophy above.\n\n"
+            + steering.read_text()
+        )
+    return guidance
 
 
 # Operational scaffolding kept in code: tool instructions, the grep-before-flag
@@ -209,7 +224,7 @@ _REVIEWER_SCAFFOLD_TAIL = "\n" + textwrap.dedent(
     from GitHub. Do NOT read files outside the repository.
     1. Review the diff provided in the prompt
     2. Read source files only if something looks off
-    3. ESCALATE if you'd need deep review to feel confident
+    3. ESCALATE if only deep domain review could rule out a showstopper
 
     Verify before you flag (every tier, including quick T1a reviews):
     - Never claim a symbol "does not exist" or "will throw at runtime" from the
@@ -221,8 +236,8 @@ _REVIEWER_SCAFFOLD_TAIL = "\n" + textwrap.dedent(
     Verdicts:
     - APPROVE: no showstoppers found
     - REFUSE: concrete issue found
-    - ESCALATE: not confident, or needs domain expertise
-    When in doubt, ESCALATE rather than APPROVE.
+    - ESCALATE: risky territory without assurance, or needs domain expertise
+    Borderline calls follow the operating philosophy's when-in-doubt rule.
 
     IMPORTANT: The "reasoning" field is 1-2 sentences — your judgment call, not a
     code review. Do NOT describe what the code does. Do NOT mention internal
@@ -306,8 +321,11 @@ class Reviewer:
         )
 
         # Shared by both routes; the full set is always on the separate
-        # stamphog_review_completed event.
+        # stamphog_review_completed event. Extras first so the base props win:
+        # the hosted server stamps runtime/team context via STAMPHOG_EXTRA_PROPERTIES,
+        # absent in the Action.
         attribution = {
+            **analytics_extra_properties(),
             "stamphog_pr_number": pr.number,
             "stamphog_repo": pr.repo,
             "stamphog_author": pr.author,
@@ -331,7 +349,9 @@ class Reviewer:
             trace_name = f"stamphog PR #{pr.number}: {_sanitize_untrusted(pr.title, max_len=100)}"
             posthog_kwargs = {
                 "posthog_distinct_id": pr.author,
+                # Same extras-first merge as `attribution` above, for the traced route.
                 "posthog_properties": {
+                    **analytics_extra_properties(),
                     "$ai_trace_name": trace_name,
                     "ai_product": "stamphog",
                     "stamphog_version": STAMPHOG_VERSION,
@@ -378,6 +398,17 @@ class Reviewer:
             if isinstance(message, ResultMessage):
                 if message.subtype == "error_max_structured_output_retries":
                     raise RuntimeError("Agent could not produce valid structured output after retries")
+                if getattr(message, "is_error", False):
+                    # An API-level failure (auth, rate limit, overload, quota) surfaces
+                    # here with subtype "success" and the real HTTP status in
+                    # api_error_status. Raise with that detail now — otherwise the CLI
+                    # process exits right after this message and the SDK's read loop
+                    # replaces it with the generic, status-less "Claude Code returned
+                    # an error result: success" once the exception reaches us anyway.
+                    # getattr guards older SDK builds that lack these attributes.
+                    api_status = getattr(message, "api_error_status", None)
+                    status = f" (HTTP {api_status})" if api_status else ""
+                    raise RuntimeError(f"Anthropic API error{status}: {message.result or message.subtype}")
                 if message.structured_output:
                     structured_output = message.structured_output
                     # Stamp the LLM verdict onto the trace properties
@@ -651,7 +682,8 @@ class Reviewer:
     def _format_ownership(self, cl: dict) -> str:
         ownership = cl.get("ownership", {})
         teams = ownership.get("teams", [])
-        if not teams:
+        individuals = ownership.get("individuals", [])
+        if not teams and not individuals:
             return "Ownership: no ownership-source match"
         summary = cl.get("ownership_summary", "")
         on_team = cl.get("author_on_owning_team", True)
@@ -659,7 +691,9 @@ class Reviewer:
         lines = [f"Ownership: {summary}"]
         if per_team:
             lines.append(f"  Files per team: {json.dumps(per_team)}")
-        if not on_team:
+        # The team-membership note only makes sense when teams own the paths;
+        # for individual-only ownership the summary already says who they are.
+        if teams and not on_team:
             lines.append("  NOTE: Author is NOT on the owning team")
         if ownership.get("cross_team"):
             lines.append("  NOTE: Cross-team change")

@@ -1,10 +1,11 @@
 import { useValues } from 'kea'
 import { type ReactNode, useMemo } from 'react'
 
-import { HedgehogGreek } from '@posthog/brand/hoggies'
+import * as greekPng from '@posthog/brand/hoggies/png/greek'
 import { IconClock } from '@posthog/icons'
 import { LemonCollapse, LemonDivider, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -22,6 +23,8 @@ import {
 import { HogFlowBatchJob } from './hogflows/types'
 import { renderWorkflowLogMessage } from './logs/log-utils'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
+
+const HedgehogGreek = pngHoggie(greekPng)
 
 export type WorkflowLogsProps = {
     id: string

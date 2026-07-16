@@ -84,6 +84,215 @@ export interface EnableWarehouseBackfillResponseApi {
     table_suffix: string
 }
 
+/**
+ * * `not_configured` - not_configured
+ * * `waiting` - waiting
+ * * `backfilling` - backfilling
+ * * `catching_up` - catching_up
+ * * `up_to_date` - up_to_date
+ * * `needs_attention` - needs_attention
+ * * `unknown` - unknown
+ * * `sync_paused` - sync_paused
+ */
+export type ManagedWarehouseReadinessStateEnumApi =
+    (typeof ManagedWarehouseReadinessStateEnumApi)[keyof typeof ManagedWarehouseReadinessStateEnumApi]
+
+export const ManagedWarehouseReadinessStateEnumApi = {
+    NotConfigured: 'not_configured',
+    Waiting: 'waiting',
+    Backfilling: 'backfilling',
+    CatchingUp: 'catching_up',
+    UpToDate: 'up_to_date',
+    NeedsAttention: 'needs_attention',
+    Unknown: 'unknown',
+    SyncPaused: 'sync_paused',
+} as const
+
+/**
+ * * `events` - events
+ * * `persons` - persons
+ */
+export type DatasetEnumApi = (typeof DatasetEnumApi)[keyof typeof DatasetEnumApi]
+
+export const DatasetEnumApi = {
+    Events: 'events',
+    Persons: 'persons',
+} as const
+
+export interface ManagedWarehouseDatasetStatusApi {
+    /** Warehouse dataset represented by this status.
+     *
+     * * `events` - events
+     * * `persons` - persons */
+    dataset: DatasetEnumApi
+    /** User-facing readiness state for this dataset.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `catching_up` - catching_up
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `unknown` - unknown
+     * * `sync_paused` - sync_paused */
+    readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Human-readable explanation of the current readiness state. */
+    detail: string
+    /** Number of historical backfill partitions completed successfully. */
+    completed_partitions: number
+    /**
+     * Expected historical partitions, or null while the range is being calculated.
+     * @nullable
+     */
+    total_partitions: number | null
+    /**
+     * Partition currently running or requiring attention, when applicable.
+     * @nullable
+     */
+    current_partition: string | null
+    /**
+     * When the durable backfill status last changed.
+     * @nullable
+     */
+    last_updated_at: string | null
+}
+
+export interface ManagedWarehouseSourceSummaryApi {
+    /** Imported source connection identifier. */
+    source_id: string
+    /** Display name for the imported source connection. */
+    source_name: string
+    /** Type of the imported source connection. */
+    source_type: string
+    /** Rolled-up warehouse readiness state across this source's schemas.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `catching_up` - catching_up
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `unknown` - unknown
+     * * `sync_paused` - sync_paused */
+    readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Human-readable explanation of this source's readiness state. */
+    detail: string
+    /** Number of this source's schemas visible to the warehouse. */
+    total_schemas: number
+    /** Number of schemas whose one-time historical copy into the warehouse has completed. */
+    backfilled_schemas: number
+    /**
+     * Imported batches waiting to be applied across this source's schemas, or null when queue status is unavailable.
+     * @nullable
+     */
+    pending_batches: number | null
+    /**
+     * Most recent upstream source import completion across this source's schemas.
+     * @nullable
+     */
+    last_synced_at: string | null
+}
+
+export interface ManagedWarehouseSourcesStatusApi {
+    /** Rolled-up readiness state for imported sources.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `catching_up` - catching_up
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `unknown` - unknown
+     * * `sync_paused` - sync_paused */
+    readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Human-readable explanation of imported source readiness. */
+    detail: string
+    /** Per-source rollup of schema backfill and live import application statuses. Reflects only warehouse source imports with sync enabled — manage sources at /data-management/sources. */
+    sources: ManagedWarehouseSourceSummaryApi[]
+}
+
+export interface ManagedWarehouseDataStatusResponseApi {
+    /** Highest-priority readiness state across all warehouse datasets.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `catching_up` - catching_up
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `unknown` - unknown
+     * * `sync_paused` - sync_paused */
+    overall_readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Events backfill readiness. */
+    events: ManagedWarehouseDatasetStatusApi
+    /** Persons backfill readiness. */
+    persons: ManagedWarehouseDatasetStatusApi
+    /** Imported source table readiness. */
+    sources: ManagedWarehouseSourcesStatusApi
+    /** When this status snapshot was generated. */
+    generated_at: string
+}
+
+export interface ManagedWarehouseSourceTableStatusApi {
+    /** Imported source schema identifier. */
+    schema_id: string
+    /** Imported source connection identifier. */
+    source_id: string
+    /** Display name for the imported source connection. */
+    source_name: string
+    /** Type of the imported source connection. */
+    source_type: string
+    /** Imported table name. */
+    table_name: string
+    /** User-facing warehouse readiness state for this table.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `catching_up` - catching_up
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `unknown` - unknown
+     * * `sync_paused` - sync_paused */
+    readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Human-readable explanation of the table's readiness state. */
+    detail: string
+    /** Whether the one-time historical copy into the warehouse has completed for this table. */
+    backfilled: boolean
+    /** Backfill chunks already copied into the warehouse. */
+    completed_chunks: number
+    /**
+     * Total backfill chunks, or null before the copy plan is ready.
+     * @nullable
+     */
+    total_chunks: number | null
+    /**
+     * Imported batches waiting to be applied, or null when queue status is unavailable.
+     * @nullable
+     */
+    pending_batches: number | null
+    /**
+     * Creation time of the oldest unapplied imported batch.
+     * @nullable
+     */
+    oldest_pending_at: string | null
+    /**
+     * When an imported batch was most recently applied to the warehouse.
+     * @nullable
+     */
+    last_applied_at: string | null
+    /**
+     * When PostHog most recently completed the upstream source import.
+     * @nullable
+     */
+    last_synced_at: string | null
+}
+
+export interface ManagedWarehouseSourceSchemasResponseApi {
+    /** Per-schema backfill and live import application status for the requested source. */
+    schemas: ManagedWarehouseSourceTableStatusApi[]
+}
+
 export interface ProvisionWarehouseRequestApi {
     /** Name for the new database */
     database_name: string
@@ -1708,6 +1917,204 @@ export interface CredentialApi {
  * * `Mercury` - Mercury
  * * `Gojiberry` - Gojiberry
  * * `Teachable` - Teachable
+ * * `PeecAI` - PeecAI
+ * * `Healthchecks` - Healthchecks
+ * * `Impact` - Impact
+ * * `AikidoSecurity` - AikidoSecurity
+ * * `Alguna` - Alguna
+ * * `Anthropic` - Anthropic
+ * * `Appwrite` - Appwrite
+ * * `BlandAI` - BlandAI
+ * * `BrowseAI` - BrowseAI
+ * * `BrowserUse` - BrowserUse
+ * * `ChartHop` - ChartHop
+ * * `Cody` - Cody
+ * * `Cursor` - Cursor
+ * * `Decagon` - Decagon
+ * * `Deepgram` - Deepgram
+ * * `ElevenLabs` - ElevenLabs
+ * * `Harvey` - Harvey
+ * * `Hyperspell` - Hyperspell
+ * * `Langfuse` - Langfuse
+ * * `LingoDev` - LingoDev
+ * * `M3ter` - M3ter
+ * * `Maxio` - Maxio
+ * * `Metorial` - Metorial
+ * * `OpenRouter` - OpenRouter
+ * * `TogetherAI` - TogetherAI
+ * * `Vapi` - Vapi
+ * * `Vespa` - Vespa
+ * * `Writesonic` - Writesonic
+ * * `Aiven` - Aiven
+ * * `Aviator` - Aviator
+ * * `Backblaze` - Backblaze
+ * * `Baseten` - Baseten
+ * * `Browserbase` - Browserbase
+ * * `Cohere` - Cohere
+ * * `DenoDeploy` - DenoDeploy
+ * * `DigitalOcean` - DigitalOcean
+ * * `E2B` - E2B
+ * * `Fintoc` - Fintoc
+ * * `Firecrawl` - Firecrawl
+ * * `FireworksAI` - FireworksAI
+ * * `FlyIo` - FlyIo
+ * * `Groq` - Groq
+ * * `GrowthBook` - GrowthBook
+ * * `Gumloop` - Gumloop
+ * * `Hatchet` - Hatchet
+ * * `Helicone` - Helicone
+ * * `Heroku` - Heroku
+ * * `Hetzner` - Hetzner
+ * * `HeyGen` - HeyGen
+ * * `Infisical` - Infisical
+ * * `Inngest` - Inngest
+ * * `KapaAI` - KapaAI
+ * * `Kernel` - Kernel
+ * * `Koyeb` - Koyeb
+ * * `LambdaLabs` - LambdaLabs
+ * * `LangSmith` - LangSmith
+ * * `Linode` - Linode
+ * * `LlamaCloud` - LlamaCloud
+ * * `Mem0` - Mem0
+ * * `Metriport` - Metriport
+ * * `Mintlify` - Mintlify
+ * * `MistralAI` - MistralAI
+ * * `Mono` - Mono
+ * * `Netlify` - Netlify
+ * * `Northflank` - Northflank
+ * * `OpenAI` - OpenAI
+ * * `Pinecone` - Pinecone
+ * * `PlatformSh` - PlatformSh
+ * * `PromptingCompany` - PromptingCompany
+ * * `Qdrant` - Qdrant
+ * * `Render` - Render
+ * * `Replicate` - Replicate
+ * * `RetellAI` - RetellAI
+ * * `Roark` - Roark
+ * * `RunPod` - RunPod
+ * * `ScaleAI` - ScaleAI
+ * * `Scaleway` - Scaleway
+ * * `SigNoz` - SigNoz
+ * * `Sim` - Sim
+ * * `Skyvern` - Skyvern
+ * * `Slash` - Slash
+ * * `Synthesia` - Synthesia
+ * * `Telli` - Telli
+ * * `TerraApi` - TerraApi
+ * * `TriggerDev` - TriggerDev
+ * * `Turso` - Turso
+ * * `Singular` - Singular
+ * * `Swonkie` - Swonkie
+ * * `TwelveLabs` - TwelveLabs
+ * * `Twenty` - Twenty
+ * * `Unstructured` - Unstructured
+ * * `Upstash` - Upstash
+ * * `Vellum` - Vellum
+ * * `Vultr` - Vultr
+ * * `Windmill` - Windmill
+ * * `Zep` - Zep
+ * * `Hex` - Hex
+ * * `Sumsub` - Sumsub
+ * * `GoogleChat` - GoogleChat
+ * * `Kickscale` - Kickscale
+ * * `Zellify` - Zellify
+ * * `RudderStack` - RudderStack
+ * * `DodoPayments` - DodoPayments
+ * * `Salestrics` - Salestrics
+ * * `Doppler` - Doppler
+ * * `Usersnap` - Usersnap
+ * * `Asknicely` - Asknicely
+ * * `Featurebase` - Featurebase
+ * * `Frill` - Frill
+ * * `Bettermode` - Bettermode
+ * * `Dynatrace` - Dynatrace
+ * * `Honeycomb` - Honeycomb
+ * * `SumoLogic` - SumoLogic
+ * * `LogzIO` - LogzIO
+ * * `Coralogix` - Coralogix
+ * * `BetterStack` - BetterStack
+ * * `Raygun` - Raygun
+ * * `Honeybadger` - Honeybadger
+ * * `Airbrake` - Airbrake
+ * * `Appsignal` - Appsignal
+ * * `Appdynamics` - Appdynamics
+ * * `Instana` - Instana
+ * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
+ * * `Uptimerobot` - Uptimerobot
+ * * `Statuscake` - Statuscake
+ * * `Tailscale` - Tailscale
+ * * `Flagsmith` - Flagsmith
+ * * `Xmatters` - Xmatters
+ * * `Squadcast` - Squadcast
+ * * `Zenduty` - Zenduty
+ * * `Cronitor` - Cronitor
+ * * `Jenkins` - Jenkins
+ * * `Bitbucket` - Bitbucket
+ * * `Gitea` - Gitea
+ * * `Teamcity` - Teamcity
+ * * `TravisCI` - TravisCI
+ * * `Semaphore` - Semaphore
+ * * `CircleciInsights` - CircleciInsights
+ * * `OctopusDeploy` - OctopusDeploy
+ * * `Sourcegraph` - Sourcegraph
+ * * `Bitrise` - Bitrise
+ * * `Gerrit` - Gerrit
+ * * `TerraformCloud` - TerraformCloud
+ * * `PulumiCloud` - PulumiCloud
+ * * `Spacelift` - Spacelift
+ * * `Railway` - Railway
+ * * `Argocd` - Argocd
+ * * `PrefectCloud` - PrefectCloud
+ * * `DagsterCloud` - DagsterCloud
+ * * `Env0` - Env0
+ * * `Kubecost` - Kubecost
+ * * `Snyk` - Snyk
+ * * `Semgrep` - Semgrep
+ * * `Veracode` - Veracode
+ * * `Checkmarx` - Checkmarx
+ * * `Gitguardian` - Gitguardian
+ * * `QualysVmdr` - QualysVmdr
+ * * `Rapid7Insightvm` - Rapid7Insightvm
+ * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
+ * * `Sentinelone` - Sentinelone
+ * * `Lacework` - Lacework
+ * * `OrcaSecurity` - OrcaSecurity
+ * * `Drata` - Drata
+ * * `Secureframe` - Secureframe
+ * * `CiscoDuo` - CiscoDuo
+ * * `Jumpcloud` - Jumpcloud
+ * * `OnePassword` - OnePassword
+ * * `Stytch` - Stytch
+ * * `Sonarqube` - Sonarqube
+ * * `Codecov` - Codecov
+ * * `Coveralls` - Coveralls
+ * * `Codacy` - Codacy
+ * * `Deepsource` - Deepsource
+ * * `Linearb` - Linearb
+ * * `Jellyfish` - Jellyfish
+ * * `Swarmia` - Swarmia
+ * * `Packagist` - Packagist
+ * * `Nuget` - Nuget
+ * * `CratesIO` - CratesIO
+ * * `SonatypeNexus` - SonatypeNexus
+ * * `JfrogArtifactory` - JfrogArtifactory
+ * * `Snowplow` - Snowplow
+ * * `WeightsAndBiases` - WeightsAndBiases
+ * * `MonteCarlo` - MonteCarlo
+ * * `Metaplane` - Metaplane
+ * * `Datahub` - Datahub
+ * * `ClickhouseCloud` - ClickhouseCloud
+ * * `ConfluentCloud` - ConfluentCloud
+ * * `KongKonnect` - KongKonnect
+ * * `Kandji` - Kandji
+ * * `Automox` - Automox
+ * * `Autumn` - Autumn
+ * * `GetStream` - GetStream
+ * * `Octolens` - Octolens
+ * * `Kajabi` - Kajabi
+ * * `Shopware` - Shopware
+ * * `Dubsado` - Dubsado
+ * * `Campfire` - Campfire
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2372,6 +2779,204 @@ export const ExternalDataSourceTypeEnumApi = {
     Mercury: 'Mercury',
     Gojiberry: 'Gojiberry',
     Teachable: 'Teachable',
+    PeecAI: 'PeecAI',
+    Healthchecks: 'Healthchecks',
+    Impact: 'Impact',
+    AikidoSecurity: 'AikidoSecurity',
+    Alguna: 'Alguna',
+    Anthropic: 'Anthropic',
+    Appwrite: 'Appwrite',
+    BlandAI: 'BlandAI',
+    BrowseAI: 'BrowseAI',
+    BrowserUse: 'BrowserUse',
+    ChartHop: 'ChartHop',
+    Cody: 'Cody',
+    Cursor: 'Cursor',
+    Decagon: 'Decagon',
+    Deepgram: 'Deepgram',
+    ElevenLabs: 'ElevenLabs',
+    Harvey: 'Harvey',
+    Hyperspell: 'Hyperspell',
+    Langfuse: 'Langfuse',
+    LingoDev: 'LingoDev',
+    M3ter: 'M3ter',
+    Maxio: 'Maxio',
+    Metorial: 'Metorial',
+    OpenRouter: 'OpenRouter',
+    TogetherAI: 'TogetherAI',
+    Vapi: 'Vapi',
+    Vespa: 'Vespa',
+    Writesonic: 'Writesonic',
+    Aiven: 'Aiven',
+    Aviator: 'Aviator',
+    Backblaze: 'Backblaze',
+    Baseten: 'Baseten',
+    Browserbase: 'Browserbase',
+    Cohere: 'Cohere',
+    DenoDeploy: 'DenoDeploy',
+    DigitalOcean: 'DigitalOcean',
+    E2b: 'E2B',
+    Fintoc: 'Fintoc',
+    Firecrawl: 'Firecrawl',
+    FireworksAI: 'FireworksAI',
+    FlyIo: 'FlyIo',
+    Groq: 'Groq',
+    GrowthBook: 'GrowthBook',
+    Gumloop: 'Gumloop',
+    Hatchet: 'Hatchet',
+    Helicone: 'Helicone',
+    Heroku: 'Heroku',
+    Hetzner: 'Hetzner',
+    HeyGen: 'HeyGen',
+    Infisical: 'Infisical',
+    Inngest: 'Inngest',
+    KapaAI: 'KapaAI',
+    Kernel: 'Kernel',
+    Koyeb: 'Koyeb',
+    LambdaLabs: 'LambdaLabs',
+    LangSmith: 'LangSmith',
+    Linode: 'Linode',
+    LlamaCloud: 'LlamaCloud',
+    Mem0: 'Mem0',
+    Metriport: 'Metriport',
+    Mintlify: 'Mintlify',
+    MistralAI: 'MistralAI',
+    Mono: 'Mono',
+    Netlify: 'Netlify',
+    Northflank: 'Northflank',
+    OpenAI: 'OpenAI',
+    Pinecone: 'Pinecone',
+    PlatformSh: 'PlatformSh',
+    PromptingCompany: 'PromptingCompany',
+    Qdrant: 'Qdrant',
+    Render: 'Render',
+    Replicate: 'Replicate',
+    RetellAI: 'RetellAI',
+    Roark: 'Roark',
+    RunPod: 'RunPod',
+    ScaleAI: 'ScaleAI',
+    Scaleway: 'Scaleway',
+    SigNoz: 'SigNoz',
+    Sim: 'Sim',
+    Skyvern: 'Skyvern',
+    Slash: 'Slash',
+    Synthesia: 'Synthesia',
+    Telli: 'Telli',
+    TerraApi: 'TerraApi',
+    TriggerDev: 'TriggerDev',
+    Turso: 'Turso',
+    Singular: 'Singular',
+    Swonkie: 'Swonkie',
+    TwelveLabs: 'TwelveLabs',
+    Twenty: 'Twenty',
+    Unstructured: 'Unstructured',
+    Upstash: 'Upstash',
+    Vellum: 'Vellum',
+    Vultr: 'Vultr',
+    Windmill: 'Windmill',
+    Zep: 'Zep',
+    Hex: 'Hex',
+    Sumsub: 'Sumsub',
+    GoogleChat: 'GoogleChat',
+    Kickscale: 'Kickscale',
+    Zellify: 'Zellify',
+    RudderStack: 'RudderStack',
+    DodoPayments: 'DodoPayments',
+    Salestrics: 'Salestrics',
+    Doppler: 'Doppler',
+    Usersnap: 'Usersnap',
+    Asknicely: 'Asknicely',
+    Featurebase: 'Featurebase',
+    Frill: 'Frill',
+    Bettermode: 'Bettermode',
+    Dynatrace: 'Dynatrace',
+    Honeycomb: 'Honeycomb',
+    SumoLogic: 'SumoLogic',
+    LogzIO: 'LogzIO',
+    Coralogix: 'Coralogix',
+    BetterStack: 'BetterStack',
+    Raygun: 'Raygun',
+    Honeybadger: 'Honeybadger',
+    Airbrake: 'Airbrake',
+    Appsignal: 'Appsignal',
+    Appdynamics: 'Appdynamics',
+    Instana: 'Instana',
+    SplunkObservabilityCloud: 'SplunkObservabilityCloud',
+    Uptimerobot: 'Uptimerobot',
+    Statuscake: 'Statuscake',
+    Tailscale: 'Tailscale',
+    Flagsmith: 'Flagsmith',
+    Xmatters: 'Xmatters',
+    Squadcast: 'Squadcast',
+    Zenduty: 'Zenduty',
+    Cronitor: 'Cronitor',
+    Jenkins: 'Jenkins',
+    Bitbucket: 'Bitbucket',
+    Gitea: 'Gitea',
+    Teamcity: 'Teamcity',
+    TravisCI: 'TravisCI',
+    Semaphore: 'Semaphore',
+    CircleciInsights: 'CircleciInsights',
+    OctopusDeploy: 'OctopusDeploy',
+    Sourcegraph: 'Sourcegraph',
+    Bitrise: 'Bitrise',
+    Gerrit: 'Gerrit',
+    TerraformCloud: 'TerraformCloud',
+    PulumiCloud: 'PulumiCloud',
+    Spacelift: 'Spacelift',
+    Railway: 'Railway',
+    Argocd: 'Argocd',
+    PrefectCloud: 'PrefectCloud',
+    DagsterCloud: 'DagsterCloud',
+    Env0: 'Env0',
+    Kubecost: 'Kubecost',
+    Snyk: 'Snyk',
+    Semgrep: 'Semgrep',
+    Veracode: 'Veracode',
+    Checkmarx: 'Checkmarx',
+    Gitguardian: 'Gitguardian',
+    QualysVmdr: 'QualysVmdr',
+    Rapid7Insightvm: 'Rapid7Insightvm',
+    TenableVulnerabilityManagement: 'TenableVulnerabilityManagement',
+    Sentinelone: 'Sentinelone',
+    Lacework: 'Lacework',
+    OrcaSecurity: 'OrcaSecurity',
+    Drata: 'Drata',
+    Secureframe: 'Secureframe',
+    CiscoDuo: 'CiscoDuo',
+    Jumpcloud: 'Jumpcloud',
+    OnePassword: 'OnePassword',
+    Stytch: 'Stytch',
+    Sonarqube: 'Sonarqube',
+    Codecov: 'Codecov',
+    Coveralls: 'Coveralls',
+    Codacy: 'Codacy',
+    Deepsource: 'Deepsource',
+    Linearb: 'Linearb',
+    Jellyfish: 'Jellyfish',
+    Swarmia: 'Swarmia',
+    Packagist: 'Packagist',
+    Nuget: 'Nuget',
+    CratesIO: 'CratesIO',
+    SonatypeNexus: 'SonatypeNexus',
+    JfrogArtifactory: 'JfrogArtifactory',
+    Snowplow: 'Snowplow',
+    WeightsAndBiases: 'WeightsAndBiases',
+    MonteCarlo: 'MonteCarlo',
+    Metaplane: 'Metaplane',
+    Datahub: 'Datahub',
+    ClickhouseCloud: 'ClickhouseCloud',
+    ConfluentCloud: 'ConfluentCloud',
+    KongKonnect: 'KongKonnect',
+    Kandji: 'Kandji',
+    Automox: 'Automox',
+    Autumn: 'Autumn',
+    GetStream: 'GetStream',
+    Octolens: 'Octolens',
+    Kajabi: 'Kajabi',
+    Shopware: 'Shopware',
+    Dubsado: 'Dubsado',
+    Campfire: 'Campfire',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -2540,6 +3145,13 @@ export type DataWarehouseCheckDatabaseNameRetrieveParams = {
      * @minLength 1
      */
     name: string
+}
+
+export type DataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {
+    /**
+     * Imported source connection to fetch per-schema detail for.
+     */
+    source_id: string
 }
 
 export type FixHogqlListParams = {

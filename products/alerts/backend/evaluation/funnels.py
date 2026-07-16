@@ -5,6 +5,7 @@ from posthog.schema import AlertCondition, AlertConditionType, FunnelsAlertConfi
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import EventSource
+from posthog.tasks.alerts.trends import query_excludes_incomplete_periods
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError, ExtractionResult, lookback_intervals_for
 from products.alerts.backend.evaluation.funnel_strategies import strategy_for_viz
@@ -23,6 +24,10 @@ def _trailing_date_range_override(interval: IntervalType | None, periods: int) -
             unit = "w"
         case IntervalType.MONTH:
             unit = "m"
+        case IntervalType.QUARTER:
+            unit = "q"
+        case IntervalType.YEAR:
+            unit = "y"
         case _:
             unit = "h"
     return {"date_from": f"-{periods}{unit}"}
@@ -54,6 +59,9 @@ class FunnelsExtractor:
         if condition.type != AlertConditionType.ABSOLUTE_VALUE and not strategy.supports_relative_conditions:
             raise AlertExtractionError("This funnel only supports absolute value conditions.")
 
+        # The query clips the ongoing interval, so the trailing point is complete.
+        already_complete = query_excludes_incomplete_periods(funnels_query)
+
         # A relative condition diffs against the prior period, but the insight's own date range may be
         # too short to yield one — leaving the alert silently inert. Widen it to the trailing intervals
         # the comparator needs (mirroring the trends extractor). Absolute conditions read the insight's
@@ -79,7 +87,7 @@ class FunnelsExtractor:
         if calculation_result.result is None:
             raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
 
-        series = strategy.to_series(calculation_result.result, config)
+        series = strategy.to_series(calculation_result.result, config, already_complete=already_complete)
         return ExtractionResult(
             series=series,
             is_breakdown=len(series) > 1,

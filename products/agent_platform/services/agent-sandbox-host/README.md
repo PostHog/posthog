@@ -93,7 +93,9 @@ or
 { "ok": false, "error": { "code": "tool_not_found", "message": "..." } }
 ```
 
-Tool contract (`/workdir/tools/<id>/compiled.js`):
+Tool contract (`/workdir/tools/<id>/compiled.js`) — two accepted shapes:
+
+1. Plain CJS:
 
 ```js
 module.exports = {
@@ -107,6 +109,12 @@ module.exports = {
   },
 }
 ```
+
+2. A `default` property on `module.exports` (esbuild's `__toCommonJS` CJS
+   interop for the typed pipeline's mandated `export default {}` source).
+   The dispatcher applies the same unwrap rule as the in-process pool
+   (`agent-shared/src/sandbox/sandbox-inprocess.ts`): `module.exports.default`
+   when present, else `module.exports` itself.
 
 `ctx.secrets.ref(name)` returns the nonce the runner-side `SecretBroker`
 minted for this session. The sandbox never sees raw secret values; the

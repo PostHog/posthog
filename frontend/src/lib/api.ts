@@ -138,7 +138,6 @@ import {
     ExternalDataJob,
     ExternalDataSchemaWithSource,
     ExternalDataSource,
-    ExternalDataSourceConnectionOption,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
@@ -164,7 +163,6 @@ import {
     LLMPrompt,
     LLMPromptPublic,
     LLMPromptResolveResponse,
-    LineageGraph,
     LinearTeamType,
     LinkType,
     LinkedInAdsAccountType,
@@ -175,8 +173,8 @@ import {
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     ObjectMediaPreview,
+    OrganizationFeatureFlag,
     OrganizationFeatureFlagKeysResponse,
-    OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
     OrganizationMemberScopedApiKeysResponse,
     OrganizationMemberType,
@@ -229,6 +227,7 @@ import {
     WebhookInfo,
 } from '~/types'
 
+import { AlertConfig, AlertSimulationResult, AlertType, AlertTypeWrite } from 'products/alerts/frontend/types'
 import type { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 import type {
     ErrorTrackingRule,
@@ -236,6 +235,7 @@ import type {
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
 import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
+import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 import type {
     GitHubBranchesResponseApi,
     GitHubReposResponseApi,
@@ -253,8 +253,8 @@ import type {
     SessionSummariesConfig,
 } from 'products/session_summaries/frontend/types'
 import type {
-    ClaudeTaskRunCreateSchemaApi,
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
+    TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
@@ -270,7 +270,6 @@ import type {
 
 import { AgentMode } from '../queries/schema'
 import type { AttachedContext, MaxUIContext } from '../scenes/max/maxTypes'
-import { AlertConfig, AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
@@ -751,19 +750,6 @@ export class ApiRequest {
 
     public logsExport(projectId?: ProjectType['id']): ApiRequest {
         return this.logs(projectId).addPathComponent('export')
-    }
-
-    // # Metrics
-    public metrics(projectId?: ProjectType['id']): ApiRequest {
-        return this.environmentsDetail(projectId).addPathComponent('metrics')
-    }
-
-    public metricsHasMetrics(projectId?: ProjectType['id']): ApiRequest {
-        return this.metrics(projectId).addPathComponent('has_metrics')
-    }
-
-    public metricsValues(projectId?: ProjectType['id']): ApiRequest {
-        return this.metrics(projectId).addPathComponent('values')
     }
 
     // # Tracing
@@ -1815,10 +1801,6 @@ export class ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
     }
 
-    public externalDataSourceConnections(teamId?: TeamType['id']): ApiRequest {
-        return this.externalDataSources(teamId).addPathComponent('connections')
-    }
-
     public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('external_data_schemas')
     }
@@ -1846,15 +1828,6 @@ export class ApiRequest {
 
     public insightVariable(variableId: string, teamId?: TeamType['id']): ApiRequest {
         return this.insightVariables(teamId).addPathComponent(variableId)
-    }
-
-    public upstream(modelId: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId)
-            .addPathComponent('lineage')
-            .addPathComponent('get_upstream')
-            .withQueryString({
-                model_id: modelId,
-            })
     }
 
     // ActivityLog
@@ -2598,9 +2571,6 @@ const api = {
         async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().get()
         },
-        async seed(): Promise<CountedPaginatedResponse<UserProductListItem>> {
-            return await new ApiRequest().userProductList().withAction('seed').create()
-        },
         async bulkUpdate(
             items: { product_path: string; enabled: boolean }[]
         ): Promise<{ results: UserProductListItem[] }> {
@@ -2612,16 +2582,13 @@ const api = {
         async get(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
             featureFlagKey: FeatureFlagType['key']
-        ): Promise<OrganizationFeatureFlags> {
+        ): Promise<OrganizationFeatureFlag[]> {
             return await new ApiRequest().organizationFeatureFlags(orgId, featureFlagKey).get()
         },
         async copy(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
             data: OrganizationFeatureFlagsCopyBody
-        ): Promise<{
-            success: (FeatureFlagType & { flag_dependency_warnings?: string[]; schedule_copy_warning?: string })[]
-            failed: any
-        }> {
+        ): Promise<CopyFlagsResponseApi> {
             return await new ApiRequest().copyOrganizationFeatureFlags(orgId).create({ data })
         },
         async keys(
@@ -2860,6 +2827,9 @@ const api = {
             hasMore: boolean
             nextCursor?: string
             maxExportableLogs: number
+            // Aliases for the requested customColumns, in request order; rows carry
+            // their custom values under these keys. Null without custom columns.
+            columns?: string[] | null
         }> {
             return new ApiRequest().logsQuery().create({ signal, data: { query } })
         },
@@ -2905,29 +2875,6 @@ const api = {
             filename: string
         }> {
             return new ApiRequest().logsExport().create({ data: { query, columns } })
-        },
-    },
-
-    metrics: {
-        async hasMetrics(): Promise<boolean> {
-            return new ApiRequest()
-                .metricsHasMetrics()
-                .get()
-                .then((response) => Boolean(response.hasMetrics))
-        },
-        async values({
-            search,
-            limit,
-            signal,
-        }: {
-            search?: string
-            limit?: number
-            signal?: AbortSignal
-        } = {}): Promise<{ results: { name: string; metric_type: string }[] }> {
-            return new ApiRequest()
-                .metricsValues()
-                .withQueryString({ value: search ?? '', limit: limit ?? 100 })
-                .get({ signal })
         },
     },
 
@@ -4114,6 +4061,12 @@ const api = {
         async delete(id: string): Promise<void> {
             await new ApiRequest().mcpServerInstallation(id).delete()
         },
+        async share(id: string): Promise<Record<string, any>> {
+            return await new ApiRequest().mcpServerInstallation(id).withAction('share').create({ data: {} })
+        },
+        async unshare(id: string): Promise<Record<string, any>> {
+            return await new ApiRequest().mcpServerInstallation(id).withAction('unshare').create({ data: {} })
+        },
         async installCustom(data: {
             name: string
             url: string
@@ -4122,10 +4075,15 @@ const api = {
             description?: string
             client_id?: string
             client_secret?: string
+            scope?: 'personal' | 'shared'
         }): Promise<Record<string, any>> {
             return await new ApiRequest().mcpServerInstallations().withAction('install_custom').create({ data })
         },
-        async installTemplate(data: { template_id: string; api_key?: string }): Promise<Record<string, any>> {
+        async installTemplate(data: {
+            template_id: string
+            api_key?: string
+            scope?: 'personal' | 'shared'
+        }): Promise<Record<string, any>> {
             return await new ApiRequest().mcpServerInstallations().withAction('install_template').create({ data })
         },
         async listTools(
@@ -4926,24 +4884,56 @@ const api = {
         },
         async sqlV2Run(
             notebookId: NotebookType['short_id'],
-            data: { node_id: string; code: string }
+            data: {
+                node_id: string
+                code: string
+                refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
+                node_type?: 'hogql' | 'python'
+                output_name?: string
+            }
         ): Promise<{ run_id: string }> {
             return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
+        },
+        async sqlV2RunInterrupt(
+            notebookId: NotebookType['short_id'],
+            runId: string
+        ): Promise<{ status: string; detail?: string }> {
+            return await new ApiRequest().notebook(notebookId).withAction(`sql_v2/runs/${runId}/interrupt`).create()
         },
         async sqlV2RunResult(
             notebookId: NotebookType['short_id'],
             runId: string
         ): Promise<{
-            status: 'running' | 'done' | 'failed'
+            status: 'running' | 'done' | 'failed' | 'interrupted'
             result: {
                 columns?: string[]
                 types?: [string, string][]
                 row_count?: number
                 first_page?: (string | number | null)[][]
+                has_more?: boolean
+                stdout?: string
+                stderr?: string
+                media?: { mime_type: string; data: string }[]
             } | null
             error: string | null
         }> {
             return await new ApiRequest().notebook(notebookId).withAction(`sql_v2/runs/${runId}`).get()
+        },
+        async sqlV2RunPage(
+            notebookId: NotebookType['short_id'],
+            runId: string,
+            params: { offset: number; limit: number }
+        ): Promise<{
+            columns: string[]
+            types: [string, string][]
+            rows: (string | number | null)[][]
+            has_more: boolean
+        }> {
+            return await new ApiRequest()
+                .notebook(notebookId)
+                .withAction(`sql_v2/runs/${runId}/page`)
+                .withQueryString(params)
+                .get()
         },
         async markdownSave(
             notebookId: NotebookType['short_id'],
@@ -5344,7 +5334,7 @@ const api = {
         async bulkReorder(columns: Record<string, string[]>): Promise<{ updated: number; tasks: Task[] }> {
             return await new ApiRequest().tasks().withAction('bulk_reorder').create({ data: { columns } })
         },
-        async run(id: Task['id'], data?: ClaudeTaskRunCreateSchemaApi): Promise<Task> {
+        async run(id: Task['id'], data?: TaskRunCreateRequestSchemaApi): Promise<Task> {
             return await new ApiRequest()
                 .task(id)
                 .withAction('run')
@@ -5819,10 +5809,21 @@ const api = {
         }> {
             return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
         },
-        async lineage(
-            nodeId: DataModelingNode['id']
-        ): Promise<{ nodes: DataModelingNode[]; edges: DataModelingEdge[] }> {
-            return await new ApiRequest().dataModelingNode(nodeId).withAction('lineage').get()
+        async lineage({
+            nodeId,
+            savedQueryId,
+        }: {
+            nodeId?: DataModelingNode['id']
+            savedQueryId?: string
+        }): Promise<{ nodes: DataModelingNode[]; edges: DataModelingEdge[] }> {
+            const params: Record<string, string> = {}
+            if (nodeId) {
+                params.node_id = nodeId
+            }
+            if (savedQueryId) {
+                params.saved_query_id = savedQueryId
+            }
+            return await new ApiRequest().dataModelingNodes().withAction('lineage').withQueryString(params).get()
         },
     },
 
@@ -5869,9 +5870,6 @@ const api = {
     externalDataSources: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataSource>> {
             return await new ApiRequest().externalDataSources().get(options)
-        },
-        async connections(options?: ApiMethodOptions | undefined): Promise<ExternalDataSourceConnectionOption[]> {
-            return await new ApiRequest().externalDataSourceConnections().get(options)
         },
         async get(sourceId: ExternalDataSource['id']): Promise<ExternalDataSource> {
             return await new ApiRequest().externalDataSource(sourceId).get()
@@ -6132,11 +6130,6 @@ const api = {
             return await new ApiRequest().queryTabStateUser().withQueryString({ user_id: userId }).get()
         },
     },
-    upstream: {
-        async get(modelId: string): Promise<LineageGraph> {
-            return await new ApiRequest().upstream(modelId).get()
-        },
-    },
     insightVariables: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<Variable>> {
             return await new ApiRequest().insightVariables().get(options)
@@ -6166,17 +6159,20 @@ const api = {
             return await new ApiRequest().subscription(subscriptionId).update({ data })
         },
         async list({
-            insightId,
+            insights,
             dashboardId,
+            dashboardTiles,
             resourceType,
         }: {
-            insightId?: number
+            insights?: number[]
             dashboardId?: number
+            dashboardTiles?: number
             resourceType?: SubscriptionType['resource_type']
         }): Promise<PaginatedResponse<SubscriptionType>> {
             const params = [
-                insightId ? `insight=${insightId}` : null,
+                insights?.length ? `insights=${insights.join(',')}` : null,
                 dashboardId ? `dashboard=${dashboardId}` : null,
+                dashboardTiles ? `dashboard_tiles=${dashboardTiles}` : null,
                 resourceType ? `resource_type=${resourceType}` : null,
             ].filter(Boolean)
             return await new ApiRequest().subscriptions().withQueryString(params.join('&')).get()
@@ -6647,9 +6643,13 @@ const api = {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
         },
         async getBatchTriggerBlastRadius(
-            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
+            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters'],
+            dedupeKey?: 'email'
         ): Promise<BlastRadiusApi> {
-            return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
+            return await new ApiRequest()
+                .hogFlows()
+                .withAction('user_blast_radius')
+                .create({ data: { filters, dedupe_key: dedupeKey ?? null } })
         },
         async createHogFlowBatchJob(
             hogFlowId: HogFlow['id'],
@@ -7086,6 +7086,13 @@ const api = {
                 .withAction('bulk_update_status')
                 .create({ data: { ids, status: ticketStatus } })
         },
+
+        async submitAiFeedback(
+            ticketId: string,
+            data: { message_id: string; rating: 'good' | 'bad'; feedback_text?: string }
+        ): Promise<void> {
+            await new ApiRequest().conversationsTicket(ticketId).withAction('ai_feedback').create({ data })
+        },
     },
 
     llmPrompts: {
@@ -7117,7 +7124,7 @@ const api = {
 
         async update(
             promptName: string,
-            data: { prompt: LLMPrompt['prompt']; base_version: number }
+            data: { prompt: LLMPrompt['prompt']; base_version: number; version_description?: string }
         ): Promise<LLMPrompt> {
             return await new ApiRequest().llmPromptByName(promptName).update({ data })
         },

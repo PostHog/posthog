@@ -43,14 +43,14 @@ Sandbox (Modal / Docker container)
 
 Same server, same port, same HMAC command-token auth as today (`sql_v2.mint_command_token` / `_verify_command_token`), extended:
 
-| Route                  | Sync? | Purpose                                                                               |
-| ---------------------- | ----- | ------------------------------------------------------------------------------------- |
-| `GET /health`          | sync  | liveness + `{version, kernel_alive}` — version drives the redeploy handshake          |
-| `POST /run`            | 202   | enqueue a node run; result arrives via callback                                       |
-| `POST /interrupt`      | sync  | `KernelManager.interrupt_kernel()` (SIGINT) for the active run                        |
-| `POST /page`           | sync  | slice rows out of a stored result (`result_id`, offset, limit) — bounded, no callback |
-| `GET /state`           | sync  | list materialized frames, kernel variables, DuckDB tables (Journey 7)                 |
-| `POST /kernel/restart` | sync  | recycle the ipykernel child; frames on disk survive, namespace does not               |
+| Route                  | Sync? | Purpose                                                                                                                                                                                                                                                                        |
+| ---------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /health`          | sync  | liveness + `{version, kernel_alive}` — version drives the redeploy handshake                                                                                                                                                                                                   |
+| `POST /run`            | 202   | enqueue a node run; result arrives via callback                                                                                                                                                                                                                                |
+| `POST /interrupt`      | sync  | run-scoped stop (Journey 9): sets the run's cancel event (aborts a queued run and its data-plane waits) and SIGINTs the kernel only when that run is the executing cell. Responds `{interrupted, known}`; `known: false` = already finished or never arrived (idempotent noop) |
+| `POST /page`           | sync  | one result page — bounded, no callback. A hogql run re-queries the data plane with the run’s code + LIMIT/OFFSET; a kernel run (python/duckdb) sends `result_id` and slices its `/data/results/<result_id>.arrow` frame in the server process                                  |
+| `GET /state`           | sync  | list materialized frames, kernel variables, DuckDB tables (Journey 7)                                                                                                                                                                                                          |
+| `POST /kernel/restart` | sync  | recycle the ipykernel child; frames on disk survive, namespace does not                                                                                                                                                                                                        |
 
 The command token grows a **scope** claim: `run:<run_id>` (authorizes `/run`, `/interrupt` for that run) or `kernel:<runtime_id>` (authorizes `/page`, `/state`, `/kernel/restart`). Same HMAC scheme, signed payload becomes `{scope}.{exp}`.
 
@@ -78,14 +78,13 @@ Runs execute **one at a time** in arrival order (a kernel has one namespace; con
 New backend endpoint, the counterpart of the callback:
 
 ```text
-POST /internal/notebooks/<short_id>/data_plane/query
-Authorization: Bearer <data-plane token>
-{ "query": "<HogQL>", "limit"?, "offset"? }
-→ 200, Content-Type: application/vnd.apache.arrow.stream (RecordBatch stream)
+POST /internal/notebooks/data_plane/query/          → 202 { "query_id" }   (validate + enqueue)
+GET  /internal/notebooks/data_plane/query/<id>/     → 202 while running,
+Authorization: Bearer <data-plane token>              200 Arrow IPC stream when complete
 ```
 
 - **Auth**: a signed data-plane token, same `django.core.signing` pattern as the callback token, scoped `(notebook, team)`, minted per run and delivered inside the `/run` payload. TTL must exceed the run watchdog. Hardening later swaps both for RS256 JWTs (Code's `sandbox_event_ingest` pattern), unchanged wire shape.
-- **Execution**: the endpoint runs the HogQL through the normal HogQL layer (access controls apply), against ClickHouse — or DuckLake for warehouse sources (Journey 6) — and writes Arrow record batches into the streaming HTTP response as they arrive. No object storage, no buffering the full result server-side.
+- **Execution**: the endpoint validates the HogQL, then enqueues it on the **async query manager** — the same Celery-backed path insights and the SQL editor use — so no web worker ever waits on ClickHouse. The kernel polls the status route; the Celery query worker runs the HogQL layer (access controls apply) against ClickHouse — or DuckLake for warehouse sources (Journey 6) — and the completed result returns as Arrow on the poll. Large materializations that outgrow the manager's Redis-resident results will need a streaming variant of this endpoint (direct execution, record batches into the response) — that's a later, additive change.
 - **Client side**: the kernel-server issues the request with `requests(..., stream=True)` and feeds `response.raw` into `pyarrow.ipc.open_stream`, writing batches straight into an Arrow IPC **file** under `/data/frames/<query_hash>.arrow`. Peak memory is one record batch, regardless of result size.
 
 Two uses of the same endpoint:

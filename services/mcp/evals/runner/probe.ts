@@ -87,7 +87,10 @@ async function main(): Promise<void> {
 
     const benchmark = loadBenchmark()
     const transport = new StreamableHTTPClientTransport(new URL('/mcp', url), {
-        requestInit: { headers: { Authorization: `Bearer ${token}` } },
+        // Pin tools mode: the probe audits the full per-tool roster, and the
+        // server's auto-detection would otherwise resolve this client to the
+        // single-exec CLI default.
+        requestInit: { headers: { Authorization: `Bearer ${token}`, 'x-posthog-mcp-mode': 'tools' } },
     })
     const client = new Client({ name: 'mcp-eval-probe', version: '0.0.0' }, { capabilities: {} })
     await client.connect(transport)

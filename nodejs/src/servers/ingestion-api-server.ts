@@ -35,7 +35,12 @@ import {
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '~/ingestion/common/outputs/producers'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
+import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
+import {
+    FlushBatchStoresOutputs,
+    createGroupProducePromises,
+} from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
@@ -56,6 +61,7 @@ import {
 } from '../cdp/hog-transformations/hog-transformer.service'
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
+import { FeedOrderSentinel } from '../ingestion/api/feed-order-sentinel'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
 import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
@@ -164,6 +170,10 @@ export class IngestionApiServer implements NodeServer {
     private pubsub?: PubSub
     private personsStore?: BatchWritingPersonsStore
     private groupStore?: BatchWritingGroupStore
+    // Held so shutdown cleanup can produce ClickHouse messages returned by a
+    // bare groupStore.flush() — the store itself no longer holds outputs
+    // (moved to caller-side production so create and flush share one path).
+    private ingestionOutputs?: FlushBatchStoresOutputs
 
     private joinedPipeline!: ReturnType<
         typeof createJoinedIngestionPipeline<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>
@@ -171,6 +181,8 @@ export class IngestionApiServer implements NodeServer {
     private promiseScheduler = new PromiseScheduler()
     private hogTransformer!: HogTransformerService
     private topHog!: TopHog
+    // Set in startServices when INGESTION_API_FEED_ORDER_SENTINEL_ENABLED.
+    private feedOrderSentinel?: FeedOrderSentinel
 
     // Latched on the first unexpected pipeline error. The joinedPipeline is a
     // single long-lived instance shared across all requests; a throw can leave
@@ -279,6 +291,7 @@ export class IngestionApiServer implements NodeServer {
             this.config
         )
         const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config)
+        this.ingestionOutputs = ingestionOutputs
         const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 
         const topicFailures = await ingestionOutputs.checkTopics()
@@ -306,19 +319,18 @@ export class IngestionApiServer implements NodeServer {
         })
 
         let overflowRedirectService: OverflowRedirectService | undefined
-        if (this.overflowEnabled()) {
+        if (this.config.INGESTION_OVERFLOW_MODE === 'redirect') {
             overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
                 bucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
                 replenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
-                statefulEnabled: this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED,
                 overflowType: 'events',
             })
         }
 
         let overflowLaneTTLRefreshService: OverflowRedirectService | undefined
-        if (this.config.INGESTION_LANE === 'overflow' && this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED) {
+        if (this.config.INGESTION_OVERFLOW_MODE === 'consume') {
             overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 overflowType: 'events',
@@ -345,7 +357,8 @@ export class IngestionApiServer implements NodeServer {
         })
         const personsStore: PersonsStore = this.personsStore
 
-        this.groupStore = new BatchWritingGroupStore(ingestionOutputs, groupRepository, clickhouseGroupRepository, {
+        this.groupStore = new BatchWritingGroupStore(groupRepository, clickhouseGroupRepository, {
+            useBatchUpdates: this.config.GROUP_BATCH_WRITING_USE_BATCH_UPDATES,
             maxConcurrentUpdates: this.config.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.config.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.config.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
@@ -362,9 +375,10 @@ export class IngestionApiServer implements NodeServer {
         // 7. Create the ingestion pipeline
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
             eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
-            overflowEnabled: this.overflowEnabled(),
+            overflowMode: this.config.INGESTION_OVERFLOW_MODE,
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
+            groupsPrefetchEnabled: this.config.GROUPS_PREFETCH_ENABLED,
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
             outputs: ingestionOutputs,
             perDistinctIdOptions: {
@@ -372,8 +386,9 @@ export class IngestionApiServer implements NodeServer {
                 PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
                 PERSON_MERGE_ASYNC_ENABLED: this.config.PERSON_MERGE_ASYNC_ENABLED,
                 PERSON_MERGE_SYNC_BATCH_SIZE: this.config.PERSON_MERGE_SYNC_BATCH_SIZE,
-                PERSON_MERGE_EVENTS_ENABLED: this.config.PERSON_MERGE_EVENTS_ENABLED,
+                PERSON_MERGE_EVENTS_ENABLED: effectivePersonMergeEventsEnabled(this.config),
                 PERSON_MERGE_EVENTS_PARTITION_COUNT: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
+                PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
@@ -406,6 +421,9 @@ export class IngestionApiServer implements NodeServer {
         this.joinedPipeline = createJoinedIngestionPipeline(joinedPipelineConfig, joinedPipelineDeps)
 
         // 8. Register the ingest endpoint and service
+        if (this.config.INGESTION_API_FEED_ORDER_SENTINEL_ENABLED) {
+            this.feedOrderSentinel = new FeedOrderSentinel(this.config.INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS)
+        }
         this.lifecycle.expressApp.post('/ingest', async (req, res) => {
             await this.handleIngestRequest(req, res)
         })
@@ -429,7 +447,7 @@ export class IngestionApiServer implements NodeServer {
             status: (code: number) => { json: (body: IngestBatchResponse) => void }
         }
     ): Promise<void> {
-        const { batch_id, messages: serializedMessages } = req.body
+        const { batch_id, messages: serializedMessages, consumer_id, replay } = req.body
 
         if (!serializedMessages || serializedMessages.length === 0) {
             res.status(400).json({ batch_id: batch_id ?? '', status: 'error', accepted: 0, error: 'Empty batch' })
@@ -446,6 +464,11 @@ export class IngestionApiServer implements NodeServer {
             const messages: Message[] = serializedMessages.map(deserializeKafkaMessage)
 
             const batch = messages.map((message) => createOkContext({ message }, { message }))
+            // Per-key order check, synchronously adjacent to feed() so check
+            // order equals feed order across concurrent requests. The grouping
+            // stage processes each key in feed order, so this measures the
+            // "processed in order per distinct_id" invariant.
+            this.feedOrderSentinel?.check(serializedMessages, consumer_id ?? 'unknown', replay ?? false)
             const feedResult = await this.joinedPipeline.feed(batch)
             if (!feedResult.ok) {
                 // Capacity rejection should not happen under correct consumer
@@ -479,11 +502,11 @@ export class IngestionApiServer implements NodeServer {
             batchesInFlight.inc()
             inFlight = true
 
+            // The pipeline handles its own side effects (scheduling them on
+            // the promise scheduler), so draining results is all that's left
+            // to do.
             let result = await this.joinedPipeline.next()
             while (result !== null) {
-                for (const sideEffect of result.sideEffects ?? []) {
-                    void this.promiseScheduler.schedule(sideEffect)
-                }
                 result = await this.joinedPipeline.next()
             }
 
@@ -529,13 +552,6 @@ export class IngestionApiServer implements NodeServer {
         return new HealthCheckResultOk()
     }
 
-    private overflowEnabled(): boolean {
-        return (
-            !!this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
-            this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.config.INGESTION_CONSUMER_CONSUME_TOPIC
-        )
-    }
-
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
@@ -552,7 +568,15 @@ export class IngestionApiServer implements NodeServer {
                     await this.personsStore.shutdown()
                 }
                 if (this.groupStore) {
-                    await this.groupStore.flush()
+                    const groupFlushResults = await this.groupStore.flush()
+                    // flush() returns messages for the caller to produce (it no
+                    // longer awaits ClickHouse delivery inline) — mirror
+                    // personsStore.flushAndProduceMessages() so a drain at
+                    // shutdown doesn't write Postgres but silently drop the
+                    // corresponding ClickHouse row.
+                    if (groupFlushResults.length > 0 && this.ingestionOutputs) {
+                        await Promise.all(createGroupProducePromises(groupFlushResults, this.ingestionOutputs))
+                    }
                     await this.groupStore.shutdown()
                 }
                 this.cookielessManager?.shutdown()

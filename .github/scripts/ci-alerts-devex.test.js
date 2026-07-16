@@ -64,7 +64,7 @@ function commitsWithRuns(perCommitConclusions) {
     const runsByWorkflow = {}
     perCommitConclusions.forEach((conclusionsMap, i) => {
         for (const [wf, conclusion] of Object.entries(conclusionsMap)) {
-            if (!runsByWorkflow[wf]) runsByWorkflow[wf] = []
+            if (!runsByWorkflow[wf]) {runsByWorkflow[wf] = []}
             runsByWorkflow[wf].push({
                 name: wf === 'ci-backend.yml' ? 'Backend CI' : 'Frontend CI',
                 status: 'completed',

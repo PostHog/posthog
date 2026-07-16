@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.kl
     _clamp_future_value_to_now,
     _format_incremental_value,
     get_rows,
+    klaviyo_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.settings import (
     KLAVIYO_ENDPOINTS,
@@ -126,6 +127,42 @@ class TestBuildInitialParams:
             incremental_field="datetime",
         )
         assert params["filter"] == "greater-than(datetime,2026-03-04T02:58:14.000Z)"
+
+    def test_list_profiles_incremental_applies_lookback_and_extra_params(self) -> None:
+        # Dropping the 24h lookback silently loses joins that landed in already-fetched lists mid-run.
+        config = KLAVIYO_ENDPOINTS["list_profiles"]
+        params = _build_initial_params(
+            config,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            incremental_field="joined_group_at",
+        )
+        assert params["filter"] == "greater-than(joined_group_at,2026-03-03T02:58:14.000Z)"
+        assert params["sort"] == "-joined_group_at"
+        assert params["fields[profile]"] == "joined_group_at"
+
+    def test_list_profiles_first_sync_has_no_filter(self) -> None:
+        # Mishandling a missing watermark (e.g. greater-than(joined_group_at,None)) 400s every first sync.
+        config = KLAVIYO_ENDPOINTS["list_profiles"]
+        params = _build_initial_params(
+            config,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=None,
+            incremental_field="joined_group_at",
+        )
+        assert "filter" not in params
+
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_lookback_applies_after_future_clamp(self) -> None:
+        # Clamping after the lookback would erase the overlap window for a future-dated cursor.
+        config = KLAVIYO_ENDPOINTS["list_profiles"]
+        params = _build_initial_params(
+            config,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2027, 2, 5, 21, 46, 42, tzinfo=UTC),
+            incremental_field="joined_group_at",
+        )
+        assert params["filter"] == "greater-than(joined_group_at,2026-06-14T12:00:00.000Z)"
 
 
 class TestClampFutureValueToNow:
@@ -250,9 +287,19 @@ class _FakeResumableManager:
         self.saved.append(data)
 
 
+def _list_url(list_id: str, filter_value: str | None = None) -> str:
+    filter_part = f"&filter={filter_value}" if filter_value else ""
+    return (
+        f"https://a.klaviyo.com/api/lists/{list_id}/profiles"
+        f"?page[size]=100{filter_part}&sort=-joined_group_at&fields[profile]=joined_group_at"
+    )
+
+
 class TestListProfilesFanOut:
     @staticmethod
-    def _collect(manager: _FakeResumableManager, monkeypatch: Any, pages: dict[str, Any]) -> list[dict]:
+    def _collect(
+        manager: _FakeResumableManager, monkeypatch: Any, pages: dict[str, Any], **incremental: Any
+    ) -> list[dict]:
         def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
             result = pages[url]
             if isinstance(result, Exception):
@@ -267,23 +314,25 @@ class TestListProfilesFanOut:
             endpoint="list_profiles",
             logger=MagicMock(),
             resumable_source_manager=manager,  # type: ignore[arg-type]
+            **incremental,
         ):
             rows.extend(table.to_pylist())
         return rows
 
-    def test_config_is_fan_out_full_refresh(self) -> None:
+    def test_config_is_opt_in_fan_out_with_composite_pk(self) -> None:
         config = KLAVIYO_ENDPOINTS["list_profiles"]
         assert config.fan_out_over_lists is True
         assert config.should_sync_default is False
         assert config.primary_keys == ["list_id", "profile_id"]
-        assert config.incremental_fields == []
 
-    def test_schema_is_full_refresh_only_and_off_by_default(self) -> None:
+    def test_schema_supports_incremental_merge_but_not_append(self) -> None:
+        # Append mode would materialize the intentional 24h lookback re-pulls as duplicate rows.
         schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
         list_profiles = schemas["list_profiles"]
-        assert list_profiles.supports_incremental is False
+        assert list_profiles.supports_incremental is True
         assert list_profiles.supports_append is False
         assert list_profiles.should_sync_default is False
+        assert [f["field"] for f in list_profiles.incremental_fields] == ["joined_group_at"]
 
     def test_lists_request_stays_within_klaviyo_page_size_cap(self, monkeypatch: Any) -> None:
         # Klaviyo's Get Lists endpoint caps page[size] at 10; a larger value 400s the whole fan-out.
@@ -304,42 +353,82 @@ class TestListProfilesFanOut:
                 "data": [{"id": "L1"}, {"id": "L2"}],
                 "links": {"next": None},
             },
-            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=100": {
-                "data": [{"type": "profile", "id": "P1"}, {"type": "profile", "id": "P2"}],
+            _list_url("L1"): {
+                "data": [
+                    {"type": "profile", "id": "P1", "attributes": {"joined_group_at": "2025-11-08T00:00:00+00:00"}},
+                    # An item without attributes must yield a null joined_group_at, not crash the sync.
+                    {"type": "profile", "id": "P2"},
+                ],
                 "links": {"next": None},
             },
-            "https://a.klaviyo.com/api/lists/L2/relationships/profiles?page[size]=100": {
-                "data": [{"type": "profile", "id": "P3"}],
+            _list_url("L2"): {
+                "data": [
+                    {"type": "profile", "id": "P3", "attributes": {"joined_group_at": "2025-12-01T09:30:00+00:00"}}
+                ],
                 "links": {"next": None},
             },
         }
         rows = self._collect(_FakeResumableManager(), monkeypatch, pages)
         assert rows == [
-            {"list_id": "L1", "profile_id": "P1"},
-            {"list_id": "L1", "profile_id": "P2"},
-            {"list_id": "L2", "profile_id": "P3"},
+            {"list_id": "L1", "profile_id": "P1", "joined_group_at": "2025-11-08T00:00:00+00:00"},
+            {"list_id": "L1", "profile_id": "P2", "joined_group_at": None},
+            {"list_id": "L2", "profile_id": "P3", "joined_group_at": "2025-12-01T09:30:00+00:00"},
         ]
 
+    def test_incremental_run_filters_with_lookback_on_every_list(self, monkeypatch: Any) -> None:
+        # Fixtures are keyed by exact URL, so this fails loudly (KeyError) if the fan-out stops
+        # forwarding the incremental inputs and silently reverts to a full refresh.
+        expected_filter = "greater-than(joined_group_at,2026-03-03T02:58:14.000Z)"
+        pages = {
+            "https://a.klaviyo.com/api/lists?page[size]=10": {
+                "data": [{"id": "L1"}, {"id": "L2"}],
+                "links": {"next": None},
+            },
+            _list_url("L1", filter_value=expected_filter): {
+                "data": [
+                    {"type": "profile", "id": "P1", "attributes": {"joined_group_at": "2026-03-04T01:00:00+00:00"}}
+                ],
+                "links": {"next": None},
+            },
+            _list_url("L2", filter_value=expected_filter): {
+                "data": [],
+                "links": {"next": None},
+            },
+        }
+        rows = self._collect(
+            _FakeResumableManager(),
+            monkeypatch,
+            pages,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            incremental_field="joined_group_at",
+        )
+        assert rows == [{"list_id": "L1", "profile_id": "P1", "joined_group_at": "2026-03-04T01:00:00+00:00"}]
+
     def test_follows_membership_pagination(self, monkeypatch: Any) -> None:
-        next_url = "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[cursor]=abc"
+        next_url = "https://a.klaviyo.com/api/lists/L1/profiles?page[cursor]=abc"
         pages = {
             "https://a.klaviyo.com/api/lists?page[size]=10": {
                 "data": [{"id": "L1"}],
                 "links": {"next": None},
             },
-            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=100": {
-                "data": [{"type": "profile", "id": "P1"}],
+            _list_url("L1"): {
+                "data": [
+                    {"type": "profile", "id": "P1", "attributes": {"joined_group_at": "2025-11-08T00:00:00+00:00"}}
+                ],
                 "links": {"next": next_url},
             },
             next_url: {
-                "data": [{"type": "profile", "id": "P2"}],
+                "data": [
+                    {"type": "profile", "id": "P2", "attributes": {"joined_group_at": "2025-11-07T00:00:00+00:00"}}
+                ],
                 "links": {"next": None},
             },
         }
         rows = self._collect(_FakeResumableManager(), monkeypatch, pages)
         assert rows == [
-            {"list_id": "L1", "profile_id": "P1"},
-            {"list_id": "L1", "profile_id": "P2"},
+            {"list_id": "L1", "profile_id": "P1", "joined_group_at": "2025-11-08T00:00:00+00:00"},
+            {"list_id": "L1", "profile_id": "P2", "joined_group_at": "2025-11-07T00:00:00+00:00"},
         ]
 
     def test_resume_from_deleted_list_restarts_from_first(self, monkeypatch: Any) -> None:
@@ -348,14 +437,16 @@ class TestListProfilesFanOut:
                 "data": [{"id": "L1"}],
                 "links": {"next": None},
             },
-            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=100": {
-                "data": [{"type": "profile", "id": "P1"}],
+            _list_url("L1"): {
+                "data": [
+                    {"type": "profile", "id": "P1", "attributes": {"joined_group_at": "2025-11-08T00:00:00+00:00"}}
+                ],
                 "links": {"next": None},
             },
         }
         manager = _FakeResumableManager(KlaviyoResumeConfig(next_url=None, list_id="DELETED"))
         rows = self._collect(manager, monkeypatch, pages)
-        assert rows == [{"list_id": "L1", "profile_id": "P1"}]
+        assert rows == [{"list_id": "L1", "profile_id": "P1", "joined_group_at": "2025-11-08T00:00:00+00:00"}]
 
     def test_list_deleted_mid_fan_out_is_skipped(self, monkeypatch: Any) -> None:
         not_found = requests.HTTPError(response=_response_with_status(404))
@@ -364,20 +455,24 @@ class TestListProfilesFanOut:
                 "data": [{"id": "L1"}, {"id": "GONE"}, {"id": "L2"}],
                 "links": {"next": None},
             },
-            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=100": {
-                "data": [{"type": "profile", "id": "P1"}],
+            _list_url("L1"): {
+                "data": [
+                    {"type": "profile", "id": "P1", "attributes": {"joined_group_at": "2025-11-08T00:00:00+00:00"}}
+                ],
                 "links": {"next": None},
             },
-            "https://a.klaviyo.com/api/lists/GONE/relationships/profiles?page[size]=100": not_found,
-            "https://a.klaviyo.com/api/lists/L2/relationships/profiles?page[size]=100": {
-                "data": [{"type": "profile", "id": "P2"}],
+            _list_url("GONE"): not_found,
+            _list_url("L2"): {
+                "data": [
+                    {"type": "profile", "id": "P2", "attributes": {"joined_group_at": "2025-12-01T09:30:00+00:00"}}
+                ],
                 "links": {"next": None},
             },
         }
         rows = self._collect(_FakeResumableManager(), monkeypatch, pages)
         assert rows == [
-            {"list_id": "L1", "profile_id": "P1"},
-            {"list_id": "L2", "profile_id": "P2"},
+            {"list_id": "L1", "profile_id": "P1", "joined_group_at": "2025-11-08T00:00:00+00:00"},
+            {"list_id": "L2", "profile_id": "P2", "joined_group_at": "2025-12-01T09:30:00+00:00"},
         ]
 
     def test_non_404_http_error_propagates(self, monkeypatch: Any) -> None:
@@ -387,7 +482,21 @@ class TestListProfilesFanOut:
                 "data": [{"id": "L1"}],
                 "links": {"next": None},
             },
-            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=100": server_error,
+            _list_url("L1"): server_error,
         }
         with pytest.raises(requests.HTTPError):
             self._collect(_FakeResumableManager(), monkeypatch, pages)
+
+
+class TestSourceResponseSortMode:
+    @parameterized.expand([("list_profiles", "desc"), ("events", "asc")])
+    def test_source_response_sort_mode(self, endpoint: str, expected: str) -> None:
+        # "desc" defers watermark persistence to successful job end; reverting the fan-out to "asc"
+        # per-batch persistence lets a crashed run advance the watermark past lists it never fetched.
+        response = klaviyo_source(
+            api_key="pk_test",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.sort_mode == expected

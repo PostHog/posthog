@@ -72,6 +72,21 @@ def _clamp_future_value_to_now(value: Any) -> Any:
     return value
 
 
+def _apply_lookback(value: Any, lookback: timedelta | None) -> Any:
+    """Shift a datetime/date incremental cursor back by `lookback` to re-pull a safety window.
+
+    The re-pulled rows are deduped by the endpoint's primary key on merge. No-op for
+    non-temporal values or when the endpoint declares no lookback.
+    """
+    if lookback is None:
+        return value
+    if isinstance(value, datetime):
+        return value - lookback
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time(), tzinfo=UTC) - lookback
+    return value
+
+
 def _build_filter(
     config: KlaviyoEndpointConfig,
     incremental_field: str | None,
@@ -144,8 +159,10 @@ def _build_initial_params(
         db_incremental_field_last_value = datetime.now(UTC) - timedelta(days=config.default_lookback_days)
 
     # Future-dated source data can push the cursor past now; Klaviyo 400s on a future filter value.
+    # The lookback must apply after the clamp, so a clamped cursor still re-pulls its safety window.
     if should_use_incremental_field and db_incremental_field_last_value:
         db_incremental_field_last_value = _clamp_future_value_to_now(db_incremental_field_last_value)
+        db_incremental_field_last_value = _apply_lookback(db_incremental_field_last_value, config.incremental_lookback)
 
     formatted_last_value = (
         _format_incremental_value(db_incremental_field_last_value)
@@ -158,6 +175,8 @@ def _build_initial_params(
 
     if config.sort:
         params["sort"] = config.sort
+
+    params.update(config.extra_params)
 
     return params
 
@@ -215,13 +234,21 @@ def _get_list_profile_rows(
     logger: FilteringBoundLogger,
     batcher: Batcher,
     resumable_source_manager: ResumableSourceManager[KlaviyoResumeConfig],
+    config: KlaviyoEndpointConfig,
+    params: dict[str, Any],
 ) -> Iterator[Any]:
-    """Fan out over every list, materializing list<->profile membership as {list_id, profile_id} rows.
+    """Fan out over every list, materializing membership as {list_id, profile_id, joined_group_at} rows.
 
-    Klaviyo's `/lists/{id}/relationships/profiles` returns bare {type, id} reference stubs, so each row
-    is built explicitly rather than flattened. Full refresh only — the relationship API has no
-    server-side incremental filter — so re-pulled rows on resume are deduped by the [list_id, profile_id]
-    primary key on merge.
+    `params` carries any incremental filter on `joined_group_at` (minus the config lookback, so joins
+    that landed in already-fetched lists mid-run get re-pulled; merge dedupes on the
+    [list_id, profile_id] primary key). Klaviyo updates `joined_group_at` on re-join, so re-joins are
+    picked up too — but there is no removal timestamp, so profiles removed from a list only disappear
+    on a full refresh.
+
+    Fan-out runs report sort_mode="desc" (see klaviyo_source), so the watermark persists only after
+    every list completes. A crash + resume can also finalize an under-advanced watermark (the resumed
+    attempt's running max only sees post-resume batches) — safe direction, the next run just
+    re-fetches a wider window that merge dedupes.
     """
     list_ids = list(_iter_list_ids(session, headers, logger))
 
@@ -237,10 +264,7 @@ def _get_list_profile_rows(
         logger.debug(f"Klaviyo: resuming list_profiles from list_id={resume.list_id}, url={resume_url}")
 
     for index, list_id in enumerate(remaining):
-        # The relationships endpoint caps page size at 100 (larger values 400).
-        url = resume_url or _build_url(
-            f"{KLAVIYO_BASE_URL}/lists/{list_id}/relationships/profiles", {"page[size]": 100}
-        )
+        url = resume_url or _build_url(f"{KLAVIYO_BASE_URL}{config.path.format(list_id=list_id)}", params)
         resume_url = None  # only the resumed-into list uses the saved URL; the rest start fresh
 
         try:
@@ -250,7 +274,13 @@ def _get_list_profile_rows(
                 next_url = data.get("links", {}).get("next")
 
                 for item in items:
-                    batcher.batch({"list_id": list_id, "profile_id": item["id"]})
+                    batcher.batch(
+                        {
+                            "list_id": list_id,
+                            "profile_id": item["id"],
+                            "joined_group_at": item.get("attributes", {}).get("joined_group_at"),
+                        }
+                    )
 
                     if batcher.should_yield():
                         yield batcher.get_table()
@@ -292,15 +322,15 @@ def get_rows(
     # connection alive instead of re-handshaking per request.
     session = make_tracked_session()
 
-    if config.fan_out_over_lists:
-        yield from _get_list_profile_rows(session, headers, logger, batcher, resumable_source_manager)
-        if batcher.should_yield(include_incomplete_chunk=True):
-            yield batcher.get_table()
-        return
-
     params = _build_initial_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
+
+    if config.fan_out_over_lists:
+        yield from _get_list_profile_rows(session, headers, logger, batcher, resumable_source_manager, config, params)
+        if batcher.should_yield(include_incomplete_chunk=True):
+            yield batcher.get_table()
+        return
 
     # Check for resume state
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -365,6 +395,10 @@ def klaviyo_source(
             incremental_field=incremental_field,
         ),
         primary_keys=endpoint_config.primary_keys,
+        # Fan-out runs persist the incremental watermark only at successful job end (desc mode): a
+        # partial run's max says nothing about lists it never reached, so per-batch persistence could
+        # advance the watermark past rows a crashed run still owes.
+        sort_mode="desc" if endpoint_config.fan_out_over_lists else "asc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,

@@ -8,7 +8,7 @@ from typing import TypeVar
 
 from products.logs.backend.vendor.drain3 import Drain, LogMasker, MaskingInstruction
 
-_ERROR_SEVERITIES = {"error", "fatal"}
+ERROR_SEVERITIES = {"error", "fatal"}
 
 # Masking collapses high-cardinality variable tokens into named placeholders before
 # clustering, so templates stay readable ("<ip>", "<num>") instead of fragmenting into
@@ -122,15 +122,34 @@ def _escape_literal(text: str) -> str:
     return r"\s+".join(re.escape(token) for token in text.split(" "))
 
 
+def _literal_runs(template: str) -> list[str]:
+    # Stripped, non-empty literal fragments between the template's placeholders.
+    return [stripped for literal in _PLACEHOLDER_RE.split(template) if (stripped := literal.strip())]
+
+
 def extract_match_literal(template: str) -> str | None:
     """Longest literal run in a template — the plain-text fallback predicate when the
     compiled regex fails validation. None when the template has no usable literal content."""
     longest = ""
-    for literal in _PLACEHOLDER_RE.split(template):
-        stripped = literal.strip()
-        if len(stripped) > len(longest):
-            longest = stripped
+    for literal in _literal_runs(template):
+        if len(literal) > len(longest):
+            longest = literal
     return longest if len(longest) >= _MIN_LITERAL_CHARS else None
+
+
+def pattern_fingerprint(template: str) -> str:
+    """Cross-run identity key for a mined template.
+
+    Drain templates are not stable across independent mining runs — sampling and row-order
+    differences can widen a placeholder ("User <*> not found" vs "User <num> not found"), so
+    matching on the raw template string would false-split the same message across windows.
+    Keying on the sorted set of literal runs between placeholders survives that wobble:
+    placeholder kind and position drop out, literal content remains. A placeholder inserted
+    *inside* a literal run splits it and changes the fingerprint — that is content-level
+    divergence, not wobble, so the two templates are correctly treated as different patterns.
+    """
+    literals = sorted(set(_literal_runs(template)))
+    return "\x00".join(literals) if literals else template
 
 
 def compile_match_regex(template: str, examples: list[LogSample], truncate: int) -> str | None:
@@ -262,7 +281,7 @@ def mine_patterns(
             pattern=acc.template,
             count=acc.count,
             volume_share_pct=round(acc.count / total * 100, 2),
-            error_count=sum(acc.severity_counts.get(s, 0) for s in _ERROR_SEVERITIES),
+            error_count=sum(acc.severity_counts.get(s, 0) for s in ERROR_SEVERITIES),
             first_seen=acc.first_seen,
             last_seen=acc.last_seen,
             examples=acc.examples,

@@ -17,6 +17,10 @@ export const visionActionsCreateBodyNameMax = 255
 export const visionActionsCreateBodyTriggerConfigOneTimezoneDefault = `UTC`
 export const visionActionsCreateBodySynthesisConfigOnePromptGuideMax = 500
 
+export const visionActionsCreateBodyAlertConfigOneFrequencyDefault = `on_breach`
+export const visionActionsCreateBodyAlertConfigOneMetricDefault = `count`
+export const visionActionsCreateBodyAlertConfigOneDirectionDefault = `above`
+
 export const VisionActionsCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -24,6 +28,12 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Human-readable action name. Unique within the team.'),
     scanner: zod.uuid().describe('Scanner whose observations this action operates on. Must belong to the same team.'),
     enabled: zod.boolean().optional().describe('When false, the scheduler skips this action.'),
+    is_scanner_digest: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner."
+        ),
     trigger_type: zod
         .enum(['schedule', 'threshold'])
         .describe('\* `schedule` - Schedule\n\* `threshold` - Threshold')
@@ -32,11 +42,11 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod.object({
             "What fires the action. MVP supports 'schedule' only.\n\n\* `schedule` - Schedule\n\* `threshold` - Threshold"
         ),
     mode: zod
-        .enum(['group_summary', 'per_observation'])
-        .describe('\* `group_summary` - Group summary\n\* `per_observation` - Per observation')
+        .enum(['group_summary', 'alert', 'per_observation'])
+        .describe('\* `group_summary` - Group summary\n\* `alert` - Alert\n\* `per_observation` - Per observation')
         .optional()
         .describe(
-            "What the action produces. MVP supports 'group_summary' only.\n\n\* `group_summary` - Group summary\n\* `per_observation` - Per observation"
+            "What the action produces. MVP supports 'group_summary' only.\n\n\* `group_summary` - Group summary\n\* `alert` - Alert\n\* `per_observation` - Per observation"
         ),
     trigger_config: zod
         .object({
@@ -56,32 +66,36 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Trigger parameters. For schedule triggers: {rrule, timezone}.'),
     selection: zod
         .object({
-            scanner_type: zod
-                .string()
-                .optional()
-                .describe('Filter observations by scanner type (monitor\/classifier\/scorer\/summarizer).'),
             scanner_ids: zod
                 .array(zod.string())
                 .optional()
-                .describe('Restrict to observations produced by these scanner IDs.'),
-            verdict: zod.string().optional().describe('Filter to observations with this monitor verdict.'),
+                .describe('Restrict to observations produced by these scanner IDs. Defaults to the bound scanner.'),
+            verdict: zod
+                .array(
+                    zod
+                        .enum(['yes', 'no', 'inconclusive'])
+                        .describe('\* `yes` - yes\n\* `no` - no\n\* `inconclusive` - inconclusive')
+                )
+                .optional()
+                .describe('Only run on monitor observations with one of these verdicts (yes\/no\/inconclusive).'),
             tags: zod
                 .array(zod.string())
                 .optional()
-                .describe('Filter to observations carrying any of these classifier tags.'),
-            min_score: zod.number().optional().describe('Lower bound (inclusive) on scorer score.'),
-            max_score: zod.number().optional().describe('Upper bound (inclusive) on scorer score.'),
-            status: zod.string().optional().describe('Filter to observations with this processing status.'),
-            window_days: zod
+                .describe('Only run on classifier observations carrying any of these tags (fixed or freeform).'),
+            min_score: zod
                 .number()
                 .optional()
-                .describe('Lookback window in days for the observations gathered at synthesis time.'),
+                .describe('Only run on scorer observations with a score at or above this value (inclusive).'),
+            max_score: zod
+                .number()
+                .optional()
+                .describe('Only run on scorer observations with a score at or below this value (inclusive).'),
         })
         .describe(
-            'Observation filter applied at synthesis time. All keys optional; this typed shape is the\nallowlist, so unknown input keys are dropped rather than persisted.'
+            'The action\'s targeting predicate (\"run this on…\") applied when gathering observations. All keys\noptional; this typed shape is the allowlist, so unknown input keys are dropped rather than persisted.'
         )
         .optional()
-        .describe('Observation filter applied at synthesis time.'),
+        .describe("Targeting predicate: which of the scanner's observations this action runs on."),
     synthesis_config: zod
         .object({
             prompt_guide: zod
@@ -93,6 +107,48 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Options for the group-summary synthesis step.')
         .optional()
         .describe('Synthesis options for the group summary, e.g. {prompt_guide}.'),
+    alert_config: zod
+        .object({
+            frequency: zod
+                .enum(['every_match', 'on_breach'])
+                .describe('\* `every_match` - Every new match\n\* `on_breach` - When a threshold is crossed')
+                .default(visionActionsCreateBodyAlertConfigOneFrequencyDefault)
+                .describe(
+                    "'every_match' notifies about every new matching observation (batched per check); 'on_breach' notifies once when the threshold condition starts holding. Defaults to 'on_breach'.\n\n\* `every_match` - Every new match\n\* `on_breach` - When a threshold is crossed"
+                ),
+            metric: zod
+                .enum(['count', 'avg_score'])
+                .describe('\* `count` - Count of matching observations\n\* `avg_score` - Average score')
+                .default(visionActionsCreateBodyAlertConfigOneMetricDefault)
+                .describe(
+                    "What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.\n\n\* `count` - Count of matching observations\n\* `avg_score` - Average score"
+                ),
+            threshold: zod
+                .number()
+                .optional()
+                .describe(
+                    "The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match."
+                ),
+            direction: zod
+                .enum(['above', 'below'])
+                .describe('\* `above` - At or above\n\* `below` - At or below')
+                .default(visionActionsCreateBodyAlertConfigOneDirectionDefault)
+                .describe(
+                    "Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.\n\n\* `above` - At or above\n\* `below` - At or below"
+                ),
+            window_days: zod
+                .union([zod.literal(1), zod.literal(3), zod.literal(7), zod.literal(14), zod.literal(30)])
+                .describe('\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days')
+                .optional()
+                .describe(
+                    "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days"
+                ),
+        })
+        .describe(
+            "The alert condition for mode='alert', applied after `selection` targeting. 'every_match'\nnotifies about each new match since the previous check; 'on_breach' compares a metric to a\nthreshold over a rolling window and notifies on the transition into breach."
+        )
+        .optional()
+        .describe("Alert condition; required when mode is 'alert', ignored otherwise."),
     delivery_config: zod
         .array(
             zod
@@ -120,6 +176,10 @@ export const visionActionsPartialUpdateBodyNameMax = 255
 export const visionActionsPartialUpdateBodyTriggerConfigOneTimezoneDefault = `UTC`
 export const visionActionsPartialUpdateBodySynthesisConfigOnePromptGuideMax = 500
 
+export const visionActionsPartialUpdateBodyAlertConfigOneFrequencyDefault = `on_breach`
+export const visionActionsPartialUpdateBodyAlertConfigOneMetricDefault = `count`
+export const visionActionsPartialUpdateBodyAlertConfigOneDirectionDefault = `above`
+
 export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -131,6 +191,12 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Scanner whose observations this action operates on. Must belong to the same team.'),
     enabled: zod.boolean().optional().describe('When false, the scheduler skips this action.'),
+    is_scanner_digest: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner."
+        ),
     trigger_type: zod
         .enum(['schedule', 'threshold'])
         .describe('\* `schedule` - Schedule\n\* `threshold` - Threshold')
@@ -139,11 +205,11 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
             "What fires the action. MVP supports 'schedule' only.\n\n\* `schedule` - Schedule\n\* `threshold` - Threshold"
         ),
     mode: zod
-        .enum(['group_summary', 'per_observation'])
-        .describe('\* `group_summary` - Group summary\n\* `per_observation` - Per observation')
+        .enum(['group_summary', 'alert', 'per_observation'])
+        .describe('\* `group_summary` - Group summary\n\* `alert` - Alert\n\* `per_observation` - Per observation')
         .optional()
         .describe(
-            "What the action produces. MVP supports 'group_summary' only.\n\n\* `group_summary` - Group summary\n\* `per_observation` - Per observation"
+            "What the action produces. MVP supports 'group_summary' only.\n\n\* `group_summary` - Group summary\n\* `alert` - Alert\n\* `per_observation` - Per observation"
         ),
     trigger_config: zod
         .object({
@@ -163,32 +229,36 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Trigger parameters. For schedule triggers: {rrule, timezone}.'),
     selection: zod
         .object({
-            scanner_type: zod
-                .string()
-                .optional()
-                .describe('Filter observations by scanner type (monitor\/classifier\/scorer\/summarizer).'),
             scanner_ids: zod
                 .array(zod.string())
                 .optional()
-                .describe('Restrict to observations produced by these scanner IDs.'),
-            verdict: zod.string().optional().describe('Filter to observations with this monitor verdict.'),
+                .describe('Restrict to observations produced by these scanner IDs. Defaults to the bound scanner.'),
+            verdict: zod
+                .array(
+                    zod
+                        .enum(['yes', 'no', 'inconclusive'])
+                        .describe('\* `yes` - yes\n\* `no` - no\n\* `inconclusive` - inconclusive')
+                )
+                .optional()
+                .describe('Only run on monitor observations with one of these verdicts (yes\/no\/inconclusive).'),
             tags: zod
                 .array(zod.string())
                 .optional()
-                .describe('Filter to observations carrying any of these classifier tags.'),
-            min_score: zod.number().optional().describe('Lower bound (inclusive) on scorer score.'),
-            max_score: zod.number().optional().describe('Upper bound (inclusive) on scorer score.'),
-            status: zod.string().optional().describe('Filter to observations with this processing status.'),
-            window_days: zod
+                .describe('Only run on classifier observations carrying any of these tags (fixed or freeform).'),
+            min_score: zod
                 .number()
                 .optional()
-                .describe('Lookback window in days for the observations gathered at synthesis time.'),
+                .describe('Only run on scorer observations with a score at or above this value (inclusive).'),
+            max_score: zod
+                .number()
+                .optional()
+                .describe('Only run on scorer observations with a score at or below this value (inclusive).'),
         })
         .describe(
-            'Observation filter applied at synthesis time. All keys optional; this typed shape is the\nallowlist, so unknown input keys are dropped rather than persisted.'
+            'The action\'s targeting predicate (\"run this on…\") applied when gathering observations. All keys\noptional; this typed shape is the allowlist, so unknown input keys are dropped rather than persisted.'
         )
         .optional()
-        .describe('Observation filter applied at synthesis time.'),
+        .describe("Targeting predicate: which of the scanner's observations this action runs on."),
     synthesis_config: zod
         .object({
             prompt_guide: zod
@@ -200,6 +270,48 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Options for the group-summary synthesis step.')
         .optional()
         .describe('Synthesis options for the group summary, e.g. {prompt_guide}.'),
+    alert_config: zod
+        .object({
+            frequency: zod
+                .enum(['every_match', 'on_breach'])
+                .describe('\* `every_match` - Every new match\n\* `on_breach` - When a threshold is crossed')
+                .default(visionActionsPartialUpdateBodyAlertConfigOneFrequencyDefault)
+                .describe(
+                    "'every_match' notifies about every new matching observation (batched per check); 'on_breach' notifies once when the threshold condition starts holding. Defaults to 'on_breach'.\n\n\* `every_match` - Every new match\n\* `on_breach` - When a threshold is crossed"
+                ),
+            metric: zod
+                .enum(['count', 'avg_score'])
+                .describe('\* `count` - Count of matching observations\n\* `avg_score` - Average score')
+                .default(visionActionsPartialUpdateBodyAlertConfigOneMetricDefault)
+                .describe(
+                    "What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.\n\n\* `count` - Count of matching observations\n\* `avg_score` - Average score"
+                ),
+            threshold: zod
+                .number()
+                .optional()
+                .describe(
+                    "The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match."
+                ),
+            direction: zod
+                .enum(['above', 'below'])
+                .describe('\* `above` - At or above\n\* `below` - At or below')
+                .default(visionActionsPartialUpdateBodyAlertConfigOneDirectionDefault)
+                .describe(
+                    "Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.\n\n\* `above` - At or above\n\* `below` - At or below"
+                ),
+            window_days: zod
+                .union([zod.literal(1), zod.literal(3), zod.literal(7), zod.literal(14), zod.literal(30)])
+                .describe('\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days')
+                .optional()
+                .describe(
+                    "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days"
+                ),
+        })
+        .describe(
+            "The alert condition for mode='alert', applied after `selection` targeting. 'every_match'\nnotifies about each new match since the previous check; 'on_breach' compares a metric to a\nthreshold over a rolling window and notifies on the transition into breach."
+        )
+        .optional()
+        .describe("Alert condition; required when mode is 'alert', ignored otherwise."),
     delivery_config: zod
         .array(
             zod
@@ -298,12 +410,12 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('LLM provider. v1 is Google-only.\n\n\* `google` - Google'),
     model: zod
-        .enum(['gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview'])
+        .enum(['gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-3.5-flash'])
         .describe(
-            '\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
+            '\* `gemini-2.5-flash` - Gemini 2.5 Flash\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.5-flash` - Gemini 3.5 Flash'
         )
         .describe(
-            'Concrete model to use for this scanner.\n\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
+            'Concrete model to use for this scanner.\n\n\* `gemini-2.5-flash` - Gemini 2.5 Flash\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.5-flash` - Gemini 3.5 Flash'
         ),
     enabled: zod
         .boolean()
@@ -380,13 +492,13 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('LLM provider. v1 is Google-only.\n\n\* `google` - Google'),
     model: zod
-        .enum(['gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview'])
+        .enum(['gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-3.5-flash'])
         .describe(
-            '\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
+            '\* `gemini-2.5-flash` - Gemini 2.5 Flash\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.5-flash` - Gemini 3.5 Flash'
         )
         .optional()
         .describe(
-            'Concrete model to use for this scanner.\n\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
+            'Concrete model to use for this scanner.\n\n\* `gemini-2.5-flash` - Gemini 2.5 Flash\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.5-flash` - Gemini 3.5 Flash'
         ),
     enabled: zod
         .boolean()
@@ -434,6 +546,23 @@ export const VisionScannersObservationsLabelCreateBody = /* @__PURE__ */ zod
     .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
 /**
+ * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field. Poll `current` while status is running. `session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to `evaluation_session_cap`). Each successful re-run charges credits like a normal observation of the same model. The request is refused with 402 when the planned credits exceed what is left of the monthly limit. Only monitor and classifier scanners are supported. Requires session recording edit access.
+ */
+export const visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitDefault = 10
+export const visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitMax = 100
+
+export const VisionScannersPromptSuggestionsEvaluateCreateBody = /* @__PURE__ */ zod.object({
+    session_limit: zod
+        .number()
+        .min(1)
+        .max(visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitMax)
+        .default(visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitDefault)
+        .describe(
+            'How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges credits like a normal observation of the same model. Defaults to 10. The maximum is `evaluation_session_cap`.'
+        ),
+})
+
+/**
  * Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview.
  */
 export const visionScannersEstimateCreateBodySamplingRateDefault = 1
@@ -441,6 +570,7 @@ export const visionScannersEstimateCreateBodySamplingRateMin = 0
 export const visionScannersEstimateCreateBodySamplingRateMax = 1
 
 export const visionScannersEstimateCreateBodySamplingModeDefault = `comprehensive`
+export const visionScannersEstimateCreateBodyModelDefault = `gemini-3-flash-preview`
 
 export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
     .object({
@@ -467,7 +597,16 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
             .uuid()
             .nullish()
             .describe(
-                "The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
+                "The scanner being edited, excluded from `other_enabled_scanners_monthly_credits` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
+            ),
+        model: zod
+            .enum(['gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-3.5-flash'])
+            .describe(
+                '\* `gemini-2.5-flash` - Gemini 2.5 Flash\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.5-flash` - Gemini 3.5 Flash'
+            )
+            .default(visionScannersEstimateCreateBodyModelDefault)
+            .describe(
+                'Proposed model; determines `credits_per_observation` in the response.\n\n\* `gemini-2.5-flash` - Gemini 2.5 Flash\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.5-flash` - Gemini 3.5 Flash'
             ),
     })
     .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')

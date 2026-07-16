@@ -29,7 +29,7 @@ export function FeatureFlagsStaffToolsScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Flags staff tools"
-                description="Look up any team across all organizations to inspect and rebuild its flag caches."
+                description="Look up any team across all organizations to inspect and rebuild its flag caches, or adjust its feature-flags config."
                 resourceType={{ type: 'feature_flag' }}
                 actions={
                     <LemonButton type="secondary" size="small" to={urls.instanceSettings()}>

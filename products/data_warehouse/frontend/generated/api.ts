@@ -13,6 +13,7 @@ import type {
     DataModelingJobApi,
     DataModelingJobsListParams,
     DataWarehouseCheckDatabaseNameRetrieveParams,
+    DataWarehouseManagedWarehouseSourceSchemasRetrieveParams,
     DataWarehouseModelPathApi,
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryColumnAnnotationApi,
@@ -25,6 +26,8 @@ import type {
     FixHogqlListParams,
     InsightVariableApi,
     InsightVariablesListParams,
+    ManagedWarehouseDataStatusResponseApi,
+    ManagedWarehouseSourceSchemasResponseApi,
     PaginatedDataModelingJobListApi,
     PaginatedDataWarehouseModelPathListApi,
     PaginatedDataWarehouseSavedQueryColumnAnnotationListApi,
@@ -328,6 +331,63 @@ export const dataWarehouseJobStatsRetrieve = async (projectId: string, options?:
     })
 }
 
+export const getDataWarehouseManagedWarehouseDataStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/managed-warehouse-data-status/`
+}
+
+/**
+ * Get events, persons, and imported source readiness for the managed warehouse.
+ */
+export const dataWarehouseManagedWarehouseDataStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ManagedWarehouseDataStatusResponseApi> => {
+    return apiMutator<ManagedWarehouseDataStatusResponseApi>(
+        getDataWarehouseManagedWarehouseDataStatusRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getDataWarehouseManagedWarehouseSourceSchemasRetrieveUrl = (
+    projectId: string,
+    params: DataWarehouseManagedWarehouseSourceSchemasRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_warehouse/managed-warehouse-source-schemas/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_warehouse/managed-warehouse-source-schemas/`
+}
+
+/**
+ * Per-schema backfill and live import status for one source, for the Overview tab's drill-down modal — the main status endpoint only returns a per-source rollup.
+ * @summary Get per-schema detail for one imported source
+ */
+export const dataWarehouseManagedWarehouseSourceSchemasRetrieve = async (
+    projectId: string,
+    params: DataWarehouseManagedWarehouseSourceSchemasRetrieveParams,
+    options?: RequestInit
+): Promise<ManagedWarehouseSourceSchemasResponseApi> => {
+    return apiMutator<ManagedWarehouseSourceSchemasResponseApi>(
+        getDataWarehouseManagedWarehouseSourceSchemasRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getDataWarehousePropertyValuesRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_warehouse/property_values/`
 }
@@ -614,18 +674,10 @@ export const insightVariablesDestroy = async (projectId: string, id: string, opt
     })
 }
 
-export const getLineageGetUpstreamRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/lineage/get_upstream/`
-}
-
-export const lineageGetUpstreamRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLineageGetUpstreamRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getManagedViewsetsRetrieveUrl = (projectId: string, kind: 'revenue_analytics') => {
+export const getManagedViewsetsRetrieveUrl = (
+    projectId: string,
+    kind: 'revenue_analytics' | 'engineering_analytics'
+) => {
     return `/api/projects/${projectId}/managed_viewsets/${kind}/`
 }
 
@@ -635,7 +687,7 @@ export const getManagedViewsetsRetrieveUrl = (projectId: string, kind: 'revenue_
  */
 export const managedViewsetsRetrieve = async (
     projectId: string,
-    kind: 'revenue_analytics',
+    kind: 'revenue_analytics' | 'engineering_analytics',
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getManagedViewsetsRetrieveUrl(projectId, kind), {
@@ -644,7 +696,7 @@ export const managedViewsetsRetrieve = async (
     })
 }
 
-export const getManagedViewsetsUpdateUrl = (projectId: string, kind: 'revenue_analytics') => {
+export const getManagedViewsetsUpdateUrl = (projectId: string, kind: 'revenue_analytics' | 'engineering_analytics') => {
     return `/api/projects/${projectId}/managed_viewsets/${kind}/`
 }
 
@@ -654,7 +706,7 @@ export const getManagedViewsetsUpdateUrl = (projectId: string, kind: 'revenue_an
  */
 export const managedViewsetsUpdate = async (
     projectId: string,
-    kind: 'revenue_analytics',
+    kind: 'revenue_analytics' | 'engineering_analytics',
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getManagedViewsetsUpdateUrl(projectId, kind), {

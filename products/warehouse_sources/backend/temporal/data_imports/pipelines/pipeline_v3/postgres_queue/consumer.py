@@ -7,8 +7,10 @@ polling, retry, and recovery mechanics to the v3 batch consumer engine.
 
 from __future__ import annotations
 
+import time
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
+from datetime import datetime
 from typing import Any
 
 from django.db import close_old_connections
@@ -19,7 +21,10 @@ from asgiref.sync import sync_to_async
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.metrics import TERMINAL_JOB_STATUSES
+from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+    LOCK_TAKEOVER_LATEST_ERROR,
+    TERMINAL_JOB_STATUSES,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     MAX_ATTEMPTS,
     POLL_INTERVAL_SECONDS,
@@ -30,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     RETRY_BACKOFF_BASE_SECONDS,
     BatchConsumer as SharedBatchConsumer,
     BatchConsumerConfig,
+    OwnershipLostError,
     ProcessBatchFn,
     _group_by_key,
 )
@@ -51,6 +57,11 @@ logger = structlog.get_logger(__name__)
 
 ConsumerConfig = BatchConsumerConfig
 
+# Raises OwnershipLostError when this consumer no longer holds the group lease.
+VerifyOwnership = Callable[[], None]
+# Unlike the engine's ProcessBatchFn, the Delta sink also receives the per-batch ownership check.
+DeltaProcessBatchFn = Callable[[PendingBatch, VerifyOwnership | None], Coroutine[Any, Any, None]]
+
 # Ceiling for the queue-freshness probe, deliberately far below the sweep
 # timeout so a degraded probe can't starve the reconcile sweep it rides on.
 FRESHNESS_PROBE_TIMEOUT_SECONDS = 30.0
@@ -62,7 +73,20 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     "is too large to store in a Decimal128",
     # schema configured as incremental without a primary key — config error
     "Primary key required for incremental syncs",
+    # incoming values no longer fit the stored Delta column type
+    # (SchemaColumnTypeChangedException) — only a reset and full re-sync can fix it
+    "Source column type changed",
+    # the schema or job row was deleted mid-sync — no retry can bring it back
+    "ExternalDataSchema matching query does not exist",
+    "ExternalDataJob matching query does not exist",
 )
+
+# How long an "alive" job-status lookup stays cached before re-checking the app DB.
+# Dead results never expire — a terminal job never comes back to life — and eviction
+# drops alive entries first, so a dead verdict survives until the cache overflows
+# with dead entries alone.
+JOB_STATUS_CACHE_TTL_SECONDS = 30
+JOB_STATUS_CACHE_MAX_ENTRIES = 1000
 
 
 class DeltaBatchConsumerAdapter:
@@ -71,6 +95,10 @@ class DeltaBatchConsumerAdapter:
     succeeded_state: str = SourceBatchStatus.State.SUCCEEDED.value
     waiting_retry_state: str = SourceBatchStatus.State.WAITING_RETRY.value
     per_group_connections: bool = True
+
+    def __init__(self) -> None:
+        # job_id -> (is_dead, checked_at via time.monotonic())
+        self._job_dead_cache: dict[str, tuple[bool, float]] = {}
 
     async def fetch_and_lock(
         self,
@@ -114,22 +142,15 @@ class DeltaBatchConsumerAdapter:
         job_state: str,
         attempt: int,
         error_response: dict[str, Any] | None = None,
+        batch_created_at: datetime | None = None,
     ) -> None:
-        if error_response is None:
-            await BatchQueue.update_status(
-                conn,
-                batch_id=batch_id,
-                job_state=job_state,
-                attempt=attempt,
-            )
-            return
-
         await BatchQueue.update_status(
             conn,
             batch_id=batch_id,
             job_state=job_state,
             attempt=attempt,
             error_response=error_response,
+            batch_created_at=batch_created_at,
         )
 
     async def fail_run(
@@ -144,7 +165,9 @@ class DeltaBatchConsumerAdapter:
         Each step is isolated so a failure can't crash the consumer.
         """
         try:
-            await BatchQueue.fail_run(conn, run_uuid=batch.run_uuid, reason=reason)
+            await BatchQueue.fail_run(
+                conn, run_uuid=batch.run_uuid, team_id=batch.team_id, schema_id=batch.schema_id, reason=reason
+            )
         except Exception as e:
             logger.exception("fail_run_queue_update_failed", batch_id=batch.id, run_uuid=batch.run_uuid)
             capture_exception(e)
@@ -237,6 +260,32 @@ class DeltaBatchConsumerAdapter:
             limit=limit,
         )
         for ref in refs:
+            # A producer can enqueue a batch into a run after fail_run swept it (the
+            # extraction is still in flight when a sibling batch exhausts retries).
+            # Such stragglers stay 'pending' forever — unclaimable, but counted by the
+            # freshness gauge and the CDC backpressure probe — so re-sweep the run here.
+            # No-op (one indexed statement) when the run has no non-terminal batches.
+            try:
+                stragglers = await BatchQueue.fail_run(
+                    conn,
+                    run_uuid=ref.run_uuid,
+                    team_id=ref.team_id,
+                    schema_id=ref.schema_id,
+                    reason="enqueued into an already-failed run (reconcile sweep)",
+                )
+            except Exception as e:
+                logger.exception("reconcile_straggler_sweep_failed", run_uuid=ref.run_uuid)
+                capture_exception(e)
+            else:
+                if stragglers:
+                    logger.warning(
+                        "reconcile_swept_straggler_batches",
+                        run_uuid=ref.run_uuid,
+                        team_id=ref.team_id,
+                        external_data_schema_id=ref.schema_id,
+                        batch_count=stragglers,
+                    )
+
             try:
                 reconciled = await sync_to_async(mark_job_failed_if_not_terminal)(
                     job_id=ref.job_id,
@@ -310,7 +359,56 @@ class DeltaBatchConsumerAdapter:
         *,
         batch: PendingBatch,
     ) -> bool:
-        return True
+        try:
+            job_dead = await self._is_job_dead(batch)
+        except Exception as e:
+            # Fail open: an app-DB hiccup must never wedge the loader.
+            logger.exception("job_status_check_failed", batch_id=batch.id, job_id=batch.job_id)
+            capture_exception(e)
+            return True
+
+        if not job_dead:
+            return True
+
+        logger.warning(
+            "skipping_batch_for_dead_job",
+            batch_id=batch.id,
+            job_id=batch.job_id,
+            run_uuid=batch.run_uuid,
+        )
+        await self.fail_run(conn, batch=batch, reason="sync cancelled or job failed")
+        return False
+
+    async def _is_job_dead(self, batch: PendingBatch) -> bool:
+        """Whether the batch's ExternalDataJob is in a terminal non-Completed state (e.g. cancelled)."""
+        from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+        now = time.monotonic()
+        cached = self._job_dead_cache.get(batch.job_id)
+        if cached is not None:
+            is_dead, checked_at = cached
+            if is_dead or now - checked_at < JOB_STATUS_CACHE_TTL_SECONDS:
+                return is_dead
+
+        row = await sync_to_async(_get_job_status_and_error)(job_id=batch.job_id, team_id=batch.team_id)
+        is_dead = (
+            row is not None
+            and row[0] in TERMINAL_JOB_STATUSES
+            and row[0] != ExternalDataJob.Status.COMPLETED
+            # A takeover-failed job stays loadable: only the exact takeover sentinel
+            # unseals Failed -> Completed in update_external_job_status, and skipping
+            # its batches here would close that deliberate recovery window.
+            and row[1] != LOCK_TAKEOVER_LATEST_ERROR
+        )
+
+        if len(self._job_dead_cache) >= JOB_STATUS_CACHE_MAX_ENTRIES:
+            # Evict alive entries first: dead verdicts are final, and re-deriving one
+            # costs an app-DB read per queued batch of that job.
+            self._job_dead_cache = {k: v for k, v in self._job_dead_cache.items() if v[0]}
+            if len(self._job_dead_cache) >= JOB_STATUS_CACHE_MAX_ENTRIES:
+                self._job_dead_cache.clear()
+        self._job_dead_cache[batch.job_id] = (is_dead, now)
+        return is_dead
 
     def is_retryable_error(self, err: Exception) -> bool:
         message = str(err)
@@ -329,15 +427,49 @@ class BatchConsumer(SharedBatchConsumer):
     def __init__(
         self,
         config: ConsumerConfig,
-        process_batch: ProcessBatchFn,
+        process_batch: DeltaProcessBatchFn,
         health_reporter: Callable[[], None] | None = None,
     ) -> None:
+        async def process_with_ownership_check(batch: PendingBatch) -> None:
+            await process_batch(batch, self._make_verify_ownership(batch))
+
         super().__init__(
             config=config,
-            process_batch=process_batch,
+            process_batch=process_with_ownership_check,
             adapter=DeltaBatchConsumerAdapter(),
             health_reporter=health_reporter,
         )
+
+    def _make_verify_ownership(self, batch: PendingBatch) -> Callable[[], None]:
+        """Sync ownership check for the worker thread: the engine's lease checks bracket
+        the batch but can't see a loss mid-write. Fails closed — an unverified lease is lost."""
+        database_url = self._config.database_url
+        connect_timeout = self._config.connect_timeout_seconds
+
+        def verify_ownership() -> None:
+            try:
+                owns = BatchQueue.verify_group_lease_sync(
+                    database_url,
+                    team_id=batch.team_id,
+                    schema_id=batch.schema_id,
+                    owner_token=self._owner_token,
+                    connect_timeout_seconds=connect_timeout,
+                )
+            except Exception as e:
+                raise OwnershipLostError("pre-commit lease verification query failed") from e
+            if not owns:
+                raise OwnershipLostError(f"group lease lost before commit for ({batch.team_id}, {batch.schema_id})")
+
+        return verify_ownership
+
+
+def _get_job_status_and_error(*, job_id: str, team_id: int) -> tuple[str, str | None] | None:
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    # Drop stale app-DB connections so this read reconnects instead of erroring.
+    close_old_connections()
+
+    return ExternalDataJob.objects.filter(id=job_id, team_id=team_id).values_list("status", "latest_error").first()
 
 
 def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> None:
@@ -366,12 +498,8 @@ def mark_job_failed_if_not_terminal(*, job_id: str, team_id: int, error: str) ->
     Public seam shared by the reconcile sweep and the manage_warehouse_queue ops
     command, so both fail paths agree on the terminal-status check.
     """
-    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-
-    close_old_connections()
-
-    job = ExternalDataJob.objects.filter(id=job_id, team_id=team_id).only("status").first()
-    if job is None or job.status in TERMINAL_JOB_STATUSES:
+    row = _get_job_status_and_error(job_id=job_id, team_id=team_id)
+    if row is None or row[0] in TERMINAL_JOB_STATUSES:
         return False
 
     _update_job_status_to_failed(job_id=job_id, team_id=team_id, error=error)

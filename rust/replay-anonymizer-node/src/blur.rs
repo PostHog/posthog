@@ -1,6 +1,6 @@
 //! Downsample + blur media/canvas images — scene stays legible, faces/text don't.
-//! Native Rust replacement for `anonymize/blur.ts` (which used `sharp`). Runs inline (synchronously);
-//! output is never byte-identical to sharp, so tests assert structure (decodes to W x H PNG), not bytes.
+//! Runs inline (synchronously). Output is never byte-identical to `sharp` (which the image-scrub
+//! sidecar still uses, with matching params), so tests assert structure (decodes to W x H PNG), not bytes.
 
 use base64::Engine;
 use image::{DynamicImage, GenericImageView, RgbaImage};

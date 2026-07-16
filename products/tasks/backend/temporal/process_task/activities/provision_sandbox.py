@@ -24,7 +24,7 @@ from products.tasks.backend.temporal.metrics import (
     increment_snapshot_restore,
     increment_snapshot_usage,
 )
-from products.tasks.backend.temporal.oauth import create_oauth_access_token, create_wizard_oauth_access_token
+from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run, create_wizard_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.sandbox_credentials import set_git_remote_token
 from products.tasks.backend.temporal.process_task.utils import (
@@ -33,6 +33,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_github_token,
     get_sandbox_name_for_task,
     get_sandbox_snapshot_metadata,
+    get_task_run_credential_user,
     parse_run_state,
 )
 
@@ -183,6 +184,7 @@ def _get_image_source_label(
     provider: str | None,
     resume_snapshot_external_id: str | None,
     snapshot: SandboxSnapshot | None,
+    custom_image_name: str | None = None,
 ) -> tuple[str, str]:
     if resume_snapshot_external_id:
         return "resume_snapshot", f"resume snapshot {resume_snapshot_external_id}"
@@ -191,16 +193,30 @@ def _get_image_source_label(
         external_id = snapshot.external_id or str(snapshot.id)
         return "repository_snapshot", f"repository snapshot {external_id}"
 
+    if custom_image_name:
+        return "custom_image", f"custom base image {custom_image_name}"
+
     if provider == "docker":
         return "docker_base_image", "local Docker sandbox image"
 
-    if provider and provider.upper() == "MODAL_DOCKER":
+    if provider and provider.upper() in ("MODAL_DOCKER", "MODAL_EVALS"):
         return "modal_local_build", "local Modal Dockerfile build"
 
     if settings.DEBUG and not has_repo:
         return "local_debug_build", "local debug sandbox image"
 
     return "base_image", "published sandbox base image"
+
+
+def get_fresh_image_source_for_context(ctx: TaskProcessingContext) -> tuple[str, str]:
+    """Image source and label for a sandbox provisioned fresh (no snapshot) from this context."""
+    return _get_image_source_label(
+        has_repo=ctx.repository is not None,
+        provider=getattr(settings, "SANDBOX_PROVIDER", None),
+        resume_snapshot_external_id=None,
+        snapshot=None,
+        custom_image_name=ctx.custom_image_name if ctx.use_modal_vm_sandbox else None,
+    )
 
 
 def _build_environment_variables(
@@ -210,6 +226,8 @@ def _build_environment_variables(
         "POSTHOG_PERSONAL_API_KEY": access_token,
         "POSTHOG_API_URL": get_sandbox_api_url(),
         "POSTHOG_PROJECT_ID": str(ctx.team_id),
+        "POSTHOG_TASK_ID": str(ctx.task_id),
+        "POSTHOG_TASK_RUN_ID": str(ctx.run_id),
         "JWT_PUBLIC_KEY": get_sandbox_jwt_public_key(),
     }
 
@@ -243,6 +261,12 @@ def _build_environment_variables(
 
     if settings.SANDBOX_LLM_GATEWAY_URL:
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
+
+    if settings.DEBUG:
+        # Local eval runs pin models per unit; the agent's overload rescue would silently switch a
+        # session to the fallback model mid-run, breaking prompt-cache sharing (model is part of
+        # the cache key) and cost attribution. Rely on Temporal retries instead.
+        environment_variables["POSTHOG_DISABLE_MODEL_FALLBACK"] = "1"
 
     if ctx.allowed_domains is not None:
         environment_variables.update(NETWORK_RESTRICTED_AGENT_ENV)
@@ -291,7 +315,8 @@ def _build_sandbox_tags(
         "task_run_id": ctx.run_id,
         "origin_product": ctx.origin_product,
         "team_id": ctx.team_id,
-        "workflow_id": TaskRun.get_workflow_id(ctx.task_id, ctx.run_id),
+        # The running workflow's real id — a re-derived default would mislabel prefixed dispatches.
+        "workflow_id": activity.info().workflow_id,
         "image_source": prepared.image_source,
         "sandbox_runtime": "vm" if use_vm_sandbox else "gvisor",
     }
@@ -315,7 +340,9 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         snapshot_source = "none"
         snapshot_kind = SNAPSHOT_KIND_FILESYSTEM
         snapshot_mount_path: str | None = None
-        if has_repo and ctx.github_integration_id is not None:
+        # Repo-setup snapshots come from default-base sandboxes; restoring one would silently
+        # drop the custom base image. Resume snapshots were taken from this task's own sandbox.
+        if has_repo and ctx.github_integration_id is not None and not ctx.custom_image_name:
             assert repository is not None
             with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
                 snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, [repository])
@@ -336,6 +363,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         task = _load_task(ctx)
         shallow_clone = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
 
+        actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""
         should_inject_github_token = ctx.has_github_credentials and (
             has_repo or ctx.github_user_integration_id is not None or ctx.github_integration_id is not None
@@ -348,6 +376,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                         run_id=ctx.run_id,
                         state=ctx.state,
                         task=task,
+                        actor_user=actor_user,
                         github_user_integration_id=ctx.github_user_integration_id,
                         repository=repository,
                     )
@@ -361,7 +390,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 )
 
         try:
-            access_token = create_oauth_access_token(task)
+            access_token = create_oauth_access_token_for_run(task, ctx.state)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to create OAuth access token for task {ctx.task_id}",
@@ -420,6 +449,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             provider=provider,
             resume_snapshot_external_id=resume_snapshot_external_id,
             snapshot=snapshot if not resume_snapshot_external_id else None,
+            custom_image_name=ctx.custom_image_name if ctx.use_modal_vm_sandbox else None,
         )
 
         return PrepareSandboxForRepositoryOutput(
@@ -465,6 +495,7 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
         config = SandboxConfig(
             name=prepared.sandbox_name,
             template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
+            custom_image_name=ctx.custom_image_name if use_vm_sandbox else None,
             environment_variables=prepared.environment_variables,
             snapshot_id=prepared.snapshot_id,
             snapshot_external_id=prepared.snapshot_external_id,
@@ -643,6 +674,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
     ):
         task = _load_task(ctx)
 
+        actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""
         if ctx.has_github_credentials:
             try:
@@ -652,6 +684,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                         run_id=ctx.run_id,
                         state=ctx.state,
                         task=task,
+                        actor_user=actor_user,
                         github_user_integration_id=ctx.github_user_integration_id,
                         repository=input.repository,
                     )
@@ -669,7 +702,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                 )
 
         try:
-            access_token = create_oauth_access_token(task)
+            access_token = create_oauth_access_token_for_run(task, ctx.state)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to refresh OAuth access token for task {ctx.task_id}",

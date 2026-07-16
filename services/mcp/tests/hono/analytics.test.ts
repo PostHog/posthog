@@ -62,6 +62,8 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         scopeGatedTools: [],
         distinctId: 'distinct-id',
         renderUiEnabled: false,
+        metadata: undefined,
+        groupTypes: undefined,
         ...overrides,
     }
 }

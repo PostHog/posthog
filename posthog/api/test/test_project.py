@@ -702,6 +702,18 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(self.team.base_currency, "EUR")
         self.assertEqual(self.team.capture_dead_clicks, True)
 
+    def test_rename_project_syncs_passthrough_team_name(self):
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"name": "Renamed project"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        self.project.refresh_from_db()
+        self.team.refresh_from_db()
+        self.assertEqual(self.project.name, "Renamed project")
+        self.assertEqual(self.team.name, "Renamed project")
+
     def test_customer_analytics_config_writes_through_to_team(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
-import { HedgehogReporter } from '@posthog/brand/hoggies'
+import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
 import { IconArrowRight, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -27,6 +28,8 @@ import {
     defaultSurveyTemplates,
 } from '../../constants'
 import { surveysLogic } from '../../surveysLogic'
+
+const HedgehogReporter = pngHoggie(reporterPng)
 
 const TEMPLATE_TYPES = [SurveyTemplateType.NPS, SurveyTemplateType.CSAT, SurveyTemplateType.PMF]
 

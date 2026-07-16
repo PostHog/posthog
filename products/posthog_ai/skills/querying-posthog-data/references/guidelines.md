@@ -12,6 +12,9 @@ Proactively use different search types depending on a task:
 - Full-text search with `hasToken`, `hasTokenCaseInsensitive`, etc. Make sure you pass string constants to `hasToken*` functions.
 - Dumping results to a file and using bash commands to process potentially large outputs.
 
+Substring search on events-table strings is a full scan: `LIKE '%term%'`, `ILIKE '%term%'`, and `position()` read the column for every row in the time range, and a leading `%` makes indexes useless.
+Before fuzzy-matching a property value, try `read-data-schema` (`event_property_values`) to find common exact values. If the requested value is not returned, or the user needs true contains semantics, keep the timestamp window tight, filter `event` first, and use the substring predicate.
+
 #### Data Groups
 
 PostHog has two distinct groups of data you can query:
@@ -213,6 +216,10 @@ You should use the skipping index signature to write optimized analytical querie
 
 All analytical queries and subqueries must always have time ranges set for supported tables (events). If the user doesn't state it, assume default time range based on the data volume, like a day, week, or month.
 
+The bound must be a `WHERE` predicate on `timestamp`. A time condition that appears only inside an aggregate argument, like `countIf(event = 'x' AND timestamp > now() - INTERVAL 1 DAY)`, filters nothing: every historical row is still read. Put the outer window in `WHERE` and keep only the split inside the aggregate.
+
+Point lookups need a time bound too. Filtering on a session id, trace id, distinct_id, or a property value without a timestamp bound scans the team's entire history, because those filters don't align with the table's date-first sort key. Derive the window from context (the session's day, the incident's date), or start with a recent window and widen only if the result is empty.
+
 **How you should use time ranges**
 
 <example>
@@ -252,6 +259,10 @@ You are allowed joining system data. Insights are the most used entity, so keep 
 **Analytical data**
 
 Prefer using analytical functions and subqueries for joins. Do not use raw joins on the events table.
+
+Scan `events` once per question where you can: conditional aggregates (`countIf`, `sumIf`, `uniqIf`, `argMax`) or a window function over one scan replace a self-join, repeated subqueries over the same rows, and UNIONs of the same range.
+CTEs are inlined, not materialized: a CTE referenced twice executes twice.
+Subqueries that correlate different events (like the example below) are fine.
 
 **How you should join data**
 
@@ -337,6 +348,8 @@ Find the reference for [Sparkline, SemVer, Session replays, Actions, Translation
 - `toStartOfWeek(timestamp, 1)` for Monday start (numeric, not string)
 - Always handle nulls before array functions: `splitByChar(',', coalesce(field, ''))`
 - Performance: always filter `events` by timestamp
+- Correctness: count unique users with `uniq(person_id)` on events, never `uniq(distinct_id)` (one person has many distinct_ids, so distinct_id overcounts users)
+- Memory: avoid `GROUP BY` on unbounded high-cardinality expressions (raw URLs, ids, free text) over wide windows: the aggregation holds every distinct value in memory regardless of `LIMIT`; normalize the value (strip ids from paths) or narrow the window
 
 ##### SQL Variables
 

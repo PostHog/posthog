@@ -12,6 +12,31 @@ tools:
     engineering-analytics-author-workflow-costs:
         operation: engineering_analytics_author_workflow_costs
         enabled: false
+    engineering-analytics-broken-tests:
+        operation: engineering_analytics_broken_tests
+        enabled: true
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Broken tests triage
+        description: >
+            Live CI failures over the last 2 days, grouped into distinct failures (by failing test id + a normalized
+            error signature) and classified by how each is behaving right now, most urgent first. Reach for this to
+            answer "what CI failures should I care about right now" — it is the triage counterpart to the flaky-test
+            leaderboard (which ranks week-long unreliability). Each row's state is the verdict: breaking_master (failing
+            on the default branch and that job's latest run is still red — trunk is broken now), novel_burst (first seen
+            within a day and already spreading across branches, not on trunk yet), potentially_resolved (hit trunk but
+            that job is green again), flaky (sporadic across two or more branches over more than a day), or pr_only
+            (confined to one branch — one PR's own problem). Also returns breaking_master_jobs, the default-branch jobs
+            whose latest run is red. Pass a row's latest_run_id to run-failure-logs to read the actual failing lines.
+            Caveats: fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the
+            breaking/resolved distinction needs the job-level source synced — without it those failures fall through to
+            flaky/pr_only rather than being misreported. Counts are absolute, never rates (passing runs aren't in this
+            data).
+        feature_flag: engineering-analytics
     engineering-analytics-ci-cards:
         operation: engineering_analytics_ci_cards
         enabled: false
@@ -34,6 +59,10 @@ tools:
             pushes' failures are included too. logs_available is false when CI hasn't failed, the logs aged out of the
             short Logs retention, or a fork PR has no run association to resolve. Use pr-runs or workflow-jobs for the
             run/job metadata behind these logs.
+        feature_flag: engineering-analytics
+    engineering-analytics-current-branch-health:
+        operation: engineering_analytics_current_branch_health
+        enabled: false
     engineering-analytics-flaky-tests:
         operation: engineering_analytics_flaky_tests
         enabled: true
@@ -55,6 +84,7 @@ tools:
             failed_pr_count catches. xfailed_count > 0 means the test is already quarantined but still failing. nodeid
             is a best-effort reconstruction (no '.py' suffix, the file/class boundary folded into '/'), so convert
             before using it as a pytest selector.
+        feature_flag: engineering-analytics
     engineering-analytics-job-aggregates:
         operation: engineering_analytics_job_aggregates
         enabled: false
@@ -79,6 +109,7 @@ tools:
             job-level source isn't synced yet — every figure is then zero/null, so check it before trusting a $0.00.
             estimated_cost_usd is null (not zero) when nothing was costable, and unsettled_jobs counts billable jobs
             still running that are left out of the estimate.
+        feature_flag: engineering-analytics
     engineering-analytics-pr-runs:
         operation: engineering_analytics_pr_runs
         enabled: false
@@ -94,9 +125,28 @@ tools:
     engineering-analytics-repo-run-activity:
         operation: engineering_analytics_repo_run_activity
         enabled: false
+    engineering-analytics-resolve-branch:
+        operation: engineering_analytics_resolve_branch
+        enabled: false
     engineering-analytics-run-failure-logs:
         operation: engineering_analytics_run_failure_logs
-        enabled: false
+        enabled: true
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: CI failure logs for a run
+        description: >
+            The thinned CI failure logs of one workflow run, grouped by failed job — the run-scoped twin of
+            ci-failure-logs, for when you have a run id rather than a PR (default-branch failures, the broken-tests
+            panel's latest_run_id, the run page). Each failed job returns its failure region (error lines plus
+            surrounding context, with "... N lines omitted ..." markers) as ordered lines, every line carrying its
+            original 1-based line number in the full pre-thinning log. logs_available is false when the run didn't fail
+            or its logs aged out of the short Logs retention. Use ci-failure-logs instead when you have a PR number and
+            want all its runs' failures.
+        feature_flag: engineering-analytics
     engineering-analytics-sources:
         operation: engineering_analytics_sources
         enabled: true
@@ -112,7 +162,39 @@ tools:
             The team's connected GitHub data warehouse sources, oldest first, each with its id, repo (owner/name), and
             table prefix. Call this first when a team may have more than one GitHub source, then pass a chosen id as
             source_id to the pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific
-            source. With a single source you can skip it — the other tools default to the oldest connected source.
+            source. With a single source you can skip it — the other tools default to the oldest connected source. The
+            prefix also names the underlying warehouse tables (prefix + github_pull_requests / github_workflow_runs /
+            github_workflow_jobs), which you can query directly with SQL or save as SQL insights and subscriptions when
+            the named tools don't fit (timestamps land as strings; parse with parseDateTimeBestEffort).
+        feature_flag: engineering-analytics
+    engineering-analytics-team-ci-activity:
+        operation: engineering_analytics_team_ci_activity
+        enabled: false
+    engineering-analytics-team-ci-health:
+        operation: engineering_analytics_team_ci_health
+        enabled: true
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Team CI health roster
+        description: >
+            Per-owning-team rollup of the CI test surfaces each team owns, over a window (date_from default -14d,
+            maximum 30 days): flaky-test count (same qualification bar as the flaky-test leaderboard), failed/error span
+            count, and pass-on-retry count, each with an equal-length previous-window twin (*_prior) for honest deltas.
+            Use this for "which team owns the flakiest surfaces right now" and to route a flaky-test or CI Signal to its
+            owning team. Ownership is stamped on the spans at CI emission time from the repo's ownership map
+            (products/*/product.yaml + CODEOWNERS); spans without a stamp aggregate under the literal team 'unowned' (a
+            nonempty 'unowned' row means ownership gaps, not a real team). Teams are organizational owners of code
+            surfaces, never authors. Read all counts as absolute signal, never rates: fast passing runs are not emitted,
+            so there is no honest denominator.
+        feature_flag: engineering-analytics
+    engineering-analytics-team-merge-trend:
+        operation: engineering_analytics_team_merge_trend
+        enabled: false
     engineering-analytics-workflow-jobs:
         operation: engineering_analytics_workflow_jobs
         enabled: true
@@ -131,6 +213,7 @@ tools:
             latest unless you pass run_attempt) so a re-run's attempts don't merge. estimated_cost_usd is null for free
             GitHub-hosted, non-Linux, or unfinished jobs. Returns an empty list when the job-level source isn't synced
             yet.
+        feature_flag: engineering-analytics
     engineering-analytics-workflow-run:
         operation: engineering_analytics_workflow_run
         enabled: false
@@ -154,6 +237,7 @@ tools:
             estimated_cost_usd. Use this for "which runner tier drives this workflow's CI bill" and to spot oversized
             runners. Billable self-hosted Linux tiers carry a cost; github-hosted and non-Linux rows are null. Returns
             an empty list when the job-level source isn't synced yet.
+        feature_flag: engineering-analytics
     engineering-analytics-workflow-runs:
         operation: engineering_analytics_workflow_runs
         enabled: false
@@ -172,6 +256,7 @@ tools:
             ordered events — opened, CI started, CI finished, and merged or closed. Use this to answer "where is this PR
             stuck and what happened to it". metric_quality is "partial" — it covers CI events only; review and comment
             events are not yet available. For aggregate questions use the pull-requests and workflow-health tools.
+        feature_flag: engineering-analytics
     pull-requests:
         operation: engineering_analytics_pull_requests
         enabled: true
@@ -196,6 +281,7 @@ tools:
                 description: >
                     Recency floor for merged/closed PRs — relative ('-30d', '-8w') or ISO8601. Open PRs are always
                     included regardless of age. Defaults to -30d.
+        feature_flag: engineering-analytics
     workflow-health:
         operation: engineering_analytics_workflow_health
         enabled: true
@@ -210,11 +296,17 @@ tools:
         description: >
             Per-workflow CI health over a window: run count, success rate, p50/p95 duration, and last failure time. Use
             this for "is CI getting faster or slower", "which GitHub Actions workflow is the slow or flaky long pole",
-            and CI duration trends. Rates and percentiles are over completed runs only and are null for a window with no
-            completed runs; to get a trend, call this over two adjacent windows and compare.
+            and CI duration trends. p50/p95 are over successful runs only, so superseded cancels and failed runs never
+            bias the duration percentile. For PR-branch CI health, pass run_scope=pull_request (same-repo PRs only —
+            fork PRs carry no PR attribution). To get a trend, call this over two adjacent windows and compare.
         param_overrides:
             date_from:
                 description: Window start — relative ('-24h', '-7d') or ISO8601. Defaults to -24h.
             date_to:
                 description: Window end — relative or ISO8601. Defaults to now.
+            run_scope:
+                description: >
+                    Run scope. Use "pull_request" for PR CI runs (excludes default-branch master/main runs; same-repo
+                    PRs only, since fork PRs carry no PR attribution); omit or pass "all" for every run.
+        feature_flag: engineering-analytics
         url_prefix: /engineering-analytics/workflows

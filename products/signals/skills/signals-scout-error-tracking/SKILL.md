@@ -8,7 +8,7 @@ compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the error-tracking tools in
   the MCP tools section (query-error-tracking-issues-list / -issue, execute-sql over the
-  events table, activity-log-list).
+  events table, advanced-activity-logs-list).
 allowed_tools:
   - emit_report
   - edit_report
@@ -23,7 +23,7 @@ You are a focused error tracking scout. Spot meaningful changes in this team's `
 
 The relationship between `count` and `distinct_users` on `$exception` is the most important signal-vs-noise discriminator. Internalize that shape.
 
-You author reports directly via the report channel (`signals-scout-emit-report` / `signals-scout-edit-report`): you've done the research, so you own each report 1:1 end-to-end rather than firing weak signals for a pipeline to cluster. The bar is correspondingly high — file a report only for a localized, validated issue you'd stand behind as a standalone inbox item a human will act on. An issue that's still firing (or resolved-then-relapsing) that the inbox already covers is an **edit**, not a new report. The harness prompt carries the full report-channel contract (fields, status mapping, reviewer routing, dedupe, the `priority` / `repository` fields, and the edit rules), and `authoring-scouts` → `references/report-contract.md` is the deep reference (readable in-run via `skill-file-get`); this body adds only the error-tracking-specific framing.
+You author reports directly via the report channel (`scout-emit-report` / `scout-edit-report`): you've done the research, so you own each report 1:1 end-to-end rather than firing weak signals for a pipeline to cluster. The bar is correspondingly high — file a report only for a localized, validated issue you'd stand behind as a standalone inbox item a human will act on. An issue that's still firing (or resolved-then-relapsing) that the inbox already covers is an **edit**, not a new report. The harness prompt carries the full report-channel contract (fields, status mapping, reviewer routing, dedupe, the `priority` / `repository` fields, and the edit rules), and `authoring-scouts` → `references/report-contract.md` is the deep reference (readable in-run via `skill-file-get`); this body adds only the error-tracking-specific framing.
 
 ## Quick close-out: is error tracking even loud?
 
@@ -42,9 +42,9 @@ Cycle between these moves; skip what's not useful.
 
 Four cheap reads cold-start a run:
 
-- `signals-scout-scratchpad-search` (`text=error` or `text=exception`) — durable team steering from past error-tracking runs. Entries with `pattern:`, `noise:`, `addressed:`, `dedupe:`, `report:`, or `reviewer:` key prefixes tell you what's normal, what's already surfaced, what to skip, which report covers an issue, and who owns it.
-- `signals-scout-runs-list` (last 7d) — what prior error-tracking scouts found and ruled out.
-- `signals-scout-project-profile-get` — the `$exception` row in `top_events` carries `count`, `distinct_users`, `recent_24h_count`, `recent_24h_users` (pattern the count/users ratio against the table below), plus `existing_inbox_reports` for what's already in the inbox.
+- `scout-scratchpad-search` (`text=error` or `text=exception`) — durable team steering from past error-tracking runs. Entries with `pattern:`, `noise:`, `addressed:`, `dedupe:`, `report:`, or `reviewer:` key prefixes tell you what's normal, what's already surfaced, what to skip, which report covers an issue, and who owns it.
+- `scout-runs-list` (last 7d) — what prior error-tracking scouts found and ruled out.
+- `scout-project-profile-get` — the `$exception` row in `top_events` carries `count`, `distinct_users`, `recent_24h_count`, `recent_24h_users` (pattern the count/users ratio against the table below), plus `existing_inbox_reports` for what's already in the inbox.
 - `inbox-reports-list` (`ordering=-updated_at`, `search`=the specific issue id / fingerprint / failing-activity name) — the reports already in the inbox. Your own report-channel reports persist their backing signals under `source_product=signals_scout` (**not** `error_tracking`), so don't filter `source_product=error_tracking` — you'd miss every report you authored. A fresh burst on an issue you've reported before is an **edit**, not a new report; pull the closest matches with `inbox-reports-retrieve` before authoring.
 
 ### Profile shape — count vs distinct_users
@@ -83,7 +83,7 @@ An issue with `status=resolved` that's now firing again. Filter `query-error-tra
 
 #### Stack-trace activity name
 
-When the issue is server-side, the stack trace usually names the failing activity / view / management command. Extract it (top frame, look for `<activity>_activity`, `def view_name`, etc.) and pair with `activity-log-list` to find a recent deploy or model change correlation. Cross-source convergence is where this scout earns its keep.
+When the issue is server-side, the stack trace usually names the failing activity / view / management command. Extract it (top frame, look for `<activity>_activity`, `def view_name`, etc.) and pair with `advanced-activity-logs-list` to find a recent deploy or model change correlation. Cross-source convergence is where this scout earns its keep.
 
 ### Save memory as you go
 
@@ -103,7 +103,7 @@ By run #5 you'll have a local map of what's normal versus what warrants investig
 The generic report mechanics — search the inbox first (via the `report:error_tracking:<issue_id>` pointer, else an `inbox-reports-list` search on the issue's _specific_ terms — the issue id, the fingerprint, the failing activity name, not a broad word like `error`), edit-vs-author, the status rules, reviewer routing, non-idempotent dedup, and the `priority` / `repository` / actionability fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. This section is only the error-tracking judgment layered on top:
 
 - **Edit** when a still-live report already tracks the same issue and it's still moving — a burst still elevated, a stuck loop still looping, a cluster still growing. A persistent issue is one report across runs: a fresh window confirming it's ongoing is a re-escalation (`append_note` the fresh hourly counts and distinct-user numbers), not a new report per tick. A **status regression** is the exception — an issue the team explicitly `resolved` that's firing again is a genuinely new event; if its prior report is already closed, author a fresh report (per the status rules) and repoint `report:error_tracking:<issue_id>` rather than appending to a resolved item.
-- **Author** when nothing live covers the issue. A report-worthy finding names the issue (issue id + fingerprint), shows the count-vs-distinct_users shape that makes it signal, quantifies the burst against baseline with an hourly breakdown, dates the onset, and — when the stack trace names a server activity / view — cites it with an `activity-log-list` deploy correlation, all in the `evidence`. Most findings are investigations → `actionability=requires_human_input` + `repository=NO_REPO`. The exception this surface earns: a well-localized bug whose stack trace points at a specific named file / module in a known repo can be `actionability=immediately_actionable` + `repository=owner/repo` to open a draft fix PR. Priority: a fresh broad-reach regression (count and distinct_users both spiking, per-request server path) or a resolved-issue status regression is **P1**, **P2** when reach is moderate; a stuck loop or narrow-reach cluster is **P3**, **P2** when count is in the thousands and fresh.
+- **Author** when nothing live covers the issue. A report-worthy finding names the issue (issue id + fingerprint), shows the count-vs-distinct_users shape that makes it signal, quantifies the burst against baseline with an hourly breakdown, dates the onset, and — when the stack trace names a server activity / view — cites it with an `advanced-activity-logs-list` deploy correlation, all in the `evidence`. Most findings are investigations → `actionability=requires_human_input` + `repository=NO_REPO`. The exception this surface earns: a well-localized bug whose stack trace points at a specific named file / module in a known repo can be `actionability=immediately_actionable` + `repository=owner/repo` to open a draft fix PR. Priority: a fresh broad-reach regression (count and distinct_users both spiking, per-request server path) or a resolved-issue status regression is **P1**, **P2** when reach is moderate; a stuck loop or narrow-reach cluster is **P3**, **P2** when count is in the thousands and fresh.
 - **Remember** if it's below the bar but worth carrying forward (an issue drifting inside the noise band, a fingerprint building history), or to record what you ruled out and why.
 - **Skip** with a one-line note if a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox report, already covers it.
 
@@ -111,7 +111,7 @@ Sibling courtesy: raw log-line rate/level shifts belong to the logs scout; LLM `
 
 ### Close out
 
-**Summarize the run** — one paragraph: looked at what, which reports you authored or edited, what you remembered, what you ruled out. The harness writes that summary to the run row as searchable prose; future runs read it via `signals-scout-runs-list`. Do **not** write a separate "run metadata" scratchpad entry — the run summary already serves that role.
+**Summarize the run** — one paragraph: looked at what, which reports you authored or edited, what you remembered, what you ruled out. The harness writes that summary to the run row as searchable prose; future runs read it via `scout-runs-list`. Do **not** write a separate "run metadata" scratchpad entry — the run summary already serves that role.
 
 ## Disqualifiers (skip these)
 
@@ -128,19 +128,19 @@ Direct calls (read-only):
 - `query-error-tracking-issues-list` — start here. Filter `status=active`, sort by `last_seen_at` desc.
 - `query-error-tracking-issue` — drill into one issue (frames, sample events, occurrence counts).
 - `execute-sql` against `events` — for hourly breakdowns, distinct-user counts, per-fingerprint correlation, time-window aggregations.
-- `activity-log-list` — pair stack-trace activity names with recent deploys or model changes for cross-source convergence.
+- `advanced-activity-logs-list` — pair stack-trace activity names with recent deploys or model changes for cross-source convergence.
 
 Inbox & reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):
 
 - `inbox-reports-list` / `inbox-reports-retrieve` — the reports already in the inbox; check before authoring so you edit instead of duplicating (`ordering=-updated_at`).
 - `inbox-report-artefacts-list` — a comparable report's artefact log; reviewer precedent.
-- `signals-scout-members-list` — the in-run roster for routing `suggested_reviewers` to a service / module / activity owner.
+- `scout-members-list` — the in-run roster for routing `suggested_reviewers` to a service / module / activity owner.
 
 Harness-level:
 
-- `signals-scout-project-profile-get` / `signals-scout-scratchpad-search` / `signals-scout-runs-list` / `signals-scout-runs-retrieve` — orientation + dedupe.
-- `signals-scout-emit-report` / `signals-scout-edit-report` — author a report / edit an existing one (the report-channel contract is in the harness prompt).
-- `signals-scout-scratchpad-remember` / `signals-scout-scratchpad-forget` — remember / prune stale memory keys.
+- `scout-project-profile-get` / `scout-scratchpad-search` / `scout-runs-list` / `scout-runs-retrieve` — orientation + dedupe.
+- `scout-emit-report` / `scout-edit-report` — author a report / edit an existing one (the report-channel contract is in the harness prompt).
+- `scout-scratchpad-remember` / `scout-scratchpad-forget` — remember / prune stale memory keys.
 
 ## When to stop
 

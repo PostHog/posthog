@@ -43,6 +43,10 @@ import type {
     _LogsCountResponseApi,
     _LogsFacetValuesRequestApi,
     _LogsFacetValuesResponseApi,
+    _LogsGroupByRequestApi,
+    _LogsGroupByResponseApi,
+    _LogsPatternsDiffRequestApi,
+    _LogsPatternsDiffResponseApi,
     _LogsPatternsRequestApi,
     _LogsPatternsResponseApi,
     _LogsQueryRequestApi,
@@ -399,6 +403,23 @@ export const logsFacetValuesCreate = async (
     })
 }
 
+export const getLogsGroupByCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/group-by/`
+}
+
+export const logsGroupByCreate = async (
+    projectId: string,
+    _logsGroupByRequestApi: _LogsGroupByRequestApi,
+    options?: RequestInit
+): Promise<_LogsGroupByResponseApi> => {
+    return apiMutator<_LogsGroupByResponseApi>(getLogsGroupByCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsGroupByRequestApi),
+    })
+}
+
 export const getLogsHasLogsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/has_logs/`
 }
@@ -427,6 +448,23 @@ export const logsPatternsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_logsPatternsRequestApi),
+    })
+}
+
+export const getLogsPatternsDiffCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/patterns_diff/`
+}
+
+export const logsPatternsDiffCreate = async (
+    projectId: string,
+    _logsPatternsDiffRequestApi: _LogsPatternsDiffRequestApi,
+    options?: RequestInit
+): Promise<_LogsPatternsDiffResponseApi> => {
+    return apiMutator<_LogsPatternsDiffResponseApi>(getLogsPatternsDiffCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsPatternsDiffRequestApi),
     })
 }
 

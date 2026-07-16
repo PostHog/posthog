@@ -469,11 +469,6 @@
         "params": [],
         "scope": "project"
     },
-    "emailMFAVerify": {
-        "template": "/login/verify",
-        "params": [],
-        "scope": "global"
-    },
     "embedded": {
         "template": "/embedded/{token}",
         "params": ["token"],

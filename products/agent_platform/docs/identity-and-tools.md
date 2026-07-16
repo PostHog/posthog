@@ -51,8 +51,10 @@ slack · posthog_internal · shared_secret · service`) defined in
 
 `principalsMatch(stored, incoming)` decides whether an inbound request may
 resume/append to an existing session: Slack matches on `(workspace_id,
-slack_user_id)`, JWT on `sub`, posthog on `(user_id, team_id)`, shared_secret
-on `team_id`.
+slack_user_id)`, JWT on `sub`, posthog on `(user_id, team_id)`, `shared_secret`
+on `team_id`. When either side carries a `canonical_agent_user_id` (set by edge
+admission, below), both must additionally resolve to the same canonical
+identity — a rebound identity is a new principal, not a resume.
 
 ## From request to a running session
 
@@ -81,6 +83,50 @@ durable identity behind it (keyed by `application_id · principal_kind ·
 principal_id`); the **CredentialBroker** holds the short-lived edge credential
 (e.g. the PostHog bearer the caller presented) keyed by `session_id`.
 
+## Authoritative identity & edge admission
+
+The five auth modes prove _the transport_ is authentic (a valid Slack
+signature, a well-formed JWT); on their own they don't prove _which human_ the
+agent should trust across transports. An agent can opt into a stronger model by
+declaring **one** `spec.authoritative_provider` — an `identity_providers[]`
+entry that can prove a subject (`posthog`, or `oauth2` with a `userinfo_url`).
+When set, the **ingress edge** must resolve a verified **canonical identity**
+from that provider _before_ a session is enqueued
+([AdmissionService.resolve](../services/agent-shared/src/runtime/admission.ts)).
+
+Two `agent_user` flavours plus one binding table carry this:
+
+| Row                       | `principal_kind`                | `principal_id`                      | Meaning                                                                                                       |
+| ------------------------- | ------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| transport principal       | the transport (`slack`, `http`) | per-transport sender id (`T01:U01`) | who sent _this_ message, per that transport                                                                   |
+| canonical identity        | `identity:<provider>`           | the provider's proven `subject`     | the source-of-truth human                                                                                     |
+| `agent_transport_binding` | —                               | —                                   | durable transport-principal → canonical map, provider-scoped; unique per `(application, transport principal)` |
+
+Resolution order (fail-closed — never enqueue on doubt):
+
+1. **No authoritative provider** → `passthrough`: the transport claim _is_ the
+   identity (today's default / public agents).
+2. **Per-request bearer** the provider can `verifyBearer` (HTTP) → verified on
+   every request, then upsert canonical + credential + binding. A
+   present-but-invalid bearer goes straight to re-auth; a stored binding never
+   rescues a stale token (freshness wins).
+3. **Durable binding** (Slack/Discord, where the proof is the prior link, not a
+   token on this request) → admit, but only while the binding's provider still
+   matches and its authoritative credential is still active; a
+   dangling/stale/revoked one falls through to re-auth.
+4. Otherwise → `auth_required`: deliver an auth block (a link) and enqueue
+   nothing. The OAuth callback runs `AdmissionService.complete`, which creates
+   the canonical identity, stores the authoritative credential under it, and
+   writes the binding.
+
+One canonical identity can own many bindings — auth once via Slack and every
+future turn (and the same person via another transport) resolves the same
+identity. Secondary providers' credentials (below) hang off the **canonical**
+`agent_user`, so a person's GitHub/Grafana links are shared across transports.
+
+> Wired for `slack` triggers only today; the spec schema fail-closes a spec that
+> sets `authoritative_provider` alongside a not-yet-wired trigger type.
+
 ## Linked identities
 
 A principal (say a Slack user) can act as themselves on external systems once
@@ -92,7 +138,10 @@ Providers are declared in `spec.identity_providers[]` (`kind: posthog` or
 `oauth2`, `binding: principal` (per-asker, default) or `agent`). Identity-
 establishing providers (e.g. PostHog OAuth) record a `subject` — the proven
 external identity — which is how a Slack user gets bridged to "their PostHog
-person".
+person". When one such provider is the agent's `authoritative_provider`, its
+subject becomes the canonical identity (above) and every _other_ provider's
+credential keys off that canonical `agent_user` rather than the transport
+principal.
 
 ```mermaid
 sequenceDiagram

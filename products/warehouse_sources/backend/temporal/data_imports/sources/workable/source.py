@@ -47,7 +47,6 @@ class WorkableSource(ResumableSource[WorkableSourceConfig, WorkableResumeConfig]
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Workable",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Workable account subdomain and an SPI access token to pull your Workable recruiting data into the PostHog Data warehouse.
 
 You can create an access token in your Workable account under **Settings > Integrations > Access Tokens** (admins only). Grant the following read scopes:

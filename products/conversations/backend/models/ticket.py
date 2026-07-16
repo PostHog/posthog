@@ -148,6 +148,12 @@ class Ticket(UUIDTModel):
                 name="posthog_con_snooze_wake_idx",
                 condition=models.Q(snoozed_until__isnull=False),
             ),
+            models.Index(fields=["organization_id"], name="posthog_org_id_idx"),
+            models.Index(
+                fields=["organization_id", "slack_channel_id"],
+                name="posthog_org_slack_ch_idx",
+                condition=models.Q(channel_source="slack"),
+            ),
         ]
         constraints = [
             models.UniqueConstraint(fields=["team", "ticket_number"], name="unique_ticket_number_per_team"),

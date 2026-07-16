@@ -1,7 +1,8 @@
 import { DateTime } from 'luxon'
 
+import { buildIntegerMatcher } from '~/common/config/config'
 import { AsyncOutput } from '~/common/outputs'
-import { PersonContext, PersonOutputs } from '~/ingestion/common/persons/person-context'
+import { MergeEventsConfig, PersonContext, PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { PersonEventProcessor } from '~/ingestion/common/persons/person-event-processor'
 import { PersonMergeService } from '~/ingestion/common/persons/person-merge-service'
 import { determineMergeMode } from '~/ingestion/common/persons/person-merge-types'
@@ -35,6 +36,12 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
         options.PERSON_MERGE_ASYNC_ENABLED,
         options.PERSON_MERGE_SYNC_BATCH_SIZE
     )
+    // Built once at pipeline construction (not per event). '*' allows every team.
+    const mergeEventsConfig: MergeEventsConfig = {
+        enabled: options.PERSON_MERGE_EVENTS_ENABLED,
+        partitionCount: options.PERSON_MERGE_EVENTS_PARTITION_COUNT,
+        isTeamEnabled: buildIntegerMatcher(options.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST, true),
+    }
 
     return async function processPersonsStep(
         input: TInput
@@ -59,10 +66,7 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
             mergeMode,
             options.PERSON_PROPERTIES_UPDATE_ALL,
             shouldUpdateLastSeenAt,
-            {
-                enabled: options.PERSON_MERGE_EVENTS_ENABLED,
-                partitionCount: options.PERSON_MERGE_EVENTS_PARTITION_COUNT,
-            }
+            mergeEventsConfig
         )
 
         const processor = new PersonEventProcessor(

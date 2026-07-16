@@ -1,20 +1,20 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { dateFilterToText, getDefaultInterval } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { hogqlQuery } from '~/queries/query'
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { type AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { type AnyPropertyFilter, IntervalType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import toolQualityQueryTemplate from '../backend/templates/tool_quality.sql?raw'
 import type { mcpAnalyticsToolQualityLogicType } from './mcpAnalyticsToolQualityLogicType'
+import { buildBucketKeys, normalizeBucket } from './timeBuckets'
 
 // `$mcp_tool_category` is stamped onto every $mcp_tool_call event by the producer
 // (PostHog's MCP server from its catalog; external servers via the SDK). We read
@@ -30,14 +30,16 @@ WHERE event = '$mcp_tool_call'
 ORDER BY category
 `
 
-// Per-category call counts over a fixed 7-day window powering the "share of MCP
+// Per-category call counts over the selected window, powering the "share of MCP
 // usage" headline. Rows with an empty category count toward the total but not the
-// in-scope numerator, so uncategorized traffic dilutes the share as expected.
-const CATEGORY_COUNTS_QUERY = hogql`
+// in-scope numerator, so uncategorized traffic dilutes the share as expected. The
+// date range rides in via the {filters} placeholder so the headline tracks the
+// same window as the rest of the tab.
+const CATEGORY_COUNTS_QUERY = `
 SELECT toString(properties.$mcp_tool_category) AS category, count() AS calls
 FROM events
 WHERE event = '$mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 7 DAY
+    AND {filters}
 GROUP BY category
 `
 
@@ -62,6 +64,30 @@ export interface SortState {
 export interface DateFilter {
     dateFrom: string | null
     dateTo: string | null
+}
+
+// Carry the selected window across navigation as date_from / date_to, mirroring the tab's
+// actionToUrl. Only set them when present so a cleared range stays out of the URL.
+export function mcpDateSearchParams(dateFilter: DateFilter): Record<string, string> {
+    const params: Record<string, string> = {}
+    if (dateFilter.dateFrom) {
+        params.date_from = dateFilter.dateFrom
+    }
+    if (dateFilter.dateTo) {
+        params.date_to = dateFilter.dateTo
+    }
+    return params
+}
+
+// Link from the Tool quality tab to an individual tool's report, keeping the date filter so
+// the tool page opens on the same window.
+export function mcpToolReportUrl(tool: string, dateFilter: DateFilter): string {
+    return combineUrl(urls.mcpAnalyticsTool(tool), mcpDateSearchParams(dateFilter)).url
+}
+
+// Link back from a tool report to the Tool quality tab, restoring the date filter.
+export function mcpToolQualityUrlWithDates(dateFilter: DateFilter): string {
+    return combineUrl(urls.mcpAnalyticsToolQuality(), mcpDateSearchParams(dateFilter)).url
 }
 
 export interface ToolQualityRow {
@@ -100,46 +126,17 @@ export interface DailyChartData {
 const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
 const DEFAULT_SORT: SortState = { column: 'total_calls', direction: 'DESC' }
 
-const EMPTY_CHART_DATA: DailyChartData = {
-    labels: [],
-    calls: [],
-    errors: [],
-    successRate: [],
-    p50: [],
-    p95: [],
-    p99: [],
-}
-
-// Pivot per-day rows into chart series over a gap-free day axis: ClickHouse only
-// returns days that had events, so missing days are filled in to keep the x-axis
-// linear. Counts fill with 0 (genuinely no activity); rate and latency fill with
-// NaN so the chart skips the point instead of drawing a misleading dip to zero.
-// `range` spans the axis over the full selected window (so empty leading/trailing
-// days still show); without it, the axis spans only the days that have data.
-export function buildDailyChartData(
-    dailyStats: DailyToolStat[],
-    range?: { start: string; end: string }
-): DailyChartData {
-    let startDay: string
-    let endDay: string
-    if (range) {
-        startDay = range.start
-        endDay = range.end
-    } else if (dailyStats.length > 0) {
-        startDay = dailyStats[0].day
-        endDay = dailyStats[dailyStats.length - 1].day
-    } else {
-        return EMPTY_CHART_DATA
-    }
-    const byDay = new Map(dailyStats.map((r) => [r.day, r]))
-    const end = dayjs(endDay)
-    const labels: string[] = []
-    for (let day = dayjs(startDay); !day.isAfter(end); day = day.add(1, 'day')) {
-        labels.push(day.format('YYYY-MM-DD'))
-    }
-    const rows = labels.map((day) => byDay.get(day))
+// Pivot per-bucket rows onto the full set of interval buckets spanning the selected window:
+// ClickHouse only returns buckets that had events, so `bucketKeys` (built from the window at the
+// active interval) keeps the x-axis linear and covering the whole range regardless of granularity.
+// Counts fill with 0 (genuinely no activity); rate and latency fill with NaN so the chart skips the
+// point instead of drawing a misleading dip to zero. Rows match by normalized bucket key, so day,
+// hour, and minute intervals all line up.
+export function buildDailyChartData(dailyStats: DailyToolStat[], bucketKeys: string[]): DailyChartData {
+    const byBucket = new Map(dailyStats.map((r) => [normalizeBucket(r.day), r]))
+    const rows = bucketKeys.map((k) => byBucket.get(k))
     return {
-        labels,
+        labels: bucketKeys,
         calls: rows.map((r) => r?.calls ?? 0),
         errors: rows.map((r) => r?.errors ?? 0),
         successRate: rows.map((r) => (r && r.calls ? ((r.calls - r.errors) / r.calls) * 100 : NaN)),
@@ -221,8 +218,17 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             [] as CategoryCount[],
             {
                 loadCategoryCounts: async (): Promise<CategoryCount[]> => {
-                    const response = await hogqlQuery(CATEGORY_COUNTS_QUERY)
-                    return ((response?.results as unknown[][]) ?? []).map((r) => ({
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: CATEGORY_COUNTS_QUERY,
+                        filters: {
+                            dateRange: {
+                                date_from: values.dateFilter.dateFrom,
+                                date_to: values.dateFilter.dateTo,
+                            },
+                        },
+                    })) as HogQLQueryResponse
+                    return ((response.results as unknown[][]) ?? []).map((r) => ({
                         category: String(r[0] ?? ''),
                         calls: Number(r[1] ?? 0),
                     }))
@@ -286,9 +292,11 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                     const properties = [...values.categoryProperties, ...toolProperty]
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
+                        // `values.interval` is a fixed IntervalType from getDefaultInterval, never user
+                        // input, so interpolating it into the dateTrunc is safe.
                         query: `
 SELECT
-    toDate(timestamp) AS day,
+    dateTrunc('${values.interval}', timestamp) AS day,
     count() AS calls,
     countIf(toBool(properties.$mcp_is_error)) AS errors,
     round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50,
@@ -341,6 +349,19 @@ ORDER BY day
                       ]
                     : [],
         ],
+        // Human-readable label for the active window (e.g. "Last 7 days"), used by
+        // the scope-share headline so it never falls out of sync with the filter.
+        dateRangeLabel: [
+            (s) => [s.dateFilter],
+            (dateFilter: DateFilter): string =>
+                dateFilterToText(dateFilter.dateFrom, dateFilter.dateTo, 'the selected range') ?? 'the selected range',
+        ],
+        // Grouping interval for the daily chart — PostHog's standard auto-choice, so a sub-day window
+        // (e.g. last 12 hours) buckets hourly instead of collapsing to a single day point.
+        interval: [
+            (s) => [s.dateFilter],
+            (dateFilter: DateFilter): IntervalType => getDefaultInterval(dateFilter.dateFrom, dateFilter.dateTo),
+        ],
         scopeShare: [
             (s) => [s.categoryCounts, s.selectedCategories],
             (categoryCounts: CategoryCount[], selectedCategories: string[]): ScopeShare => {
@@ -361,22 +382,26 @@ ORDER BY day
             },
         ],
         dailyChartData: [
-            (s) => [s.dailyStats, s.dateFilter, teamLogic.selectors.timezone],
-            (dailyStats: DailyToolStat[], dateFilter: DateFilter, timezone: string): DailyChartData => {
-                const start = dateStringToDayJs(dateFilter.dateFrom, timezone)
-                const end =
-                    (dateFilter.dateTo ? dateStringToDayJs(dateFilter.dateTo, timezone) : dayjs().tz(timezone)) ??
-                    dayjs()
-                const range = start ? { start: start.format('YYYY-MM-DD'), end: end.format('YYYY-MM-DD') } : undefined
-                return buildDailyChartData(dailyStats, range)
+            (s) => [s.dailyStats, s.dateFilter, s.interval, teamLogic.selectors.timezone],
+            (
+                dailyStats: DailyToolStat[],
+                dateFilter: DateFilter,
+                interval: IntervalType,
+                timezone: string
+            ): DailyChartData => {
+                const bucketKeys = buildBucketKeys(dateFilter.dateFrom, dateFilter.dateTo, timezone, interval)
+                return buildDailyChartData(dailyStats, bucketKeys)
             },
         ],
     }),
 
     listeners(({ actions, values }) => ({
-        // Both scope filters refetch the table and the charts
+        // Both scope filters refetch the table and the charts; a date change also
+        // refreshes the category counts so the "share of MCP usage" headline tracks
+        // the same window.
         setDateFilter: () => {
             actions.reloadAll()
+            actions.loadCategoryCounts()
         },
         setSelectedCategories: () => {
             actions.reloadAll()
@@ -406,6 +431,11 @@ ORDER BY day
             } else {
                 delete searchParams.tool
             }
+            if (values.selectedCategories.length > 0) {
+                searchParams.categories = values.selectedCategories
+            } else {
+                delete searchParams.categories
+            }
             if (values.dateFilter.dateFrom) {
                 searchParams.date_from = values.dateFilter.dateFrom
             } else {
@@ -421,6 +451,7 @@ ORDER BY day
         return {
             setSelectedTool: syncUrl,
             setDateFilter: syncUrl,
+            setSelectedCategories: syncUrl,
         }
     }),
 
@@ -429,6 +460,14 @@ ORDER BY day
             const tool = typeof searchParams.tool === 'string' && searchParams.tool ? searchParams.tool : null
             if (tool !== values.selectedTool) {
                 actions.setSelectedTool(tool)
+            }
+            const categories = Array.isArray(searchParams.categories)
+                ? searchParams.categories.map(String)
+                : typeof searchParams.categories === 'string' && searchParams.categories
+                  ? [searchParams.categories]
+                  : []
+            if (JSON.stringify(categories) !== JSON.stringify(values.selectedCategories)) {
+                actions.setSelectedCategories(categories)
             }
             const dateFrom =
                 typeof searchParams.date_from === 'string' ? searchParams.date_from : values.dateFilter.dateFrom

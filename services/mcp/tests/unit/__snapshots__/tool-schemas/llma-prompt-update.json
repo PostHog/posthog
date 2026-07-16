@@ -30,6 +30,11 @@
         "prompt_name": {
             "pattern": "^[^/]+$",
             "type": "string"
+        },
+        "version_description": {
+            "description": "Optional note describing what changed in this version. Shown in the version history.",
+            "maxLength": 400,
+            "type": "string"
         }
     },
     "required": ["prompt_name"],

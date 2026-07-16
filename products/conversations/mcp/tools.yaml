@@ -9,6 +9,9 @@ feature: conversations
 url_prefix: /conversations/tickets
 ui_apps: {}
 tools:
+    conversations-tickets-ai-feedback-create:
+        operation: conversations_tickets_ai_feedback_create
+        enabled: false
     conversations-tickets-bulk-update-status-create:
         operation: conversations_tickets_bulk_update_status_create
         enabled: false
@@ -154,6 +157,9 @@ tools:
         enabled: false
     conversations-views-list:
         operation: conversations_views_list
+        enabled: false
+    conversations-views-partial-update:
+        operation: conversations_views_partial_update
         enabled: false
     conversations-views-retrieve:
         operation: conversations_views_retrieve

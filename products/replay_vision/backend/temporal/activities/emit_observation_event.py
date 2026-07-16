@@ -22,7 +22,7 @@ _EVENT_SOURCE = "replay_vision"
 
 
 @activity.defn
-@track_activity()
+@track_activity(side_effect="event")
 async def emit_observation_event_activity(inputs: EmitObservationEventInputs) -> None:
     """Capture the `$recording_observed` event into the customer's events table; dedup-keyed by observation_id."""
     await database_sync_to_async(_emit_event, thread_sensitive=False)(inputs)
@@ -69,7 +69,8 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
     }
     distinct_id = (
         str(observation.triggered_by_user_id)
-        if observation.triggered_by_user_id is not None and observation.triggered_by == ObservationTrigger.ON_DEMAND
+        if observation.triggered_by_user_id is not None
+        and observation.triggered_by in (ObservationTrigger.ON_DEMAND, ObservationTrigger.RETRY)
         else replay_vision_distinct_id(observation.team_id)
     )
 

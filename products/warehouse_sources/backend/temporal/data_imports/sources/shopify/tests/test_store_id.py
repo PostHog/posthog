@@ -21,6 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.sh
         ("https://admin.shopify.com/store/my-store/products", "my-store"),
         # Accidental double suffix collapses back to the bare subdomain.
         ("my-store.myshopify.com.myshopify.com", "my-store"),
+        # A trailing dot (FQDN form) is tolerated rather than rejected.
+        ("my-store.myshopify.com.", "my-store"),
+        ("https://my-store.myshopify.com./", "my-store"),
         ("store123", "store123"),
     ],
 )

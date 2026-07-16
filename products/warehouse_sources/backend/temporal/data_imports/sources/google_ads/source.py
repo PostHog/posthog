@@ -56,6 +56,10 @@ GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS = 30 * 24 * 60 * 60
 class GoogleAdsSource(
     ResumableSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, GoogleAdsResumeConfig], OAuthMixin
 ):
+    supported_versions = ("v23",)
+    default_version = "v23"
+    api_docs_url = "https://developers.google.com/google-ads/api/docs/release-notes"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GOOGLEADS
@@ -93,6 +97,10 @@ class GoogleAdsSource(
             # contains the bare "UNAUTHENTICATED" token, so the gRPC-status keys above don't catch it.
             # Retrying cannot recover — the user must reconnect their Google Ads account.
             "Request is missing required authentication credential": "Your Google Ads connection could not be authenticated. Please reconnect your Google Ads account.",
+            # The other gapic-wrapped Unauthenticated variant, str() "401 Request had invalid authentication
+            # credentials. ..." — raised when the OAuth access token itself is rejected. Same story: no bare
+            # "UNAUTHENTICATED" token, retrying cannot recover, the user must reconnect their Google Ads account.
+            "Request had invalid authentication credentials": "Your Google Ads connection could not be authenticated. Please reconnect your Google Ads account.",
         }
 
     # TODO: clean up google ads source to not have two auth config options
@@ -201,7 +209,11 @@ class GoogleAdsSource(
                         secret=False,
                     ),
                     SourceFieldOauthConfig(
-                        name="google_ads_integration_id", label="Google Ads account", required=True, kind="google-ads"
+                        name="google_ads_integration_id",
+                        label="Google Ads account",
+                        required=True,
+                        kind="google-ads",
+                        requiredScopes="https://www.googleapis.com/auth/adwords",
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="is_mcc_account",
@@ -313,9 +325,15 @@ class GoogleAdsSource(
             customer_resource_name = f"customers/{clean_customer_id(config.customer_id)}"
             is_valid = customer_resource_name in accessible_customers.resource_names
             if not is_valid:
+                # `list_accessible_customers` returns only accounts the login can reach directly,
+                # never client accounts nested under a manager. A valid client-account id therefore
+                # lands here when the MCC toggle is off, so point at that toggle rather than telling
+                # the user their (correct) id is wrong. Mirrors the PERMISSION_DENIED message below.
                 return (
                     False,
-                    f"Customer ID {config.customer_id} is not correct. Please check your customer ID and try again.",
+                    f"Customer ID {config.customer_id} isn't accessible with the connected Google login. "
+                    "Check the ID is correct, and if it's a client account under a manager (MCC) account, "
+                    'enable "Using MCC account?" and enter your manager\'s customer ID, then try again.',
                 )
             return True, None
         except Integration.DoesNotExist:
@@ -340,6 +358,18 @@ class GoogleAdsSource(
                     False,
                     "Your Google Ads connection is no longer available — it may have been disconnected. "
                     "Please reconnect your Google Ads account.",
+                )
+            # A gRPC PERMISSION_DENIED ("The caller does not have permission") means the connected Google
+            # login can't access this customer ID — the wrong customer/manager (MCC) account, or access
+            # that was never granted. list_accessible_customers raises it as a raw _InactiveRpcError whose
+            # str() is a protobuf dump (with a per-request peer IP) the user can't act on, so surface an
+            # actionable prompt instead of leaking it, mirroring the MCC USER_PERMISSION_DENIED message.
+            if "PERMISSION_DENIED" in error_message or "caller does not have permission" in error_message:
+                return (
+                    False,
+                    "PostHog doesn't have permission to access this Google Ads account. Verify the "
+                    "customer ID (and manager account, if using an MCC) is accessible to the connected "
+                    "Google login, then reconnect your Google Ads account.",
                 )
             # A transient Google-side blip (INTERNAL / UNAVAILABLE) stringifies as a raw gRPC status and
             # protobuf failure dump the user can't act on. The sync rides these out in-process; here on

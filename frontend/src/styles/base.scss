@@ -1101,13 +1101,13 @@
     );
 }
 
-@layer base {
-    // allowing @import to be inside layer
-    /* stylelint-disable-next-line no-invalid-position-at-import-rule */
-    @import '../../node_modules/react-toastify/dist/ReactToastify'; // Toastify is in base so that we can override
-
-    // allowing @import to be first
-    /* stylelint-disable-next-line order/order */
+// Restore a real default border color (Tailwind v4 preflight resets it to currentColor).
+// Kept in @layer components — one layer above preflight's @layer base — so it wins by layer
+// order rather than source order. Source order is unreliable: vite 8's rolldown CSS pipeline
+// can emit preflight after this rule, and inside the toolbar's shadow root there is no <html>
+// to raise specificity against. Layer order holds in both places, so a bare `*` still yields
+// to component and utility borders (higher layers / unlayered) as before.
+@layer components {
     *,
     ::after,
     ::before,
@@ -1115,7 +1115,15 @@
     ::file-selector-button {
         border-color: var(--color-border-primary, currentColor);
     }
+}
 
+@layer base {
+    // allowing @import to be inside layer
+    /* stylelint-disable-next-line no-invalid-position-at-import-rule */
+    @import '../../node_modules/react-toastify/dist/ReactToastify'; // Toastify is in base so that we can override
+
+    // allowing @import to be first
+    /* stylelint-disable-next-line order/order */
     .rendering-pixelated {
         image-rendering: pixelated;
     }

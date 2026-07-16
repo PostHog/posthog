@@ -6,18 +6,21 @@ import { dayjs } from 'lib/dayjs'
 
 import type { ActivityRun } from '../components/RunActivityChart'
 import {
+    engineeringAnalyticsCurrentBranchHealth,
     engineeringAnalyticsMasterFailures,
     engineeringAnalyticsRepoOverview,
     engineeringAnalyticsRepoRunActivity,
     engineeringAnalyticsRunFailureLogs,
 } from '../generated/api'
 import type {
+    CurrentBranchHealthApi,
     MasterFailureGroupApi,
     RepoOverviewApi,
     RunFailureLogsApi,
     WorkflowRunActivityApi,
 } from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
+import { HUB_PREVIEW_MAX, HUB_PREVIEW_ROWS, HUB_PREVIEW_STEP } from '../lib/preview'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { PullRequestRow, STUCK_AFTER_DAYS, engineeringAnalyticsLogic, isStuck } from './engineeringAnalyticsLogic'
 import type { repoOverviewLogicType } from './repoOverviewLogicType'
@@ -33,6 +36,12 @@ export interface CostShareRow {
     workflowName: string | null
     costUsd: number
     share: number
+}
+
+export interface CurrentHealthSummary {
+    settledWorkflows: number
+    failingNow: number
+    failingWorkflowNames: string[]
 }
 
 export const repoOverviewLogic = kea<repoOverviewLogicType>([
@@ -57,6 +66,8 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
 
     actions({
         loadLogsForRun: (runId: number) => ({ runId }),
+        showMorePrs: true,
+        showMoreWorkflows: true,
     }),
 
     loaders(({ values }) => ({
@@ -79,6 +90,18 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                         date_from: MASTER_FAILURES_WINDOW,
                         source_id: values.sourceId ?? undefined,
                     }),
+            },
+        ],
+        currentBranchHealth: [
+            null as CurrentBranchHealthApi | null,
+            {
+                loadCurrentBranchHealth: async (_: void, breakpoint): Promise<CurrentBranchHealthApi> => {
+                    const health = await engineeringAnalyticsCurrentBranchHealth(projectId(), {
+                        source_id: values.sourceId ?? undefined,
+                    })
+                    breakpoint()
+                    return health
+                },
             },
         ],
         // One collapsed point per default-branch commit (all its workflows folded together) for the
@@ -137,14 +160,43 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 loadRepoActivityFailure: () => true,
             },
         ],
+        currentBranchHealthFailed: [
+            false,
+            {
+                loadCurrentBranchHealth: () => false,
+                loadCurrentBranchHealthSuccess: () => false,
+                loadCurrentBranchHealthFailure: () => true,
+            },
+        ],
+        // How many rows the hub's preview tables show. Start short (HUB_PREVIEW_ROWS), grow by a fixed
+        // step on "Show more", capped so the hub stays a preview — the full tables live on the dedicated
+        // pages. No reset on reload: slicing tolerates any list length, and keeping the user's expansion
+        // across a window change is less surprising than snapping back.
+        prPreviewCount: [
+            HUB_PREVIEW_ROWS,
+            { showMorePrs: (count) => Math.min(HUB_PREVIEW_MAX, count + HUB_PREVIEW_STEP) },
+        ],
+        workflowPreviewCount: [
+            HUB_PREVIEW_ROWS,
+            { showMoreWorkflows: (count) => Math.min(HUB_PREVIEW_MAX, count + HUB_PREVIEW_STEP) },
+        ],
     }),
 
     selectors({
         jobsAvailable: [(s) => [s.overview], (overview): boolean => overview?.jobs_available ?? false],
-        defaultBranch: [(s) => [s.overview], (overview): string => overview?.default_branch ?? 'master'],
-        failingWorkflowCount: [
-            (s) => [s.masterFailures],
-            (masterFailures): number => new Set(masterFailures.map((group) => group.workflow_name)).size,
+        overviewDefaultBranch: [(s) => [s.overview], (overview): string => overview?.default_branch ?? 'master'],
+        currentDefaultBranch: [
+            (s) => [s.currentBranchHealth, s.overviewDefaultBranch],
+            (currentBranchHealth, overviewDefaultBranch): string =>
+                currentBranchHealth?.default_branch ?? overviewDefaultBranch,
+        ],
+        currentHealthSummary: [
+            (s) => [s.currentBranchHealth],
+            (currentBranchHealth): CurrentHealthSummary => ({
+                settledWorkflows: currentBranchHealth?.settled_workflows ?? 0,
+                failingNow: currentBranchHealth?.failing_workflows ?? 0,
+                failingWorkflowNames: currentBranchHealth?.failing_workflow_names ?? [],
+            }),
         ],
         // Backend-collapsed commit points, mapped to the shared chart shape (one dot per default-branch
         // commit: start time, wall-clock CI duration, overall verdict).
@@ -158,6 +210,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                     durationSeconds: point.duration_seconds,
                     headBranch: point.head_branch,
                     prNumber: point.pr_number,
+                    headSha: point.head_sha,
                 })),
         ],
         activityTruncated: [(s) => [s.repoActivity], (repoActivity): boolean => repoActivity.truncated],
@@ -212,18 +265,91 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
         // up" chart. The backend delivers a trailing rolling ratio, so a null only means the whole
         // trailing window shipped nothing; plotted as 0 to keep the axis anchored. Null when the series
         // is empty (job source unsynced), so the section falls back to its existing empty state.
+        // Labels stay ISO — the quill time-series chart owns tick/tooltip date formatting.
         costPerMergeSeries: [
             (s) => [s.overview],
-            (overview): { values: number[]; labels: string[] } | null => {
+            (overview): { values: number[]; labels: string[]; interval: 'hour' | 'day' | 'week' } | null => {
                 const series = overview?.cost_series ?? []
-                if (!series.length) {
+                const firstData = series.findIndex((bucket) => bucket.cost_per_merge_usd != null)
+                if (firstData === -1) {
                     return null
                 }
-                const fmt = overview?.cost_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
+                const granularity = overview?.cost_series_granularity
                 return {
                     values: series.map((bucket) => bucket.cost_per_merge_usd ?? 0),
-                    labels: series.map((bucket) => dayjs(bucket.bucket_start).format(fmt)),
+                    labels: series.map((bucket) => bucket.bucket_start),
+                    interval: granularity === 'hour' ? 'hour' : granularity === 'week' ? 'week' : 'day',
                 }
+            },
+        ],
+        // Time-to-green trend (median success-only PR CI duration) in minutes. Empty buckets carry the last
+        // known value forward — a gap means "no new PR run to time", not 0 min, so zero-filling would draw a
+        // false dip. Trimmed to start at the first bucket with data so the line doesn't open on flat zeros.
+        // Null when no bucket has a successful PR run, so the card shows its own empty state.
+        timeToGreenSeries: [
+            (s) => [s.overview],
+            (overview): { values: number[]; labels: string[] } | null => {
+                const series = overview?.time_to_green_series ?? []
+                const firstData = series.findIndex((bucket) => bucket.p50_seconds != null)
+                if (firstData === -1) {
+                    return null
+                }
+                const fmt = overview?.time_to_green_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
+                const trimmed = series.slice(firstData)
+                let last = 0
+                const values = trimmed.map((bucket) => {
+                    if (bucket.p50_seconds != null) {
+                        last = Math.round((bucket.p50_seconds / 60) * 10) / 10
+                    }
+                    return last
+                })
+                return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
+            },
+        ],
+        // Pass-rate trend (0-1). Empty buckets carry the last known value forward so a gap (no completed
+        // run) draws no false dip to zero; trimmed to start at the first bucket with data. Null when no
+        // bucket has a completed run, so the card shows its own empty state.
+        passRateSeries: [
+            (s) => [s.overview],
+            (overview): { values: number[]; labels: string[] } | null => {
+                const series = overview?.success_rate_series ?? []
+                const firstData = series.findIndex((bucket) => bucket.success_rate != null)
+                if (firstData === -1) {
+                    return null
+                }
+                const fmt = overview?.success_rate_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
+                const trimmed = series.slice(firstData)
+                let last = 0
+                const values = trimmed.map((bucket) => {
+                    if (bucket.success_rate != null) {
+                        last = bucket.success_rate
+                    }
+                    return last
+                })
+                return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
+            },
+        ],
+        // Time-to-merge trend in seconds (median open→merge, bots/drafts excluded). Same carry-forward +
+        // trim as time-to-green: a gap means "nothing merged", not instant merges, so zero-filling would
+        // draw a false dip. Null when no bucket had a qualifying merge.
+        openToMergeSeries: [
+            (s) => [s.overview],
+            (overview): { values: number[]; labels: string[] } | null => {
+                const series = overview?.open_to_merge_series ?? []
+                const firstData = series.findIndex((bucket) => bucket.p50_seconds != null)
+                if (firstData === -1) {
+                    return null
+                }
+                const fmt = overview?.open_to_merge_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
+                const trimmed = series.slice(firstData)
+                let last = 0
+                const values = trimmed.map((bucket) => {
+                    if (bucket.p50_seconds != null) {
+                        last = bucket.p50_seconds
+                    }
+                    return last
+                })
+                return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
             },
         ],
     }),
@@ -242,11 +368,13 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
         },
         [engineeringAnalyticsLogic.actionTypes.setSourceId]: () => {
             actions.loadOverview()
+            actions.loadCurrentBranchHealth()
             actions.loadMasterFailures()
             actions.loadRepoActivity()
         },
         [engineeringAnalyticsLogic.actionTypes.refresh]: () => {
             actions.loadOverview()
+            actions.loadCurrentBranchHealth()
             actions.loadMasterFailures()
             actions.loadRepoActivity()
         },
@@ -254,6 +382,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadOverview()
+        actions.loadCurrentBranchHealth()
         actions.loadMasterFailures()
         actions.loadRepoActivity()
     }),

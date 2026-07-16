@@ -1,4 +1,4 @@
-import { createVersionChecker, parseVersion } from './semver'
+import { createVersionChecker, isValidSemverValue, parseVersion } from './semver'
 
 describe('semver', () => {
     describe('parseVersion', () => {
@@ -25,6 +25,24 @@ describe('semver', () => {
             expect(isSupportedVersion('4.5.7')).toEqual(true)
             expect(isSupportedVersion('7.8.9')).toEqual(true)
             expect(isSupportedVersion('4.5.6-alpha')).toEqual(false)
+        })
+    })
+
+    describe('isValidSemverValue', () => {
+        // Mirrors the backend `parse_semver` gate: drift here re-introduces the feature flag save 400
+        // for non-semver values (or wrongly blocks a real version).
+        it.each(['1.2.3', '1.2', '1', '1.2.3-alpha.1', '1.2.3.4'])('accepts %s', (value) => {
+            expect(isValidSemverValue(value)).toBe(true)
+        })
+
+        it.each(['user@example.com', 'deadbeef', '1.', 'v1.2.3', ''])('rejects %s', (value) => {
+            expect(isValidSemverValue(value)).toBe(false)
+        })
+
+        it('accepts wildcard patterns only when allowWildcard is set', () => {
+            expect(isValidSemverValue('1.2.*', { allowWildcard: true })).toBe(true)
+            expect(isValidSemverValue('1.*', { allowWildcard: true })).toBe(true)
+            expect(isValidSemverValue('1.2.*')).toBe(false)
         })
     })
 })

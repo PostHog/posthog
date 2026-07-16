@@ -47,8 +47,11 @@ export interface AITriage {
     finished_at?: string
     workflow_id?: string
     run_id?: string
+    ai_trace_id?: string
     missing?: string[]
 }
+
+export type AiReplyFeedbackRating = 'good' | 'bad'
 
 export type GapSuggestionStatus = 'pending' | 'accepted' | 'dismissed'
 

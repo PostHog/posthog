@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.utils import timezone
@@ -9,6 +9,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.scoping import team_scope
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
@@ -127,13 +129,19 @@ class TestRecalculationService(BaseTest):
         else:
             stale_row = ExperimentMetricsRecalculation.objects.create(**stale_kwargs, started_at=long_ago)
 
-        result = request_recalculation(exp, self.user, "manual")
+        with (
+            patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = request_recalculation(exp, self.user, "manual")
 
-        # A fresh row was created (NOT the stale one) and the stale row was marked FAILED.
+        # A fresh row was created (NOT the stale one), the stale row was marked FAILED, and its workflow
+        # was cancelled so it can't keep executing alongside the replacement run.
         assert result["is_existing"] is False
         assert result["id"] != str(stale_row.id)
         stale_row.refresh_from_db()
         assert stale_row.status == "failed"
+        mock_cancel.assert_called_once_with([str(stale_row.id)])
 
     def test_request_recalculation_does_not_recover_recent_active_row(self):
         # Defensive: a row created N minutes ago (well under the threshold) must still block, no matter the
@@ -451,15 +459,12 @@ class TestLiveQueryProgress(BaseTest):
         with team_scope(self.team.id, canonical=True):
             with patch(
                 "products.experiments.backend.recalculation.sync_execute",
-                return_value=[(1_284_512, 9_800_000, 41_000_000, 250_000, 3)],
+                return_value=[(1_284_512, 9_800_000)],
             ):
                 progress = get_live_query_progress(recalc)
         assert progress == {
             "rows_read": 1_284_512,
             "estimated_rows_total": 9_800_000,
-            "bytes_read": 41_000_000,
-            "active_cpu_time": 250_000,
-            "running_metrics": 3,
         }
 
     def test_maps_all_zero_row_to_zeros_while_in_progress(self):
@@ -469,15 +474,12 @@ class TestLiveQueryProgress(BaseTest):
         with team_scope(self.team.id, canonical=True):
             with patch(
                 "products.experiments.backend.recalculation.sync_execute",
-                return_value=[(0, 0, 0, 0, 0)],
+                return_value=[(0, 0)],
             ):
                 progress = get_live_query_progress(recalc)
         assert progress == {
             "rows_read": 0,
             "estimated_rows_total": 0,
-            "bytes_read": 0,
-            "active_cpu_time": 0,
-            "running_metrics": 0,
         }
 
     def test_returns_none_when_clickhouse_read_raises(self):
@@ -490,3 +492,31 @@ class TestLiveQueryProgress(BaseTest):
                 side_effect=Exception("clusterAllReplicas unavailable"),
             ):
                 assert get_live_query_progress(recalc) is None
+
+
+@pytest.mark.django_db(transaction=True)
+class TestLiveQueryProgressFinishedQueries(BaseTest, ClickhouseTestMixin):
+    def test_counts_rows_from_queries_finished_during_the_run(self):
+        # The per-metric queries usually outlive no single 2s poll: a query that finishes between polls must
+        # still be visible via system.query_log, otherwise the run's progress reads zero for its whole life.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="live-ql", name="live-ql")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag, name="live-ql")
+        recalc = ExperimentMetricsRecalculation.objects.create(
+            team=self.team, experiment=exp, status="in_progress", started_at=timezone.now()
+        )
+
+        with tags_context(
+            team_id=self.team.id,
+            client_query_id=f"experiment_metric_recalc_{recalc.id}_metric-1",
+            product=Product.EXPERIMENTS,
+            feature=Feature.CACHE_WARMUP,
+        ):
+            sync_execute("SELECT sum(number) FROM numbers(1000)", team_id=self.team.id)
+        sync_execute("SYSTEM FLUSH LOGS")
+
+        with team_scope(self.team.id, canonical=True):
+            progress = get_live_query_progress(recalc)
+
+        assert progress is not None
+        assert progress["rows_read"] == 1000
+        assert progress["estimated_rows_total"] == 1000

@@ -7,6 +7,8 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from django.db.models import QuerySet
+
 import posthoganalytics
 
 from posthog.event_usage import groups
@@ -118,6 +120,28 @@ def _to_issue_assignment_notification(assignment) -> contracts.ErrorTrackingIssu
 def list_issues(team_id: int) -> list[contracts.ErrorTrackingIssuePreview]:
     issues = logic.list_issues(team_id)
     return [_to_issue_preview(issue) for issue in issues]
+
+
+def list_issues_created_since(team_id: int, since: datetime, limit: int) -> list[contracts.ErrorTrackingIssuePreview]:
+    issues = logic.list_issues_created_since(team_id=team_id, since=since, limit=limit)
+    return [_to_issue_preview(issue) for issue in issues]
+
+
+def query_new_error_issues(period_start: datetime, period_end: datetime) -> QuerySet:
+    # "New this week" = issue first created within the digest window. Only active issues
+    # (not archived/resolved/suppressed) are worth surfacing as a new production error.
+    # Cross-team batch query for the weekly digest — callers execute it off the request path.
+    # Issue names are attacker-controlled (created from exception ingestion), so callers must
+    # cap how many they surface per team; newest-first ordering makes a per-team slice safe.
+    return (
+        ErrorTrackingIssue.objects.filter(
+            created_at__gt=period_start,
+            created_at__lte=period_end,
+            status=ErrorTrackingIssue.Status.ACTIVE,
+        )
+        .order_by("-created_at")
+        .values("team_id", "name", "id")
+    )
 
 
 def get_issue(issue_id: UUID, team_id: int) -> contracts.ErrorTrackingIssue:
@@ -515,6 +539,12 @@ def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
 
 def list_fingerprints(team_id: int, issue_id: UUID | None = None) -> list[contracts.ErrorTrackingFingerprint]:
     fingerprints = logic.list_fingerprints(team_id=team_id, issue_id=issue_id)
+    return [_to_fingerprint(fingerprint) for fingerprint in fingerprints]
+
+
+def list_first_fingerprints(team_id: int, issue_ids: list[UUID]) -> list[contracts.ErrorTrackingFingerprint]:
+    """Earliest-created fingerprint per issue, one entry per issue."""
+    fingerprints = logic.list_first_fingerprints(team_id=team_id, issue_ids=issue_ids)
     return [_to_fingerprint(fingerprint) for fingerprint in fingerprints]
 
 

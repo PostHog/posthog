@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { useActions, useValues } from 'kea'
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -398,6 +398,8 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
     runQueryLoading,
     runQueryDisabledReason,
     runQueryTooltip,
+    onCancelQuery,
+    cancelQueryLoading,
 }: NotebookNodeAttributeProperties<T> & {
     tabIdSuffix: string
     /** Called with the live editor text — `attributes.code` can lag it by a Tiptap round-trip. */
@@ -405,13 +407,17 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
     runQueryLoading?: boolean
     runQueryDisabledReason?: string
     runQueryTooltip?: string
+    /** With onRunQuery: flips the run button to Cancel while runQueryLoading. */
+    onCancelQuery?: () => void
+    cancelQueryLoading?: boolean
 }): JSX.Element {
     const tabId = useMemo(
         () => getNotebookSqlEditorTabId(attributes.nodeId, tabIdSuffix),
         [attributes.nodeId, tabIdSuffix]
     )
     useNotebookCodeSQLEditorSync({ attributes, updateAttributes, tabId })
-    const { queryInput } = useValues(sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded }))
+    const editorLogic = sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded })
+    const { queryInput } = useValues(editorLogic)
     // Prefer what the user sees in the editor; fall back to the attribute before the first sync.
     const liveCode = queryInput ?? (typeof attributes.code === 'string' ? attributes.code : '')
     // Focus the editor only when this user just inserted the node - a node mounting on
@@ -436,10 +442,23 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
                 panel={SQLEditorPanel.Query}
                 defaultShowDatabaseTree={false}
                 autoFocusQueryPane={autoFocusQueryPane}
-                onRunQuery={onRunQuery ? () => onRunQuery(liveCode) : undefined}
+                // Read the editor's current text imperatively at run time. The Cmd+Enter keybinding
+                // fires a stale closure (and Monaco's keybinding value can come through empty), so a
+                // captured `liveCode` would run the previous query. The mounted logic's `queryInput`
+                // is the same source the Run button uses; fall back to `liveCode` before first sync.
+                onRunQuery={
+                    onRunQuery
+                        ? () => {
+                              const current = editorLogic.values.queryInput
+                              onRunQuery(typeof current === 'string' && current.trim() ? current : liveCode)
+                          }
+                        : undefined
+                }
                 runQueryLoading={runQueryLoading}
                 runQueryDisabledReason={runQueryDisabledReason}
                 runQueryTooltip={runQueryTooltip}
+                onCancelQuery={onCancelQuery}
+                cancelQueryLoading={cancelQueryLoading}
                 queryPaneDefaultHeight={EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT}
             />
         </div>

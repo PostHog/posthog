@@ -13,12 +13,20 @@ from pydantic import ValidationError
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.schema import HogQLFilters
+
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.connection import Workload
 from posthog.models.messaging import MessagingRecord
+from posthog.models.team import Team
 from posthog.ph_client import get_client as get_ph_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.sync import database_sync_to_async
 from posthog.tasks.email import NotificationSetting, should_send_notification
+from posthog.tasks.email_utils import compute_week_over_week_change
 from posthog.temporal.common.clickhouse import get_client as get_ch_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
@@ -27,6 +35,7 @@ from posthog.temporal.weekly_digest.queries import (
     query_experiments_completed,
     query_experiments_launched,
     query_new_dashboards,
+    query_new_error_issues,
     query_new_event_definitions,
     query_new_external_data_sources,
     query_new_feature_flags,
@@ -45,6 +54,7 @@ from posthog.temporal.weekly_digest.types import (
     DashboardList,
     DigestProductSuggestion,
     DigestResourceType,
+    ErrorIssueList,
     EventDefinitionList,
     ExperimentList,
     ExternalDataSourceList,
@@ -58,6 +68,8 @@ from posthog.temporal.weekly_digest.types import (
     SendWeeklyDigestBatchInput,
     SurveyList,
     TeamDigest,
+    UsageTrendMetric,
+    UsageTrends,
     UserDigestContext,
 )
 
@@ -95,6 +107,7 @@ async def generate_digest_data_lookup(
     key_kind: TeamDataKey,
     query_func: Callable[[datetime, datetime], QuerySet],
     resource_type: DigestResourceType,
+    per_team_limit: int | None = None,
 ) -> None:
     async with Heartbeater():
         bind_contextvars(
@@ -116,7 +129,10 @@ async def generate_digest_data_lookup(
             batch_start, batch_end = input.batch
             async for team in query_teams_for_digest()[batch_start:batch_end]:
                 try:
-                    digest_data = resource_type(await queryset_to_list(db_query.filter(team_id=team.id)))
+                    team_query = db_query.filter(team_id=team.id)
+                    if per_team_limit is not None:
+                        team_query = team_query[:per_team_limit]
+                    digest_data = resource_type(await queryset_to_list(team_query))
 
                     key = team_data_key(input.digest.key, key_kind, team.id)
                     await r.setex(key, input.common.redis_ttl, digest_data.model_dump_json())
@@ -328,6 +344,145 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
         )
 
 
+# Issue names come from exception ingestion, so a noisy (or malicious) client can create
+# hundreds of new issues in a week. Cap at the 5 newest per team, mirroring the error
+# tracking weekly digest, which also shows at most 5 new issues.
+NEW_ERROR_ISSUES_PER_TEAM_LIMIT = 5
+
+
+@activity.defn(name="generate-error-issue-lookup")
+async def generate_error_issue_lookup(input: GenerateDigestDataBatchInput) -> None:
+    # New error-tracking issues follow the standard "created within window" lookup,
+    # exactly like dashboards / feature flags.
+    return await generate_digest_data_lookup(
+        input,
+        key_kind=TeamDataKey.ERROR_ISSUES,
+        query_func=query_new_error_issues,
+        resource_type=ErrorIssueList,
+        per_team_limit=NEW_ERROR_ISSUES_PER_TEAM_LIMIT,
+    )
+
+
+# Weekly usage snapshot per team. Written in HogQL so it inherits the team's test-account
+# filtering (the numbers match what the team sees in product analytics) and column translation.
+# "Active users" mirrors the DAU/WAU trends definition — distinct persons, `uniqExactIf(person_id)`,
+# which is the conditional form of the `count(DISTINCT person_id)` those insights print. Counting
+# distinct_ids would overcount (one person, many devices). Two windows are compared in one pass;
+# the query runs on the offline cluster since it scans two weeks of events for every active team.
+USAGE_TRENDS_QUERY = """
+SELECT
+    countIf(timestamp >= {cur_start} AND timestamp < {cur_end}) AS events_current,
+    countIf(timestamp >= {prev_start} AND timestamp < {cur_start}) AS events_previous,
+    uniqExactIf(person_id, timestamp >= {cur_start} AND timestamp < {cur_end}) AS users_current,
+    uniqExactIf(person_id, timestamp >= {prev_start} AND timestamp < {cur_start}) AS users_previous
+FROM events
+WHERE timestamp >= {prev_start} AND timestamp < {cur_end} AND {filters}
+"""
+
+
+def _usage_trend_metric(label: str, current: int, previous: int) -> UsageTrendMetric:
+    has_baseline = previous > 0
+    change = compute_week_over_week_change(current, previous if has_baseline else None, higher_is_better=True)
+    if change is None:
+        return UsageTrendMetric(label=label, current=current, previous=previous, has_baseline=has_baseline)
+    return UsageTrendMetric(
+        label=label,
+        current=current,
+        previous=previous,
+        change_pct=change["percent"],
+        direction="up" if change["direction"] == "Up" else "down",
+        has_baseline=True,
+    )
+
+
+def _query_team_usage_trends(team_id: int, period_start: datetime, period_end: datetime) -> UsageTrends | None:
+    """Run the per-team usage snapshot on the offline cluster. Returns None for inactive teams.
+
+    Synchronous (HogQL execution is sync); callers wrap it with ``database_sync_to_async``.
+    """
+    team = Team.objects.get(pk=team_id)
+    window = period_end - period_start
+    response = execute_hogql_query(
+        query=USAGE_TRENDS_QUERY,
+        team=team,
+        placeholders={
+            "cur_start": ast.Constant(value=period_start),
+            "cur_end": ast.Constant(value=period_end),
+            "prev_start": ast.Constant(value=period_start - window),
+        },
+        filters=HogQLFilters(filterTestAccounts=True),
+        workload=Workload.OFFLINE,
+    )
+
+    if not response.results or not response.results[0]:
+        return None
+
+    events_current, events_previous, users_current, users_previous = response.results[0]
+    events_current = int(events_current or 0)
+    users_current = int(users_current or 0)
+
+    # Skip inactive teams entirely — no numbers worth showing.
+    if events_current == 0:
+        return None
+
+    return UsageTrends(
+        metrics=[
+            _usage_trend_metric("Events", events_current, int(events_previous or 0)),
+            _usage_trend_metric("Active users", users_current, int(users_previous or 0)),
+        ]
+    )
+
+
+@activity.defn(name="generate-usage-trends-lookup")
+async def generate_usage_trends_lookup(input: GenerateDigestDataBatchInput) -> None:
+    async with Heartbeater():
+        bind_contextvars(
+            digest_key=input.digest.key,
+            period_start=input.digest.period_start,
+            period_end=input.digest.period_end,
+            batch_start=input.batch[0],
+            batch_end=input.batch[1],
+        )
+        logger = LOGGER.bind()
+        logger.info("Generating usage trends batch")
+
+        team_count = 0
+        attempted = 0
+        error_count = 0
+
+        async with redis.from_url(_redis_url(input.common)) as r:
+            batch_start, batch_end = input.batch
+            async for team in query_teams_for_digest()[batch_start:batch_end]:
+                attempted += 1
+                try:
+                    usage_trends = await database_sync_to_async(_query_team_usage_trends)(
+                        team.id, input.digest.period_start, input.digest.period_end
+                    )
+                except Exception as e:
+                    error_count += 1
+                    logger.warning(
+                        f"Failed to generate usage trends for team {team.id}, skipping...",
+                        error=str(e),
+                        team_id=team.id,
+                    )
+                    continue
+
+                if usage_trends is None:
+                    continue
+
+                key = team_data_key(input.digest.key, TeamDataKey.USAGE_TRENDS, team.id)
+                await r.setex(key, input.common.redis_ttl, usage_trends.model_dump_json())
+                team_count += 1
+
+        # A malformed query (or an offline-cluster outage) fails for every team, which would
+        # otherwise look identical to "no active teams" and silently ship an empty section for
+        # the whole batch. Surface it so the activity retries and then fails the run loudly.
+        if attempted > 0 and error_count == attempted:
+            raise RuntimeError(f"Usage trends query failed for all {attempted} teams in batch")
+
+        logger.info("Finished generating usage trends batch", team_count=team_count, error_count=error_count)
+
+
 @activity.defn(name="generate-user-notification-lookup")
 async def generate_user_notification_lookup(input: GenerateDigestDataBatchInput) -> None:
     async with Heartbeater():
@@ -463,6 +618,8 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
                                 team_data_key(input.digest.key, TeamDataKey.SAVED_FILTERS, team.id),
                                 team_data_key(input.digest.key, TeamDataKey.EXPIRING_RECORDINGS, team.id),
                                 team_data_key(input.digest.key, TeamDataKey.SURVEYS_LAUNCHED, team.id),
+                                team_data_key(input.digest.key, TeamDataKey.USAGE_TRENDS, team.id),
+                                team_data_key(input.digest.key, TeamDataKey.ERROR_ISSUES, team.id),
                             ]
                         )
 
@@ -476,6 +633,8 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
                             FilterList(root=[]),
                             RecordingCount(recording_count=0),
                             SurveyList(root=[]),
+                            UsageTrends(),
+                            ErrorIssueList(root=[]),
                         ]
 
                         digest_data = [
@@ -496,6 +655,8 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
                                 filters=digest_data[6],
                                 expiring_recordings=digest_data[7],
                                 surveys_launched=digest_data[8],
+                                usage_trends=digest_data[9],
+                                error_issues=digest_data[10],
                             )
                         )
                         team_count += 1

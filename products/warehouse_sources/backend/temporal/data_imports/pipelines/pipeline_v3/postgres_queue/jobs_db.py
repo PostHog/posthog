@@ -38,7 +38,7 @@ LEASE_TTL_SECONDS = 300
 
 # Partition pruning hint: only scan partitions within this window.
 # Set to 2x the retention period so the planner can skip dropped
-# partitions. Not a correctness filter — older partitions are already
+# partitions. Not a correctness filter -- older partitions are already
 # gone by the time this matters.
 PARTITION_PRUNING_INTERVAL = "14 days"
 
@@ -96,22 +96,155 @@ def pending_batch_predicate(status_alias: str) -> str:
     return f"({status_alias}.batch_id IS NULL OR {status_alias}.job_state IN ('waiting', 'waiting_retry', 'executing'))"
 
 
-# Shared between the async consumer path and the sync ops command so both agree
-# on what counts as a pending (fail-able) batch.
-FAIL_RUN_SQL = f"""
-    INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
-    SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
-    FROM {BATCH_TABLE} b
-    {latest_status_lateral("b", "s")}
-    WHERE
-        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-        AND b.run_uuid = %(run_uuid)s
-        AND {pending_batch_predicate("s")}
-"""
+def build_status_dual_write_sql(*, with_batch_created_at: bool) -> str:
+    """Single-statement status INSERT + denormalized-state UPDATE (atomic under autocommit).
+
+    The UPDATE guards: exact ``created_at`` match prunes to one partition when the
+    caller knows it (PendingBatch always does; the window fallback keeps ad-hoc
+    callers bounded); the ``IS DISTINCT FROM`` check makes heartbeat re-inserts a
+    0-row no-op so they never churn the batch heap; the monotonic
+    ``state_changed_at`` check makes cross-connection races converge to the status
+    row with the greatest ``created_at`` — the same answer the latest-status
+    lateral gives.
+    """
+    created_at_predicate = (
+        "b.created_at = %(batch_created_at)s"
+        if with_batch_created_at
+        else f"b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'"
+    )
+    return f"""
+        WITH ins AS (
+            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+            VALUES (%(batch_id)s, %(job_state)s, %(attempt)s, now(), %(error_response)s, now())
+            RETURNING batch_id, job_state, attempt, created_at
+        )
+        UPDATE {BATCH_TABLE} b
+        SET latest_state = ins.job_state, latest_attempt = ins.attempt, state_changed_at = ins.created_at
+        FROM ins
+        WHERE b.id = ins.batch_id
+          AND {created_at_predicate}
+          AND ((b.latest_state, b.latest_attempt) IS DISTINCT FROM (ins.job_state, ins.attempt)
+               OR b.state_changed_at IS NULL)
+          AND (b.state_changed_at IS NULL OR b.state_changed_at <= ins.created_at)
+    """
+
+
+def _bulk_fail_dual_write_sql(where_sql: str) -> str:
+    """Bulk 'failed' status inserts plus the denormalized-state UPDATE, one statement.
+
+    ``targets`` carries ``(id, created_at)`` so the UPDATE join prunes partitions
+    exactly; rowcount reports updated batches (== inserted statuses, minus any a
+    concurrent newer write already superseded via the monotonic guard).
+    """
+    return f"""
+        WITH targets AS (
+            SELECT b.id, b.created_at
+            FROM {BATCH_TABLE} b
+            {latest_status_lateral("b", "s")}
+            WHERE
+                b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                AND {where_sql}
+                AND {pending_batch_predicate("s")}
+        ),
+        ins AS (
+            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+            SELECT t.id, 'failed', 0, now(), %(error_response)s, now()
+            FROM targets t
+            RETURNING batch_id, created_at
+        )
+        UPDATE {BATCH_TABLE} b
+        SET latest_state = 'failed', latest_attempt = 0, state_changed_at = ins.created_at
+        FROM ins
+        JOIN targets t ON t.id = ins.batch_id
+        WHERE b.id = t.id
+          AND b.created_at = t.created_at
+          AND (b.state_changed_at IS NULL OR b.state_changed_at <= ins.created_at)
+    """
+
+
+# Both fail-run variants share _bulk_fail_dual_write_sql so the async consumer
+# path and the sync ops command agree on what counts as a pending (fail-able)
+# batch. The ops command targets by run_uuid alone (human-driven); consumer
+# paths always know the run's group, so they scope by it too — guards against
+# cross-group writes on a run_uuid collision and keeps the scan on the
+# team/schema indexes.
+FAIL_RUN_SQL = _bulk_fail_dual_write_sql("b.run_uuid = %(run_uuid)s")
+FAIL_RUN_SCOPED_SQL = _bulk_fail_dual_write_sql(
+    "b.run_uuid = %(run_uuid)s AND b.team_id = %(team_id)s AND b.schema_id = %(schema_id)s"
+)
+
+
+def _state_claim_candidates_sql() -> str:
+    """Claimable-batch candidates read from the denormalized state columns.
+
+    The claimable scan and every NOT EXISTS gate are answered by the partial
+    indexes (sb_claimable_idx, sb_run_gate_idx, sb_schema_busy_idx), so the
+    work tracks the claimable set instead of everything retained. 'pending'
+    means no status row yet; 'waiting' is deliberately not claimable.
+    """
+    return f"""
+        SELECT
+            b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
+            b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
+            b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
+            b.cumulative_row_count, b.resource_name, b.is_resume,
+            b.is_first_ever_sync, b.metadata,
+            b.latest_attempt,
+            b.created_at
+        FROM {BATCH_TABLE} b
+        WHERE
+            b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            AND (
+                b.latest_state = 'pending'
+                OR (
+                    b.latest_state = 'waiting_retry'
+                    AND b.state_changed_at <= now() - make_interval(
+                        secs => %(backoff)s * GREATEST(b.latest_attempt, 1)
+                    )
+                )
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM {BATCH_TABLE} b_prev
+                WHERE b_prev.run_uuid = b.run_uuid
+                    AND b_prev.batch_index < b.batch_index
+                    AND b_prev.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND (
+                        b_prev.latest_state = 'executing'
+                        OR (
+                            b_prev.latest_state = 'waiting_retry'
+                            AND b_prev.state_changed_at > now() - make_interval(
+                                secs => %(backoff)s * GREATEST(b_prev.latest_attempt, 1)
+                            )
+                        )
+                    )
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM {BATCH_TABLE} b2
+                WHERE b2.run_uuid = b.run_uuid
+                    AND b2.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND b2.latest_state = 'failed'
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM {BATCH_TABLE} b_busy
+                WHERE b_busy.team_id = b.team_id
+                    AND b_busy.schema_id = b.schema_id
+                    AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND b_busy.latest_state = 'executing'
+            )
+    """
 
 
 def _stale_executing_sql(scope_sql: str = "") -> str:
-    """Shared body of the stale-executing sweep (async consumer and its sync ops twin)."""
+    """Shared body of the stale-executing sweep (async consumer and its sync ops twin).
+
+    The denormalized-column pre-filter keeps the lateral probing only
+    currently-executing batches. The lateral itself must stay: heartbeats
+    refresh the status log, deliberately not the column, so the grace clock
+    comes from ``s.created_at``.
+    """
     return f"""
         SELECT
             {pending_batch_select_columns("s")}
@@ -120,6 +253,7 @@ def _stale_executing_sql(scope_sql: str = "") -> str:
         LEFT JOIN {LEASE_TABLE} l ON l.team_id = b.team_id AND l.schema_id = b.schema_id
         WHERE
             b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            AND b.latest_state = 'executing'
             AND s.job_state = 'executing'
             AND s.created_at <= now() - make_interval(secs => %(grace)s)
             AND (l.team_id IS NULL OR l.expires_at <= now())
@@ -241,7 +375,7 @@ class ActiveRunRef:
     workflow_run_id: str | None
     pending_batches: int
     total_batches: int
-    latest_activity_at: datetime | None
+    latest_activity_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -343,6 +477,10 @@ class BatchQueue:
     ) -> list[PendingBatch]:
         """Fetch unprocessed batches whose (team_id, schema_id) group lease is claimable by ``owner_token``.
 
+        Candidates come from the denormalized state columns, so poll cost
+        tracks the claimable set rather than everything retained in the
+        14-day window.
+
         Group ownership is a row in ``sourcegrouplease`` keyed by
         (team_id, schema_id). The outer query claims-or-renews the lease for
         each candidate group in a single writable CTE: a group is returned only
@@ -358,15 +496,15 @@ class BatchQueue:
         affect the same (team_id, schema_id) row twice in one statement.
 
         ``retry_backoff_base_seconds`` gates the ``waiting_retry`` branch on
-        the age of the latest status row: a batch is only eligible when
-        ``now() - s.created_at >= retry_backoff_base_seconds * GREATEST(s.attempt, 1)``
+        ``state_changed_at``: a batch is only eligible when
+        ``now() - state_changed_at >= retry_backoff_base_seconds * GREATEST(latest_attempt, 1)``
         (attempt is floored at 1 so that a zero-attempt row still waits at least one
         base period).
 
         Head-of-line gating per run: a batch is excluded if any earlier
         ``batch_index`` in the same ``run_uuid`` is currently ``executing`` or
         in ``waiting_retry`` whose backoff window has not yet elapsed. Earlier
-        batches that are unprocessed (NULL status) or ``waiting_retry`` with
+        batches that are unprocessed (``pending``) or ``waiting_retry`` with
         backoff met are treated as siblings that will be returned alongside
         in the same poll and processed sequentially by the consumer.
 
@@ -389,59 +527,12 @@ class BatchQueue:
         Own-leased groups stay in the window so a pod can keep draining a group it
         already holds.
         """
+        candidates_sql = _state_claim_candidates_sql()
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
                 WITH candidates AS MATERIALIZED (
-                    SELECT
-                        {pending_batch_select_columns("s")}
-                    FROM {BATCH_TABLE} b
-                    {latest_status_lateral("b", "s")}
-                    WHERE
-                        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND (
-                            s.batch_id IS NULL
-                            OR (
-                                s.job_state = 'waiting_retry'
-                                AND s.created_at <= now() - make_interval(
-                                    secs => %(backoff)s * GREATEST(COALESCE(s.attempt, 1), 1)
-                                )
-                            )
-                        )
-                        AND NOT EXISTS (
-                            SELECT 1
-                            FROM {BATCH_TABLE} b_prev
-                            {latest_status_lateral("b_prev", "s_prev")}
-                            WHERE b_prev.run_uuid = b.run_uuid
-                                AND b_prev.batch_index < b.batch_index
-                                AND b_prev.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                                AND (
-                                    s_prev.job_state = 'executing'
-                                    OR (
-                                        s_prev.job_state = 'waiting_retry'
-                                        AND s_prev.created_at > now() - make_interval(
-                                            secs => %(backoff)s * GREATEST(COALESCE(s_prev.attempt, 1), 1)
-                                        )
-                                    )
-                                )
-                        )
-                        AND NOT EXISTS (
-                            SELECT 1
-                            FROM {BATCH_TABLE} b2
-                            {latest_status_lateral("b2", "s2", join="INNER")}
-                            WHERE b2.run_uuid = b.run_uuid
-                                AND b2.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                                AND s2.job_state = 'failed'
-                        )
-                        AND NOT EXISTS (
-                            SELECT 1
-                            FROM {BATCH_TABLE} b_busy
-                            {latest_status_lateral("b_busy", "s_busy", join="INNER")}
-                            WHERE b_busy.team_id = b.team_id
-                                AND b_busy.schema_id = b.schema_id
-                                AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                                AND s_busy.job_state = 'executing'
-                        )
+                    {candidates_sql}
                         AND NOT EXISTS (
                             SELECT 1
                             FROM {LEASE_TABLE} l_live
@@ -495,19 +586,24 @@ class BatchQueue:
         job_state: str,
         attempt: int = 0,
         error_response: dict[str, Any] | None = None,
+        batch_created_at: datetime | None = None,
     ) -> None:
-        """Append a status row for a batch (executing, succeeded, waiting_retry, failed)."""
+        """Append a status row and mirror it into the batch's denormalized state columns.
+
+        ``batch_created_at`` (from PendingBatch) prunes the state UPDATE to one
+        partition; without it the update falls back to the retention-window scan.
+        """
+        params: dict[str, Any] = {
+            "batch_id": batch_id,
+            "job_state": job_state,
+            "attempt": attempt,
+            "error_response": json.dumps(error_response) if error_response else None,
+        }
+        if batch_created_at is not None:
+            params["batch_created_at"] = batch_created_at
         await conn.execute(
-            f"""
-            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
-            VALUES (%(batch_id)s, %(job_state)s, %(attempt)s, now(), %(error_response)s, now())
-            """,
-            {
-                "batch_id": batch_id,
-                "job_state": job_state,
-                "attempt": attempt,
-                "error_response": json.dumps(error_response) if error_response else None,
-            },
+            build_status_dual_write_sql(with_batch_created_at=batch_created_at is not None),
+            params,
         )
 
     @staticmethod
@@ -563,6 +659,34 @@ class BatchQueue:
             return bool(row and row[0])
 
     @staticmethod
+    def verify_group_lease_sync(
+        database_url: str,
+        *,
+        team_id: int,
+        schema_id: str,
+        owner_token: str,
+        connect_timeout_seconds: int = 10,
+    ) -> bool:
+        """Sync counterpart of verify_advisory_lock: the Delta write runs in a worker thread
+        that can't share the group's async connection, so use a short-lived sync one."""
+        with psycopg.connect(database_url, autocommit=True, connect_timeout=connect_timeout_seconds) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT EXISTS (
+                        SELECT 1 FROM {LEASE_TABLE}
+                        WHERE team_id = %(team_id)s
+                          AND schema_id = %(schema_id)s
+                          AND owner_token = %(owner)s
+                          AND expires_at > now()
+                    )
+                    """,
+                    {"team_id": team_id, "schema_id": schema_id, "owner": owner_token},
+                )
+                row = cur.fetchone()
+                return bool(row and row[0])
+
+    @staticmethod
     async def get_stale_executing(
         conn: psycopg.AsyncConnection[Any],
         *,
@@ -591,13 +715,17 @@ class BatchQueue:
         conn: psycopg.AsyncConnection[Any],
         *,
         run_uuid: str,
+        team_id: int,
+        schema_id: str,
         reason: str,
     ) -> int:
         """Mark every pending batch in a run as failed. Returns the count of batches failed."""
         cursor = await conn.execute(
-            FAIL_RUN_SQL,
+            FAIL_RUN_SCOPED_SQL,
             {
                 "run_uuid": run_uuid,
+                "team_id": team_id,
+                "schema_id": schema_id,
                 "error_response": json.dumps({"error": reason}),
             },
         )
@@ -634,16 +762,7 @@ class BatchQueue:
         newer data or flip the FAILED job back to COMPLETED via the final batch.
         """
         cursor = conn.execute(
-            f"""
-            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
-            SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
-            FROM {BATCH_TABLE} b
-            {latest_status_lateral("b", "s")}
-            WHERE
-                b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                AND b.job_id = %(job_id)s
-                AND (s.batch_id IS NULL OR s.job_state IN ('waiting', 'waiting_retry', 'executing'))
-            """,
+            _bulk_fail_dual_write_sql("b.job_id = %(job_id)s"),
             {
                 "job_id": job_id,
                 "error_response": json.dumps({"error": reason}),
@@ -660,17 +779,7 @@ class BatchQueue:
     ) -> int:
         """Mark non-terminal batches from older runs of the same job as superseded."""
         cursor = conn.execute(
-            f"""
-            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
-            SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
-            FROM {BATCH_TABLE} b
-            {latest_status_lateral("b", "s")}
-            WHERE
-                b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                AND b.job_id = %(job_id)s
-                AND b.run_uuid != %(current_run_uuid)s
-                AND (s.batch_id IS NULL OR s.job_state IN ('waiting', 'waiting_retry', 'executing'))
-            """,
+            _bulk_fail_dual_write_sql("b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s"),
             {
                 "job_id": job_id,
                 "current_run_uuid": current_run_uuid,
@@ -690,7 +799,9 @@ class BatchQueue:
         """Return one ref per run with a ``failed`` batch older than ``grace_seconds``, within ``lookback_seconds``.
 
         Ordered by latest failure first so fresh failures still land in the window when
-        already-reconciled runs outnumber ``limit`` within the lookback.
+        already-reconciled runs outnumber ``limit`` within the lookback. The
+        denormalized-column pre-filter keeps the lateral (still needed for the
+        failure timestamp and error payload) probing only failed batches.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
@@ -704,6 +815,7 @@ class BatchQueue:
                     {latest_status_lateral("b", "s", join="INNER")}
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND b.latest_state = 'failed'
                         AND s.job_state = 'failed'
                         AND s.created_at <= now() - make_interval(secs => %(grace)s)
                         AND s.created_at >= now() - make_interval(secs => %(lookback)s)
@@ -735,10 +847,10 @@ class BatchQueue:
     ) -> float | None:
         """Age in seconds of the oldest batch no consumer has ever picked up, or None when none are waiting.
 
-        A batch with no status row has never been claimed — this is the queue's
-        data-freshness signal, and it rises whenever loading stalls regardless
-        of the cause. Bounded to ``FRESHNESS_WINDOW`` so the probe stays cheap
-        on a healthy queue and the reported age saturates instead of scanning
+        'pending' means no status row yet — this is the queue's data-freshness
+        signal, and it rises whenever loading stalls regardless of the cause.
+        Answered from the claimable partial index; bounded to
+        ``FRESHNESS_WINDOW`` so the reported age saturates instead of scanning
         unbounded history.
         """
         async with conn.cursor() as cur:
@@ -747,15 +859,55 @@ class BatchQueue:
                 SELECT EXTRACT(EPOCH FROM (now() - min(b.created_at)))
                 FROM {BATCH_TABLE} b
                 WHERE b.created_at > now() - interval '{FRESHNESS_WINDOW}'
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM {STATUS_TABLE} s
-                      WHERE s.batch_id = b.id
-                        AND s.created_at > now() - interval '{FRESHNESS_WINDOW}'
-                  )
+                  AND b.latest_state = 'pending'
                 """
             )
             row = await cur.fetchone()
+        if row is None or row[0] is None:
+            return None
+        return float(row[0])
+
+    @staticmethod
+    def get_oldest_non_terminal_batch_age_seconds(
+        conn: psycopg.Connection[Any],
+        *,
+        team_id: int,
+        schema_ids: list[str],
+    ) -> float | None:
+        """Age in seconds of the oldest batch still working through the queue for these schemas, or None.
+
+        Non-terminal means unclaimed ('pending', 'waiting') or claimed but unfinished
+        ('executing', 'waiting_retry'), read from the denormalized state columns.
+        Runs containing a 'failed' batch are excluded, mirroring the loader's claim
+        gate: their remaining batches can never be claimed (a batch enqueued into a
+        run after ``fail_run`` swept it stays 'pending' forever — seen in production),
+        so counting them would hold the backpressure guard down for the whole pruning
+        window. Sync because its caller is the CDC producer's backpressure guard,
+        which runs in synchronous activity code. Bounded to the pruning window —
+        older batches are gone anyway.
+        """
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT EXTRACT(EPOCH FROM (now() - min(b.created_at)))
+                FROM {BATCH_TABLE} b
+                WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                  AND b.team_id = %(team_id)s
+                  AND b.schema_id = ANY(%(schema_ids)s)
+                  AND b.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM {BATCH_TABLE} b_failed
+                      WHERE b_failed.run_uuid = b.run_uuid
+                          AND b_failed.team_id = b.team_id
+                          AND b_failed.schema_id = b.schema_id
+                          AND b_failed.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                          AND b_failed.latest_state = 'failed'
+                  )
+                """,
+                {"team_id": team_id, "schema_ids": schema_ids},
+            )
+            row = cur.fetchone()
         if row is None or row[0] is None:
             return None
         return float(row[0])
@@ -907,7 +1059,7 @@ class BatchQueue:
         an operator can still act on. ``only_pending=False`` is for direct
         ``run_uuid`` lookups where a fully-terminal run should still be visible.
         """
-        scope_sql, params = _scope_filters(team_id=team_id, schema_ids=schema_ids, run_uuid=run_uuid)
+        scope_sql, params = scope_filters(team_id=team_id, schema_ids=schema_ids, run_uuid=run_uuid)
         having = f"HAVING COUNT(*) FILTER (WHERE {pending_batch_predicate('s')}) > 0"
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
@@ -949,7 +1101,7 @@ class BatchQueue:
         Each row carries the oldest ``created_at`` in its state so the caller
         can derive freshness signals (e.g. age of the oldest unclaimed batch).
         """
-        scope_sql, params = _scope_filters(team_id=team_id, schema_ids=schema_ids)
+        scope_sql, params = scope_filters(team_id=team_id, schema_ids=schema_ids)
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 f"""
@@ -976,7 +1128,7 @@ class BatchQueue:
         schema_ids: list[str] | None = None,
     ) -> list[GroupLease]:
         """Group leases within the scope, with computed liveness."""
-        scope_sql, params = _scope_filters(team_id=team_id, schema_ids=schema_ids, alias="l")
+        scope_sql, params = scope_filters(team_id=team_id, schema_ids=schema_ids, alias="l")
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 f"""
@@ -1030,7 +1182,7 @@ class BatchQueue:
         schema_ids: list[str] | None = None,
     ) -> list[PendingBatch]:
         """Sync, scope-filtered twin of ``get_stale_executing`` for ops inspection."""
-        scope_sql, params = _scope_filters(team_id=team_id, schema_ids=schema_ids)
+        scope_sql, params = scope_filters(team_id=team_id, schema_ids=schema_ids)
         params["grace"] = grace_seconds
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(_stale_executing_sql(scope_sql), params)
@@ -1038,7 +1190,7 @@ class BatchQueue:
         return [PendingBatch(**row) for row in rows]
 
 
-def _scope_filters(
+def scope_filters(
     *,
     team_id: int | None = None,
     schema_ids: list[str] | None = None,

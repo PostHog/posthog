@@ -19,7 +19,7 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { IconBold, IconItalic, IconLink, IconTextSize } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 /** Plugin key for {@link createInlineMarkdownSlashCommandsExtension} (use for `exitSuggestion` / debugging). */
 export const INLINE_MARKDOWN_SLASH_COMMANDS_PLUGIN_KEY = new PluginKey('inlineRichMarkdownSlashCommands')

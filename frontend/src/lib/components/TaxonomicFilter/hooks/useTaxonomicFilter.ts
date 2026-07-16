@@ -35,6 +35,7 @@ import {
     SelectedProperties,
     SelectingKeyOnly,
     SimpleOption,
+    TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
@@ -136,6 +137,7 @@ export interface TaxonomicFilterApi {
     value?: TaxonomicFilterValue
     selectingKeyOnly?: SelectingKeyOnly
     excludedOperators?: ExcludedOperators
+    excludedProperties?: ExcludedProperties
 
     // headless-component prop bags
     rootProps: { onKeyDown: (e: React.KeyboardEvent<any>) => void }
@@ -297,6 +299,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
 
     const ctx = useTaxonomicGroupsContext({
         eventNames,
+        taxonomicGroupTypes,
         schemaColumns,
         schemaColumnsLoading,
         metadataSource,
@@ -323,6 +326,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         taxonomicGroupTypes: groupTypes,
         excludedOperators,
         selectingKeyOnly,
+        excludedProperties,
     })
 
     const groups = useMemo(() => {
@@ -342,6 +346,20 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         const substantive = groupTypes.filter((t) => !META_GROUP_TYPES.has(t))
         return substantive.length === 1 ? substantive[0] : null
     }, [groupTypes])
+
+    // Recent/pinned items the sole substantive group floats to the top of its own list.
+    // Memoised so getGroupListInput hands useGroupList a stable array reference: getLocalOverride
+    // builds a fresh array on every call (filterRecentsForContext maps/filters), which would
+    // otherwise churn useGroupList's `items` memo every render and drive Combobox's Fetcher
+    // items effect into a setState loop (Maximum update depth exceeded).
+    const soleGroupPromoteRecent = useMemo<TaxonomicDefinitionTypes[] | undefined>(
+        () => (soleSubstantiveGroupType ? getLocalOverride(TaxonomicFilterGroupType.RecentFilters) : undefined),
+        [soleSubstantiveGroupType, getLocalOverride]
+    )
+    const soleGroupPromotePinned = useMemo<TaxonomicDefinitionTypes[] | undefined>(
+        () => (soleSubstantiveGroupType ? getLocalOverride(TaxonomicFilterGroupType.PinnedFilters) : undefined),
+        [soleSubstantiveGroupType, getLocalOverride]
+    )
 
     // ---- search query (controlled / uncontrolled) ---------------------------
     const [internalSearchQuery, setInternalSearchQuery] = useState(initialSearchQuery ?? '')
@@ -449,14 +467,26 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             // shares its entryKey but lacks the contains label/telemetry);
             // pinned/recent context wrappers get stripped before persisting.
             if (valueIn != null && item && !isQuickFilterItem(item) && !isContainsShortcutItem(item)) {
-                const sourceGroupType = hasRecentContext(item) ? item._recentContext.sourceGroupType : group.type
-                const stripped = hasRecentContext(item) ? stripRecentContext(item) : item
+                const recentContext = hasRecentContext(item) ? item._recentContext : undefined
+                const stripped = recentContext ? stripRecentContext(item) : item
+                // Options in curated tabs (MCP properties, internal event properties) declare
+                // the canonical group they commit as. Legacy resolves it via `getItemGroup`
+                // before dispatching, so recents must be recorded under the declared group
+                // here too — otherwise the same property gets near-duplicate Recent rows
+                // across variants (recents dedupe on groupType + value and share storage).
+                const declaredGroup =
+                    !recentContext && stripped && typeof stripped === 'object' && 'group' in stripped
+                        ? // Resolve against every group definition (like legacy `getItemGroup`), not just
+                          // the visible tabs — a curated tab can be requested without its canonical group.
+                          allGroups.find((g) => g.type === stripped.group)
+                        : undefined
+                const sourceGroupType = recentContext?.sourceGroupType ?? declaredGroup?.type ?? group.type
                 const cleanItem = {
                     name: stripped.name,
                     ...(stripped.id ? { id: stripped.id } : {}),
                 }
-                const sourceGroupName = hasRecentContext(item) ? item._recentContext.sourceGroupName : group.name
-                const propertyFilterFromRecent = hasRecentContext(item) ? item._recentContext.propertyFilter : undefined
+                const sourceGroupName = recentContext?.sourceGroupName ?? declaredGroup?.name ?? group.name
+                const propertyFilterFromRecent = recentContext?.propertyFilter
                 // Defer one tick — keeps the recents write off the
                 // commit's render cycle so React doesn't re-render the
                 // closing popover with a stale list.
@@ -476,7 +506,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             onChange?.(group, valueIn, item)
             setSearchQuery('')
         },
-        [onChange, setSearchQuery]
+        [allGroups, onChange, setSearchQuery]
     )
 
     const selectSelected = useCallback(() => {
@@ -511,8 +541,8 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             // The sole substantive group carries recents/pinned inline (no leading tabs).
             ...(group.type === soleSubstantiveGroupType
                 ? {
-                      promoteRecentItemsToTop: getLocalOverride(TaxonomicFilterGroupType.RecentFilters),
-                      promotePinnedItemsToTop: getLocalOverride(TaxonomicFilterGroupType.PinnedFilters),
+                      promoteRecentItemsToTop: soleGroupPromoteRecent,
+                      promotePinnedItemsToTop: soleGroupPromotePinned,
                   }
                 : {}),
         }),
@@ -528,6 +558,8 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             autoSelectItem,
             getLocalOverride,
             soleSubstantiveGroupType,
+            soleGroupPromoteRecent,
+            soleGroupPromotePinned,
         ]
     )
 
@@ -580,6 +612,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         value,
         selectingKeyOnly,
         excludedOperators,
+        excludedProperties,
         rootProps: { onKeyDown },
         inputProps: {
             value: searchQuery,

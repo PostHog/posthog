@@ -53,6 +53,12 @@ class BaseNextUrlPaginator(BasePaginator):
     def update_request(self, request: Request) -> None:
         if self._next_url is not None:
             request.url = self._next_url
+            # The next-page URL is self-contained — it already carries every query
+            # param needed. Drop the original params so `prepare_request` doesn't
+            # re-append them to the URL each page; some APIs echo the received query
+            # back into their next link, so re-appending compounds one copy per page
+            # until the URL grows large enough for the server to reject it.
+            request.params = {}
 
 
 class HeaderLinkPaginator(BaseNextUrlPaginator):

@@ -5,7 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
-import { dateStringToComponents, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
+import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -15,6 +15,7 @@ import { AnyPropertyFilter, IntervalType, TeamType } from '~/types'
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
 import type { MCPIntentClusterApi } from './generated/api.schemas'
 import type { mcpDashboardOverviewLogicType } from './mcpDashboardOverviewLogicType'
+import { BUCKET_FORMAT, buildBucketKeys, normalizeBucket, resolveWindow, startOfBucket } from './timeBuckets'
 
 export interface DateFilter {
     dateFrom: string | null
@@ -153,6 +154,7 @@ export interface KPIMetric {
     previousValue: number
     deltaPct: number | null
     sparkline: number[]
+    sparklineLabels: string[]
     goodDirection: 'up' | 'down'
 }
 
@@ -223,7 +225,14 @@ export interface NotableSession {
     session: SessionRow
 }
 
-const EMPTY_METRIC: KPIMetric = { value: 0, previousValue: 0, deltaPct: null, sparkline: [], goodDirection: 'up' }
+const EMPTY_METRIC: KPIMetric = {
+    value: 0,
+    previousValue: 0,
+    deltaPct: null,
+    sparkline: [],
+    sparklineLabels: [],
+    goodDirection: 'up',
+}
 const EMPTY_KPIS: KPIData = {
     sessions: { ...EMPTY_METRIC, goodDirection: 'up' },
     toolCalls: { ...EMPTY_METRIC, goodDirection: 'up' },
@@ -270,53 +279,9 @@ export function deltaPct(current: number, previous: number): number | null {
     return ((current - previous) / previous) * 100
 }
 
-// Resolve the filter to absolute bounds. Hour-level relative ranges ("-1h") are
-// rolling from now; dateStringToDayJs anchors relative dates to the start of the
-// day, which would inflate a "last hour" window to half a day. Day+ ranges keep
-// that start-of-day anchoring (the established behaviour).
-function resolveWindow(dateFilter: DateFilter, timezone: string): { start: dayjs.Dayjs; end: dayjs.Dayjs } {
-    const now = dayjs().tz(timezone)
-    const end = (dateFilter.dateTo ? dateStringToDayJs(dateFilter.dateTo, timezone) : now) ?? now
-    const components = dateStringToComponents(dateFilter.dateFrom)
-    if (components && components.unit === 'hour' && !dateFilter.dateTo) {
-        // components.amount is signed (negative for the past), so add() walks backwards.
-        return { start: now.add(components.amount, 'hour'), end: now }
-    }
-    const start = dateStringToDayJs(dateFilter.dateFrom, timezone) ?? now.subtract(7, 'day')
-    return { start, end }
-}
-
-// Truncate to the start of an interval bucket the same way ClickHouse's dateTrunc does, so the keys
-// we generate line up with the query's bucket strings. dayjs' startOf covers minute/hour/day/month;
-// only 'week' differs — dateTrunc('week') is ISO (Monday-start) while dayjs defaults to Sunday.
-function startOfBucket(d: dayjs.Dayjs, interval: IntervalType): dayjs.Dayjs {
-    if (interval === 'week') {
-        const day = d.day() // 0 = Sunday … 6 = Saturday
-        return d.startOf('day').subtract((day + 6) % 7, 'day')
-    }
-    return d.startOf(interval)
-}
-
-// The one format for bucket keys — must match ClickHouse dateTrunc's DateTime output so the
-// zero-fill join and the in-progress-tail comparison line up. Change it here, nowhere else.
-const BUCKET_FORMAT = 'YYYY-MM-DD HH:mm:ss'
-
-// Every bucket key across the resolved window [start, end] at the active interval, formatted to
-// match dateTrunc's DateTime output ('YYYY-MM-DD HH:mm:ss'). The activity and tool-usage series are
-// zero-filled against these so the x-axis spans the whole selected range instead of clipping to the
-// buckets that happened to have events.
-export function buildBucketKeys(dateFilter: DateFilter, timezone: string, interval: IntervalType): string[] {
-    const { start, end } = resolveWindow(dateFilter, timezone)
-    const last = startOfBucket(end, interval).valueOf()
-    const keys: string[] = []
-    let cursor = startOfBucket(start, interval)
-    // Bounded dashboard windows keep this small; the cap is just a guard against a pathological range.
-    for (let i = 0; cursor.valueOf() <= last && i < 100000; i++) {
-        keys.push(cursor.format(BUCKET_FORMAT))
-        cursor = cursor.add(1, interval)
-    }
-    return keys
-}
+// Window resolution, bucket keys, and the BUCKET_FORMAT contract are shared with the tab/detail
+// surfaces — see ./timeBuckets. The dashboard adds only the KPI-comparison window and in-progress
+// tail below, built on those shared primitives.
 
 // True when the final bucket is the current, still-running interval (open-ended window), so the
 // chart can dash that segment as "in progress" rather than letting the partial period read as data
@@ -332,11 +297,6 @@ export function lastBucketIsInProgress(
     }
     const currentBucket = startOfBucket(now.tz(timezone), interval).format(BUCKET_FORMAT)
     return bucketKeys[bucketKeys.length - 1] === currentBucket
-}
-
-export function normalizeBucket(raw: unknown, timezone: string): string {
-    const s = String(raw ?? '')
-    return s ? dayjs(s).tz(timezone).format(BUCKET_FORMAT) : ''
 }
 
 // Project the daily success/error rows onto the full set of buckets, defaulting empty buckets to 0.
@@ -360,7 +320,7 @@ export interface KpiWindow {
 // `currentStartBucket` is the cutoff `buildKPIs` splits on — formatted to match
 // dateTrunc's DateTime output.
 export function buildKpiWindow(dateFilter: DateFilter, timezone: string, interval: IntervalType): KpiWindow {
-    const { start, end } = resolveWindow(dateFilter, timezone)
+    const { start, end } = resolveWindow(dateFilter.dateFrom, dateFilter.dateTo, timezone)
     // The selected period covers the inclusive buckets [start, end] — one more than
     // end.diff(start). Step the prior window back by that same count so the two
     // halves of the comparison span an equal number of buckets.
@@ -397,18 +357,27 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
     const current = rows.filter((r) => r.bucket >= currentStartBucket).sort((a, b) => a.bucket.localeCompare(b.bucket))
     const previous = rows.filter((r) => r.bucket < currentStartBucket)
 
+    // Newest bucket with latency data — p95 === 0 marks a bucket without any.
+    const latestP95 = (rows_: BucketRow[]): number =>
+        [...rows_].sort((a, b) => b.bucket.localeCompare(a.bucket)).find((r) => r.p95 > 0)?.p95 ?? 0
+
+    // Newest bucket with any calls — a 0% rate from an empty bucket would be meaningless.
+    const latestErrorRate = (rows_: BucketRow[]): number => {
+        const row = [...rows_].sort((a, b) => b.bucket.localeCompare(a.bucket)).find((r) => r.tool_calls > 0)
+        return row ? (row.errors / row.tool_calls) * 100 : 0
+    }
+
     const curSessions = current.reduce((acc, r) => acc + r.sessions, 0)
     const curCalls = current.reduce((acc, r) => acc + r.tool_calls, 0)
-    const curErrors = current.reduce((acc, r) => acc + r.errors, 0)
-    const curP95 = current.length ? Math.max(...current.map((r) => r.p95)) : 0
+    const curP95 = latestP95(current)
 
     const prevSessions = previous.reduce((acc, r) => acc + r.sessions, 0)
     const prevCalls = previous.reduce((acc, r) => acc + r.tool_calls, 0)
-    const prevErrors = previous.reduce((acc, r) => acc + r.errors, 0)
-    const prevP95 = previous.length ? Math.max(...previous.map((r) => r.p95)) : 0
+    const prevP95 = latestP95(previous)
 
-    const curErrorRate = curCalls ? (curErrors / curCalls) * 100 : 0
-    const prevErrorRate = prevCalls ? (prevErrors / prevCalls) * 100 : 0
+    const curErrorRate = latestErrorRate(current)
+    const prevErrorRate = latestErrorRate(previous)
+    const sparklineLabels = current.map((r) => r.bucket)
 
     return {
         sessions: {
@@ -416,6 +385,7 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
             previousValue: prevSessions,
             deltaPct: deltaPct(curSessions, prevSessions),
             sparkline: current.map((r) => r.sessions),
+            sparklineLabels,
             goodDirection: 'up',
         },
         toolCalls: {
@@ -423,6 +393,7 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
             previousValue: prevCalls,
             deltaPct: deltaPct(curCalls, prevCalls),
             sparkline: current.map((r) => r.tool_calls),
+            sparklineLabels,
             goodDirection: 'up',
         },
         errorRatePct: {
@@ -430,6 +401,7 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
             previousValue: prevErrorRate,
             deltaPct: deltaPct(curErrorRate, prevErrorRate),
             sparkline: current.map((r) => (r.tool_calls ? (r.errors / r.tool_calls) * 100 : 0)),
+            sparklineLabels,
             goodDirection: 'down',
         },
         p95LatencyMs: {
@@ -437,6 +409,7 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
             previousValue: prevP95,
             deltaPct: deltaPct(curP95, prevP95),
             sparkline: current.map((r) => r.p95),
+            sparklineLabels,
             goodDirection: 'down',
         },
     }
@@ -522,6 +495,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                         deltaPct: deltaPct(value, previousValue),
                         // No sparkline: the headline is a window-level distinct count, not a per-bucket series.
                         sparkline: [],
+                        sparklineLabels: [],
                         goodDirection: 'up',
                     }
                 },
@@ -605,7 +579,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     breakpoint()
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
-                        day: normalizeBucket(r[0], values.timezone),
+                        day: normalizeBucket(r[0]),
                         successes: Number(r[1] ?? 0),
                         errors: Number(r[2] ?? 0),
                     }))
@@ -624,7 +598,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     breakpoint()
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
-                        day: normalizeBucket(r[0], values.timezone),
+                        day: normalizeBucket(r[0]),
                         tool: String(r[1] ?? ''),
                         calls: Number(r[2] ?? 0),
                     }))
@@ -659,7 +633,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         bucketKeys: [
             (s) => [s.dateFilter, s.timezone, s.interval],
             (dateFilter: DateFilter, timezone: string, interval: IntervalType): string[] =>
-                buildBucketKeys(dateFilter, timezone, interval),
+                buildBucketKeys(dateFilter.dateFrom, dateFilter.dateTo, timezone, interval),
         ],
         // Whether the activity chart's final bucket is the current, still-running interval — the
         // chart dashes that segment so a partial period doesn't read as a drop in tool calls.
@@ -687,6 +661,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 previousValue: 0,
                 deltaPct: null,
                 sparkline: [],
+                sparklineLabels: [],
                 goodDirection: 'up',
             }),
         ],

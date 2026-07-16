@@ -22,7 +22,7 @@ export function taskRunDetailToStreamState(dto: TaskRunDetailDTOApi): TaskRunStr
     return {
         status: dto.status,
         stage: dto.stage ?? null,
-        output: (dto.output as { pr_url?: string | null } | null) ?? null,
+        output: (dto.output as { pr_url?: string | null; pr_merged?: boolean | null } | null) ?? null,
         branch: dto.branch ?? null,
         error_message: dto.error_message ?? null,
         updated_at: dto.updated_at ?? '',
@@ -37,7 +37,7 @@ export function taskRunDetailToStreamState(dto: TaskRunDetailDTOApi): TaskRunStr
 export interface TaskRunStreamState {
     status: string // queued | in_progress | completed | failed | cancelled
     stage: string | null
-    output: { pr_url?: string | null } | null
+    output: { pr_url?: string | null; pr_merged?: boolean | null } | null
     branch: string | null
     error_message: string | null
     updated_at: string
@@ -131,6 +131,10 @@ export function taskRunPrUrl(state: TaskRunStreamState | null, steps: TaskRunPro
     )
 }
 
+export function taskRunPrMerged(state: TaskRunStreamState | null): boolean {
+    return state?.output?.pr_merged === true
+}
+
 export interface CloudRunCompletionReport {
     status: TerminalTaskRunStatus
     durationSeconds: number | null
@@ -208,7 +212,26 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
         taskRunState: [
             null as TaskRunStreamState | null,
             {
-                taskRunStateUpdated: (_, { state }) => state,
+                // Reconnects (tab-visibility resume) replay historical state events; PR facts only
+                // move forward, so a replayed pre-merge state must not regress them mid-replay.
+                taskRunStateUpdated: (prev, { state }) => {
+                    if (!prev?.output) {
+                        return state
+                    }
+                    const output = { ...state.output }
+                    // A state event that replaces the PR (resumed run, new branch) carries its own
+                    // url; don't drag the prior PR's merge onto it. Pin only while the url matches.
+                    if (output.pr_url && prev.output.pr_url && output.pr_url !== prev.output.pr_url) {
+                        return { ...state, output }
+                    }
+                    if (prev.output.pr_url && !output.pr_url) {
+                        output.pr_url = prev.output.pr_url
+                    }
+                    if (prev.output.pr_merged && !output.pr_merged) {
+                        output.pr_merged = prev.output.pr_merged
+                    }
+                    return { ...state, output }
+                },
             },
         ],
         // Last-write-wins per (group, step), kept in arrival order so the UI renders a stable timeline.

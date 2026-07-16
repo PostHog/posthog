@@ -81,6 +81,19 @@ pub struct Config {
     #[envconfig(default = "100000")]
     pub group_type_cache_size: usize,
 
+    // Negative cache for group-type resolution misses (personhog returned no mapping).
+    // A new group type's $groupidentify can arrive here before its GroupTypeMapping is
+    // visible to personhog's eventual read, so a miss is often a transient race, not
+    // terminal misuse. We cache the miss for this TTL so we neither hammer personhog for
+    // repeated unresolvable keys nor block a legitimate new group for longer than the TTL:
+    // once the entry expires the next $groupidentify re-attempts resolution. Kept short on
+    // purpose (the mapping is committed to PG primary before we consume the event, so only
+    // replica lag remains).
+    #[envconfig(default = "30")]
+    pub group_type_negative_ttl_secs: u64,
+    #[envconfig(default = "100000")]
+    pub group_type_negative_cache_size: usize,
+
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 

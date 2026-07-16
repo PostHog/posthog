@@ -21,10 +21,12 @@ import type {
     AccountsRelationshipsListParams,
     CustomPropertyDefinitionApi,
     CustomPropertyDefinitionsListParams,
+    CustomPropertyDefinitionsValuesRetrieveParams,
     CustomPropertySourceApi,
     CustomPropertySourceUpdateApi,
     CustomPropertySourcesListParams,
     CustomPropertyValueApi,
+    CustomPropertyValueSuggestionsResponseApi,
     CustomPropertyValueWriteApi,
     CustomerJourneyApi,
     CustomerJourneysListParams,
@@ -610,6 +612,39 @@ export const customPropertyDefinitionsDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getCustomPropertyDefinitionsValuesRetrieveUrl = (
+    projectId: string,
+    params: CustomPropertyDefinitionsValuesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/custom_property_definitions/values/?${stringifiedParams}`
+        : `/api/projects/${projectId}/custom_property_definitions/values/`
+}
+
+export const customPropertyDefinitionsValuesRetrieve = async (
+    projectId: string,
+    params: CustomPropertyDefinitionsValuesRetrieveParams,
+    options?: RequestInit
+): Promise<CustomPropertyValueSuggestionsResponseApi> => {
+    return apiMutator<CustomPropertyValueSuggestionsResponseApi>(
+        getCustomPropertyDefinitionsValuesRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getCustomPropertySourcesListUrl = (projectId: string, params?: CustomPropertySourcesListParams) => {

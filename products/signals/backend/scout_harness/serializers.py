@@ -135,7 +135,7 @@ class SignalScoutRunDetailSerializer(SignalScoutRunSummarySerializer):
 
 class SignalScoutEmissionSerializer(serializers.ModelSerializer):
     """One finding a scout run emitted to the inbox — the persisted, queryable record of
-    *what* the run surfaced, returned by `signals-scout-runs-emissions-list`. The emitted text
+    *what* the run surfaced, returned by `scout-runs-emissions-list`. The emitted text
     lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
     back into the underlying signal store."""
 
@@ -613,14 +613,14 @@ class SuggestedReviewerSerializer(serializers.Serializer):
         max_length=200,
         help_text=(
             "GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display "
-            "name. Resolve one via `signals-scout-members-list` (each member row carries a resolved "
+            "name. Resolve one via `scout-members-list` (each member row carries a resolved "
             "`github_login`) or git history when you only have a name."
         ),
     )
     user_uuid = serializers.UUIDField(
         required=False,
         help_text=(
-            "PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). "
+            "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). "
             "Resolved server-side to the member's linked GitHub login — use this when you know the PostHog "
             "user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
         ),
@@ -823,6 +823,18 @@ class ExternalDataSourceEntrySerializer(serializers.Serializer):
         allow_null=True,
         help_text="ISO-8601 timestamp the source was connected.",
     )
+    last_run_at = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "ISO-8601 timestamp of the most recent completed sync job, or null if this source has "
+            "never completed a sync. Use this to tell a healthy source apart from one stuck in "
+            "`Running` that has imported zero rows — `status` alone conflates the two."
+        ),
+    )
+    latest_error = serializers.CharField(
+        allow_null=True,
+        help_text="Newest schema-level sync error for this source, or null if no schema is erroring.",
+    )
 
 
 class SignalSourceConfigEntrySerializer(serializers.Serializer):
@@ -910,8 +922,20 @@ class RecentDashboardEntrySerializer(serializers.Serializer):
 class TopEventEntrySerializer(serializers.Serializer):
     """One row in `inventory.top_events`."""
 
+    window_days = serializers.IntegerField(
+        help_text=(
+            "Rolling lookback window (in days) that every count and timestamp on this row "
+            "is measured over — these are windowed figures, NOT lifetime totals. A capture "
+            "gap can collapse a real, high-volume project's in-window counts to near-zero, "
+            "so a thin `count` here does not by itself mean the project is low-volume: rule "
+            "out an ingestion gap (compare against a trailing baseline via a direct "
+            "`execute-sql`) before closing out a surface as unused."
+        ),
+    )
     event = serializers.CharField(help_text="Event name as captured.")
-    count = serializers.IntegerField(help_text="Number of occurrences in the lookback window (last 7 days).")
+    count = serializers.IntegerField(
+        help_text="Number of occurrences within the last `window_days` (windowed, not lifetime)."
+    )
     distinct_users = serializers.IntegerField(
         help_text=(
             "`uniq(person_id)` over the window — reach. Distinguishes a high-count "
@@ -920,8 +944,9 @@ class TopEventEntrySerializer(serializers.Serializer):
     )
     recent_24h_count = serializers.IntegerField(
         help_text=(
-            "Count in just the last 24 hours. Compare to `count / 7` to spot bursts: "
-            "a ratio well above 1/7 means the event is concentrated in the last day."
+            "Count in just the last 24 hours. Compare to `count / window_days` to spot "
+            "bursts: a ratio well above `1 / window_days` means the event is concentrated "
+            "in the last day."
         ),
     )
     recent_24h_users = serializers.IntegerField(
@@ -930,19 +955,18 @@ class TopEventEntrySerializer(serializers.Serializer):
             "users is qualitatively different from one user in a loop."
         ),
     )
-    first_seen = serializers.CharField(
+    first_seen_in_window = serializers.CharField(
         allow_null=True,
         help_text=(
-            "ISO-8601 timestamp of the earliest occurrence within the lookback window. "
-            "Compare to the window start to spot new event types: `first_seen` close to "
-            "`now` ⇒ likely new or recently bursting; close to the window edge ⇒ has "
-            "been around at least that long (the window can't tell you when the event "
-            "*truly* first appeared)."
+            "ISO-8601 timestamp of the earliest occurrence within the `window_days` window. "
+            "Compare to the window start to spot new event types: close to `now` ⇒ likely "
+            "new or recently bursting; close to the window edge ⇒ has been around at least "
+            "that long (the window can't tell you when the event *truly* first appeared)."
         ),
     )
-    last_seen = serializers.CharField(
+    last_seen_in_window = serializers.CharField(
         allow_null=True,
-        help_text="ISO-8601 timestamp of the most recent occurrence within the lookback window.",
+        help_text="ISO-8601 timestamp of the most recent occurrence within the `window_days` window.",
     )
 
 
@@ -1279,7 +1303,7 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
             "experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each "
             "scope reports `edits` (total log entries), `users` (distinct user count), "
             "and `last_edit` (ISO-8601). Use to triage which scope a team has been working "
-            "in lately before drilling down via the per-entity readers or `activity-log-list`."
+            "in lately before drilling down via the per-entity readers or `advanced-activity-logs-list`."
         ),
     )
     recent_reviewer_corrections = RecentReviewerCorrectionsSerializer(
@@ -1353,11 +1377,16 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
         child=TopEventEntrySerializer(),
         allow_null=True,
         help_text=(
-            "Top ~50 events by count over the last 7 days, with first/last seen "
-            "timestamps within the window. `null` if the underlying ClickHouse query "
-            "failed or timed out (distinct from `[]`, which means the team has no "
-            "captures in the window). Use the gap between `first_seen` and `now` to "
-            "spot new event types or recent bursts."
+            "Top ~50 events by count over a recent rolling window (each row carries "
+            "`window_days`), with first/last seen timestamps within that window. These "
+            "are WINDOWED counts, not lifetime totals: a capture gap can collapse a "
+            "real, high-volume project's counts to near-zero here, so rule out an "
+            "ingestion gap (compare against a trailing baseline via a direct "
+            "`execute-sql`) before reading thinness as a genuinely low-volume project. "
+            "`null` if the underlying ClickHouse query failed or timed out (distinct "
+            "from `[]`, which means the team has no captures in the window). Use the gap "
+            "between `first_seen_in_window` and `now` to spot new event types or recent "
+            "bursts."
         ),
     )
 
@@ -1534,7 +1563,7 @@ class SignalScoutManualRunSerializer(serializers.Serializer):
 
     The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
     row yet at response time — the bridge row is created once the run's first turn starts.
-    Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+    Poll the scout's runs (`scout-runs-list`) to see the resulting run and its findings.
     """
 
     skill_name = serializers.CharField(help_text="The `signals-scout-*` skill that was dispatched.")
@@ -1599,7 +1628,7 @@ class ScoutMetadataSerializer(serializers.Serializer):
 
 
 class ScoutMembersQuerySerializer(serializers.Serializer):
-    """Query params for `signals-scout-members-list`."""
+    """Query params for `scout-members-list`."""
 
     search = serializers.CharField(
         required=False,

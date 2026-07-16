@@ -190,12 +190,26 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
         RUNNING = "running", "running"
         DONE = "done", "done"
         FAILED = "failed", "failed"
+        # A user-requested stop (Journey 9); unlike FAILED, the envelope's captured
+        # stdout/stderr still surface to the UI.
+        INTERRUPTED = "interrupted", "interrupted"
+
+    class NodeType(models.TextChoices):
+        HOGQL = "hogql", "hogql"
+        PYTHON = "python", "python"
+        DUCKDB = "duckdb", "duckdb"
 
     # db_constraint=False: creating a real FK to the hot posthog_team table locks it on deploy.
     # Tenant isolation is still enforced by the fail-closed TeamScopedRootMixin manager.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE)
     node_id = models.CharField(max_length=128)
+    # How the run executed: hogql pushed to ClickHouse (pages re-query by `code`); python and
+    # duckdb ran in the sandbox kernel (pages slice the on-sandbox result frame by `result_id`).
+    node_type = models.CharField(choices=NodeType, default=NodeType.HOGQL, max_length=20)
+    # The node's code at run time — paging must re-query what produced the result,
+    # not whatever the editor holds now.
+    code = models.TextField(blank=True, default="")
     status = models.CharField(choices=Status, default=Status.RUNNING, max_length=20)
     envelope: JSONField = JSONField(default=None, null=True, blank=True)
     result_id = models.UUIDField(null=True, blank=True)
