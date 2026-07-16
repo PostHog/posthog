@@ -343,8 +343,11 @@ export function lastBucketIsInProgress(
 }
 
 export function normalizeBucket(raw: unknown, timezone: string): string {
+    // The raw value is a project-timezone wall clock (dateTrunc runs in the team timezone), so parse
+    // it AS that timezone. `dayjs(s).tz(tz)` reads it in the browser tz then converts, shifting day
+    // buckets off midnight so they match no key — the chart reads flat for non-project-tz viewers.
     const s = String(raw ?? '')
-    return s ? dayjs(s).tz(timezone).format(BUCKET_FORMAT) : ''
+    return s ? dayjs.tz(s, timezone).format(BUCKET_FORMAT) : ''
 }
 
 // Project the daily success/error rows onto the full set of buckets, defaulting empty buckets to 0.

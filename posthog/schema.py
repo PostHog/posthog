@@ -24174,6 +24174,14 @@ class MCPToolDailyStatsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description=(
+            "Bucket granularity for the series. The frontend passes getDefaultInterval"
+            " so a sub-day window buckets by hour/minute instead of collapsing to a"
+            " single day point. Defaults to day."
+        ),
+    )
     kind: Literal["MCPToolDailyStatsQuery"] = "MCPToolDailyStatsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: MCPToolDailyStatsQueryResponse | None = None

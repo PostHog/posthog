@@ -4,7 +4,7 @@ import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { dateFilterToText, dateStringToDayJs } from 'lib/utils/dateFilters'
+import { dateFilterToText, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -20,8 +20,10 @@ import {
     MCPToolTopUserItem,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { IntervalType } from '~/types'
 
 import type { mcpAnalyticsToolDetailLogicType } from './mcpAnalyticsToolDetailLogicType'
+import { buildBucketKeys, normalizeBucket } from './timeBuckets'
 
 export interface ToolSummary {
     calls: number
@@ -74,21 +76,20 @@ const EMPTY_CHART_DATA: DailyChartData = {
 
 export type ResultRows = unknown[][]
 
-// Gap-fill the per-day rows into a continuous day axis (ClickHouse only returns days with data).
-// Counts fill with 0; latency fills with NaN so the chart skips the point instead of dipping to 0.
-export function buildDailyChartData(rows: DailyToolStat[]): DailyChartData {
+// Project the per-bucket rows onto the full set of interval buckets spanning the selected window
+// (ClickHouse only returns buckets with data). `bucketKeys` covers the whole window at the active
+// interval so the sparklines and trend charts match the chosen range — and always have enough points
+// to draw a line — even when the tool has data on only a bucket or two. Counts fill with 0; latency
+// fills with NaN so the chart skips the point instead of dipping to 0. Rows match by normalized
+// bucket key, so day, hour, and minute intervals all line up. No rows at all keeps the empty state.
+export function buildDailyChartData(rows: DailyToolStat[], bucketKeys: string[], timezone: string): DailyChartData {
     if (rows.length === 0) {
         return EMPTY_CHART_DATA
     }
-    const byDay = new Map(rows.map((r) => [r.day, r]))
-    const end = dayjs(rows[rows.length - 1].day)
-    const labels: string[] = []
-    for (let day = dayjs(rows[0].day); !day.isAfter(end); day = day.add(1, 'day')) {
-        labels.push(day.format('YYYY-MM-DD'))
-    }
-    const at = labels.map((day) => byDay.get(day))
+    const byBucket = new Map(rows.map((r) => [normalizeBucket(r.day, timezone), r]))
+    const at = bucketKeys.map((k) => byBucket.get(k))
     return {
-        labels,
+        labels: bucketKeys,
         calls: at.map((r) => r?.calls ?? 0),
         errors: at.map((r) => r?.errors ?? 0),
         p50: at.map((r) => (r ? r.p50 : NaN)),
@@ -213,6 +214,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                         kind: NodeKind.MCPToolDailyStatsQuery,
                         toolName: props.toolName,
                         dateRange: values.dateRange,
+                        interval: values.interval,
                     })) as { results?: MCPToolDailyStatItem[] }
                     return (response?.results ?? []).map((r) => ({
                         day: r.day,
@@ -314,8 +316,23 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         toolName: [() => [(_, props) => props.toolName], (toolName: string) => toolName],
 
         dailyChartData: [
-            (s) => [s.dailyStats],
-            (dailyStats: DailyToolStat[]): DailyChartData => buildDailyChartData(dailyStats),
+            (s) => [s.dailyStats, s.dateFilter, s.interval, teamLogic.selectors.timezone],
+            (
+                dailyStats: DailyToolStat[],
+                dateFilter: DateFilter,
+                interval: IntervalType,
+                timezone: string
+            ): DailyChartData => {
+                const bucketKeys = buildBucketKeys(dateFilter.dateFrom, dateFilter.dateTo, timezone, interval)
+                return buildDailyChartData(dailyStats, bucketKeys, timezone)
+            },
+        ],
+
+        // Grouping interval for the daily series — PostHog's standard auto-choice, matching the query's
+        // dateTrunc so a sub-day window buckets by hour/minute instead of collapsing to one day point.
+        interval: [
+            (s) => [s.dateFilter],
+            (dateFilter: DateFilter): IntervalType => getDefaultInterval(dateFilter.dateFrom, dateFilter.dateTo),
         ],
 
         // Resolve the `dateFilter` state (camelCase, nullable, may be relative like '-30d') into the
