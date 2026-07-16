@@ -716,13 +716,16 @@ def _introspection(
 
 # --- the virtual tables ----------------------------------------------------------------------- #
 
-_TABLES_COLUMNS: list[tuple[str, str]] = [
+_TABLES_BASE_COLUMNS: list[tuple[str, str]] = [
     ("table_catalog", _STRING),
     ("table_schema", _STRING),
     ("table_name", _STRING),
     ("table_type", _STRING),
     ("description", _NULLABLE_STRING),
     ("row_count", _NULLABLE_INTEGER),
+]
+_TABLES_COLUMNS: list[tuple[str, str]] = [
+    *_TABLES_BASE_COLUMNS,
     ("certification", _NULLABLE_STRING),
 ]
 
@@ -741,13 +744,16 @@ _COLUMNS_COLUMNS: list[tuple[str, str]] = [
     ("max_value", _NULLABLE_STRING),
 ]
 
-_RELATIONSHIPS_COLUMNS: list[tuple[str, str]] = [
+_RELATIONSHIPS_BASE_COLUMNS: list[tuple[str, str]] = [
     ("source_table", _STRING),
     ("source_column", _STRING),
     ("target_table", _STRING),
     ("target_column", _NULLABLE_STRING),
     ("relationship_kind", _STRING),
     ("via", _NULLABLE_STRING),
+]
+_RELATIONSHIPS_COLUMNS: list[tuple[str, str]] = [
+    *_RELATIONSHIPS_BASE_COLUMNS,
     ("confidence", _NULLABLE_FLOAT),
     ("reasoning", _NULLABLE_STRING),
 ]
@@ -1018,8 +1024,15 @@ class InformationSchemaTablesTable(LazyTable):
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
         allowed = _pushdown_table_filter(node, "table_name")
         introspection = _introspection(context, allowed)
-        table_rows = introspection.table_rows() if introspection is not None else []
-        return _rows_select(context, "tables", _TABLES_COLUMNS, table_rows, allowed)
+        catalog_metadata_enabled = "certification" in self.fields
+        if introspection is None:
+            table_rows = []
+        elif catalog_metadata_enabled:
+            table_rows = introspection.table_rows()
+        else:
+            table_rows, _, _ = introspection.collect()
+        columns = _TABLES_COLUMNS if catalog_metadata_enabled else _TABLES_BASE_COLUMNS
+        return _rows_select(context, "tables", columns, table_rows, allowed)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
         return "information_schema.tables"
@@ -1145,8 +1158,15 @@ class InformationSchemaRelationshipsTable(LazyTable):
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
         allowed = _pushdown_table_filter(node, "source_table")
         introspection = _introspection(context, allowed)
-        relationship_rows = introspection.relationship_rows() if introspection is not None else []
-        return _rows_select(context, "relationships", _RELATIONSHIPS_COLUMNS, relationship_rows, allowed)
+        catalog_metadata_enabled = "confidence" in self.fields
+        if introspection is None:
+            relationship_rows = []
+        elif catalog_metadata_enabled:
+            relationship_rows = introspection.relationship_rows()
+        else:
+            _, _, relationship_rows = introspection.collect()
+        columns = _RELATIONSHIPS_COLUMNS if catalog_metadata_enabled else _RELATIONSHIPS_BASE_COLUMNS
+        return _rows_select(context, "relationships", columns, relationship_rows, allowed)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
         return "information_schema.relationships"
@@ -1253,3 +1273,20 @@ def information_schema_node() -> TableNode:
             "metrics": TableNode(name="metrics", table=InformationSchemaMetricsTable()),
         },
     )
+
+
+def disable_data_catalog(info_schema: TableNode) -> None:
+    info_schema.children.pop("metrics", None)
+
+    tables = info_schema.children.get("tables")
+    if tables is not None and isinstance(tables.table, InformationSchemaTablesTable):
+        tables.table.fields.pop("certification", None)
+
+    relationships = info_schema.children.get("relationships")
+    if relationships is not None and isinstance(relationships.table, InformationSchemaRelationshipsTable):
+        relationships.table.fields.pop("confidence", None)
+        relationships.table.fields.pop("reasoning", None)
+        relationships.table.description = (
+            "Joinable relationships between tables (lazy joins and field traversers); one row per relationship. "
+            "Use it to discover how to join from one table to another in HogQL."
+        )
