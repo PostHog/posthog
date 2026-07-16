@@ -414,6 +414,14 @@ export interface SessionRecordingPlaylistLogicProps {
 
 const isRelativeDate = (x: RecordingUniversalFilters['date_from']): boolean => !!x && x.startsWith('-')
 
+const PERSON_INTENT_DATE_FROM = '-30d'
+
+function filterGroupHasPersonFilter(filterGroup: UniversalFiltersGroup): boolean {
+    return filtersFromUniversalFilterGroups({ filter_group: filterGroup, duration: [] }).some(
+        (value) => 'type' in value && value.type === PropertyFilterType.Person
+    )
+}
+
 export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogicType>([
     path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsPlaylistLogic', key]),
     props({} as SessionRecordingPlaylistLogicProps),
@@ -682,6 +690,29 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         if (props.pinnedFilters) {
                             newState.filter_group = mergePinnedFilters(newState.filter_group, props.pinnedFilters)
                         }
+
+                        // `session_ids` scopes the list to a specific set of recordings (opened from a funnel
+                        // drop-off, "selected recordings", etc.) and is persisted alongside the other filters.
+                        // A set left over from a prior view would silently AND against a fresh search and return
+                        // nothing, so drop it whenever the caller changes another filter without re-supplying it.
+                        if (!('session_ids' in filters)) {
+                            delete newState.session_ids
+                        }
+
+                        // Filtering by a person is a specific-intent search where recency is a poor default: the
+                        // value the picker suggested can be older than the home explorer's 3-day window, so the
+                        // search dead-ends on "No more results". When a person filter is added and the window is
+                        // still the untouched default, widen it to match the person-page default.
+                        if (
+                            'filter_group' in filters &&
+                            !('date_from' in filters) &&
+                            newState.date_from === DEFAULT_RECORDING_FILTERS.date_from &&
+                            filterGroupHasPersonFilter(newState.filter_group)
+                        ) {
+                            newState.date_from = PERSON_INTENT_DATE_FROM
+                            newState.date_to = null
+                        }
+
                         return newState
                     } catch (e) {
                         posthog.captureException(e)

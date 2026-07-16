@@ -815,6 +815,96 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 expect(logic.values.filters.session_ids).toBeUndefined()
                 expect(listSpy).toHaveBeenLastCalledWith(expect.objectContaining({ session_ids: undefined }))
             })
+
+            it('drops a stale session_ids set when another filter changes', async () => {
+                router.actions.push('/replay/home', {
+                    filters: {
+                        session_ids: ['s1', 's2'],
+                        date_from: '-7d',
+                        filter_group: emptyFilterGroup,
+                        duration: [],
+                    },
+                })
+                await expectLogic(logic)
+                    .toDispatchActions(['setFilters', 'loadSessionRecordingsSuccess'])
+                    .toMatchValues({ filters: expect.objectContaining({ session_ids: ['s1', 's2'] }) })
+
+                const listSpy = jest.spyOn(api.recordings, 'list')
+
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
+                                },
+                            ],
+                        },
+                    })
+                }).toDispatchActions(['setFilters', 'loadSessionRecordings', 'loadSessionRecordingsSuccess'])
+
+                expect(logic.values.filters.session_ids).toBeUndefined()
+                expect(listSpy).toHaveBeenLastCalledWith(expect.objectContaining({ session_ids: undefined }))
+            })
+
+            it('keeps session_ids when re-supplied alongside another filter change', async () => {
+                router.actions.push('/replay/home', {
+                    filters: {
+                        session_ids: ['s1', 's2'],
+                        date_from: '-7d',
+                        filter_group: emptyFilterGroup,
+                        duration: [],
+                    },
+                })
+                await expectLogic(logic).toDispatchActions(['setFilters', 'loadSessionRecordingsSuccess'])
+
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ session_ids: ['s1', 's2'], date_from: '-30d' })
+                }).toDispatchActions(['setFilters'])
+
+                expect(logic.values.filters.session_ids).toEqual(['s1', 's2'])
+            })
+        })
+
+        describe('person filter date window', () => {
+            const personFilterGroup: UniversalFiltersGroup = {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                key: 'email',
+                                value: ['a@b.com'],
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Person,
+                            },
+                        ],
+                    },
+                ],
+            }
+
+            it('widens the default 3-day window to 30 days when a person filter is added', async () => {
+                await expectLogic(logic).toMatchValues({
+                    filters: expect.objectContaining({ date_from: DEFAULT_RECORDING_FILTERS.date_from }),
+                })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ filter_group: personFilterGroup })
+                }).toDispatchActions(['setFilters'])
+
+                expect(logic.values.filters.date_from).toEqual('-30d')
+            })
+
+            it('does not override an explicitly chosen date range', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ date_from: '-24h', filter_group: personFilterGroup })
+                }).toDispatchActions(['setFilters'])
+
+                expect(logic.values.filters.date_from).toEqual('-24h')
+            })
         })
 
         describe('deleting recordings', () => {
