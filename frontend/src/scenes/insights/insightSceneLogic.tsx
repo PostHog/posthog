@@ -68,6 +68,7 @@ import { AlertType } from 'products/alerts/frontend/types'
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
+import type { QuerySchema } from '../../queries/schema/schema-general'
 import type { TeamPublicType, TeamType } from '../../types'
 import { insightDataLogic } from './insightDataLogic'
 import type { insightDataLogicType } from './insightDataLogic'
@@ -134,7 +135,9 @@ export interface insightSceneLogicValues {
         logic: BuiltLogic<insightDataLogicType>
         unmount: () => void
     } | null
-    insightDataSelector: any
+    insightDataSelector:
+        | ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => Record<string, any>)
+        | undefined
     insightId: InsightId | null
     insightLogicRef: {
         logic: BuiltLogic<insightLogicType>
@@ -142,8 +145,15 @@ export interface insightSceneLogicValues {
     } | null
     insightMode: ItemMode
     insightQuery: Node<Record<string, any>> | null | undefined
-    insightQuerySelector: any
-    insightSelector: any
+    insightQuerySelector:
+        | ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => Node<Record<string, any>> | null)
+        | undefined
+    insightSelector:
+        | ((
+              state: any,
+              props?: InsightLogicProps<QuerySchema> | undefined
+          ) => Partial<QueryBasedInsightModel<Node<Record<string, any>>>>)
+        | undefined
     itemId: number | string | null
     maxContext: MaxContextInput[]
     projectTreeRef: ProjectTreeRef
@@ -165,7 +175,7 @@ export interface insightSceneLogicActions {
         logic: BuiltLogic<insightDataLogicType> | null,
         unmount: (() => void) | null
     ) => {
-        logic: any
+        logic: BuiltLogic<insightDataLogicType> | null
         unmount: (() => void) | null
     }
     setInsightId: (insightId: InsightShortId) => {
@@ -175,7 +185,7 @@ export interface insightSceneLogicActions {
         logic: BuiltLogic<insightLogicType> | null,
         unmount: (() => void) | null
     ) => {
-        logic: any
+        logic: BuiltLogic<insightLogicType> | null
         unmount: (() => void) | null
     }
     setInsightMode: (
@@ -232,21 +242,28 @@ export interface insightSceneLogicMeta {
                 logic: BuiltLogic<insightDataLogicType>
                 unmount: () => void
             } | null
-        ) => any
+        ) =>
+            | ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => Node<Record<string, any>> | null)
+            | undefined
         insightQuery: (arg: any) => Node<Record<string, any>> | null | undefined
         insightDataSelector: (
             insightDataLogicRef: {
                 logic: BuiltLogic<insightDataLogicType>
                 unmount: () => void
             } | null
-        ) => any
+        ) => ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => Record<string, any>) | undefined
         insightData: (arg: any) => Record<string, any> | null | undefined
         insightSelector: (
             insightLogicRef: {
                 logic: BuiltLogic<insightLogicType>
                 unmount: () => void
             } | null
-        ) => any
+        ) =>
+            | ((
+                  state: any,
+                  props?: InsightLogicProps<QuerySchema> | undefined
+              ) => Partial<QueryBasedInsightModel<Node<Record<string, any>>>>)
+            | undefined
         insight: (arg: any) => Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined
         breadcrumbs: (
             insightLogicRef: {
