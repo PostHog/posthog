@@ -10,6 +10,7 @@ import { BillingProductV2Type, BillingType, StartupProgramLabel } from '~/types'
 
 import { POSTHOG_CODE_BILLING_LIMIT_MAX, POSTHOG_CODE_USAGE_PRODUCT_KEY } from './billingLimitConfig'
 import { BillingProduct } from './BillingProduct'
+import { CODE_PRODUCT_KEY } from './constants'
 
 const meta: Meta = {
     title: 'Scenes-Other/Billing Product',
@@ -57,7 +58,7 @@ const makePostHogCodeUsageBilling = ({
         icon_key: 'IconTerminal',
         docs_url: 'https://posthog.com/docs/posthog-code',
         subscribed: true,
-        type: POSTHOG_CODE_USAGE_PRODUCT_KEY,
+        type: CODE_PRODUCT_KEY,
         current_amount_usd: currentLimitUsd > POSTHOG_CODE_BILLING_LIMIT_MAX ? '3750.00' : '25.00',
         projected_amount_usd: currentLimitUsd > POSTHOG_CODE_BILLING_LIMIT_MAX ? '4100.00' : '75.00',
         projected_amount_usd_with_limit: currentLimitUsd > POSTHOG_CODE_BILLING_LIMIT_MAX ? '3750.00' : '75.00',
