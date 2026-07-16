@@ -193,10 +193,10 @@ class TestObservationLabels(_VisionAPITestCase):
         self.assertEqual(label, {"is_correct": False, "feedback": "shared feedback"})
 
     def _deny_editor(self):
-        # Viewer access still passes (reading observations); only editor is withheld.
+        # Viewer-level object checks still pass (reading observations); only editor is withheld.
         return patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource",
-            side_effect=lambda resource, required_level=None, **_: required_level != "editor",
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            side_effect=lambda obj, required_level=None, **_: required_level != "editor",
         )
 
     def test_editing_label_requires_editor_access(self) -> None:

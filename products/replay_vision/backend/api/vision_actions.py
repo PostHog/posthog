@@ -196,6 +196,7 @@ MAX_ENABLED_ALERTS_PER_SCANNER = 10
 
 class VisionActionSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """A Replay Vision action: a scheduled "and then…" automation over a scanner's observations."""
+
     name = serializers.CharField(
         max_length=255,
         help_text="Human-readable action name. Unique within the team.",

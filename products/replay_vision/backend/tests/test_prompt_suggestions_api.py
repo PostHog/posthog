@@ -249,8 +249,8 @@ class TestPromptSuggestions(_VisionAPITestCase):
     def test_mutations_require_editor_access(self) -> None:
         self._create_rated_observation("sess-1", False, "should be yes")
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource",
-            side_effect=lambda resource, required_level=None, **_: required_level != "editor",
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            side_effect=lambda obj, required_level=None, **_: required_level != "editor",
         ):
             resp = self.client.post(self._suggestions_url("generate/"))
         self.assertEqual(resp.status_code, 403)

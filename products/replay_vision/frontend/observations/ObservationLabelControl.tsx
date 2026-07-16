@@ -20,7 +20,8 @@ export interface ObservationLabelProps {
 const FEEDBACK_PLACEHOLDER = 'Optional: what did it get right or wrong, and why? Used to improve the prompt.'
 
 function useEditAccess(): string | null {
-    // Editing the shared rating mutates team-wide data, so it needs edit access (matches the "Edit scanner" gate).
+    // Editing the shared rating mutates team-wide data, so it needs editor access to the scanner — same
+    // `replay_scanner` requirement as the "Edit scanner" gate and the backend label/prompt-suggestion writes.
     return getAccessControlDisabledReason(AccessControlResourceType.ReplayScanner, AccessControlLevel.Editor)
 }
 
