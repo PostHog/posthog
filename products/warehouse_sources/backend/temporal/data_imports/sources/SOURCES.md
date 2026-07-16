@@ -442,6 +442,7 @@ the row lists both.
 | surveysparrow                    | HTTP                        | requests                                                        | ✅                          |
 | svix                             | HTTP                        | requests                                                        | ✅                          |
 | taboola                          | HTTP                        | requests                                                        | ✅                          |
+| tailscale                        | HTTP                        | requests                                                        | ✅                          |
 | tavus                            | HTTP                        | requests                                                        | ✅                          |
 | teamtailor                       | HTTP                        | requests                                                        | ✅                          |
 | teamwork                         | HTTP                        | requests                                                        | ✅                          |
@@ -922,7 +923,6 @@ doesn't conflict with concurrent PRs.
 - swonkie
 - synthesia
 - systeme
-- tailscale
 - tawk_to
 - teachable
 - teamcity
