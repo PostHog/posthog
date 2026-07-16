@@ -167,6 +167,34 @@ tools:
             github_workflow_jobs), which you can query directly with SQL or save as SQL insights and subscriptions when
             the named tools don't fit (timestamps land as strings; parse with parseDateTimeBestEffort).
         feature_flag: engineering-analytics
+    engineering-analytics-team-ci-activity:
+        operation: engineering_analytics_team_ci_activity
+        enabled: false
+    engineering-analytics-team-ci-health:
+        operation: engineering_analytics_team_ci_health
+        enabled: true
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Team CI health roster
+        description: >
+            Per-owning-team rollup of the CI test surfaces each team owns, over a window (date_from default -14d,
+            maximum 30 days): flaky-test count (same qualification bar as the flaky-test leaderboard), failed/error span
+            count, and pass-on-retry count, each with an equal-length previous-window twin (*_prior) for honest deltas.
+            Use this for "which team owns the flakiest surfaces right now" and to route a flaky-test or CI Signal to its
+            owning team. Ownership is stamped on the spans at CI emission time from the repo's ownership map
+            (products/*/product.yaml + CODEOWNERS); spans without a stamp aggregate under the literal team 'unowned' (a
+            nonempty 'unowned' row means ownership gaps, not a real team). Teams are organizational owners of code
+            surfaces, never authors. Read all counts as absolute signal, never rates: fast passing runs are not emitted,
+            so there is no honest denominator.
+        feature_flag: engineering-analytics
+    engineering-analytics-team-merge-trend:
+        operation: engineering_analytics_team_merge_trend
+        enabled: false
     engineering-analytics-workflow-jobs:
         operation: engineering_analytics_workflow_jobs
         enabled: true

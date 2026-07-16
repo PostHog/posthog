@@ -2200,7 +2200,7 @@
         }
     },
     "data-warehouse-source-connect-link": {
-        "description": "Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the chat. The link opens a minimal page rendering the source's full connection form — the user authorizes via OAuth or enters credentials there, whichever the source offers — and the page stores the connection details encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use and expire after 24 hours. Never ask the user to paste raw database passwords, API keys, or OAuth tokens into the chat.",
+        "description": "Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the chat. The link opens a minimal page rendering the source's full connection form — the user authorizes via OAuth or enters credentials there, whichever the source offers — and the page stores the connection details encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use, expire after 24 hours, and are only visible to the PostHog user who entered them — the page must be filled by the same user this session authenticates as. Never ask the user to paste raw database passwords, API keys, or OAuth tokens into the chat.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Get a secure connect link for a source",
@@ -2228,7 +2228,7 @@
         }
     },
     "data-warehouse-stored-credentials-list": {
-        "description": "List credentials the user stored via the 'data-warehouse-source-connect-link' page that haven't been consumed yet. Returns metadata only (credential_id, source_type, created_at, expires_at) — never the secrets themselves. Newest first; filter by source_type. After the user confirms they've finished the connect page, take the newest credential_id for the source type and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as soon as setup consumes them — and expire after 24 hours if never used.",
+        "description": "List credentials the authenticated user stored via the 'data-warehouse-source-connect-link' page that haven't been consumed yet. Only credentials this user created are visible — a teammate's stored credentials cannot be listed or consumed. Returns metadata only (credential_id, source_type, created_at, expires_at) — never the secrets themselves. Newest first; filter by source_type. After the user confirms they've finished the connect page, take the newest credential_id for the source type and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as soon as setup consumes them — and expire after 24 hours if never used.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List stored source credentials awaiting setup",
@@ -2730,6 +2730,21 @@
         "feature": "engineering_analytics",
         "summary": "List connected GitHub sources",
         "title": "List connected GitHub sources",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "engineering-analytics"
+    },
+    "engineering-analytics-team-ci-health": {
+        "description": "Per-owning-team rollup of the CI test surfaces each team owns, over a window (date_from default -14d, maximum 30 days): flaky-test count (same qualification bar as the flaky-test leaderboard), failed/error span count, and pass-on-retry count, each with an equal-length previous-window twin (*_prior) for honest deltas. Use this for \"which team owns the flakiest surfaces right now\" and to route a flaky-test or CI Signal to its owning team. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*/product.yaml + CODEOWNERS); spans without a stamp aggregate under the literal team 'unowned' (a nonempty 'unowned' row means ownership gaps, not a real team). Teams are organizational owners of code surfaces, never authors. Read all counts as absolute signal, never rates: fast passing runs are not emitted, so there is no honest denominator.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Team CI health roster",
+        "title": "Team CI health roster",
         "required_scopes": ["engineering_analytics:read"],
         "annotations": {
             "destructiveHint": false,
@@ -3793,7 +3808,7 @@
         }
     },
     "external-data-sources-connections-list": {
-        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source (direct-query Postgres and MySQL connections). Returns a lightweight id, prefix, and engine for each — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to discover valid connectionId values.",
+        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source: pure direct-query connections (Postgres, MySQL, Snowflake, Redshift) plus synced warehouse sources that have live queries enabled (direct_query_enabled). Returns a lightweight id, prefix, engine, source_type, access_method ('direct' for pure live-query sources, 'warehouse' for synced sources with live queries on), and supports_hogql for each; when supports_hogql is false, only raw SQL (sendRawQuery) works. Unlike external-data-sources-list, it does not include table schemas or sources that cannot be live-queried. Use this to discover valid connectionId values.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List direct-query connections",
