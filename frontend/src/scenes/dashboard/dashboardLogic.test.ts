@@ -1982,7 +1982,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], refresh: 'force_blocking' })
             }).toFinishAllListeners()
 
             expect(fetchRunWidgetsMock).toHaveBeenCalledWith(
@@ -2012,7 +2012,7 @@ describe('dashboardLogic', () => {
             expect(fetchRunWidgetsMock).not.toHaveBeenCalled()
 
             await expectLogic(logic, () => {
-                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], refresh: 'force_blocking' })
             }).toFinishAllListeners()
 
             expect(fetchRunWidgetsMock).not.toHaveBeenCalled()
@@ -2041,7 +2041,7 @@ describe('dashboardLogic', () => {
             fetchRunWidgetsMock.mockRejectedValueOnce(new Error('Network error'))
 
             await expectLogic(logic, () => {
-                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], refresh: 'force_blocking' })
             }).toFinishAllListeners()
 
             expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBe(DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
@@ -2062,7 +2062,7 @@ describe('dashboardLogic', () => {
             ])
 
             await expectLogic(logic, () => {
-                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], refresh: 'force_blocking' })
             }).toFinishAllListeners()
 
             expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBe(DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
@@ -2090,7 +2090,7 @@ describe('dashboardLogic', () => {
             ])
 
             await expectLogic(logic, () => {
-                logic.actions.refreshDashboardWidgets({ tileIds: [10, 11], forceRefresh: true })
+                logic.actions.refreshDashboardWidgets({ tileIds: [10, 11], refresh: 'force_blocking' })
             }).toFinishAllListeners()
 
             expect(logic.values.widgetRefreshStatus[10]?.error).toBeNull()
