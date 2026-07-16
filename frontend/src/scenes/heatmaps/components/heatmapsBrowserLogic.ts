@@ -50,6 +50,23 @@ const normalizeUrlPath = (urlObj: URL): string => {
     return urlObj.toString()
 }
 
+export const normalizeHeatmapDataUrl = (
+    url: string | null
+): { href: string; matchType: 'pattern' | 'exact' } | null => {
+    const trimmed = url?.trim()
+    if (!trimmed) {
+        return null
+    }
+    if (isUrlPattern(trimmed)) {
+        return { href: trimmed, matchType: 'pattern' }
+    }
+    try {
+        return { href: normalizeUrlPath(new URL(trimmed)), matchType: 'exact' }
+    } catch {
+        return null
+    }
+}
+
 export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     path(['scenes', 'heatmaps', 'components', 'heatmapsBrowserLogic']),
     props({} as HeatmapsBrowserLogicProps),
@@ -363,17 +380,13 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
         setDataUrl: ({ url }) => {
             actions.maybeLoadTopUrls()
-            if (url?.trim().length) {
-                let normalizedUrl = url.trim()
-
-                const isPattern = isUrlPattern(normalizedUrl)
-                if (!isPattern) {
-                    const urlObj = new URL(normalizedUrl)
-                    normalizedUrl = normalizeUrlPath(urlObj)
-                }
-
-                actions.setHref(normalizedUrl)
-                actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
+            if (router.values.location.pathname === '/heatmaps/new') {
+                return
+            }
+            const normalized = normalizeHeatmapDataUrl(url)
+            if (normalized) {
+                actions.setHref(normalized.href)
+                actions.setHrefMatchType(normalized.matchType)
             }
         },
 
