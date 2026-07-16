@@ -4036,6 +4036,8 @@ importers:
 
   products/product_tours: {}
 
+  products/pulse: {}
+
   products/reminders: {}
 
   products/replay:

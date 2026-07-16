@@ -81,6 +81,8 @@ _LAZY = {
     "hide_direct_redshift_table": "direct_redshift",
     "upsert_direct_redshift_table": "direct_redshift",
     "reconcile_refresh_name_substitutions": "postgres_warehouse_migration",
+    "github_repositories_for_job_inputs": "github_warehouse_repos",
+    "reconcile_github_repositories": "github_warehouse_repos",
     "apply_on_refresh": "sql_warehouse_migration",
     "apply_on_schema_clear": "sql_warehouse_migration",
     "detect_schema_clear_transition": "sql_warehouse_migration",
