@@ -137,6 +137,11 @@ Verification waits for convergence (bounded at 90s) before asserting strong read
 Fix direction: the ordered-shutdown fix removes both halves (the server survives the drain, and coordination lives to write DrainedAck, collapsing "settled in" to near-zero — at which point the convergence deadline can tighten to re-gate on recovery time).
 Independently worth fixing: draining pods should be excluded as rebalance targets, and one stuck handoff should not defer all rebalancing.
 
+**Follow-up: partition ownership should be invisible to clients.**
+A leader refuses requests it cannot safely serve — a write against a fenced partition, or a read that races a release (both refuse *before* any state changes, so a redirect cannot double-apply) — and today those refusals propagate to the client as `FAILED_PRECONDITION`.
+The router should absorb them instead: detect the not-owned refusal in the raw-proxy response (a typed header from the leader, not status-code matching), and re-stash the request if a handoff is in flight for the partition, else re-resolve the owner and retry once.
+Most of the gate's residual failed writes during handoff scenarios are these refusals; with the redirect in place those counts become hard zero-failure invariants.
+
 ## `seed` / `cleanup` — manage traffic targets
 
 ```bash

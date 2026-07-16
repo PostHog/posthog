@@ -112,15 +112,38 @@ impl PersonHogLeaderService {
     /// the changelog record at the marked offset instead. If that fetch
     /// fails, the only honest answer is a retryable error: falling back to
     /// PG would serve exactly the staleness this index exists to prevent.
-    /// Unmarked persons' PG rows are known current. Assumes the caller
-    /// holds the per-key lock.
+    /// Unmarked persons' PG rows are known current — but only while this
+    /// pod owns the partition, so the no-mark path re-checks ownership
+    /// before trusting PG. Assumes the caller holds the per-key lock.
     async fn recover_or_load(
         &self,
         partition: u32,
         key: &PersonCacheKey,
     ) -> Result<Arc<CachedPerson>, Status> {
         let Some(mark) = self.dirty_index.get(key) else {
-            return self.load_from_pg(partition, key).await;
+            // "No mark" means PG is current — but only while this pod owns
+            // the partition. Handoffs drain writes, not reads, so a read
+            // admitted before the freeze can still be executing here when
+            // `release_partition` clears the partition's marks (the new
+            // owner rebuilds its own), and to that reader a still-dirty
+            // person now looks safe to load from PG. Re-checking the cache
+            // AFTER the index read settles which world we're in: release
+            // drops the cache partition first and clears marks second, so
+            // if this miss was caused by release, the partition is already
+            // gone from the cache and we fail closed; if the partition is
+            // still present, the marks were intact when we read them and
+            // the absence is genuine. There is no interleaving that gets
+            // past both checks into a stale PG read.
+            return match self.cache.get(partition, key) {
+                CacheLookup::Found(person) => {
+                    Self::record_cache_hit();
+                    Ok(person)
+                }
+                CacheLookup::PersonNotFound => self.load_from_pg(partition, key).await,
+                CacheLookup::PartitionNotOwned => Err(Status::failed_precondition(format!(
+                    "partition {partition} not owned by this leader"
+                ))),
+            };
         };
 
         let started = Instant::now();
@@ -505,10 +528,69 @@ pub fn sweep_idle_locks(locks: &DashMap<PersonCacheKey, Arc<Mutex<()>>>) -> usiz
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::time::Duration;
+
+    use common_kafka::config::KafkaConfig;
+    use envconfig::Envconfig;
+    use health::HealthRegistry;
+    use rdkafka::ClientConfig;
+    use tonic::Code;
+
     use super::*;
+    use crate::recovery::RecoveryConfig;
 
     fn make_key(team_id: i64, person_id: i64) -> PersonCacheKey {
         PersonCacheKey { team_id, person_id }
+    }
+
+    /// A service with no PG pool and a producer that never connects —
+    /// enough to exercise the miss path, where no test reaches Kafka or PG.
+    async fn make_test_service() -> PersonHogLeaderService {
+        let kafka = KafkaConfig::init_from_hashmap(&HashMap::new()).unwrap();
+        let liveness = HealthRegistry::new("test")
+            .register("kafka".to_string(), Duration::from_secs(60))
+            .await;
+        let producer = ClientConfig::new()
+            .set("bootstrap.servers", "127.0.0.1:1")
+            .create_with_context(KafkaContext::from(liveness))
+            .unwrap();
+        PersonHogLeaderService::new(
+            Arc::new(PartitionedCache::new(16)),
+            producer,
+            "personhog_updates".to_string(),
+            None,
+            Arc::new(DashMap::new()),
+            Arc::new(InflightTracker::new()),
+            1,
+            Arc::new(DirtyIndex::new(16)),
+            Arc::new(ChangelogRecovery::new(RecoveryConfig {
+                kafka,
+                topic: "personhog_updates".to_string(),
+                pod_name: "test".to_string(),
+                recv_timeout: Duration::from_millis(10),
+            })),
+        )
+    }
+
+    #[tokio::test]
+    async fn unmarked_miss_fails_closed_once_partition_is_released() {
+        let service = make_test_service().await;
+        let key = make_key(1, 1);
+
+        // Owned and unmarked: PG is trusted (NOT_FOUND, since the test
+        // service has no pool).
+        service.cache.create_partition(0);
+        let err = service.recover_or_load(0, &key).await.unwrap_err();
+        assert_eq!(err.code(), Code::NotFound);
+
+        // Released mid-miss (cache dropped, then marks cleared — release
+        // order): the same lookup must fail closed rather than trust a
+        // possibly-stale PG row the cleared mark no longer guards.
+        service.cache.drop_partition(0);
+        service.dirty_index.clear_partition(0);
+        let err = service.recover_or_load(0, &key).await.unwrap_err();
+        assert_eq!(err.code(), Code::FailedPrecondition);
     }
 
     #[test]
