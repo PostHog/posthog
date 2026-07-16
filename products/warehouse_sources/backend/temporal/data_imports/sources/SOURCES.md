@@ -433,6 +433,7 @@ the row lists both.
 | statuspage                | HTTP                        | requests                                                        | ✅                          |
 | stigg                     | HTTP                        | requests                                                        | ✅                          |
 | stripe                    | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
+| sumo_logic                | HTTP                        | requests                                                        | ✅                          |
 | supabase                  | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | surveymonkey              | HTTP                        | requests                                                        | ✅                          |
 | surveysparrow             | HTTP                        | requests                                                        | ✅                          |
@@ -443,6 +444,7 @@ the row lists both.
 | teamwork                  | HTTP                        | requests                                                        | ✅                          |
 | tempo                     | HTTP                        | requests                                                        | ✅                          |
 | temporalio                | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
+| terraform_cloud           | HTTP                        | requests                                                        | ✅                          |
 | testrail                  | HTTP                        | requests                                                        | ✅                          |
 | thinkific                 | HTTP                        | requests                                                        | ✅                          |
 | tickettailor              | HTTP                        | requests                                                        | ✅                          |
@@ -910,7 +912,6 @@ doesn't conflict with concurrent PRs.
 - streamelements
 - streamlabs
 - stytch
-- sumo_logic
 - sumsub
 - superwall
 - surveymonkey
@@ -928,7 +929,6 @@ doesn't conflict with concurrent PRs.
 - tempo
 - tenable_vulnerability_management
 - terra_api
-- terraform_cloud
 - thinkific_courses
 - thrive_learning
 - ticketmaster
