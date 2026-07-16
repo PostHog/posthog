@@ -140,7 +140,9 @@ def get_access_token(region: str, client_id: str, client_secret: str, network_id
 
 def _get_authed_session(region: str, client_id: str, client_secret: str, network_id: str) -> requests.Session:
     token = get_access_token(region, client_id, client_secret, network_id)
-    return make_tracked_session(headers={"Authorization": f"Bearer {token}"}, redact_values=(token, client_secret))
+    return make_tracked_session(
+        headers={"Authorization": f"Bearer {token}"}, redact_values=(token, client_secret), capture=False
+    )
 
 
 def validate_credentials(region: str, client_id: str, client_secret: str, network_id: str) -> tuple[bool, str | None]:
