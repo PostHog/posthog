@@ -1831,5 +1831,4 @@ describe('the feature flag release conditions logic', () => {
             expect(logic.values.filters.groups[0].rollout_percentage).toEqual(25)
         })
     })
-
 })
