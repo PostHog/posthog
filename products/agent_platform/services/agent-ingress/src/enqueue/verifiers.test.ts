@@ -78,6 +78,7 @@ const teamOrg: TeamOrgLookup = {
 
 const PROJECT_MODE = { type: 'posthog' as const, scopes: [], audience: 'project' as const }
 const ORG_MODE = { type: 'posthog' as const, scopes: [], audience: 'organization' as const }
+const AUTHENTICATED_MODE = { type: 'posthog' as const, scopes: [], audience: 'authenticated' as const }
 
 const secretResolver = { resolve: async (key: string): Promise<string | null> => (key === 'WH' ? 's3cret' : null) }
 
@@ -149,6 +150,37 @@ describe('buildDefaultVerifiers', () => {
             REV
         )
         expect(res).toMatchObject({ ok: false, status: 403, reason: 'not_in_org' })
+    })
+
+    it('posthog authenticated audience: a user from a different org passes — no tenant gate', async () => {
+        // The outsider is in org-B and cannot reach team 7, so both `project`
+        // and `organization` deny them. `authenticated` admits any valid user:
+        // this is the cross-tenant, product-offered-to-everyone case.
+        const res = await posthogVerifier(introspector, teamOrg).verify(
+            req({ authorization: 'Bearer outsider-token' }),
+            AUTHENTICATED_MODE,
+            APP,
+            REV
+        )
+        expect(res.ok).toBe(true)
+        if (res.ok) {
+            // Identity must survive the dropped tenant gate — it's what keeps
+            // `principalsMatch` isolating sessions per caller, and what makes
+            // the call attributable. An anonymous principal here would silently
+            // make every caller's session resumable by every other caller.
+            expect(res.principal).toMatchObject({ kind: 'posthog', user_id: 'u3' })
+            expect(res.credentials.posthog_api).toEqual({ kind: 'posthog_bearer', token: 'outsider-token' })
+        }
+    })
+
+    it.each<[string, Record<string, string>, { status: number; reason?: string }]>([
+        ['missing bearer → skip', {}, { status: 0 }],
+        // The whole bar for `authenticated` is a valid, unrevoked bearer. If
+        // this ever passes, the mode has degenerated into `public`.
+        ['bad bearer → 401 (validity/revocation still enforced)', { authorization: 'Bearer nope' }, { status: 401 }],
+    ])('posthog authenticated audience: %s', async (_label, headers, expected) => {
+        const res = await posthogVerifier(introspector, teamOrg).verify(req(headers), AUTHENTICATED_MODE, APP, REV)
+        expect(res).toMatchObject({ ok: false, ...expected })
     })
 
     it.each<[string, Record<string, string>, { status: number; reason?: string }]>([

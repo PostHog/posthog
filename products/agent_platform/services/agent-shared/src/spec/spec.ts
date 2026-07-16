@@ -64,14 +64,30 @@ export const AuthModeSchema = z.discriminatedUnion('type', [
      *    - `organization`: the caller must be a member of the agent's owning
      *      organization (any project within it). Use for a shared agent — e.g.
      *      one "agent builder" used across an org's projects.
-     *  Either way the agent still acts AS the caller (their bearer + an explicit
-     *  `project_id` per tool), so data access is RBAC-enforced on top of this.
-     *  Opening an agent to ANY PostHog user across orgs is deliberately NOT an
-     *  option here yet — that needs a dedicated cross-tenant concept. */
+     *    - `authenticated`: ANY valid PostHog user may invoke, regardless of
+     *      team or org. This is the cross-tenant option; it drops the tenant
+     *      gate and NOTHING ELSE. The bearer is still introspected, so token
+     *      validity, revocation, and per-caller identity (`sub`, and therefore
+     *      `principalsMatch` session isolation) all still hold.
+     *
+     *      Reserve it for first-party agents that are meaningfully a PRODUCT
+     *      offered to all PostHog users, where the caller supplies the subject
+     *      matter and the agent holds nothing tenant-specific — the setup
+     *      wizard's audit is the motivating case. Do NOT use it to avoid
+     *      provisioning an agent per team.
+     *
+     *      An `authenticated` agent must not carry a `kind: "agent"` MCP or any
+     *      other shared credential: every caller would drive that one credential
+     *      (confused deputy). It should also not read `@posthog/table-*` state,
+     *      which is scoped per (team, application) and so is shared across all
+     *      callers of the agent.
+     *  In every case the agent still acts AS the caller (their bearer + an
+     *  explicit `project_id` per tool), so data access is RBAC-enforced on top
+     *  of this. */
     z.object({
         type: z.literal('posthog'),
         scopes: z.array(z.string()).default([]),
-        audience: z.enum(['project', 'organization']).default('project'),
+        audience: z.enum(['project', 'organization', 'authenticated']).default('project'),
     }),
     /** JWT signed with the named encrypted-env secret. Lets a B2B
      *  embedder mint identity tokens for their users without going

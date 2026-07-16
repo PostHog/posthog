@@ -138,10 +138,15 @@ function posthogPrincipalFrom(me: PosthogMeResponse): SessionPrincipal {
  *     team — delegated to PostHog access control via `canAccessTeam`.
  *   - `organization`: the caller must be a member of the agent's owning org —
  *     `orgForTeam(application.team_id)` ∈ the caller's org memberships.
- * Either way the agent then acts AS the caller: the `@posthog/*` tools call
+ *   - `authenticated`: no tenant gate — any valid PostHog user may invoke. For
+ *     first-party agents offered to all users, where the caller supplies the
+ *     subject matter (the setup wizard's audit). This drops the tenant check
+ *     and nothing else: the introspect above still enforces token validity and
+ *     revocation, and the principal still carries the caller's identity, so
+ *     `principalsMatch` still isolates sessions per user.
+ * In every case the agent then acts AS the caller: the `@posthog/*` tools call
  * PostHog with this user's bearer against an explicit `project_id`, so RBAC is
- * enforced again at the data layer. (Opening an agent to ANY PostHog user
- * across orgs is intentionally not expressible here yet.)
+ * enforced again at the data layer.
  */
 export function posthogVerifier(introspector: PosthogIdentityIntrospector, teamOrg: TeamOrgLookup): AuthVerifier {
     return {
@@ -164,7 +169,11 @@ export function posthogVerifier(introspector: PosthogIdentityIntrospector, teamO
                 return { ok: false, status: 401, reason: 'invalid_token' }
             }
             // Tenant gate — who may invoke this agent.
-            if (mode.audience === 'organization') {
+            if (mode.audience === 'authenticated') {
+                // No tenant gate by design: a valid, unrevoked bearer is the
+                // whole bar. `me` above already proved that, and the principal
+                // below still carries this caller's identity.
+            } else if (mode.audience === 'organization') {
                 const agentOrg = await teamOrg.orgForTeam(application.team_id)
                 const callerOrgs = new Set(
                     [me.organization?.id, ...(me.organizations ?? []).map((o) => o.id)].filter(
