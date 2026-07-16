@@ -296,6 +296,11 @@ export interface VisionActionApi {
     /** User who created the action. */
     readonly created_by: UserBasicApi | null
     readonly updated_at: string
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedVisionActionListApi {
@@ -360,6 +365,11 @@ export interface PatchedVisionActionApi {
     /** User who created the action. */
     readonly created_by?: UserBasicApi | null
     readonly updated_at?: string
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 /**
@@ -799,6 +809,11 @@ export interface ReplayScannerApi {
     readonly updated_at: string
     /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
     readonly feedback_themes: FeedbackThemesApi | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedReplayScannerListApi {
@@ -881,6 +896,11 @@ export interface PatchedReplayScannerApi {
     readonly updated_at?: string
     /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
     readonly feedback_themes?: FeedbackThemesApi | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 /**
