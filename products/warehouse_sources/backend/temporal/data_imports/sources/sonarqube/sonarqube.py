@@ -1,4 +1,5 @@
 import json
+import time
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -28,6 +29,11 @@ MAX_RETRY_ATTEMPTS = 5
 # reads, not total size. Cap the decoded bytes so a misbehaving instance can't exhaust the
 # worker's memory. A legitimate `ps=500` page is well under this.
 MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+
+# Wall-clock ceiling on reading a single response. The per-read timeout resets on every byte,
+# so a server can drip data indefinitely and hold a shared worker; bound the whole transfer so
+# a slow-drip host is cut off. Generous enough that a legitimate page never trips it.
+MAX_TRANSFER_SECONDS = 300
 
 # Pages we can request per issues window before p*ps breaches SonarQube's 10,000-result ceiling.
 ISSUES_MAX_PAGES = ISSUES_MAX_RESULTS // PAGE_SIZE
@@ -114,15 +120,22 @@ def _extract_paging(data: dict[str, Any]) -> tuple[int, int, int]:
 
 
 def _read_bounded(response: requests.Response) -> bytes:
-    """Read a streamed response body into memory under `MAX_RESPONSE_BYTES` of decoded bytes.
+    """Read a streamed response body into memory under a byte cap and a wall-clock deadline.
 
     `iter_content` yields content-decoded chunks, so the running total also caps decompressed
-    size — a small gzip bomb can't blow past the limit. Raises a non-retryable ``ValueError``
-    when the body exceeds the cap.
+    size — a small gzip bomb can't blow past the limit. A monotonic deadline bounds the whole
+    transfer so a server that drips bytes under the per-read timeout can't hold the worker.
+    Raises a non-retryable ``ValueError`` when either bound is exceeded.
     """
     chunks: list[bytes] = []
     total = 0
+    deadline = time.monotonic() + MAX_TRANSFER_SECONDS
     for chunk in response.iter_content(chunk_size=1024 * 1024):
+        if time.monotonic() > deadline:
+            raise ValueError(
+                f"SonarQube response exceeded the {MAX_TRANSFER_SECONDS}s transfer limit; "
+                "check the configured server URL."
+            )
         if not chunk:
             continue
         total += len(chunk)

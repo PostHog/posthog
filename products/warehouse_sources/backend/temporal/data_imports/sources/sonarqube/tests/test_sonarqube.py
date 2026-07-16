@@ -311,6 +311,14 @@ class TestReadBounded:
         with pytest.raises(ValueError):
             sonarqube._read_bounded(_FakeStream([b"aaaa", b"b"]))  # type: ignore[arg-type]
 
+    def test_raises_when_transfer_exceeds_deadline(self, monkeypatch) -> None:
+        # Fake monotonic clock: deadline is set on the first read, jumps past it before the second chunk.
+        ticks = iter([0.0, 1.0, 999.0])
+        monkeypatch.setattr(sonarqube.time, "monotonic", lambda: next(ticks))
+        monkeypatch.setattr(sonarqube, "MAX_TRANSFER_SECONDS", 10)
+        with pytest.raises(ValueError):
+            sonarqube._read_bounded(_FakeStream([b"aaaa", b"bbbb"]))  # type: ignore[arg-type]
+
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
