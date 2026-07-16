@@ -58,10 +58,12 @@
 # over hogplane's HTTP API) — no `hogland` CLI binary and no box SSH key needed.
 
 # --- OPTIONAL BY DESIGN ---------------------------------------------------------
-# A preview never gates a PR: `deploy` fails open and reports via the Deployment +
-# sticky comment. There is no "yellow" to use instead, and job-level
-# `continue-on-error` still reds the PR, so fail-open means step-level. The name
-# prefix is on the JOBS because a check run is named after the job, not the workflow.
+# A preview never gates a PR: all preview infra (tailnet, hogland, GitHub API, the
+# reporters) fails open and reports via the Deployment + sticky comment. Only
+# `build-frontend` (PR code — deploy reads its conclusion) and the fork guards still
+# red. There is no "yellow" to use instead, and job-level `continue-on-error` still
+# reds the PR, so fail-open means step-level. The name prefix is on the JOBS because
+# a check run is named after the job, not the workflow.
 name: '[optional, does not block merge] Hogbox Preview Environment'
 
 on:
@@ -122,8 +124,10 @@ jobs:
             build: ${{ steps.decide.outputs.build }}
             teardown: ${{ steps.decide.outputs.teardown }}
         steps:
+            # A blip empties the outputs, so every downstream job skips: no preview, still green.
             - name: Decide build vs teardown vs skip
               id: decide
+              continue-on-error: true
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
               with:
                   script: |
@@ -224,8 +228,10 @@ jobs:
             sha: ${{ steps.start.outputs.sha }}
             deployment_id: ${{ steps.start.outputs.deployment_id }}
         steps:
+            # Cosmetic: on a blip sha/deployment_id go empty, which deploy already tolerates.
             - name: Announce (deployment + building comment)
               id: start
+              continue-on-error: true
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
               with:
                   script: |
@@ -439,7 +445,9 @@ jobs:
 
             # Trusted checkout: the tool code that runs with HOG_TOKEN comes from
             # the default branch, never the PR.
+            # A blip is infra: bring-up then fails into the failure reporter, not a red X.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              continue-on-error: true
               with:
                   ref: ${{ github.event.repository.default_branch }}
 
@@ -605,8 +613,10 @@ jobs:
                   echo "bring-up=$BRING_UP fe-wait=$FE_WAIT dist=$DIST swap=$SWAP -> ok=$ok"
                   echo "ok=$ok" >> "$GITHUB_OUTPUT"
 
+            # Reporting is auxiliary: an API blip must not red a preview that came up.
             - name: Report ready (deployment + comment)
               if: steps.outcome.outputs.ok == 'true'
+              continue-on-error: true
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
               # SHA + DEP come from the job env (announce job outputs).
               env:
@@ -668,8 +678,11 @@ jobs:
                       if (ex) await github.rest.issues.updateComment({ ...context.repo, comment_id: ex.id, body });
                       else await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body });
 
+            # Load-bearing: runs on the very failures the chain above swallows, so an
+            # unguarded API call would hand the red X straight back.
             - name: Report failure (deployment + comment)
               if: steps.outcome.outputs.ok != 'true'
+              continue-on-error: true
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
               with:
                   script: |
@@ -723,16 +736,21 @@ jobs:
             # the trusted default branch, not the PR's (possibly modified) code —
             # same reasoning as pr-closed.yml's cleanup. Only a destroy call is
             # needed, so master's copy is correct.
+            # Fails open throughout: a missed destroy is reaped by the daily sweep in
+            # hogbox-preview-cleanup.yml, so hogland being down never reds the PR.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              continue-on-error: true
               with:
                   ref: ${{ github.event.repository.default_branch }}
             - name: Connect to Tailscale (tag:hogland-ci)
+              continue-on-error: true
               uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
               with:
                   oauth-client-id: ${{ vars.TS_HOGLAND_CI_CLIENT_ID }}
                   audience: ${{ vars.TS_HOGLAND_CI_AUDIENCE }}
                   tags: tag:hogland-ci
             - name: Mint hogland OIDC token
+              continue-on-error: true
               # Same retry + empty-token guard as the deploy job: a mint that
               # silently yields an empty token here would make the destroy fail
               # with "no API token provided" and leak the box + pen.
@@ -749,9 +767,11 @@ jobs:
                   echo "::add-mask::$token"
                   echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
             - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              continue-on-error: true
               with:
                   version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Destroy preview box + pen
+              continue-on-error: true
               working-directory: tools/hogbox-preview
               run: uv run --no-project --with posthog-hogland==0.3.0 --python 3.12 python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-${PR}" destroy
 
@@ -761,6 +781,7 @@ jobs:
             # gets the same treatment from pr-cleanup.yml's deployment reaper.)
             - name: Deactivate deployment + update comment
               if: always()
+              continue-on-error: true
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
               with:
                   script: |
