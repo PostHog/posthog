@@ -50,7 +50,6 @@ import {
 } from './hogflows/types'
 import { workflowSceneLogic } from './workflowSceneLogic'
 import { workflowsLogic } from './workflowsLogic'
-import type { workflowLogicType } from './workflowLogicType'
 
 export interface WorkflowLogicProps {
     id?: string
