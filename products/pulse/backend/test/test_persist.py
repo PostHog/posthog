@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.models.scoping import team_scope
 
 from products.product_analytics.backend.models.insight import Insight
@@ -116,11 +118,34 @@ class TestPersistBriefOutput(BaseTest):
         assert link.insight_id is None
         assert link.dashboard_id is None
 
-    def test_unknown_citation_id_creates_no_link(self) -> None:
-        # The model cited an id that maps to no gathered evidence — it is dropped, not fabricated.
-        persist_brief_output(brief=self._brief(), out=_out(evidence_refs=["c1", "c99"]), items=[_item()])
-        assert self._opportunities().count() == 1
-        assert [link.ref for link in self._links()] == ["abc"]
+    @parameterized.expand(
+        [
+            ("unknown_citation", ["c1", "c99"], "abc:0"),
+            ("missing_citation", [], "abc:0"),
+            ("unknown_fingerprint", ["c1"], "fabricated:0"),
+        ]
+    )
+    def test_invalid_opportunity_references_are_not_persisted(
+        self, _name: str, evidence_refs: list[str], fingerprint_hint: str
+    ) -> None:
+        out = _out(fingerprint_hint=fingerprint_hint, evidence_refs=evidence_refs)
+        out.sections = []
+        brief = persist_brief_output(brief=self._brief(), out=out, items=[_item()])
+        assert brief.status == ProductBrief.Status.QUIET
+        assert self._opportunities().count() == 0
+        assert self._links().count() == 0
+
+    @parameterized.expand([("unknown_citation", ["c99"]), ("missing_citation", [])])
+    def test_invalid_section_references_are_not_persisted(self, _name: str, citations: list[str]) -> None:
+        out = BriefOut(
+            sections=[
+                BriefSectionOut(kind="what_happened", title="t", markdown="m", citations=citations, confidence=0.9)
+            ],
+            opportunities=[],
+        )
+        brief = persist_brief_output(brief=self._brief(), out=out, items=[_item()])
+        assert brief.status == ProductBrief.Status.QUIET
+        assert brief.sections == []
 
     @patch("products.pulse.backend.generation.persist._existing_fingerprints", return_value=set())
     def test_persist_survives_lost_fingerprint_race(self, _mock_seen: MagicMock) -> None:

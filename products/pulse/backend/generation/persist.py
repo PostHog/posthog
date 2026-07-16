@@ -9,7 +9,7 @@ from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.product_analytics.backend.models.insight import Insight
-from products.pulse.backend.generation.schemas import BriefOut, OpportunityOut
+from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief, ResourceLink, build_action
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, build_evidence_index
 
@@ -39,6 +39,33 @@ def _resolve_citations(citation_ids: list[str], evidence_index: dict[str, Eviden
             continue
         resolved.append(evidence)
     return resolved
+
+
+def _validate_output_references(out: BriefOut, items: list[SourceItem]) -> BriefOut:
+    evidence_index = build_evidence_index(items)
+    allowed_citation_ids = set(evidence_index)
+    allowed_fingerprint_hints = {item.fingerprint_hint for item in items}
+
+    sections: list[BriefSectionOut] = []
+    for section in out.sections:
+        if not section.citations or not set(section.citations).issubset(allowed_citation_ids):
+            logger.warning("pulse_persist_invalid_section_citations", citation_ids=section.citations)
+            continue
+        sections.append(section)
+
+    opportunities: list[OpportunityOut] = []
+    for opportunity in out.opportunities:
+        if opportunity.fingerprint_hint not in allowed_fingerprint_hints:
+            logger.warning(
+                "pulse_persist_invalid_opportunity_fingerprint", fingerprint_hint=opportunity.fingerprint_hint
+            )
+            continue
+        if not opportunity.evidence_refs or not set(opportunity.evidence_refs).issubset(allowed_citation_ids):
+            logger.warning("pulse_persist_invalid_opportunity_citations", citation_ids=opportunity.evidence_refs)
+            continue
+        opportunities.append(opportunity)
+
+    return BriefOut(sections=sections, opportunities=opportunities)
 
 
 def _build_opportunity(
@@ -117,6 +144,7 @@ def _existing_fingerprints(team_opportunities: QuerySet[Opportunity], fingerprin
 
 
 def persist_brief_output(*, brief: ProductBrief, out: BriefOut, items: list[SourceItem]) -> ProductBrief:
+    out = _validate_output_references(out, items)
     team_opportunities = Opportunity.objects.for_team(brief.team_id)
     items_by_hint = {item.fingerprint_hint: item for item in items}
     # Same index the render side built, so the ids the model cited resolve back to the same refs.
