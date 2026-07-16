@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.teamcity.t
     _format_teamcity_datetime,
     _incremental_locator_dimensions,
     _parse_teamcity_datetime,
+    _resolve_next_href,
     get_rows,
     normalize_host,
     teamcity_source,
@@ -51,6 +52,32 @@ class TestNormalizeHost:
     def test_invalid_hosts_raise(self, _name: str, value: str) -> None:
         with pytest.raises(ValueError):
             normalize_host(value)
+
+
+class TestResolveNextHref:
+    SERVER_ROOT = "https://teamcity.example.com"
+
+    @parameterized.expand(
+        [
+            ("relative_path", "/app/rest/builds?locator=count:100,start:100"),
+            ("same_host_absolute", "https://teamcity.example.com/app/rest/builds?locator=count:100"),
+        ]
+    )
+    def test_on_host_cursor_is_resolved(self, _name: str, next_href: str) -> None:
+        resolved = _resolve_next_href(self.SERVER_ROOT, next_href)
+        assert urlparse(resolved).netloc == "teamcity.example.com"
+
+    @parameterized.expand(
+        [
+            ("absolute_metadata_host", "http://169.254.169.254/latest/meta-data/"),
+            ("absolute_other_host", "https://evil.example.com/app/rest/builds"),
+            ("scheme_relative", "//evil.example.com/app/rest/builds"),
+            ("scheme_downgrade", "http://teamcity.example.com/app/rest/builds"),
+        ]
+    )
+    def test_off_host_cursor_raises(self, _name: str, next_href: str) -> None:
+        with pytest.raises(ValueError):
+            _resolve_next_href(self.SERVER_ROOT, next_href)
 
 
 class TestTimestampHandling:
@@ -184,6 +211,15 @@ class TestGetRowsTopLevel:
 
         assert [r["id"] for r in rows] == ["b"]
         assert fetched == ["https://teamcity.example.com/app/rest/projects?locator=count:100,start:100"]
+
+    def test_tampered_resume_cursor_off_host_raises(self, monkeypatch: Any) -> None:
+        fetched = _patch_fetch(monkeypatch, [{"project": [{"id": "b"}]}])
+        with pytest.raises(ValueError):
+            _collect(
+                _FakeResumableManager(TeamCityResumeConfig(next_href="http://169.254.169.254/latest/meta-data/")),
+                endpoint="projects",
+            )
+        assert fetched == []
 
     def test_incremental_builds_cursor_windows_the_locator(self, monkeypatch: Any) -> None:
         fetched = _patch_fetch(monkeypatch, [{"build": []}])

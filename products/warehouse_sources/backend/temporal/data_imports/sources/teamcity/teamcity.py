@@ -83,6 +83,23 @@ def _server_root(host: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
+def _resolve_next_href(server_root: str, next_href: str) -> str:
+    """Resolve a pagination cursor, pinning it to the validated server.
+
+    ``nextHref`` comes from the remote response (and, on resume, from stored state), and
+    ``urljoin`` would honor an absolute or scheme-relative value — letting a compromised or
+    attacker-controlled server retarget the next authenticated request (Bearer token attached)
+    at an internal host. Resolve against the server root, then require the result to stay on
+    the same scheme and netloc. Redirects are pinned off at the session too (defense in depth).
+    """
+    resolved = urljoin(server_root, next_href)
+    root = urlparse(server_root)
+    target = urlparse(resolved)
+    if (target.scheme, target.netloc) != (root.scheme, root.netloc):
+        raise ValueError(f"TeamCity pagination cursor points off the configured server: {next_href!r}")
+    return resolved
+
+
 def _api_base(host: str) -> str:
     return f"{normalize_host(host)}{TEAMCITY_API_PATH}"
 
@@ -200,7 +217,7 @@ def _paginate(
         yield data.get(response_key, []), next_href
         if not next_href:
             return
-        url = urljoin(server_root, next_href)
+        url = _resolve_next_href(server_root, next_href)
 
 
 def _top_level_rows(
@@ -217,7 +234,7 @@ def _top_level_rows(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_href:
         logger.debug(f"TeamCity: resuming {config.name} from {resume.next_href}")
-        first_url = urljoin(server_root, resume.next_href)
+        first_url = _resolve_next_href(server_root, resume.next_href)
     else:
         locator_dimensions = {
             **config.locator_defaults,
@@ -282,7 +299,7 @@ def _fan_out_rows(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_href:
         logger.debug(f"TeamCity: resuming {config.name} fan-out from parent page {resume.next_href}")
-        first_url = urljoin(server_root, resume.next_href)
+        first_url = _resolve_next_href(server_root, resume.next_href)
     else:
         locator_dimensions = {
             **builds_config.locator_defaults,
@@ -312,7 +329,7 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = TEAMCITY_ENDPOINTS[endpoint]
     _check_host_safe(host, team_id)
-    session = make_tracked_session()
+    session = make_tracked_session(allow_redirects=False)
     headers = _headers(access_token)
 
     cursor = db_incremental_field_last_value if config.supports_incremental and should_use_incremental_field else None
@@ -365,7 +382,7 @@ def validate_credentials(host: str, access_token: str, team_id: int) -> tuple[bo
     _check_host_safe(host, team_id)
     url = f"{_api_base(host)}/server"
     try:
-        response = make_tracked_session().get(url, headers=_headers(access_token), timeout=10)
+        response = make_tracked_session(allow_redirects=False).get(url, headers=_headers(access_token), timeout=10)
     except Exception:
         return False, None
     return response.status_code == 200, response.status_code
