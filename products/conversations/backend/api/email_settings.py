@@ -89,6 +89,7 @@ def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> 
         "domain": config.domain,
         "domain_verified": config.domain_verified,
         "dns_records": config.dns_records,
+        "is_default": config.is_default,
     }
 
 
@@ -285,6 +286,8 @@ class EmailConnectView(APIView):
                         domain=domain,
                         dns_records=dns_records,
                         domain_verified=sibling.domain_verified if sibling else False,
+                        # First channel becomes the team default so there's always one to send from
+                        is_default=current_count == 0,
                     )
                     _set_email_enabled(team, enabled=True)
         except IntegrityError:
@@ -414,6 +417,40 @@ class EmailSendTestView(APIView):
         return Response({"ok": True, "sent_to": user.email})
 
 
+class EmailSetDefaultView(APIView):
+    """Make a channel the team's default send-from identity (one default per team)."""
+
+    permission_classes = [IsAuthenticated, IsConversationsAdmin]
+
+    def post(self, request: Request, *args, **kwargs) -> Response:
+        result = _get_team_from_request(request)
+        if isinstance(result, Response):
+            return result
+        user, team = result
+
+        id_serializer = ConfigIdSerializer(data=request.data)
+        id_serializer.is_valid(raise_exception=True)
+        config_id = id_serializer.validated_data["config_id"]
+
+        with transaction.atomic():
+            # Serialize all per-team default changes on the team row (the connect path takes the
+            # same lock), so concurrent connect/set-default/disconnect can't race two is_default=True
+            # rows into the partial unique constraint
+            Team.objects.select_for_update().get(id=team.id)
+            config = EmailChannel.objects.filter(id=config_id, team=team).first()
+            if not config:
+                return Response({"error": "Email config not found"}, status=404)
+
+            # Clear the current default first so the partial unique constraint is never violated
+            EmailChannel.objects.filter(team=team, is_default=True).exclude(id=config.id).update(is_default=False)
+            if not config.is_default:
+                config.is_default = True
+                config.save(update_fields=["is_default"])
+
+        logger.info("email_channel_set_default", team_id=team.id, config_id=config_id, user_id=user.id)
+        return Response({"ok": True})
+
+
 class EmailDisconnectView(APIView):
     permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
@@ -431,12 +468,24 @@ class EmailDisconnectView(APIView):
         should_delete_from_mailgun = False
 
         with transaction.atomic():
-            config = EmailChannel.objects.select_for_update().filter(id=config_id, team=team).first()
+            # Same team-row lock as connect/set-default, so promoting a replacement default can't
+            # race another default change into the partial unique constraint
+            Team.objects.select_for_update().get(id=team.id)
+            config = EmailChannel.objects.filter(id=config_id, team=team).first()
             if not config:
                 return Response({"error": "Email config not found"}, status=404)
 
             domain_to_delete = config.domain
+            was_default = config.is_default
             config.delete()
+
+            # If the team default was removed, promote another channel (prefer verified, then oldest)
+            # so the team keeps a channel to send from
+            if was_default:
+                replacement = EmailChannel.objects.filter(team=team).order_by("-domain_verified", "created_at").first()
+                if replacement:
+                    replacement.is_default = True
+                    replacement.save(update_fields=["is_default"])
 
             # Only delete from Mailgun if no other config (on any team) uses this domain
             if not EmailChannel.objects.filter(domain=domain_to_delete).exists():

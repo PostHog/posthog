@@ -199,7 +199,7 @@ def _get_image_source_label(
     if provider == "docker":
         return "docker_base_image", "local Docker sandbox image"
 
-    if provider and provider.upper() == "MODAL_DOCKER":
+    if provider and provider.upper() in ("MODAL_DOCKER", "MODAL_EVALS"):
         return "modal_local_build", "local Modal Dockerfile build"
 
     if settings.DEBUG and not has_repo:

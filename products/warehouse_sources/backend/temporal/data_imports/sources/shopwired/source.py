@@ -76,7 +76,6 @@ You can create an API key and secret under **Account > API keys** in your [ShopW
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

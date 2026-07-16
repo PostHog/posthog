@@ -67,7 +67,6 @@ You can create an API key under **Account → Developer** in [Paperform](https:/
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

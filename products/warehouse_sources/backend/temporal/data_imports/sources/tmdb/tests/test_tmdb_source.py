@@ -25,7 +25,6 @@ class TestTMDbSource:
         assert config.name.value == "TMDb"
         assert config.label == "TMDb"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/tmdb.png"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

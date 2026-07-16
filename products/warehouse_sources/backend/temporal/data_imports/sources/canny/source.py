@@ -51,7 +51,6 @@ class CannySource(ResumableSource[CannySourceConfig, CannyResumeConfig]):
 Find your secret API key under **Settings → API** in your Canny dashboard.""",
             iconPath="/static/services/canny.png",
             docsUrl="https://posthog.com/docs/cdp/sources/canny",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

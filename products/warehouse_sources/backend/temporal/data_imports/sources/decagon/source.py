@@ -67,7 +67,6 @@ You can find your API key on the **Developer** page of the [Decagon dashboard](h
                     ),
                 ],
             ),
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
         )
 

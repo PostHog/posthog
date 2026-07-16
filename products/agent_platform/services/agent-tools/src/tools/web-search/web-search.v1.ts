@@ -42,6 +42,7 @@ export const webSearchV1 = defineNativeTool({
     }),
     requires: {},
     cost_hint: 'medium',
+    approval: 'allow',
     async run(args, ctx) {
         const { results, provider } = await searchWithFallback(
             ctx.webSearchProviders ?? [],

@@ -94,6 +94,31 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
     assert snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "weekly adoption + reliability report"
 
 
+async def test_persist_ai_report_strips_null_bytes(team, user) -> None:
+    # Regression witness: LLM output, diagnostics, and the prompt are untrusted NUL sources. Without
+    # the scrub, the NUL reaches content_snapshot and Postgres rejects the whole save with a DataError,
+    # so this test would fail on the write itself; with it, the NULs are gone and the rest survives.
+    delivery = await _create_delivery(team, user)
+
+    await _persist_ai_report(
+        delivery.id,
+        AiReportResult(
+            markdown="# Weekly\x00 report",
+            window_end_utc=_WINDOW_END_UTC,
+            diagnostics=(
+                QueryStepDiagnostic(description="adop\x00tion", hogql="SELECT co\x00unt()", ok=True, error_type=None),
+            ),
+        ),
+        prompt="weekly\x00 report",
+    )
+
+    snapshot = await _snapshot(delivery.id)
+    assert snapshot[AI_REPORT_SNAPSHOT_KEY] == "# Weekly report"
+    assert snapshot[AI_REPORT_DIAGNOSTICS_KEY][0]["description"] == "adoption"
+    assert snapshot[AI_REPORT_DIAGNOSTICS_KEY][0]["hogql"] == "SELECT count()"
+    assert snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "weekly report"
+
+
 @pytest.mark.parametrize("prompt", [None, ""])
 async def test_persist_ai_report_omits_blank_prompt(team, user, prompt) -> None:
     # A non-AI sub passes prompt=None and a cleared prompt passes ""; neither should write the key

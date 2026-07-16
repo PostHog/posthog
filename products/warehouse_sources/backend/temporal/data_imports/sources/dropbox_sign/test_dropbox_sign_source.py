@@ -49,8 +49,6 @@ class TestSourceConfig:
         assert config.label == "Dropbox Sign"
         assert config.category == DataWarehouseSourceCategory.SALES
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Kept hidden while in alpha.
-        assert config.unreleasedSource is True
         # docsUrl slug must match the posthog.com doc filename (kebab-case).
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/dropbox-sign"
 

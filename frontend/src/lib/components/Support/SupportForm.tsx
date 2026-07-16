@@ -56,7 +56,7 @@ const SUPPORT_TICKET_KIND_TO_PROMPT: Record<SupportTicketKind, string> = {
 }
 
 export function SupportForm(): JSX.Element | null {
-    const { sendSupportRequest } = useValues(supportLogic)
+    const { sendSupportRequest, conversationsFlagEnabled } = useValues(supportLogic)
     const { setSendSupportRequestValue } = useActions(supportLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
     // the support model can be shown when logged out, file upload is not offered to anonymous users
@@ -119,57 +119,61 @@ export function SupportForm(): JSX.Element | null {
                     </LemonField>
                 </>
             )}
-            <LemonField name="kind" label="Message type">
-                <LemonSegmentedButton onChange={changeKind} fullWidth options={SUPPORT_TICKET_OPTIONS} />
-            </LemonField>
-            <div className="flex gap-2 flex-col">
-                <div className="flex justify-between items-center">
-                    <label className="LemonLabel">
-                        Topic
-                        <Tooltip title="Route your request to the appropriate team.">
-                            <span>
-                                <IconInfo className="opacity-75" />
-                            </span>
-                        </Tooltip>
-                    </label>
-                    <Link
-                        target="_blank"
-                        disableDocsPanel
-                        to="https://posthog.com/handbook/engineering/feature-ownership"
-                    >
-                        Feature ownership
-                    </Link>
-                </div>
-                <LemonField name="target_area">
-                    {({ value, onChange }) => (
-                        <Tooltip
-                            title={
-                                !user
-                                    ? 'Please login to your account before opening a ticket unrelated to authentication issues.'
-                                    : undefined
-                            }
-                        >
-                            <span className="block">
-                                <LemonInputSelect
-                                    mode="single"
-                                    fullWidth
-                                    disabled={!user}
-                                    placeholder="Search for a topic"
-                                    data-attr="support-form-target-area"
-                                    options={TARGET_AREA_OPTIONS}
-                                    value={value ? [value] : []}
-                                    onChange={([newValue]) => onChange(newValue ?? null)}
-                                />
-                            </span>
-                        </Tooltip>
+            {!conversationsFlagEnabled && (
+                <>
+                    <LemonField name="kind" label="Message type">
+                        <LemonSegmentedButton onChange={changeKind} fullWidth options={SUPPORT_TICKET_OPTIONS} />
+                    </LemonField>
+                    <div className="flex gap-2 flex-col">
+                        <div className="flex justify-between items-center">
+                            <label className="LemonLabel">
+                                Topic
+                                <Tooltip title="Route your request to the appropriate team.">
+                                    <span>
+                                        <IconInfo className="opacity-75" />
+                                    </span>
+                                </Tooltip>
+                            </label>
+                            <Link
+                                target="_blank"
+                                disableDocsPanel
+                                to="https://posthog.com/handbook/engineering/feature-ownership"
+                            >
+                                Feature ownership
+                            </Link>
+                        </div>
+                        <LemonField name="target_area">
+                            {({ value, onChange }) => (
+                                <Tooltip
+                                    title={
+                                        !user
+                                            ? 'Please login to your account before opening a ticket unrelated to authentication issues.'
+                                            : undefined
+                                    }
+                                >
+                                    <span className="block">
+                                        <LemonInputSelect
+                                            mode="single"
+                                            fullWidth
+                                            disabled={!user}
+                                            placeholder="Search for a topic"
+                                            data-attr="support-form-target-area"
+                                            options={TARGET_AREA_OPTIONS}
+                                            value={value ? [value] : []}
+                                            onChange={([newValue]) => onChange(newValue ?? null)}
+                                        />
+                                    </span>
+                                </Tooltip>
+                            )}
+                        </LemonField>
+                    </div>
+                    {sendSupportRequest.target_area === 'error_tracking' && (
+                        <LemonBanner type="warning">
+                            This topic is for our Error Tracking <i>product</i>. If you're reporting an error in PostHog
+                            please choose the relevant topic so your submission is sent to the correct team.
+                        </LemonBanner>
                     )}
-                </LemonField>
-            </div>
-            {sendSupportRequest.target_area === 'error_tracking' && (
-                <LemonBanner type="warning">
-                    This topic is for our Error Tracking <i>product</i>. If you're reporting an error in PostHog please
-                    choose the relevant topic so your submission is sent to the correct team.
-                </LemonBanner>
+                </>
             )}
             <LemonField
                 name="message"
@@ -196,34 +200,36 @@ export function SupportForm(): JSX.Element | null {
                     </div>
                 )}
             </LemonField>
-            <div className="flex gap-2 flex-col">
-                <div className="flex justify-between items-center">
-                    <label className="LemonLabel">
-                        Severity level
-                        <Tooltip title="Severity levels help us prioritize your request.">
-                            <span>
-                                <IconInfo className="opacity-75" />
-                            </span>
-                        </Tooltip>
-                    </label>
-                    <Link
-                        target="_blank"
-                        disableDocsPanel
-                        to="https://posthog.com/docs/support-options#severity-levels"
-                    >
-                        Definitions
-                    </Link>
+            {!conversationsFlagEnabled && (
+                <div className="flex gap-2 flex-col">
+                    <div className="flex justify-between items-center">
+                        <label className="LemonLabel">
+                            Severity level
+                            <Tooltip title="Severity levels help us prioritize your request.">
+                                <span>
+                                    <IconInfo className="opacity-75" />
+                                </span>
+                            </Tooltip>
+                        </label>
+                        <Link
+                            target="_blank"
+                            disableDocsPanel
+                            to="https://posthog.com/docs/support-options#severity-levels"
+                        >
+                            Definitions
+                        </Link>
+                    </div>
+                    <LemonField name="severity_level">
+                        <LemonSelect
+                            fullWidth
+                            options={Object.entries(SEVERITY_LEVEL_TO_NAME).map(([key, value]) => ({
+                                label: value,
+                                value: key,
+                            }))}
+                        />
+                    </LemonField>
                 </div>
-                <LemonField name="severity_level">
-                    <LemonSelect
-                        fullWidth
-                        options={Object.entries(SEVERITY_LEVEL_TO_NAME).map(([key, value]) => ({
-                            label: value,
-                            value: key,
-                        }))}
-                    />
-                </LemonField>
-            </div>
+            )}
         </Form>
     )
 }

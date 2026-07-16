@@ -27,8 +27,6 @@ class TestAlgunaSource:
         assert config.name.value == "Alguna"
         assert config.label == "Alguna"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Deliberately gated while the endpoint behavior is unverified against a live account.
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/alguna.svg"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

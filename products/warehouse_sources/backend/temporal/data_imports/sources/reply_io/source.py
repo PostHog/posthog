@@ -68,7 +68,6 @@ You can create an API key under **Settings → API Keys** in [Reply](https://run
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

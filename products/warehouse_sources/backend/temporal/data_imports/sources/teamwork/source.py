@@ -78,7 +78,6 @@ Find your API key under **Profile → Edit my details → API & Mobile** in Team
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     @property

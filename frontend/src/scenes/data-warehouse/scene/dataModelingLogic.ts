@@ -8,7 +8,7 @@ import {
     applyEdgeChanges,
     applyNodeChanges,
 } from '@xyflow/react'
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import type { RefObject } from 'react'

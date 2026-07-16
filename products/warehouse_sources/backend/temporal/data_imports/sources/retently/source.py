@@ -69,7 +69,6 @@ You can create an API key under **Settings → Integrations → API** in [Retent
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

@@ -85,8 +85,98 @@ def _decode_jwt_payload(token: str) -> dict | None:
 
 
 oauth_refresh_counter = Counter(
-    "integration_oauth_refresh", "Number of times an oauth refresh has been attempted", labelnames=["kind", "result"]
+    "integration_oauth_refresh",
+    "Number of times an oauth refresh has been attempted",
+    labelnames=["kind", "result", "reason", "attempt"],
 )
+
+# Terminal rows are skipped by the sweep and stop emitting failure metrics, so a gradual fleet
+# die-off would otherwise be invisible. Incremented once per row at the transition; a rising
+# rate means connections are permanently breaking (e.g. a provider mass-revoking grants).
+oauth_refresh_terminal_counter = Counter(
+    "integration_oauth_refresh_went_terminal",
+    "OAuth integrations whose refresh went terminal (unbroken invalid_grant streak)",
+    labelnames=["kind"],
+)
+
+# Consecutive-failure backoff for the every-minute refresh sweep (posthog/tasks/integrations.py).
+# Without it, permanently dead integrations (revoked grants, deleted consumers) are retried every
+# minute forever, hammering providers and drowning the failure metric in a noise floor that
+# masks real fleet-wide breakage.
+REFRESH_BACKOFF_BASE_SECONDS = 120
+REFRESH_BACKOFF_MAX_SECONDS = 3600
+REFRESH_TERMINAL_FAILURE_COUNT = 5
+
+# Values for the counter's `reason` label, bucketed from the OAuth error response.
+REFRESH_FAILURE_REASON_INVALID_GRANT = "invalid_grant"
+REFRESH_FAILURE_REASON_INVALID_CLIENT = "invalid_client"
+REFRESH_FAILURE_REASON_HTTP_5XX = "http_5xx"
+REFRESH_FAILURE_REASON_NETWORK = "network"
+REFRESH_FAILURE_REASON_OTHER = "other"
+
+
+def oauth_refresh_failure_reason(status_code: int, body: dict, kind: str | None = None) -> str:
+    error = body.get("error")
+    if error == REFRESH_FAILURE_REASON_INVALID_GRANT:
+        return REFRESH_FAILURE_REASON_INVALID_GRANT
+    if error == REFRESH_FAILURE_REASON_INVALID_CLIENT:
+        return REFRESH_FAILURE_REASON_INVALID_CLIENT
+    # Reddit reports a dead grant as `{"message": "Bad Request", "error": 400}` with no OAuth
+    # error code. Our refresh request shape is fixed and succeeds fleet-wide, so a 400 on this
+    # endpoint means the grant, not the request - match that exact shape for reddit only.
+    if kind == "reddit-ads" and status_code == 400 and error == 400:
+        return REFRESH_FAILURE_REASON_INVALID_GRANT
+    if status_code >= 500:
+        return REFRESH_FAILURE_REASON_HTTP_5XX
+    return REFRESH_FAILURE_REASON_OTHER
+
+
+def record_refresh_failure(integration: "Integration", *, reason: str = REFRESH_FAILURE_REASON_OTHER) -> str:
+    """Track a consecutive refresh failure on the integration's config; caller saves.
+
+    Schedules the next attempt with capped exponential backoff. `invalid_grant` means the grant
+    itself is dead and only a customer re-auth can fix it, so after an unbroken streak of them the
+    integration goes terminal and the sweep stops retrying entirely. The streak is tracked
+    separately from the total failure count and resets on any other reason, so one transient
+    invalid_grant amid e.g. a 5xx outage can't brick the integration. Other reasons
+    (invalid_client, 5xx, network) never go terminal - a platform-side credential fix must let
+    the fleet self-recover.
+
+    Returns "first"/"retry" for the metric's `attempt` label - a spike in first failures means
+    connections are newly breaking, regardless of retry noise.
+    """
+    count = int(integration.config.get("refresh_failure_count") or 0)
+    attempt = "first" if count == 0 else "retry"
+    count += 1
+    integration.config["refresh_failure_count"] = count
+    integration.config["refresh_next_attempt_at"] = int(time.time()) + min(
+        REFRESH_BACKOFF_BASE_SECONDS * 2 ** (count - 1), REFRESH_BACKOFF_MAX_SECONDS
+    )
+    if reason == REFRESH_FAILURE_REASON_INVALID_GRANT:
+        grant_streak = int(integration.config.get("refresh_invalid_grant_count") or 0) + 1
+        integration.config["refresh_invalid_grant_count"] = grant_streak
+        # Guarded so on-demand refreshes (which bypass the backoff) can't re-count a dead row
+        if grant_streak >= REFRESH_TERMINAL_FAILURE_COUNT and not integration.config.get("refresh_terminal"):
+            integration.config["refresh_terminal"] = True
+            oauth_refresh_terminal_counter.labels(kind=integration.kind).inc()
+    else:
+        integration.config.pop("refresh_invalid_grant_count", None)
+    return attempt
+
+
+def record_refresh_success(integration: "Integration") -> None:
+    for key in ("refresh_failure_count", "refresh_invalid_grant_count", "refresh_next_attempt_at", "refresh_terminal"):
+        integration.config.pop(key, None)
+
+
+def refresh_backoff_active(integration: "Integration") -> bool:
+    """Whether the refresh sweep should skip this integration. Reconnecting resets the state
+    (the OAuth callback replaces `config` wholesale), and on-demand API refreshes bypass this."""
+    if integration.config.get("refresh_terminal"):
+        return True
+    next_attempt_at = integration.config.get("refresh_next_attempt_at")
+    return bool(next_attempt_at) and time.time() < next_attempt_at
+
 
 # `owner/repo`, single slash, no traversal. Used to keep repo/ref/sha values out of GitHub API URL
 # paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the
@@ -367,6 +457,8 @@ class OauthConfig:
     token_info_graphql_query: str | None = None
     token_info_config_fields: list[str] | None = None
     additional_authorize_params: dict[str, str] | None = None
+    client_id_fallback: str | None = None
+    client_secret_fallback: str | None = None
     # When true, the authorize/token-exchange flow uses PKCE (RFC 7636, S256)
     pkce: bool = False
     # When set, disconnecting the integration also revokes the grant at the provider
@@ -425,6 +517,15 @@ class OauthIntegration:
     @classmethod
     @cache_for(timedelta(minutes=5))
     def oauth_config_for_kind(cls, kind: str) -> OauthConfig:
+        config = cls._build_oauth_config(kind)
+        fallback = settings.OAUTH_CLIENT_FALLBACKS.get(kind)
+        if fallback and fallback.get("client_secret"):
+            config.client_secret_fallback = fallback["client_secret"]
+            config.client_id_fallback = fallback.get("client_id") or config.client_id
+        return config
+
+    @classmethod
+    def _build_oauth_config(cls, kind: str) -> OauthConfig:
         if kind == "slack":
             from_settings = get_instance_settings(
                 [
@@ -1183,6 +1284,81 @@ class OauthIntegration:
 
         return time.time() > refreshed_at + expires_in - time_threshold.total_seconds()
 
+    def _post_token_refresh(self, oauth_config: OauthConfig, client_id: str, client_secret: str) -> requests.Response:
+        refresh_token = self.integration.sensitive_config["refresh_token"]
+        kind = self.integration.kind
+
+        # Reddit uses HTTP Basic Auth for token refresh
+        if kind == "reddit-ads":
+            return requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(client_id, client_secret),
+                data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
+                # If I use a standard User-Agent, it will throw a 429 too many requests error
+                headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+                timeout=10,
+            )
+        # Pinterest uses HTTP Basic Auth for token refresh
+        elif kind == "pinterest-ads":
+            return requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(client_id, client_secret),
+                data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
+                timeout=10,
+            )
+        elif kind == "tiktok-ads":
+            return requests.post(
+                "https://open.tiktokapis.com/v2/oauth/token/",
+                data={
+                    "client_key": client_id,  # TikTok uses client_key instead of client_id
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=10,
+            )
+        elif kind == "bing-ads":
+            # Microsoft Azure AD requires scope parameter on token refresh
+            return requests.post(
+                oauth_config.token_url,
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                    "scope": oauth_config.scope,
+                },
+                timeout=10,
+            )
+        elif kind == "stripe":
+            # Stripe Apps OAuth: secret as HTTP Basic username, no client_id/client_secret in body.
+            return requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(client_secret, ""),
+                data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
+                timeout=10,
+            )
+        else:
+            return requests.post(
+                oauth_config.token_url,
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                },
+                timeout=10,
+            )
+
+    @staticmethod
+    def _parse_token_refresh_response(res: requests.Response) -> dict:
+        try:
+            return res.json()
+        except ValueError:
+            # e.g. an HTML error page from a proxy/5xx - still a failed refresh, not an exception
+            return {}
+
     def refresh_access_token(self):
         """
         Refresh the access token for the integration if necessary
@@ -1192,86 +1368,54 @@ class OauthIntegration:
         # Clear out previous token refreshing errors, as they'll be re-set below if another error occurs
         self.integration.errors = ""
 
-        # Reddit uses HTTP Basic Auth for token refresh
-        if self.integration.kind == "reddit-ads":
-            res = requests.post(
-                oauth_config.token_url,
-                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
-                data={
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                },
-                # If I use a standard User-Agent, it will throw a 429 too many requests error
-                headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
-                timeout=10,
-            )
-        # Pinterest uses HTTP Basic Auth for token refresh
-        elif self.integration.kind == "pinterest-ads":
-            res = requests.post(
-                oauth_config.token_url,
-                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
-                data={
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                },
-                timeout=10,
-            )
-        elif self.integration.kind == "tiktok-ads":
-            res = requests.post(
-                "https://open.tiktokapis.com/v2/oauth/token/",
-                data={
-                    "client_key": oauth_config.client_id,  # TikTok uses client_key instead of client_id
-                    "client_secret": oauth_config.client_secret,
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-                timeout=10,
-            )
-        elif self.integration.kind == "bing-ads":
-            # Microsoft Azure AD requires scope parameter on token refresh
-            res = requests.post(
-                oauth_config.token_url,
-                data={
-                    "client_id": oauth_config.client_id,
-                    "client_secret": oauth_config.client_secret,
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                    "scope": oauth_config.scope,
-                },
-                timeout=10,
-            )
-        elif self.integration.kind == "stripe":
-            # Stripe Apps OAuth: secret as HTTP Basic username, no client_id/client_secret in body.
-            res = requests.post(
-                oauth_config.token_url,
-                auth=HTTPBasicAuth(oauth_config.client_secret, ""),
-                data={
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                },
-                timeout=10,
-            )
-        else:
-            res = requests.post(
-                oauth_config.token_url,
-                data={
-                    "client_id": oauth_config.client_id,
-                    "client_secret": oauth_config.client_secret,
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                },
-                timeout=10,
-            )
+        res: requests.Response | None = None
+        config: dict = {}
+        used_fallback = False
+        try:
+            res = self._post_token_refresh(oauth_config, oauth_config.client_id, oauth_config.client_secret)
+            config = self._parse_token_refresh_response(res)
+        except requests.RequestException as e:
+            # A network error (timeout, connection reset) is a failed refresh, not a crash. Without
+            # this the Celery sweep task errors out before recording the failure, so the backoff and
+            # the TOKEN_REFRESH_FAILED reconnect state are never persisted.
+            logger.warning(f"Network error on primary credentials for {self}", error=str(e))
 
-        config: dict = res.json()
+        # A rotated or migrated OAuth app leaves users with refresh tokens only the previous
+        # credentials can refresh. Retry with the fallback pair — including when the primary hit a
+        # network error — so they keep working until they reconnect.
+        if (
+            res is None or res.status_code != 200 or not config.get("access_token")
+        ) and oauth_config.client_secret_fallback:
+            try:
+                res = self._post_token_refresh(
+                    oauth_config,
+                    oauth_config.client_id_fallback or oauth_config.client_id,
+                    oauth_config.client_secret_fallback,
+                )
+                config = self._parse_token_refresh_response(res)
+                used_fallback = True
+            except requests.RequestException as e:
+                logger.warning(f"Network error on fallback credentials for {self}", error=str(e))
+                res = None
+                config = {}
 
-        if res.status_code != 200 or not config.get("access_token"):
-            logger.warning(f"Failed to refresh token for {self}", response=res.text)
+        if res is None or res.status_code != 200 or not config.get("access_token"):
+            logger.warning(
+                f"Failed to refresh token for {self}", response=res.text if res is not None else "network error"
+            )
             self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
-            oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+            reason = (
+                oauth_refresh_failure_reason(res.status_code, config, kind=self.integration.kind)
+                if res is not None
+                else REFRESH_FAILURE_REASON_NETWORK
+            )
+            attempt = record_refresh_failure(self.integration, reason=reason)
+            oauth_refresh_counter.labels(
+                kind=self.integration.kind, result="failed", reason=reason, attempt=attempt
+            ).inc()
         else:
             logger.info(f"Refreshed access token for {self}")
+            record_refresh_success(self.integration)
             self.integration.sensitive_config["access_token"] = config["access_token"]
 
             # Some providers (e.g. Atlassian/Jira) rotate refresh tokens — each
@@ -1291,7 +1435,12 @@ class OauthIntegration:
             self.integration.config["expires_in"] = expires_in
             self.integration.config["refreshed_at"] = int(time.time())
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
-            oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+            oauth_refresh_counter.labels(
+                kind=self.integration.kind,
+                result="success_fallback" if used_fallback else "success",
+                reason="",
+                attempt="",
+            ).inc()
 
         self.integration.save()
 
@@ -1812,8 +1961,11 @@ class GoogleCloudIntegration:
         try:
             credentials.refresh(GoogleRequest())
         except Exception:
+            record_refresh_failure(self.integration)
+            self.integration.save(update_fields=["config"])
             raise ValidationError(f"Failed to authenticate with provided service account key")
 
+        # Wholesale replacement also clears any refresh backoff state
         self.integration.config = {
             "expires_in": credentials.expiry.timestamp() - int(time.time()),
             "refreshed_at": int(time.time()),
@@ -1909,8 +2061,11 @@ class FirebaseIntegration:
         try:
             credentials.refresh(GoogleRequest())
         except Exception:
+            record_refresh_failure(self.integration)
+            self.integration.save(update_fields=["config"])
             raise ValidationError("Failed to authenticate with provided Firebase service account key")
 
+        record_refresh_success(self.integration)
         self.integration.config["expires_in"] = credentials.expiry.timestamp() - int(time.time())
         self.integration.config["refreshed_at"] = int(time.time())
         self.integration.sensitive_config["access_token"] = credentials.token
@@ -2711,14 +2866,17 @@ class GitHubIntegration(GitHubIntegrationBase):
         # A permanently-gone installation (uninstalled/suspended) drops expires_in/refreshed_at so the
         # every-minute beat loop stops re-minting it; the errors + config change persist in one save.
         self._disarm_proactive_refresh_if_installation_gone(response)
-        oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+        reason = REFRESH_FAILURE_REASON_HTTP_5XX if response.status_code >= 500 else REFRESH_FAILURE_REASON_OTHER
+        attempt = record_refresh_failure(self.integration, reason=reason)
+        oauth_refresh_counter.labels(kind=self.integration.kind, result="failed", reason=reason, attempt=attempt).inc()
         self.integration.save()
 
     def _on_token_refreshed(self) -> None:
         logger.info(f"Refreshed access token for {self}")
         self.integration.errors = ""
+        record_refresh_success(self.integration)
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
-        oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+        oauth_refresh_counter.labels(kind=self.integration.kind, result="success", reason="", attempt="").inc()
 
     @database_sync_to_async
     def list_cached_repositories_async(
@@ -3171,21 +3329,29 @@ class MetaAdsIntegration:
             timeout=10,
         )
 
-        config: dict = res.json()
+        try:
+            config: dict = res.json()
+        except ValueError:
+            config = {}
 
         if res.status_code != 200 or not config.get("access_token"):
             logger.warning(f"Failed to refresh token for {self}", response=res.text)
             self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
-            oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+            reason = oauth_refresh_failure_reason(res.status_code, config, kind=self.integration.kind)
+            attempt = record_refresh_failure(self.integration, reason=reason)
+            oauth_refresh_counter.labels(
+                kind=self.integration.kind, result="failed", reason=reason, attempt=attempt
+            ).inc()
         else:
             logger.info(f"Refreshed access token for {self}")
+            record_refresh_success(self.integration)
             self.integration.sensitive_config["access_token"] = config["access_token"]
             self.integration.errors = ""
             self.integration.config["expires_in"] = config.get("expires_in")
             self.integration.config["refreshed_at"] = int(time.time())
             # not used in CDP yet
             # reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
-            oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+            oauth_refresh_counter.labels(kind=self.integration.kind, result="success", reason="", attempt="").inc()
         self.integration.save()
 
 

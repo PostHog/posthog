@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { actions, connect, kea, key, listeners, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
 import { UrlToActionPayload } from 'kea-router/lib/types'

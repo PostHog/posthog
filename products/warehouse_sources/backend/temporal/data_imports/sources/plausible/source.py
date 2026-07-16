@@ -65,7 +65,6 @@ Works with Plausible Cloud and self-hosted instances. Create an API key under **
             iconPath="/static/services/plausible.png",
             docsUrl="https://posthog.com/docs/cdp/sources/plausible",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

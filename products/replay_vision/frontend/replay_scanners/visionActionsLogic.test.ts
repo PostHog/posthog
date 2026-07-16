@@ -100,10 +100,17 @@ describe('visionActionsLogic', () => {
             tags: ['bug'],
             min_score: 1,
             max_score: 5,
+            mode: 'group_summary',
+            alert_frequency: 'on_breach',
+            alert_metric: 'count',
+            alert_threshold: 1,
+            alert_direction: 'above',
+            alert_window_days: 1,
         }
         expect(buildActionBody(form, 's1')).toEqual({
             name: 'Daily digest', // trimmed
             scanner: 's1',
+            mode: 'group_summary',
             trigger_config: { rrule: 'FREQ=WEEKLY;BYDAY=MO,WE;BYHOUR=14;BYMINUTE=30', timezone: 'Europe/Prague' },
             selection: { verdict: ['yes'], tags: ['bug'], min_score: 1, max_score: 5 },
             synthesis_config: { prompt_guide: 'focus on checkout' },
@@ -125,9 +132,58 @@ describe('visionActionsLogic', () => {
             tags: [],
             min_score: null,
             max_score: null,
+            mode: 'group_summary',
+            alert_frequency: 'on_breach',
+            alert_metric: 'count',
+            alert_threshold: 1,
+            alert_direction: 'above',
+            alert_window_days: 1,
         }
-        expect(buildActionBody(form, 's1').delivery_config).toEqual([])
+        const body = buildActionBody(form, 's1')
+        expect(body.delivery_config).toEqual([])
         // Empty selection is sent explicitly so clearing targeting on edit persists as "run on everything".
-        expect(buildActionBody(form, 's1').selection).toEqual({})
+        expect(body.selection).toEqual({})
+        // A summary must not carry an alert condition even though the form holds the defaults.
+        expect(body.alert_config).toBeUndefined()
+    })
+
+    it('buildActionBody sends the alert condition and drops the prompt guide for alert mode', () => {
+        const form: VisionActionForm = {
+            name: 'Rage click alert',
+            cadence: { weekdays: [0, 1, 2, 3, 4, 5, 6], hour: 9, minute: 0 },
+            timezone: 'UTC',
+            prompt_guide: 'leftover from summary mode',
+            integration_id: null,
+            channel: '',
+            verdict: [],
+            tags: ['rage-click'],
+            min_score: null,
+            max_score: null,
+            mode: 'alert',
+            alert_frequency: 'on_breach',
+            alert_metric: 'count',
+            alert_threshold: 1,
+            alert_direction: 'below',
+            alert_window_days: 1,
+        }
+        const body = buildActionBody(form, 's1')
+        expect(body.mode).toEqual('alert')
+        expect(body.alert_config).toEqual({
+            frequency: 'on_breach',
+            metric: 'count',
+            threshold: 1,
+            direction: 'below',
+            window_days: 1,
+        })
+        expect(body.selection).toEqual({ tags: ['rage-click'] })
+        // Alerts have no user-facing schedule; the stored rrule keeps the trigger well-formed while
+        // the engine checks them on every sweep.
+        expect(body.trigger_config).toEqual({ rrule: 'FREQ=HOURLY', timezone: 'UTC' })
+        // Alerts never synthesize, so a stale guide from a mode switch must not persist.
+        expect(body.synthesis_config).toEqual({ prompt_guide: '' })
+
+        // Every-match alerts carry no threshold machinery — just the frequency and the count metric.
+        const everyMatch = buildActionBody({ ...form, alert_frequency: 'every_match' }, 's1')
+        expect(everyMatch.alert_config).toEqual({ frequency: 'every_match', metric: 'count' })
     })
 })

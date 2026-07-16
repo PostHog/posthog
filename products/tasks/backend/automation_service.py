@@ -1,6 +1,7 @@
 import logging
 
 from django.conf import settings
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 
 from temporalio.client import Schedule, ScheduleActionStartWorkflow, ScheduleSpec, ScheduleState
@@ -15,6 +16,7 @@ from posthog.temporal.common.schedule import (
     update_schedule,
 )
 
+from .access import has_tasks_access
 from .models import Task, TaskAutomation, TaskRun
 
 logger = logging.getLogger(__name__)
@@ -64,6 +66,9 @@ def run_task_automation(automation_id: str, trigger_workflow_id: str | None = No
     with transaction.atomic():
         automation = TaskAutomation.objects.select_for_update(of=("self",)).select_related("task").get(id=automation_id)
         task = automation.task
+
+        if task.created_by is not None and not has_tasks_access(task.created_by):
+            raise PermissionDenied("PostHog Code access is required to run task automations")
 
         if trigger_workflow_id:
             existing_task_run_query = TaskRun.objects.select_related("task").filter(

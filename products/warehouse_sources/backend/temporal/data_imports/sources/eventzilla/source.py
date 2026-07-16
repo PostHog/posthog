@@ -54,7 +54,6 @@ class EventzillaSource(ResumableSource[EventzillaSourceConfig, EventzillaResumeC
 You can generate an API key in your Eventzilla account under **Settings > App Management**.""",
             iconPath="/static/services/eventzilla.png",
             docsUrl="https://posthog.com/docs/cdp/sources/eventzilla",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

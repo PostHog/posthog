@@ -5,6 +5,7 @@ from typing import Any, cast
 
 import requests
 import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -25,6 +26,11 @@ from ee.settings import BILLING_SERVICE_URL
 
 # Duplicated in services/llm-gateway/src/llm_gateway/services/plan_resolver.py
 PRO_PLAN_PREFIXES = ("posthog-code-200", "posthog-code-pro-")
+RETIRED_SEAT_PRODUCT_MESSAGE = (
+    "You can no longer create, upgrade, or reactivate PostHog Code seats. "
+    "PostHog Code with usage-based billing is launching shortly."
+)
+RETIRED_SEAT_PRODUCTS = {"posthog_code": RETIRED_SEAT_PRODUCT_MESSAGE}
 
 
 def _seat_priority(seat: dict[str, Any]) -> tuple[bool, int, float]:
@@ -62,6 +68,7 @@ def _is_org_admin(user: Any) -> bool:
     ).exists()
 
 
+@extend_schema(exclude=True)
 class SeatViewSet(viewsets.ViewSet):
     """
     Proxy for seat management through the billing service.
@@ -181,6 +188,22 @@ class SeatViewSet(viewsets.ViewSet):
         return distinct_id
 
     @staticmethod
+    def _retired_product_response(request: Request) -> Response | None:
+        product_key = request.data.get("product_key")
+        if not isinstance(product_key, str):
+            product_key = request.query_params.get("product_key")
+        message = RETIRED_SEAT_PRODUCTS.get(product_key) if isinstance(product_key, str) else None
+        if message is None:
+            return None
+        return Response(
+            {
+                "error": message,
+                "code": "seat_product_retired",
+            },
+            status=status.HTTP_410_GONE,
+        )
+
+    @staticmethod
     def _filtered_query_params(request: Request) -> dict[str, str]:
         product_key = request.query_params.get("product_key", "")
         if product_key:
@@ -217,6 +240,9 @@ class SeatViewSet(viewsets.ViewSet):
         if str(body_distinct_id) != str(cast(User, request.user).distinct_id):
             self._require_admin(request)
         self._require_org_member(request, str(body_distinct_id))
+
+        if retired_response := self._retired_product_response(request):
+            return retired_response
 
         headers = self._get_billing_headers(request)
         if not headers:
@@ -281,29 +307,35 @@ class SeatViewSet(viewsets.ViewSet):
             data = {**drf_resp.data, "organization_id": str(org.id), "organization_name": org.name}
             return Response(data)
 
-        def fetch_seat(org: Organization) -> tuple[Organization, dict[str, Any]] | None:
+        def fetch_seat(org: Organization) -> tuple[Organization, Response]:
             headers = self._get_billing_headers_for_org(user, org)
-            if not headers:
-                return None
-            resp = self._billing_request("GET", f"/api/v2/seats/{distinct_id}/", headers, query_params=query_params)
-            drf_resp = self._forward_response(resp)
-            if not 200 <= drf_resp.status_code < 300 or not isinstance(drf_resp.data, dict):
-                return None
-            return (org, drf_resp.data)
+            resp = (
+                self._billing_request("GET", f"/api/v2/seats/{distinct_id}/", headers, query_params=query_params)
+                if headers
+                else None
+            )
+            return (org, self._forward_response(resp))
 
         results: list[tuple[Organization, dict[str, Any]]] = []
+        any_lookup_failed = False
         with ThreadPoolExecutor(max_workers=min(len(orgs), 5)) as pool:
             futures = {pool.submit(fetch_seat, org): org for org in orgs}
             for future in as_completed(futures):
                 try:
-                    result = future.result()
+                    org, drf_resp = future.result()
                 except Exception:
-                    logger.warning("fetch_seat_failed", org_id=str(futures[future].id))
+                    logger.exception("fetch_seat_crashed", org_id=str(futures[future].id))
+                    any_lookup_failed = True
                     continue
-                if result:
-                    results.append(result)
+                if 200 <= drf_resp.status_code < 300 and isinstance(drf_resp.data, dict):
+                    results.append((org, drf_resp.data))
+                elif drf_resp.status_code != status.HTTP_404_NOT_FOUND:
+                    logger.warning("fetch_seat_failed", org_id=str(org.id), status_code=drf_resp.status_code)
+                    any_lookup_failed = True
 
         if not results:
+            if any_lookup_failed:
+                return Response({"detail": "Seat lookup incomplete"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         best_org, best = max(results, key=lambda r: _seat_priority(r[1]))
@@ -316,11 +348,14 @@ class SeatViewSet(viewsets.ViewSet):
         if pk != "me":
             self._require_admin(request)
 
+        distinct_id = self._resolve_and_check_membership(request, pk)
+        if retired_response := self._retired_product_response(request):
+            return retired_response
+
         headers = self._get_billing_headers(request)
         if not headers:
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
 
-        distinct_id = self._resolve_and_check_membership(request, pk)
         resp = self._billing_request(
             "PATCH",
             f"/api/v2/seats/{distinct_id}/",
@@ -353,11 +388,14 @@ class SeatViewSet(viewsets.ViewSet):
         if pk != "me":
             self._require_admin(request)
 
+        distinct_id = self._resolve_and_check_membership(request, pk)
+        if retired_response := self._retired_product_response(request):
+            return retired_response
+
         headers = self._get_billing_headers(request)
         if not headers:
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
 
-        distinct_id = self._resolve_and_check_membership(request, pk)
         resp = self._billing_request(
             "POST",
             f"/api/v2/seats/{distinct_id}/reactivate/",

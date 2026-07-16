@@ -10,7 +10,14 @@ import {
     visionActionsList,
     visionActionsPartialUpdate,
 } from '../generated/api'
-import { DeliveryTargetTypeEnumApi } from '../generated/api.schemas'
+import {
+    AlertConfigFrequencyEnumApi,
+    DeliveryTargetTypeEnumApi,
+    VisionActionModeEnumApi,
+    VisionAlertDirectionEnumApi,
+    VisionAlertMetricEnumApi,
+    WindowDaysEnumApi,
+} from '../generated/api.schemas'
 import type { VerdictEnumApi, VisionActionApi } from '../generated/api.schemas'
 import { CadenceState, cadenceToRrule, DEFAULT_CADENCE } from './cadence'
 import type { visionActionsLogicType } from './visionActionsLogicType'
@@ -32,6 +39,13 @@ export interface VisionActionForm {
     tags: string[]
     min_score: number | null
     max_score: number | null
+    // What the action produces; alerts carry a condition instead of synthesizing a summary.
+    mode: VisionActionModeEnumApi
+    alert_frequency: AlertConfigFrequencyEnumApi
+    alert_metric: VisionAlertMetricEnumApi
+    alert_threshold: number | null
+    alert_direction: VisionAlertDirectionEnumApi
+    alert_window_days: WindowDaysEnumApi
 }
 
 export const NEW_ACTION_FORM = (): VisionActionForm => ({
@@ -45,6 +59,13 @@ export const NEW_ACTION_FORM = (): VisionActionForm => ({
     tags: [],
     min_score: null,
     max_score: null,
+    mode: VisionActionModeEnumApi.GroupSummary,
+    // Default alert flavor: notify about every new match ("every time the result is X, tell me").
+    alert_frequency: AlertConfigFrequencyEnumApi.EveryMatch,
+    alert_metric: VisionAlertMetricEnumApi.Count,
+    alert_threshold: 1,
+    alert_direction: VisionAlertDirectionEnumApi.Above,
+    alert_window_days: 1,
 })
 
 // Map the UI form shape to the API body shared by create + partial-update. Kept standalone so the
@@ -66,12 +87,32 @@ export function buildActionBody(form: VisionActionForm, scannerId: string): Para
     if (form.max_score != null) {
         selection.max_score = form.max_score
     }
+    const isAlert = form.mode === VisionActionModeEnumApi.Alert
     return {
         name: form.name.trim(),
         scanner: scannerId,
-        trigger_config: { rrule: cadenceToRrule(form.cadence), timezone: form.timezone },
+        mode: form.mode,
+        // Alerts have no user-facing schedule: the engine checks them on every scanner sweep and
+        // ignores this rrule (kept so the trigger stays well-formed); summaries run on the picked days/time.
+        trigger_config: isAlert
+            ? { rrule: 'FREQ=HOURLY', timezone: form.timezone }
+            : { rrule: cadenceToRrule(form.cadence), timezone: form.timezone },
         selection,
-        synthesis_config: { prompt_guide: form.prompt_guide },
+        synthesis_config: { prompt_guide: isAlert ? '' : form.prompt_guide },
+        ...(isAlert
+            ? {
+                  alert_config:
+                      form.alert_frequency === AlertConfigFrequencyEnumApi.EveryMatch
+                          ? { frequency: form.alert_frequency, metric: VisionAlertMetricEnumApi.Count }
+                          : {
+                                frequency: form.alert_frequency,
+                                metric: form.alert_metric,
+                                threshold: form.alert_threshold ?? 1,
+                                direction: form.alert_direction,
+                                window_days: form.alert_window_days,
+                            },
+              }
+            : {}),
         delivery_config:
             form.integration_id && form.channel
                 ? [
@@ -96,6 +137,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
         loadActions: true,
         loadActionsSuccess: (visionActions: VisionActionApi[]) => ({ visionActions }),
         loadActionsFailure: true,
+        addAction: (action: VisionActionApi) => ({ action }),
         toggleActionEnabled: (id: string) => ({ id }),
         revertActionEnabled: (id: string) => ({ id }),
         toggleActionEnabledDone: (id: string) => ({ id }),
@@ -108,6 +150,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
             [] as VisionActionApi[],
             {
                 loadActionsSuccess: (_, { visionActions }) => visionActions,
+                addAction: (state, { action }) => [...state, action],
                 deleteActionSuccess: (state, { id }) => state.filter((a) => a.id !== id),
                 // Optimistic flip on toggle; revert mirrors it back on failure.
                 toggleActionEnabled: (state, { id }) =>

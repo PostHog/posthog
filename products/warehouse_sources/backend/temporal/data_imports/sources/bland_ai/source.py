@@ -46,7 +46,6 @@ class BlandAISource(ResumableSource[BlandAISourceConfig, BlandAIResumeConfig]):
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Bland AI",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption=(
                 "Enter your Bland AI API key to sync your AI phone calls, transcripts, and "
                 "conversational pathways into the PostHog Data warehouse. Find your key in the "

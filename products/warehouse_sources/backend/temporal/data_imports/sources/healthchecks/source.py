@@ -69,7 +69,6 @@ Leave the base URL blank for Healthchecks.io Cloud, or set it to your instance U
             iconPath="/static/services/healthchecks.png",
             docsUrl="https://posthog.com/docs/cdp/sources/healthchecks",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

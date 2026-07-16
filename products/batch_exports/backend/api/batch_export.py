@@ -1070,6 +1070,28 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    def validate_interval(self, interval: str) -> str:
+        """Validate sub-hour frequency intervals are only available when feature flag is enabled."""
+        team_id = self.context["team_id"]
+
+        if interval not in ("hour", "day", "week"):
+            team = Team.objects.get(id=team_id)
+
+            if not posthoganalytics.feature_enabled(
+                "high-frequency-batch-exports",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("Higher frequency batch exports are not enabled for this team.")
+        return interval
+
     def validate_timezone(self, timezone: str | None) -> str | None:
         """Validate timezone.
 
@@ -1399,23 +1421,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
         """Create a BatchExport."""
         destination_data = validated_data.pop("destination")
         team_id = self.context["team_id"]
-
-        if validated_data["interval"] not in ("hour", "day", "week"):
-            team = Team.objects.get(id=team_id)
-
-            if not posthoganalytics.feature_enabled(
-                "high-frequency-batch-exports",
-                str(team.uuid),
-                groups={"organization": str(team.organization.id)},
-                group_properties={
-                    "organization": {
-                        "id": str(team.organization.id),
-                        "created_at": team.organization.created_at,
-                    }
-                },
-                send_feature_flag_events=False,
-            ):
-                raise PermissionDenied("Higher frequency batch exports are not enabled for this team.")
 
         hogql_query = None
         if hogql_query := validated_data.pop("hogql_query", None):

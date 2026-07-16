@@ -3123,6 +3123,8 @@ export interface EnterprisePropertyDefinitionApi {
     readonly verified_by: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
+    /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
+    readonly warehouse_origin: unknown
 }
 
 export interface PaginatedEnterprisePropertyDefinitionListApi {
@@ -3155,6 +3157,8 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly verified_by?: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
+    /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
+    readonly warehouse_origin?: unknown
 }
 
 /**
@@ -3421,6 +3425,7 @@ export const ShortcutPositionEnumApi = {
  * * `delegated` - Delegated to teammate
  * * `later` - Skipped for later
  * * `other` - Other
+ * * `provisioned` - Account provisioned by a partner
  */
 export type OnboardingSkippedReasonEnumApi =
     (typeof OnboardingSkippedReasonEnumApi)[keyof typeof OnboardingSkippedReasonEnumApi]
@@ -3429,6 +3434,7 @@ export const OnboardingSkippedReasonEnumApi = {
     Delegated: 'delegated',
     Later: 'later',
     Other: 'other',
+    Provisioned: 'provisioned',
 } as const
 
 /**

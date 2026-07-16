@@ -338,6 +338,10 @@ SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "s
 # off in the test suite (like AXES_ENABLED) so its per-request feature-flag check doesn't run during
 # tests that assert posthoganalytics.feature_enabled call counts.
 SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=str_to_bool)
+# Kill switch for the real-time signup enrichment workflow (products/growth/backend/enrichment).
+# Off by default: it must stay off until the launch fill-rate/failure alert is in place, and v0 is
+# US-only. Fire-and-forget from signup, so this only gates whether the workflow is dispatched at all.
+GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool)
 # Session keys for risk-based step-up (posthog/session/risk.py). Named so every reader/writer shares
 # one source of truth, like SESSION_COOKIE_CREATED_AT_KEY above.
 SESSION_STEP_UP_REQUIRED_KEY = get_from_env("SESSION_STEP_UP_REQUIRED_KEY", "step_up_required")
@@ -531,6 +535,7 @@ SPECTACULAR_SETTINGS = {
         #    both the no-x-spec-enum-id type-hint path and the inline-choices ChoiceField
         #    path (drf-spectacular generates the x-spec-enum-id from the same tuples).
         # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
+        "SignalReportRefundReasonEnum": "products.signals.backend.models.SignalReportRefund.Reason",
         "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
         "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
@@ -571,6 +576,8 @@ SPECTACULAR_SETTINGS = {
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
         "ExportedRecordingStatusEnum": "products.replay.backend.models.exported_recording.ExportedRecording.Status",
         "VisionActionRunStatusEnum": "products.replay_vision.backend.models.vision_action.VisionActionRunStatus",
+        "VisionAlertMetricEnum": "products.replay_vision.backend.models.vision_action.AlertMetric",
+        "VisionAlertDirectionEnum": "products.replay_vision.backend.models.vision_action.AlertDirection",
         "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
@@ -597,16 +604,31 @@ SPECTACULAR_SETTINGS = {
         # BulkUpdateTagsRequest and its UUID subclass, so the shared enum can't be component-prefixed
         # unambiguously and auto-resolves to a hash name. Pin it to a stable name.
         "BulkUpdateTagsActionEnum": ["add", "remove", "set"],
+        "ManagedWarehouseReadinessStateEnum": [
+            "not_configured",
+            "waiting",
+            "backfilling",
+            "catching_up",
+            "up_to_date",
+            "needs_attention",
+            "unknown",
+            "sync_paused",
+        ],
         # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
         # subset enums keep their own auto-resolved names.
         "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
         "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
+        # Shared by alert checks and analytics anomaly-investigation signals.
+        "InvestigationVerdictEnum": ["true_positive", "false_positive", "inconclusive"],
+        # Preserve Replay Vision's existing verdict type name after introducing the shared enum above.
+        "VerdictEnum": ["yes", "no", "inconclusive"],
         # AgentRevision.state (model ChoiceField) and RevisionNotDraftError.state (the
         # bundle-edit 409 body) share one choice set — pin them to a single named enum.
         "AgentRevisionStateEnum": ["draft", "ready", "live", "archived"],
         # Tracing's span-filter `type` and attribute-breakdown `breakdownType` share one
         # choice set (top-level column vs span attribute vs resource attribute).
         "SpanPropertyTypeEnum": ["span", "span_attribute", "span_resource_attribute"],
+        "LogsViewColumnTypeEnum": ["timestamp", "level", "source", "trace_id", "span_id", "message", "custom"],
         "CustomPropertyDisplayTypeEnum": [
             "text",
             "number",
@@ -830,6 +852,9 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/api/organizations/@current/plugins/?$",
                 "^api/(environments|projects)/@current/feature_flags/my_flags/?$",
                 "^/?api/(environments|projects)/\\d+/query/?$",
+                # Deploy-static source catalog (no user input or secrets reflected): several
+                # hundred KB of JSON that compresses ~7x.
+                "^/?api/(environments|projects)/(\\d+|@current)/external_data_sources/wizard/?$",
                 "^/?api/instance_status/?$",
                 "^/array/.*$",
             ]
@@ -1132,3 +1157,25 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS: list[int] = [
         get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS)
     )
 ]
+
+# Teams whose web analytics queries (overview, paths tile) skip the events↔sessions join
+# when nothing in the query (property filters, conversion goal, test-account filters,
+# sampling) constrains which sessions qualify. In that shape the join only multiplies
+# cost: the sessions-side subquery is re-executed per shard of the events cluster. Trial
+# rollout is per-team via comma-separated env var; defaults to the Cloud dogfooding team
+# (project 2, same default as the lazy precompute lists) so the fast paths activate there
+# on deploy, and to empty on self-hosted where project id 2 is an arbitrary customer.
+WEB_ANALYTICS_NO_JOIN_TEAM_IDS: list[int] = [
+    int(team_id)
+    for team_id in get_list(get_from_env("WEB_ANALYTICS_NO_JOIN_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
+]
+
+# Percentage-of-teams rollout for the no-join fast paths, on top of the explicit
+# allowlist above. Bucketing is deterministic per team (team_id % 100) so everyone
+# on a team sees numbers from the same code path. 0 disables (allowlist only),
+# 100 enrolls every team. Defaults to 100 on US and EU Cloud; self-hosted stays 0.
+# Env var overrides in either direction and is the kill switch.
+_NO_JOIN_DEFAULT_ROLLOUT_PERCENT = 100 if (CLOUD_DEPLOYMENT or "").upper() in ("US", "EU") and not TEST else 0
+WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT: int = get_from_env(
+    "WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT", _NO_JOIN_DEFAULT_ROLLOUT_PERCENT, type_cast=int
+)
