@@ -1037,7 +1037,9 @@ class CoupaSourceConfig(config.Config):
 
 @config.config
 class CoverallsSourceConfig(config.Config):
-    pass
+    repositories: str
+    service: Literal["github", "gitlab", "bitbucket"] = config.value(default="github")
+    api_token: str | None = None
 
 
 @config.config
@@ -4059,7 +4061,10 @@ class StytchSourceConfig(config.Config):
 
 @config.config
 class SumoLogicSourceConfig(config.Config):
-    pass
+    access_id: str
+    access_key: str
+    deployment: Literal["us1", "us2", "au", "ca", "de", "eu", "fed", "in", "jp", "kr"] = config.value(default="us1")
+    search_query: str | None = None
 
 
 @config.config
