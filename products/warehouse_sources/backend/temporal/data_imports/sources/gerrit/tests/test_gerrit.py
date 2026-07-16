@@ -1,8 +1,13 @@
+import time
+import socket
+import threading
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, Optional
 
 import pytest
 from unittest import mock
+
+import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit import gerrit as gerrit_module
@@ -53,6 +58,35 @@ class _FakeResumeManager(ResumableSourceManager[GerritResumeConfig]):
 
     def save_state(self, state: GerritResumeConfig) -> None:
         self.saved.append(state)
+
+
+def _start_drip_server(byte_interval: float) -> int:
+    """Serve a body one byte at a time, forever, on a loopback port. Returns the port.
+
+    Models a host that trickles data just under the socket read timeout to keep a body read alive
+    indefinitely. Threads are daemons and the socket is released once the client hangs up.
+    """
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+
+    def _serve() -> None:
+        try:
+            conn, _ = server.accept()
+            conn.recv(65536)  # consume the request line/headers
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 1000000\r\n\r\n")
+            while True:
+                conn.sendall(b"x")
+                time.sleep(byte_interval)
+        except OSError:
+            pass
+        finally:
+            server.close()
+
+    threading.Thread(target=_serve, name="drip-server", daemon=True).start()
+    return port
 
 
 def _patch_session(responses: list[mock.MagicMock]) -> tuple[mock.MagicMock, Any]:
@@ -276,48 +310,25 @@ class TestGetRows:
         ):
             _get_all_rows("changes", [_response(text=body)])
 
-    def test_slow_body_is_aborted_at_the_download_deadline(self):
-        # A drip host that keeps yielding data past the deadline must be aborted by the between-chunks
-        # wall-clock check — not by close() unblocking a read, which production requests doesn't
-        # guarantee. A shared clock (read by any number of callers, incl. tenacity) is advanced past
-        # the deadline mid-stream; the watchdog's own timer never fires in the test window, so the
-        # abort here is the wall-clock check alone.
-        clock = {"t": 100.0}
+    def test_slow_drip_body_returns_at_the_download_deadline(self):
+        # A hostile host can drip one byte just under the socket read timeout, which keeps a single
+        # urllib3 body read parked in recv indefinitely — the per-recv timeout resets on every byte,
+        # so it never bounds total download time, and close() from a timer does not cancel a parked
+        # read. The drain must be abandoned at MAX_DOWNLOAD_SECONDS so a shared sync worker is never
+        # held open by such a host. Exercised against a real loopback server because the regression
+        # lives in the socket/urllib3 read path, which a mocked iter_content can't reproduce.
+        port = _start_drip_server(byte_interval=0.05)  # never finishes within the deadline
+        session = requests.Session()
+        response = session.get(f"http://127.0.0.1:{port}", stream=True, timeout=5)
 
-        def _stream(chunk_size=None):
-            yield b"x"
-            clock["t"] = 10_000.0  # deadline is now in the past
-            yield b"y"
-
-        response = _response(text="")
-        response.iter_content.side_effect = _stream
-
+        start = time.monotonic()
         with (
-            mock.patch.object(gerrit_module, "MAX_DOWNLOAD_SECONDS", 30.0),
-            mock.patch.object(gerrit_module.time, "monotonic", side_effect=lambda: clock["t"]),
+            mock.patch.object(gerrit_module, "MAX_DOWNLOAD_SECONDS", 0.5),
             pytest.raises(gerrit_module.GerritResponseTooLargeError),
         ):
-            _get_all_rows("changes", [response])
-
-    def test_read_error_after_deadline_becomes_too_large(self):
-        # Models the socket read timeout (or the watchdog's close) raising under a stalled read once
-        # the deadline has elapsed: a transport error seen past the deadline is surfaced as the
-        # deadline hit rather than propagating as a transient failure to be retried.
-        clock = {"t": 100.0}
-
-        def _raise(chunk_size=None):
-            clock["t"] = 10_000.0  # deadline is now in the past
-            raise OSError("read timed out")
-
-        response = _response(text="")
-        response.iter_content.side_effect = _raise
-
-        with (
-            mock.patch.object(gerrit_module, "MAX_DOWNLOAD_SECONDS", 30.0),
-            mock.patch.object(gerrit_module.time, "monotonic", side_effect=lambda: clock["t"]),
-            pytest.raises(gerrit_module.GerritResponseTooLargeError),
-        ):
-            _get_all_rows("changes", [response])
+            gerrit_module._read_capped_text(response)
+        # Returned at the deadline rather than blocking on the drip (which would run for minutes).
+        assert time.monotonic() - start < 3.0
 
     def test_unsafe_host_is_rejected_before_any_request(self):
         session, session_patcher = _patch_session([])

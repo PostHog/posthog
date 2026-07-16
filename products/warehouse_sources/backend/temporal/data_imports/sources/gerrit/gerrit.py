@@ -1,6 +1,6 @@
 import re
 import json
-import time
+import socket
 import threading
 import dataclasses
 from collections.abc import Iterator
@@ -97,63 +97,76 @@ def parse_gerrit_response(text: str) -> Any:
     return json.loads(stripped)
 
 
+def _underlying_socket(response: requests.Response) -> Optional[socket.socket]:
+    """Best-effort reach for the raw socket behind a streamed response.
+
+    Used only to release a drain thread stuck in a body read once the download deadline fires.
+    The attribute chain into urllib3/``http.client`` is private, so this stays defensive and
+    returns ``None`` if the layout differs — the caller still returns at the deadline either way.
+    """
+    for path in (("_fp", "fp", "raw", "_sock"), ("_connection", "sock")):
+        obj: Any = getattr(response, "raw", None)
+        for attr in path:
+            obj = getattr(obj, attr, None)
+            if obj is None:
+                break
+        if isinstance(obj, socket.socket):
+            return obj
+    return None
+
+
 def _read_capped_text(response: requests.Response) -> str:
-    """Drain a streamed response body under a byte cap and a wall-clock deadline, then decode to text.
+    """Drain a streamed response body under a byte cap and a hard wall-clock deadline, then decode.
 
     The request is issued with ``stream=True`` so nothing is buffered until this read. Two limits
-    protect a shared worker from a hostile customer-supplied host: a byte cap (``MAX_RESPONSE_BYTES``)
-    checked as chunks arrive, and a hard wall-clock deadline (``MAX_DOWNLOAD_SECONDS``).
+    protect a shared worker from a hostile customer-supplied host:
 
-    The deadline enforcement does *not* rely on interrupting a blocked read from another thread —
-    ``Response.close()`` is not a portable way to cancel a ``recv()`` that another thread is parked
-    in. What makes the total deadline real is the socket read timeout set on every request: no single
-    body read can block longer than that timeout, so control always returns to this loop within that
-    window (either with a chunk or via a raised timeout). That lets the between-chunks wall-clock
-    check below be the load-bearing guarantee, giving a hard upper bound of roughly
-    ``MAX_DOWNLOAD_SECONDS`` plus one read-timeout interval regardless of platform. The watchdog is
-    kept purely as a best-effort optimisation: on platforms where closing the socket does unblock the
-    read, it aborts a stalled read sooner rather than waiting out the read timeout.
+    * ``MAX_RESPONSE_BYTES`` caps how much we buffer into memory, checked as chunks arrive.
+    * ``MAX_DOWNLOAD_SECONDS`` caps total wall-clock. This is *not* enforceable via the socket read
+      timeout alone: that timeout resets on every ``recv``, so a host dripping one byte just under
+      it keeps a single ``iter_content`` read (which blocks until a full chunk is read) parked
+      indefinitely. Nor can ``Response.close()`` from a timer reliably cancel that parked read. So
+      the body is drained on a worker thread and this caller waits on it for at most the deadline;
+      once it elapses the caller returns immediately — a sync worker is never held past the
+      deadline regardless of platform — and shuts the socket down to release the drain thread
+      (``shutdown`` unblocks a parked ``recv`` on POSIX where ``close`` does not).
     """
-    chunks: list[bytes] = []
-    total = 0
-    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
-    aborted = threading.Event()
+    result: dict[str, Any] = {}
+    done = threading.Event()
 
-    def _past_deadline() -> bool:
-        return aborted.is_set() or time.monotonic() > deadline
+    def _drain() -> None:
+        try:
+            chunks: list[bytes] = []
+            total = 0
+            for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_BYTES):
+                if not chunk:
+                    continue
+                total += len(chunk)
+                if total > MAX_RESPONSE_BYTES:
+                    raise GerritResponseTooLargeError("Gerrit returned an oversized response body")
+                chunks.append(chunk)
+            result["text"] = b"".join(chunks).decode(response.encoding or "utf-8", errors="replace")
+        except Exception as exc:
+            result["error"] = exc
+        finally:
+            done.set()
 
-    def _abort() -> None:
-        aborted.set()
-        # Best-effort only: may unblock an in-flight read on some platforms and tightens latency,
-        # but correctness rests on the socket read timeout + the check below, not on this call.
+    thread = threading.Thread(target=_drain, name="gerrit-body-drain", daemon=True)
+    thread.start()
+
+    if not done.wait(MAX_DOWNLOAD_SECONDS):
+        drain_socket = _underlying_socket(response)
+        if drain_socket is not None:
+            try:
+                drain_socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
         response.close()
-
-    watchdog = threading.Timer(MAX_DOWNLOAD_SECONDS, _abort)
-    watchdog.start()
-    try:
-        for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_BYTES):
-            if _past_deadline():
-                raise GerritResponseTooLargeError("Gerrit response body took too long to download")
-            if not chunk:
-                continue
-            total += len(chunk)
-            if total > MAX_RESPONSE_BYTES:
-                raise GerritResponseTooLargeError("Gerrit returned an oversized response body")
-            chunks.append(chunk)
-    except GerritResponseTooLargeError:
-        raise
-    except Exception:
-        # A read that raises once the deadline has passed is the read timeout (or the watchdog's
-        # close) firing under a stalled body — surface it as the deadline, not a transport error.
-        if _past_deadline():
-            raise GerritResponseTooLargeError("Gerrit response body took too long to download")
-        raise
-    finally:
-        watchdog.cancel()
-        response.close()
-    if _past_deadline():
         raise GerritResponseTooLargeError("Gerrit response body took too long to download")
-    return b"".join(chunks).decode(response.encoding or "utf-8", errors="replace")
+
+    if "error" in result:
+        raise result["error"]
+    return result["text"]
 
 
 def _api_base(base_url: str, authenticated: bool) -> str:
