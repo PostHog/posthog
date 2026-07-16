@@ -241,6 +241,33 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert results[0]["variant"] == "test"
         assert results[0]["first_exposure_timestamp"] is None
 
+    def test_flag_evaluation_evidences_variant_for_custom_criteria(self) -> None:
+        self._create_recording()
+        self._create_experiment(
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "checkout started",
+                    "properties": [],
+                }
+            }
+        )
+        # Only a flag evaluation — no custom exposure event, no stamped properties (e.g.
+        # server-evaluated flags). The replay still shows what the session was served, so the
+        # experiment must surface with its variant; only the exposure moment stays undefined.
+        self._create_session_event(
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"},
+        )
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["variant"] == "test"
+        assert results[0]["variants_seen"] == ["test"]
+        assert results[0]["first_exposure_timestamp"] is None
+
     def test_default_event_with_property_filters_defines_exposure_timestamp(self) -> None:
         self._create_recording()
         self._create_experiment(

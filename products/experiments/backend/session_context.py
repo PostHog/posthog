@@ -1,11 +1,14 @@
 """Resolve which experiments (and variants) a session recording saw.
 
-Variants come from the flag, via two complementary event signals:
+Variants come from the flag, via complementary event signals:
 
-- Exposure events, resolved per experiment from its exposure criteria through the shared
-  `exposure_query_logic` helpers: `$feature_flag_called` by default (variant in
-  `$feature_flag_response`), or the configured custom event/action (variant in the stamped
-  `$feature/<key>` property).
+- `$feature_flag_called` flag evaluations: variant evidence for every experiment — the replay
+  shows exactly what the session was served, whatever the exposure criteria say — and the
+  exposure moment for experiments with the default criteria shape (variant in
+  `$feature_flag_response`).
+- Exposure events resolved per experiment from custom exposure criteria through the shared
+  `exposure_query_logic` helpers: the configured event/action defines the exposure moment
+  (variant in the stamped `$feature/<key>` property).
 - `$feature/<key>` properties stamped on every captured event by posthog-js. These cover the
   SDK dedupe gap: a returning user's later sessions may carry no exposure event at all.
 
@@ -129,37 +132,35 @@ def get_session_experiment_context(
 
     # Each experiment's exposure criteria resolve (through the shared helpers) to what counts
     # as its exposure event and which property carries the variant. Experiments with the plain
-    # default shape share one batched `$feature_flag_called` query; the rest get one union
-    # branch each. Everything is keyed by experiment id, since two experiments can share a
-    # flag with different criteria.
+    # default shape take their exposure moment straight from the shared flag-evaluations query;
+    # the rest get one union branch each. Everything is keyed by experiment id, since two
+    # experiments can share a flag with different criteria.
     flag_key_by_id: dict[int, str] = {}
-    default_experiments: list[tuple[int, str]] = []
-    default_variants: set[str] = set()
+    batchable_ids: set[int] = set()
+    all_variant_keys: set[str] = set()
     branch_meta: list[tuple[int, _ResolvedExposure, set[str]]] = []
     for experiment_id, flag_key, filters, exposure_criteria in flag_meta:
         variant_keys = _variant_keys_from_filters(filters)
         if not variant_keys:
             continue
         flag_key_by_id[experiment_id] = flag_key
+        all_variant_keys |= variant_keys
         resolution = _resolve_exposure(team, flag_key, exposure_criteria)
         if resolution.batchable:
-            default_experiments.append((experiment_id, flag_key))
-            default_variants |= variant_keys
+            batchable_ids.add(experiment_id)
         else:
             branch_meta.append((experiment_id, resolution, variant_keys))
 
-    default_flag_keys = {flag_key for _, flag_key in default_experiments}
-    exposures_by_flag_key = (
-        _query_default_exposure_events(
-            team, user, session_id, window_start, window_end, default_flag_keys, default_variants
-        )
-        if default_flag_keys
-        else {}
+    # Flag evaluations are variant evidence for every experiment — the replay shows exactly
+    # what the session was served, whatever the exposure criteria say — and double as the
+    # exposure moment for experiments with the default criteria shape.
+    flag_evaluations = _query_flag_evaluations(
+        team, user, session_id, window_start, window_end, set(flag_key_by_id.values()), all_variant_keys
     )
     exposures: dict[int, list[tuple[str, datetime]]] = {
-        experiment_id: exposures_by_flag_key[flag_key]
-        for experiment_id, flag_key in default_experiments
-        if flag_key in exposures_by_flag_key
+        experiment_id: flag_evaluations[flag_key]
+        for experiment_id, flag_key in flag_key_by_id.items()
+        if experiment_id in batchable_ids and flag_key in flag_evaluations
     }
     # Same width backstop as the candidate cap — each branch experiment adds a union branch, so
     # (unlike the constant-width default query) non-batchable experiments beyond the cap are
@@ -175,7 +176,7 @@ def get_session_experiment_context(
     # when it fell outside the cap above. Rescued keys join the stamped-property query too —
     # it stays bounded, since rescues are limited to real overlapping experiments the session
     # demonstrably called.
-    evidenced_keys = {flag_key_by_id[experiment_id] for experiment_id in exposures}
+    evidenced_keys = set(flag_evaluations) | {flag_key_by_id[experiment_id] for experiment_id in exposures}
     candidate_keys = {experiment.feature_flag.key for experiment in candidates}
     rescued_keys = evidenced_keys - candidate_keys
     if rescued_keys:
@@ -192,18 +193,23 @@ def get_session_experiment_context(
         # `$feature_flag_response: false`, which must not surface as a variant named "false".
         defined_variants = _defined_variant_keys(experiment)
         exposure_rows = [row for row in exposures.get(experiment.pk, []) if row[0] in defined_variants]
+        flag_rows = [row for row in flag_evaluations.get(flag_key, []) if row[0] in defined_variants]
         stamped_values = [value for value in stamped.get(flag_key, []) if value in defined_variants]
-        variants_seen = sorted({variant for variant, _ in exposure_rows} | set(stamped_values))
+        variants_seen = sorted(
+            {variant for variant, _ in exposure_rows} | {variant for variant, _ in flag_rows} | set(stamped_values)
+        )
         if not variants_seen:
             continue
 
+        first_exposure_timestamp: Optional[datetime] = None
         if exposure_rows:
-            earliest_variant, first_seen = min(exposure_rows, key=lambda row: row[1])
-            variant = earliest_variant
-            first_exposure_timestamp: Optional[datetime] = first_seen
+            variant, first_exposure_timestamp = min(exposure_rows, key=lambda row: row[1])
+        elif flag_rows:
+            # The session was demonstrably served this variant, but no event matched the
+            # experiment's exposure criteria — so there is no exposure moment to point at.
+            variant = min(flag_rows, key=lambda row: row[1])[0]
         else:
             variant = variants_seen[0]
-            first_exposure_timestamp = None
 
         items.append(
             ExperimentSessionContextItem(
@@ -267,7 +273,7 @@ def _defined_variant_keys(experiment: Experiment) -> set[str]:
     return _variant_keys_from_filters(experiment.feature_flag.filters)
 
 
-def _query_default_exposure_events(
+def _query_flag_evaluations(
     team: Team,
     user: User,
     session_id: str,
@@ -277,16 +283,17 @@ def _query_default_exposure_events(
     variants: set[str],
 ) -> dict[str, list[tuple[str, datetime]]]:
     """The session's `$feature_flag_called` events for the given experiment flag keys and
-    defined variant names, as flag_key -> [(variant, first_seen)]. Covers every experiment
-    whose exposure criteria resolve to the plain default shape (`$feature_flag_called` with
-    no extra property filters).
+    defined variant names, as flag_key -> [(variant, first_seen)]. Serves two roles: variant
+    evidence for every experiment (the replay shows what the session was served, whatever the
+    exposure criteria say), and the exposure moment for experiments whose criteria resolve to
+    the plain default shape (`$feature_flag_called` with no extra property filters).
 
     Shape-bound to `$feature_flag_called` on purpose — the `$feature_flag` batching key and
     the `$feature_flag_response` variant property come with that event, so all three are
     hardcoded together. If DEFAULT_EXPOSURE_EVENT changes in `exposure_query_logic`, this
-    query needs no rewrite: `_resolve_exposure` stops classifying criteria-less experiments
-    as batchable, and this query then serves only experiments explicitly configured on
-    `$feature_flag_called`."""
+    query needs no rewrite: flag evaluations stay `$feature_flag_called` events, and
+    `_resolve_exposure` stops classifying criteria-less experiments as batchable, so their
+    exposure moments move to the branch path."""
     query = parse_select(
         """
         SELECT properties.$feature_flag AS flag_key,
