@@ -391,6 +391,16 @@ export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. Idempotent per (comment, channel) — re-calling returns the existing mirror. 404 when the feature is not enabled for the team.
+ */
+export const CommentsSendToSlackCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod.number().describe("ID of the Slack integration (kind='slack') whose bot posts the thread."),
+    channel_id: zod
+        .string()
+        .describe('Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.'),
+})
+
+/**
  * Update the authenticated user's pinned sidebar tabs and/or homepage for the current team. Pass `@me` as the UUID. Send `tabs` to replace the pinned tab list, `homepage` to set the home destination (any PostHog URL — dashboard, insight, search results, scene). Either field may be omitted to leave it unchanged; sending `homepage: null` or `{}` clears the homepage.
  */
 export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({

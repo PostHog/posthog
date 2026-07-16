@@ -21,6 +21,7 @@ import type {
     ChangeRequestRejectApi,
     ChangeRequestsListParams,
     CommentApi,
+    CommentSlackThreadApi,
     CommentsListParams,
     ListParams,
     MembersListParams,
@@ -49,6 +50,7 @@ import type {
     RoleMembershipApi,
     RolesListParams,
     RolesRoleMembershipsListParams,
+    SendCommentToSlackApi,
     WelcomeResponseApi,
 } from './api.schemas'
 
@@ -991,6 +993,27 @@ export const commentsReopenCreate = async (
     return apiMutator<CommentApi>(getCommentsReopenCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getCommentsSendToSlackCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/comments/${id}/send_to_slack/`
+}
+
+/**
+ * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. Idempotent per (comment, channel) — re-calling returns the existing mirror. 404 when the feature is not enabled for the team.
+ */
+export const commentsSendToSlackCreate = async (
+    projectId: string,
+    id: string,
+    sendCommentToSlackApi: SendCommentToSlackApi,
+    options?: RequestInit
+): Promise<CommentSlackThreadApi> => {
+    return apiMutator<CommentSlackThreadApi>(getCommentsSendToSlackCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sendCommentToSlackApi),
     })
 }
 

@@ -69,6 +69,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             "is_task": False,
             "completed_at": None,
             "completed_by": None,
+            "slack_thread": None,
         }
 
     def test_updates_content_and_increments_version(self) -> None:
@@ -100,6 +101,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             "is_task": False,
             "completed_at": None,
             "completed_by": None,
+            "slack_thread": None,
         }
 
     def test_empty_comments_list(self) -> None:
