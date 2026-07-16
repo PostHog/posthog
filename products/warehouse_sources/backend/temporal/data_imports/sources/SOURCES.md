@@ -456,6 +456,7 @@ the row lists both.
 | tmdb                             | HTTP                        | requests                                                        | ✅                          |
 | todoist                          | HTTP                        | requests                                                        | ✅                          |
 | together_ai                      | HTTP                        | requests                                                        | ✅                          |
+| travis_ci                        | HTTP                        | requests                                                        | ✅                          |
 | trello                           | HTTP                        | requests                                                        | ✅                          |
 | tremendous                       | HTTP                        | requests                                                        | ✅                          |
 | trigger_dev                      | HTTP                        | requests                                                        | ✅                          |
@@ -938,7 +939,6 @@ doesn't conflict with concurrent PRs.
 - tinyemail
 - toggl
 - track_pms
-- travis_ci
 - tremendous
 - trustpilot
 - turso
