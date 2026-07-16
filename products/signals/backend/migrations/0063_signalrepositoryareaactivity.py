@@ -8,29 +8,44 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('posthog', '1255_wizard_runs_rate_limit_and_provisioned_onboarding_reason'),
-        ('signals', '0062_add_analytics_anomaly_investigation_source'),
+        ("posthog", "1255_wizard_runs_rate_limit_and_provisioned_onboarding_reason"),
+        ("signals", "0062_add_analytics_anomaly_investigation_source"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='SignalRepositoryAreaActivity',
+            name="SignalRepositoryAreaActivity",
             fields=[
-                ('id', models.UUIDField(default=posthog.models.utils.uuid7, editable=False, primary_key=True, serialize=False)),
-                ('repository', models.CharField(max_length=400)),
-                ('area', models.CharField(blank=True, max_length=400)),
-                ('contributors', models.JSONField(blank=True, default=list)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('refreshed_at', models.DateTimeField(blank=True, null=True)),
-                ('last_used_at', models.DateTimeField(default=django.utils.timezone.now)),
-                ('team', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='signal_repo_area_activities', to='posthog.team')),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.uuid7, editable=False, primary_key=True, serialize=False
+                    ),
+                ),
+                ("repository", models.CharField(max_length=400)),
+                ("area", models.CharField(blank=True, max_length=400)),
+                ("contributors", models.JSONField(blank=True, default=list)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("refreshed_at", models.DateTimeField(blank=True, null=True)),
+                ("last_used_at", models.DateTimeField(default=django.utils.timezone.now)),
+                (
+                    "team",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="signal_repo_area_activities",
+                        to="posthog.team",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Signal repository area activity',
-                'verbose_name_plural': 'Signal repository area activities',
-                'constraints': [models.UniqueConstraint(fields=('team', 'repository', 'area'), name='signal_repo_area_activity_uniq')],
+                "verbose_name": "Signal repository area activity",
+                "verbose_name_plural": "Signal repository area activities",
+                "constraints": [
+                    models.UniqueConstraint(
+                        fields=("team", "repository", "area"), name="signal_repo_area_activity_uniq"
+                    )
+                ],
             },
         ),
     ]
