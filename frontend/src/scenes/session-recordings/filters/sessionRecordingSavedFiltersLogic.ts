@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
@@ -173,8 +173,14 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
             },
         ],
     })),
+    urlToAction(({ actions }) => ({
+        [urls.replay(ReplayTabs.Home)]: (_, { savedFilterId }) => {
+            if (savedFilterId) {
+                actions.checkForSavedFilterRedirect()
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadSavedFilters()
-        actions.checkForSavedFilterRedirect()
     }),
 ])

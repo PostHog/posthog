@@ -149,6 +149,8 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
                 return
             }
 
+            actions.loadPinnedRecordings()
+
             if (!values.playlist?.is_synthetic && values.playlist?.derived_name !== values.derivedName) {
                 actions.updatePlaylist({ derived_name: values.derivedName }, true)
             }
@@ -233,7 +235,6 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
     afterMount(({ actions, props }) => {
         if (props.shortId && props.shortId !== 'new') {
             actions.getPlaylist()
-            actions.loadPinnedRecordings()
         }
     }),
 

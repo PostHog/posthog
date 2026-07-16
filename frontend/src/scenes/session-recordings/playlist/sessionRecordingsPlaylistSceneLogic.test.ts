@@ -10,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 
 describe('sessionRecordingsPlaylistSceneLogic', () => {
     let logic: ReturnType<typeof sessionRecordingsPlaylistSceneLogic.build>
+    const loadPinnedRecordingsMock = jest.fn(() => [200, { results: [] }])
     const mockPlaylist = {
         id: 'abc',
         short_id: 'short_abc',
@@ -28,9 +29,11 @@ describe('sessionRecordingsPlaylistSceneLogic', () => {
     }
 
     beforeEach(() => {
+        loadPinnedRecordingsMock.mockClear()
         useMocks({
             get: {
                 '/api/projects/:team/session_recording_playlists/:id': mockPlaylist,
+                '/api/projects/:team/session_recording_playlists/:id/recordings': loadPinnedRecordingsMock,
             },
             post: {
                 '/api/projects/:team/session_recording_playlists/:id/playlist_viewed': [200, {}],
@@ -59,6 +62,9 @@ describe('sessionRecordingsPlaylistSceneLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['getPlaylistSuccess'])
             expect(logic.values.playlist).toEqual(mockPlaylist)
+
+            await expectLogic(logic).toDispatchActions(['loadPinnedRecordings', 'loadPinnedRecordingsSuccess'])
+            expect(loadPinnedRecordingsMock).toHaveBeenCalledTimes(1)
         })
 
         it('redirects saved filters to the replay home URL', async () => {
@@ -73,7 +79,8 @@ describe('sessionRecordingsPlaylistSceneLogic', () => {
             logic.mount()
 
             await expectLogic(logic).toDispatchActions(['getPlaylistSuccess'])
-            await expectLogic(logic).toNotHaveDispatchedActions(['updatePlaylist'])
+            await expectLogic(logic).toNotHaveDispatchedActions(['loadPinnedRecordings', 'updatePlaylist'])
+            expect(loadPinnedRecordingsMock).not.toHaveBeenCalled()
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.replay())
             expect(router.values.searchParams).toEqual({ savedFilterId: savedFilter.short_id })
         })
