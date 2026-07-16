@@ -177,7 +177,7 @@ class TestSearchLogsScroll:
 
     @mock.patch(f"{TRANSPORT}.make_tracked_session")
     def test_expired_cursor_restarts_search_from_watermark(self, mock_session: mock.MagicMock) -> None:
-        expired = requests.HTTPError("400 scroll expired")
+        expired = requests.HTTPError("400 scroll expired", response=mock.MagicMock())
         mock_session.return_value.request.side_effect = [
             expired,
             _resp(_scroll_response("s1", [_hit("a", {"@timestamp": "t"})])),

@@ -83,7 +83,9 @@ def _fetch(
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     json_body: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+) -> Any:
+    # Returns the decoded JSON body — a dict for search/paged endpoints, a bare array for the
+    # list endpoints (e.g. /v2/alerts).
     response = session.request(method, url, headers=headers, json=json_body, timeout=REQUEST_TIMEOUT_SECONDS)
 
     if response.status_code == 429 or response.status_code >= 500:
@@ -124,10 +126,12 @@ def validate_credentials(api_token: str, region: str | None, schema_name: str | 
     return False, f"Logz.io returned an unexpected response (status {response.status_code})."
 
 
-def _select(data: dict[str, Any], selector: str) -> list[dict[str, Any]]:
+def _select(data: dict[str, Any] | list[dict[str, Any]], selector: str) -> list[dict[str, Any]]:
     """Pull the row array out of a response body, tolerating a bare-array or wrapped shape."""
+    if isinstance(data, list):
+        return data
     if not selector:
-        return data if isinstance(data, list) else data.get("results", []) or []
+        return data.get("results", []) or []
     value = data.get(selector)
     return value if isinstance(value, list) else []
 
