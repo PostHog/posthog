@@ -29,7 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ClockodoSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -67,23 +70,19 @@ class ClockodoSource(ResumableSource[ClockodoSourceConfig, ClockodoResumeConfig]
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
         # Clockodo exposes no server-side modified-since filter, so every table is full refresh only.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=CLOCKODO_ENDPOINTS[endpoint].should_sync_default,
-                description=CLOCKODO_ENDPOINTS[endpoint].description,
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            descriptions={
+                endpoint: config.description
+                for endpoint, config in CLOCKODO_ENDPOINTS.items()
+                if config.description is not None
+            },
+            should_sync_default={
+                endpoint: config.should_sync_default for endpoint, config in CLOCKODO_ENDPOINTS.items()
+            },
+        )
 
     def validate_credentials(
         self, config: ClockodoSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -106,7 +105,8 @@ class ClockodoSource(ResumableSource[ClockodoSourceConfig, ClockodoResumeConfig]
             api_user=config.api_user,
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
 
