@@ -56,7 +56,13 @@ def _rows(source_response) -> list[dict[str, Any]]:
 class TestGetRows:
     def setup_method(self) -> None:
         # Drop the exponential backoff so retryable-status tests don't actually sleep.
+        # Saved and restored in teardown_method — this attribute is process-global, and leaving
+        # wait_none in place breaks rest_client's own retry-wait tests in the same run.
+        self._original_wait = RESTClient._send_request.retry.wait  # type: ignore[attr-defined]
         RESTClient._send_request.retry.wait = wait_none()  # type: ignore[attr-defined]
+
+    def teardown_method(self) -> None:
+        RESTClient._send_request.retry.wait = self._original_wait  # type: ignore[attr-defined]
 
     @mock.patch(SESSION_PATCH)
     def test_single_request_yields_all_rows(self, MockSession) -> None:
