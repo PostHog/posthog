@@ -754,14 +754,19 @@ export function LLMProviderKeysSettings(): JSX.Element {
     const {
         providerKeys,
         providerKeysLoading,
+        evaluationConfig,
         evaluationConfigLoading,
         editingKey,
         validatingKeyId,
+        settingActiveKeyId,
         keyToDelete,
         dependentConfigs,
         dependentConfigsLoading,
     } = useValues(llmProviderKeysLogic)
-    const { setNewKeyModalOpen, validateProviderKey, setEditingKey, setKeyToDelete } = useActions(llmProviderKeysLogic)
+    const { setNewKeyModalOpen, validateProviderKey, setEditingKey, setKeyToDelete, setActiveKey } =
+        useActions(llmProviderKeysLogic)
+
+    const activeKeyId = evaluationConfig?.active_provider_key?.id ?? null
     const restrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -775,7 +780,14 @@ export function LLMProviderKeysSettings(): JSX.Element {
                 <div className="flex items-center gap-2">
                     <IconKey className="text-muted" />
                     <div>
-                        <span className="font-medium">{key.name}</span>
+                        <div className="flex items-center gap-2">
+                            <span className="font-medium">{key.name}</span>
+                            {key.id === activeKeyId && (
+                                <Tooltip title="Evaluations without a pinned model use this key.">
+                                    <LemonTag type="success">Active</LemonTag>
+                                </Tooltip>
+                            )}
+                        </div>
                         {key.error_message && (key.state === 'invalid' || key.state === 'error') && (
                             <div className="text-xs text-danger mt-0.5">{key.error_message}</div>
                         )}
@@ -823,9 +835,24 @@ export function LLMProviderKeysSettings(): JSX.Element {
         {
             title: '',
             key: 'actions',
-            width: 150,
+            width: 280,
             render: (_, key) => (
                 <div className="flex gap-1">
+                    {key.id !== activeKeyId && (
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            loading={settingActiveKeyId === key.id}
+                            onClick={() => setActiveKey(key.id)}
+                            disabledReason={
+                                restrictionReason ??
+                                (key.state !== 'ok' ? 'Validate this key before setting it as active' : undefined)
+                            }
+                            tooltip="Use this key for evaluations that don't pin their own model"
+                        >
+                            Set as active
+                        </LemonButton>
+                    )}
                     <LemonButton
                         size="small"
                         type="secondary"

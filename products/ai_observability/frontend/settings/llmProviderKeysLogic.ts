@@ -212,6 +212,7 @@ export interface llmProviderKeysLogicValues {
     providerKeys: LLMProviderKey[]
     providerKeysLoading: boolean
     requiresProviderKey: boolean
+    settingActiveKeyId: string | null
     trialEvalLimit: number
     trialEvalsRemaining: number
     trialEvalsUsed: number
@@ -407,6 +408,9 @@ export interface llmProviderKeysLogicActions {
     setNewlyCreatedKey: (key: LLMProviderKey | null) => {
         key: LLMProviderKey | null
     }
+    setActiveKey: (id: string) => {
+        id: string
+    }
     updateProviderKey: ({ id, payload }: { id: string; payload: UpdateLLMProviderKeyPayload }) => {
         id: string
         payload: UpdateLLMProviderKeyPayload
@@ -484,6 +488,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         setNewlyCreatedKey: (key: LLMProviderKey | null) => ({ key }),
         confirmAssignKey: (evaluationIds: string[], enable: boolean) => ({ evaluationIds, enable }),
         dismissAssignKey: true,
+        setActiveKey: (id: string) => ({ id }),
     }),
 
     reducers({
@@ -505,6 +510,14 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                 validateProviderKey: (_, { id }) => id,
                 validateProviderKeySuccess: () => null,
                 validateProviderKeyFailure: () => null,
+            },
+        ],
+        settingActiveKeyId: [
+            null as string | null,
+            {
+                setActiveKey: (_, { id }) => id,
+                loadEvaluationConfigSuccess: () => null,
+                loadEvaluationConfigFailure: () => null,
             },
         ],
         preValidationResult: [
@@ -808,6 +821,25 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                 lemonToast.error('Failed to assign key to evaluations')
             }
             actions.setNewlyCreatedKey(null)
+        },
+        setActiveKey: async ({ id }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            try {
+                // nosemgrep: prefer-codegen-api
+                await api.create(
+                    `/api/environments/${teamId}/llm_analytics/evaluation_config/set_active_key/`,
+                    { key_id: id }
+                )
+                lemonToast.success('Active key updated. Evaluations will now use this key.')
+            } catch (error) {
+                const detail = error instanceof ApiError ? error.detail : null
+                lemonToast.error(`Failed to set active key: ${detail || 'Unknown error'}`)
+            }
+            // Reload either way: on success to reflect the new active key, on failure to clear the spinner.
+            actions.loadEvaluationConfig()
         },
     })),
 
