@@ -308,24 +308,6 @@ export interface savedInsightsLogicMeta {
         pagination: (filters: SavedInsightFilters, count: number) => PaginationManual
     }
     __keaTypeGenInternalReducerActions: {
-        'rename insight success (models.insightsModel)': (item: QueryBasedInsightModel) => {
-            payload: {
-                item: QueryBasedInsightModel<Node<Record<string, any>>>
-            }
-            type: 'rename insight success (models.insightsModel)'
-        }
-        'update dashboard insight (models.dashboardsModel)': (
-            insight: QueryBasedInsightModel,
-            extraDashboardIds?: number[],
-            sourceDashboardId?: number
-        ) => {
-            payload: {
-                extraDashboardIds: number[] | undefined
-                insight: QueryBasedInsightModel<Node<Record<string, any>>>
-                sourceDashboardId: number | undefined
-            }
-            type: 'update dashboard insight (models.dashboardsModel)'
-        }
         'submit delete dashboard success (scenes.dashboard.deleteDashboardLogic)': (
             deleteDashboard: DeleteDashboardForm
         ) => {
