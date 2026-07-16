@@ -33,6 +33,11 @@ pub struct NotificationsConfig {
     #[envconfig(default = "")]
     pub internal_api_secret: String,
 
+    /// Maximum notification groups handled concurrently within a fetched
+    /// batch. Notifications for the same issue are never handled concurrently.
+    #[envconfig(default = "16")]
+    pub max_concurrent_notifications: usize,
+
     /// HTTP bind port for liveness, readiness, and Prometheus metrics.
     #[envconfig(from = "METRICS_PORT", default = "9102")]
     pub metrics_port: u16,

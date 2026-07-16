@@ -50,7 +50,13 @@ pub async fn run(config: NotificationsConfig) {
     let metrics_handle =
         spawn_metrics_server(config.metrics_port, shutdown_rx.clone(), draining.clone());
 
-    consume_loop(consumer, context, shutdown_rx).await;
+    consume_loop(
+        consumer,
+        context,
+        config.max_concurrent_notifications,
+        shutdown_rx,
+    )
+    .await;
 
     let _ignored = shutdown_tx.send(true);
     if let Err(err) = metrics_handle.await {

@@ -1,9 +1,12 @@
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use common_kafka::kafka_consumer::{Offset, RecvErr, SingleTopicConsumer};
+use futures::stream::{self, StreamExt};
 use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
 
+use crate::core::error::UnhandledError;
 use crate::core::types::notification::IngestionNotification;
 use crate::modes::notifications::context::NotificationsContext;
 use crate::modes::notifications::handler::handle_notification;
@@ -16,16 +19,21 @@ const NOTIFICATIONS_HANDLE_ERRORS_TOTAL: &str = "cymbal_notifications_handle_err
 const NOTIFICATIONS_COMMIT_BATCH_SIZE: usize = 100;
 const NOTIFICATIONS_FETCH_BATCH_TIMEOUT: Duration = Duration::from_millis(250);
 
-/// Receive messages until shutdown. Offsets are stored only after successful
-/// handling, then explicitly committed after each fetched batch. Serde and empty
-/// failures are auto-stored as poison pills inside `json_recv_batch`, so this
-/// loop also explicitly commits those stored offsets.
+/// Receive messages until shutdown. Each fetched batch is split into per-issue
+/// groups (the producer partitions by `team_id:issue_id`), which are handled
+/// concurrently up to `max_concurrency`; messages within a group stay
+/// sequential, so per-issue ordering is preserved. Offsets are stored per
+/// partition only up to the first failure and committed after each batch, so a
+/// crash never skips an unhandled message. Serde and empty failures are
+/// auto-stored as poison pills inside `json_recv_batch`, so this loop also
+/// commits those stored offsets.
 pub async fn consume_loop(
     consumer: SingleTopicConsumer,
     context: NotificationsContext,
+    max_concurrency: usize,
     mut shutdown_rx: watch::Receiver<bool>,
 ) {
-    let mut pending_offsets = 0usize;
+    let max_concurrency = max_concurrency.max(1);
 
     loop {
         tokio::select! {
@@ -33,7 +41,6 @@ pub async fn consume_loop(
             changed = shutdown_rx.changed() => {
                 if changed.is_err() || *shutdown_rx.borrow() {
                     info!("notifications consumer shutting down");
-                    commit_pending_offsets(&consumer, &mut pending_offsets, "shutdown");
                     break;
                 }
             }
@@ -41,48 +48,44 @@ pub async fn consume_loop(
                 NOTIFICATIONS_COMMIT_BATCH_SIZE,
                 NOTIFICATIONS_FETCH_BATCH_TIMEOUT,
             ) => {
-                handle_notification_batch(&consumer, &context, batch, &mut pending_offsets).await;
-                commit_pending_offsets(&consumer, &mut pending_offsets, "batch");
+                handle_notification_batch(&consumer, &context, batch, max_concurrency).await;
             }
         }
     }
+}
+
+struct MessageOutcome {
+    batch_index: usize,
+    offset: Offset,
+    error: Option<UnhandledError>,
 }
 
 async fn handle_notification_batch(
     consumer: &SingleTopicConsumer,
     context: &NotificationsContext,
     batch: Vec<Result<(IngestionNotification, Offset), RecvErr>>,
-    pending_offsets: &mut usize,
+    max_concurrency: usize,
 ) {
-    for result in batch {
+    // Poison pills already had their offsets stored inside `json_recv_batch`;
+    // count them so they get committed even when nothing else succeeds.
+    let mut stored = 0usize;
+    let mut messages = Vec::new();
+
+    for (batch_index, result) in batch.into_iter().enumerate() {
         match result {
             Ok((notification, offset)) => {
                 log_notification_summary(&notification);
                 metrics::counter!(NOTIFICATIONS_RECEIVED_TOTAL).increment(1);
-                match handle_notification(context, notification).await {
-                    Ok(()) => {
-                        metrics::counter!(NOTIFICATIONS_HANDLED_TOTAL).increment(1);
-                        // `commit_consumer_state` only commits offsets explicitly stored on the consumer.
-                        if let Err(e) = offset.store() {
-                            panic!("failed to store notification offset: {e}");
-                        }
-                        *pending_offsets += 1;
-                    }
-                    Err(e) => {
-                        metrics::counter!(NOTIFICATIONS_HANDLE_ERRORS_TOTAL).increment(1);
-                        commit_pending_offsets(consumer, pending_offsets, "before_panic");
-                        panic!("failed to handle notification: {e}");
-                    }
-                }
+                messages.push((batch_index, notification, offset));
             }
             Err(RecvErr::Serde(e)) => {
                 warn!(error = %e, "notification serde error (poison pill skipped)");
                 metrics::counter!(NOTIFICATIONS_SKIPPED_TOTAL, "reason" => "serde").increment(1);
-                *pending_offsets += 1;
+                stored += 1;
             }
             Err(RecvErr::Empty) => {
                 metrics::counter!(NOTIFICATIONS_SKIPPED_TOTAL, "reason" => "empty").increment(1);
-                *pending_offsets += 1;
+                stored += 1;
             }
             Err(RecvErr::Kafka(e)) => {
                 error!(error = %e, "notifications kafka error");
@@ -91,26 +94,113 @@ async fn handle_notification_batch(
             }
         }
     }
+
+    let groups = group_preserving_order(messages, |(_, notification, _)| {
+        notification.partition_key()
+    });
+
+    // A failure aborts the rest of its group: later notifications for the same
+    // issue must not be handled (or have offsets stored) ahead of the failed
+    // one — they redeliver after the panic below.
+    let mut outcomes: Vec<MessageOutcome> = stream::iter(groups.into_iter().map(|group| async {
+        let mut outcomes = Vec::with_capacity(group.len());
+        for (batch_index, notification, offset) in group {
+            match handle_notification(context, notification).await {
+                Ok(()) => {
+                    metrics::counter!(NOTIFICATIONS_HANDLED_TOTAL).increment(1);
+                    outcomes.push(MessageOutcome {
+                        batch_index,
+                        offset,
+                        error: None,
+                    });
+                }
+                Err(e) => {
+                    metrics::counter!(NOTIFICATIONS_HANDLE_ERRORS_TOTAL).increment(1);
+                    outcomes.push(MessageOutcome {
+                        batch_index,
+                        offset,
+                        error: Some(e),
+                    });
+                    break;
+                }
+            }
+        }
+        outcomes
+    }))
+    .buffer_unordered(max_concurrency)
+    .concat()
+    .await;
+
+    outcomes.sort_by_key(|outcome| outcome.batch_index);
+
+    let storable: Vec<bool> = storable_offsets(
+        outcomes
+            .iter()
+            .map(|outcome| (outcome.offset.partition(), outcome.error.is_none())),
+    );
+
+    let mut first_error = None;
+    for (outcome, store) in outcomes.into_iter().zip(storable) {
+        if let Some(error) = outcome.error {
+            first_error.get_or_insert(error);
+            continue;
+        }
+        if !store {
+            continue;
+        }
+        // `commit_consumer_state` only commits offsets explicitly stored on the consumer.
+        if let Err(e) = outcome.offset.store() {
+            panic!("failed to store notification offset: {e}");
+        }
+        stored += 1;
+    }
+
+    if stored > 0 {
+        if let Err(e) = consumer.commit() {
+            panic!("failed to commit notification offsets: {e}");
+        }
+        debug!(count = stored, "committed notification offsets");
+    }
+
+    if let Some(error) = first_error {
+        panic!("failed to handle notification: {error}");
+    }
 }
 
-fn commit_pending_offsets(
-    consumer: &SingleTopicConsumer,
-    pending_offsets: &mut usize,
-    reason: &str,
-) {
-    if *pending_offsets == 0 {
-        return;
+/// Group items by key, preserving each group's original item order. Group
+/// order follows first appearance, keeping batches deterministic.
+fn group_preserving_order<T, K: Fn(&T) -> String>(items: Vec<T>, key_fn: K) -> Vec<Vec<T>> {
+    let mut key_indexes: HashMap<String, usize> = HashMap::new();
+    let mut groups: Vec<Vec<T>> = Vec::new();
+
+    for item in items {
+        let key = key_fn(&item);
+        let index = *key_indexes.entry(key).or_insert_with(|| {
+            groups.push(Vec::new());
+            groups.len() - 1
+        });
+        groups[index].push(item);
     }
 
-    if let Err(e) = consumer.commit() {
-        panic!("failed to commit notification offsets: {e}");
-    }
+    groups
+}
 
-    debug!(
-        count = *pending_offsets,
-        reason, "committed notification offsets"
-    );
-    *pending_offsets = 0;
+/// Given `(partition, succeeded)` per message in batch (= per-partition offset)
+/// order, mark which offsets are safe to store: within a partition, only
+/// messages before the first failure. Storing a later offset would mark the
+/// failed message as processed and Kafka would never redeliver it.
+fn storable_offsets(outcomes: impl Iterator<Item = (i32, bool)>) -> Vec<bool> {
+    let mut blocked: HashSet<i32> = HashSet::new();
+
+    outcomes
+        .map(|(partition, succeeded)| {
+            if !succeeded {
+                blocked.insert(partition);
+                return false;
+            }
+            !blocked.contains(&partition)
+        })
+        .collect()
 }
 
 fn log_notification_summary(notification: &IngestionNotification) {
@@ -143,5 +233,50 @@ fn log_notification_summary(notification: &IngestionNotification) {
                 "received error-tracking ingestion notification"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn storable_offsets_blocks_partition_after_failure_only() {
+        // Partitions interleaved in offset order: a failure on partition 0 must
+        // block later partition-0 offsets (or redelivery would skip the failed
+        // message) while partition 1 keeps storing.
+        let outcomes = vec![
+            (0, true),
+            (1, true),
+            (0, false),
+            (1, true),
+            (0, true),
+            (0, true),
+            (1, false),
+            (1, true),
+        ];
+
+        let storable = storable_offsets(outcomes.into_iter());
+
+        assert_eq!(
+            storable,
+            vec![true, true, false, true, false, false, false, false]
+        );
+    }
+
+    #[test]
+    fn group_preserving_order_keeps_per_key_order() {
+        let items = vec![("a", 1), ("b", 2), ("a", 3), ("c", 4), ("b", 5)];
+
+        let groups = group_preserving_order(items, |(key, _)| key.to_string());
+
+        assert_eq!(
+            groups,
+            vec![
+                vec![("a", 1), ("a", 3)],
+                vec![("b", 2), ("b", 5)],
+                vec![("c", 4)],
+            ]
+        );
     }
 }
