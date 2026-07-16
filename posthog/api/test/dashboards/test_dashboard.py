@@ -37,6 +37,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
+from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
@@ -490,7 +491,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_retrieve_dashboard(self):
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
 
-        response_data = self.dashboard_api.get_dashboard(dashboard.pk)
+        with patch("products.dashboards.backend.api.dashboard.record_dashboard_access") as mock_record_access:
+            response_data = self.dashboard_api.get_dashboard(dashboard.pk)
+
+        mock_record_access.assert_called_once_with(DashboardAccessMethod.HUMAN)
 
         self.assertEqual(response_data["name"], "private dashboard")
         self.assertEqual(response_data["description"], "")

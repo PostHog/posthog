@@ -94,6 +94,7 @@ from posthog.utils import (
 
 from products.ai_observability.backend.dashboard_templates import get_ai_observability_default_template
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.dashboards.backend.access import dashboard_access_method, record_dashboard_access
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
@@ -2322,6 +2323,7 @@ class DashboardsViewSet(
 
         dashboard.last_accessed_at = now()
         dashboard.save(update_fields=["last_accessed_at"])
+        record_dashboard_access(dashboard_access_method(request))
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
         data = serializer.data
 
@@ -2366,6 +2368,7 @@ class DashboardsViewSet(
         # Do all database operations and data loading synchronously first
         dashboard.last_accessed_at = now()
         dashboard.save(update_fields=["last_accessed_at"])
+        record_dashboard_access(dashboard_access_method(request))
 
         # Prepare metadata with initial tiles
         metadata_serializer = DashboardMetadataSerializer(dashboard, context=self.get_serializer_context())

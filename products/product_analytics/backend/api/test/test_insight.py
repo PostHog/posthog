@@ -47,6 +47,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.caching.fetch_from_cache import InsightResult
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
@@ -56,6 +57,7 @@ from posthog.test.persons import create_person
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.cohorts.backend.models.cohort import Cohort
+from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
@@ -493,6 +495,39 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertIsNotNone(insight_on_dashboard.get("filters_hash", None))
 
         self.assertNotEqual(insight_in_isolation["filters_hash"], insight_on_dashboard["filters_hash"])
+
+    @parameterized.expand([("hit", True), ("miss", False)])
+    @patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome")
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_dashboard_insight_records_cache_outcome(
+        self,
+        _name: str,
+        is_cached: bool,
+        mock_calculate: mock.MagicMock,
+        mock_record_outcome: mock.MagicMock,
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        mock_calculate.return_value = InsightResult(
+            result=[],
+            last_refresh=timezone.now(),
+            cache_key="cache-key",
+            is_cached=is_cached,
+            timezone=self.team.timezone,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/",
+            {"from_dashboard": str(dashboard.id)},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_record_outcome.assert_called_once_with(DashboardAccessMethod.HUMAN, is_cached=is_cached)
 
     def test_get_insight_in_shared_context(self) -> None:
         filter_dict = {

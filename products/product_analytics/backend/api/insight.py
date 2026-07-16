@@ -135,6 +135,7 @@ from posthog.utils import (
 
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
+from products.dashboards.backend.access import dashboard_access_method, record_dashboard_cache_outcome
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.api.insight_metadata import (
@@ -1182,7 +1183,7 @@ class InsightSerializer(InsightBasicSerializer):
                     and not self.context.get("require_parsed_results")
                 )
                 with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
-                    return calculate_for_query_based_insight(
+                    insight_result = calculate_for_query_based_insight(
                         insight,
                         team=self.context["get_team"](),
                         dashboard=dashboard,
@@ -1196,6 +1197,12 @@ class InsightSerializer(InsightBasicSerializer):
                         analytics_props=get_request_analytics_properties(self.context["request"]),
                         allow_raw_results=allow_raw_results,
                     )
+                    if dashboard is not None:
+                        record_dashboard_cache_outcome(
+                            dashboard_access_method(self.context["request"], is_embedded=is_shared),
+                            is_cached=insight_result.is_cached,
+                        )
+                    return insight_result
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
                 raise ValidationError(str(e), getattr(e, "code_name", None))
             except ConcurrencyLimitExceeded as e:

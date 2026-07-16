@@ -49,6 +49,7 @@ from posthog.utils import get_ip_address, render_template
 from posthog.views import preflight_check
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.dashboards.backend.access import DashboardAccessMethod, record_dashboard_access
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.api.exports import ExportedAssetSerializer
@@ -1062,6 +1063,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             asset_description = resource.dashboard.description or ""
             resource.dashboard.last_accessed_at = now()
             resource.dashboard.save(update_fields=["last_accessed_at"])
+            record_dashboard_access(DashboardAccessMethod.EMBEDDED)
 
             with task_chain_context():
                 dashboard_data = DashboardSerializer(resource.dashboard, context=context).data

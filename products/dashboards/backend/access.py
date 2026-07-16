@@ -1,0 +1,43 @@
+from enum import StrEnum
+
+from prometheus_client import Counter
+from rest_framework.request import Request
+
+from posthog.event_usage import EventSource, get_event_source
+
+
+class DashboardAccessMethod(StrEnum):
+    HUMAN = "human"
+    EMBEDDED = "embedded"
+    API = "api"
+
+
+DASHBOARD_ACCESS_COUNTER = Counter(
+    "posthog_dashboard_access_total",
+    "Dashboard accesses by source",
+    ["access_method"],
+)
+DASHBOARD_CACHE_OUTCOME_COUNTER = Counter(
+    "posthog_dashboard_cache_outcome_total",
+    "Dashboard insight cache outcomes by access source",
+    ["access_method", "result"],
+)
+
+
+def dashboard_access_method(request: Request, *, is_embedded: bool = False) -> DashboardAccessMethod:
+    if is_embedded:
+        return DashboardAccessMethod.EMBEDDED
+    if get_event_source(request) == EventSource.WEB:
+        return DashboardAccessMethod.HUMAN
+    return DashboardAccessMethod.API
+
+
+def record_dashboard_access(access_method: DashboardAccessMethod) -> None:
+    DASHBOARD_ACCESS_COUNTER.labels(access_method=access_method.value).inc()
+
+
+def record_dashboard_cache_outcome(access_method: DashboardAccessMethod, *, is_cached: bool) -> None:
+    DASHBOARD_CACHE_OUTCOME_COUNTER.labels(
+        access_method=access_method.value,
+        result="hit" if is_cached else "miss",
+    ).inc()
