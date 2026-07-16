@@ -55,9 +55,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: |
-                      products/agent_platform/services/agent-tests/src/examples
-                      products/agent_platform/backend/logic/trigger_required_secrets.generated.json
+                  sparse-checkout: products/agent_platform/services/agent-tests/src/examples
                   sparse-checkout-cone-mode: false
 
             - name: Seed the agent-builder bundle
