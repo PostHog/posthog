@@ -3,9 +3,15 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import InterfaceError, OperationalError
 from django.utils import timezone
 
+from parameterized import parameterized
+
+from posthog.storage.hypercache import HyperCacheDependencyUnavailable
 from posthog.storage.llm_prompt_cache import (
+    PromptCacheDatabaseUnavailable,
+    _load_prompt_cache,
     _serialize_prompt,
     get_prompt_by_name_from_cache,
     invalidate_prompt_latest_cache,
@@ -260,6 +266,33 @@ class TestLLMPromptCache(BaseTest):
         assert refreshed is not None
         self.assertEqual(refreshed["id"], str(new_v1.id))
         self.assertNotEqual(refreshed["id"], str(old_v1.id))
+
+    @parameterized.expand([("operational_error", OperationalError), ("interface_error", InterfaceError)])
+    def test_transient_db_error_on_read_degrades_to_miss(self, _name, error_cls):
+        self.create_prompt_version(name="cached-prompt", version=1, is_latest=True)
+
+        # Cold cache forces the DB tier; a transient failure there (e.g. a PgBouncer
+        # query_wait_timeout) must degrade to a miss rather than bubbling a 500 to the caller.
+        with patch(
+            "posthog.storage.llm_prompt_cache._get_latest_prompt_from_db",
+            side_effect=error_cls("query_wait_timeout"),
+        ):
+            result = get_prompt_by_name_from_cache(self.team, "cached-prompt")
+
+        self.assertIsNone(result)
+
+    @parameterized.expand([("operational_error", OperationalError), ("interface_error", InterfaceError)])
+    def test_load_fn_reraises_transient_db_error_as_dependency_unavailable(self, _name, error_cls):
+        # The hypercache tier only degrades DB errors that arrive as HyperCacheDependencyUnavailable,
+        # which is what drives the warm/sync skip path and other get_from_cache callers.
+        with patch(
+            "posthog.storage.llm_prompt_cache._get_latest_prompt_from_db",
+            side_effect=error_cls("query_wait_timeout"),
+        ):
+            with self.assertRaises(PromptCacheDatabaseUnavailable) as ctx:
+                _load_prompt_cache(prompt_latest_cache_key(self.team.id, "cached-prompt"))
+
+        self.assertIsInstance(ctx.exception, HyperCacheDependencyUnavailable)
 
     def test_exact_fetch_refreshes_latest_cache_entry_missing_generation_marker(self):
         self.create_prompt_version(name="cached-prompt", version=1, is_latest=False, prompt="v1")
