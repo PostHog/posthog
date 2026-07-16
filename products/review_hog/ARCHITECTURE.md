@@ -654,6 +654,59 @@ payload into Python) from the turn's working-state artefacts, preferring the sna
   must not masquerade as another skill card. Hidden until data exists. In-progress row label format:
   "Step k/4 · <stage> · NN%" (stages fetching/chunking/reviewing/validating numbered 1-4).
 
+#### ✅ BUILT 2026-07-15 — "For you / Entire project" scope on the recent-reviews block
+
+Mirrors the Inbox scope switch: the block can now list every review on the project, not just the requesting user's.
+
+- **`GET review_hog/reviews/?scope=mine|everyone`** (`ReviewsListParamsSerializer`, default `mine`):
+  `everyone` drops the `acting_user` filter; everything else (running-first ordering, 5-row cap, DB-side enrichment) is unchanged.
+  Bad values 400 via `is_valid(raise_exception=True)`.
+  The `scope` ChoiceField's enum stays inline in the OpenAPI query parameter, so no `ScopeEnum` component collision (verified with `--fail-on-warn`).
+- **`retrieve` is now project-wide** (queries with `SCOPE_EVERYONE` internally) so any listed review opens;
+  another team's report id still 404s (`for_team`), garbage ids still 404.
+  `perspective_stats` stays personal — it describes _your_ reviewers' effectiveness.
+- **Index:** `(team, -last_run_at)` `reviewhog_rpt_team_recent_idx` (migration 0016, `SafeAddIndexConcurrently`) serves the everyone-scope completed slice;
+  the mine slice keeps the 0011 `(team, acting_user, -last_run_at)` index.
+- **UI/logic:** `LemonSegmentedButton` "For you / Entire project" on the section header;
+  `reviewsScope` + `hasUserChosenReviewsScope` persisted reducers in `reviewHogSettingsLogic`;
+  **auto-default** — an empty first mine-scope load flips to Entire project via `applyDefaultReviewsScope`, which is _not_ marked as a user choice so a later explicit pick wins (both directions jest-tested);
+  an explicit pick is mirrored to `?reviews_scope=` — the auto-default never writes the URL, since hydrating from a link counts as an explicit choice and would make the fallback permanent;
+  the loader takes a `breakpoint()` after the fetch so a scope flip mid-flight drops the stale response;
+  rows show `by <pr_author>` in everyone scope only;
+  an empty mine-scope shows an empty state instead of hiding the section (the toggle must stay reachable) — loaded-and-empty hides the section only in everyone scope.
+- Tests: everyone-scope list (teammate rows in, cross-team rows out, bad scope 400s as the params-serializer wiring guard);
+  retrieve contract flip (teammate's review 200, other team's 404);
+  2 jest tests for the auto-default rule.
+
+#### ✅ BUILT 2026-07-16 — "Show more / Show fewer" pagination on the recent-reviews list
+
+The 5-row cap became the first page: the list grows by a page per "Show more" click and collapses back in one click, on both scopes.
+
+- **Growing `limit`, not offset pages:** in-progress rows jump to the front and drop out between the 10s polls,
+  so offset pagination would shift page boundaries under the reader.
+  `GET reviews/?limit=N` (default 5, min 1, max 100 — enrichment is per-row work) caps all three merge slices;
+  the response is now a **page envelope `{results, has_more}`** (`ReviewRecentReviewsPageSerializer`),
+  with `has_more` computed server-side by probing `limit + 1` rows — no dead "Show more" click when the count is exactly the limit.
+- **`_PageEnvelopeSchema` (AutoSchema subclass):** drf-spectacular's `_is_list_view` heuristic wraps any `list` action's response in an array,
+  which generated `Promise<ReviewRecentReviewsPageApi[]>` — forced to False, and the operationId pinned back to `*_list`
+  (forcing the heuristic renames the operation `*_retrieve`, colliding with the real retrieve).
+  The two prior overrides in the codebase (event_filter_config, access_control property state) are singletons without a sibling retrieve, so they never hit the collision.
+- **Logic:** loader holds the envelope (`recentReviewsPage`); `recentReviews` / `moreReviewsAvailable` are selectors over it.
+  `reviewsLimit` reducer: +5 per `showMoreReviews`, reset to 5 on `showFewerReviews` **and on any scope change** (a different scope is a different list, user decision).
+  "Show fewer" collapses **instantly from already-loaded rows** (reducer slices, `has_more` forced true when rows were hidden)
+  while its listener refetches to reconcile — the refetch also breakpoint-drops any wider in-flight poll response that would resurrect the collapsed rows.
+  `reviewsExpanding` drives the "Show more" button's loading state (the loader's own `loading` would flash on every 10s poll);
+  `LemonButton.loading` hard-disables, so it's also the double-click guard.
+  Growth clamps at `MAX_REVIEWS_LIMIT` (100, mirroring reviews.py) and `moreReviewsAvailable` goes false at the ceiling even while `has_more` —
+  otherwise the 20th click sends `limit=105`, the API 400s, and the generic failure path strands the page in the settings-failed banner (PR review finding, fixed same day).
+  The limit is deliberately **not** mirrored to the URL — ephemeral view state, unlike scope.
+- **UI:** centered tertiary "Show more" / "Show fewer" footer row inside the card (divide-y gives the hairline);
+  "Show fewer" only when more than a page is showing, "Show more" only when `has_more`.
+  Copy is "Show fewer" (countable rows), per user's "whatever is grammatically correct".
+- Tests: BE — envelope + limit growth + has_more boundary at exact count + out-of-range 400s (wiring guard);
+  jest — grow/collapse cycle (instant collapse, has_more preserved, scope flip resets the limit).
+  Full suite: 503 backend + 3 jest green; `hogli build:openapi` regenerated cleanly (list function keeps its `reviewHogReviewsList` name).
+
 #### ✅ BUILT 2026-07-02 — authoring guide moved to a canonical skill (`review-hog-authoring`)
 
 The "Create your own …" frontend prompts were fat, self-describing instruction sets — an
@@ -2068,7 +2121,7 @@ pipeline just built + hardened).
 
 ```text
 reviewhog label on a non-fork PostHog/posthog PR
-  └─ .github/workflows/review-hog.yml   (gates: label==reviewhog, head.repo==base.repo, non-bot, concurrency; drafts allowed)
+  └─ .github/workflows/review-hog.yml   (gates: label==reviewhog by a human, head.repo==base.repo, concurrency; any author)
        └─ one authenticated curl  →  POST /api/review_hog/trigger  {repo, pr_number}   (Authorization: Bearer <secret>)
             └─ endpoint: verify shared secret · validate repo allowlist (forks blocked upstream by the Action
                  + downstream by the fetch activity) · resolve team-2 integration + run user
@@ -2133,11 +2186,16 @@ github-actions[bot] trick), and its Action carries **one** secret (no Anthropic 
    the review is **pinned to the reviewed `head_sha`** via `commit=repo_obj.get_commit(head_sha)`. Fork rejection is
    authoritative in the **fetch activity** (`PRMetadata.is_fork`, non-retryable `ApplicationError` before the report
    row is created).
-4. ✅ **The Action:** `.github/workflows/review-hog.yml` — `on: pull_request [labeled]`,
-   `permissions: {}`, per-PR concurrency, `if:` gates (label + non-fork + non-bot; drafts allowed), one `curl` with the
-   bearer secret. `pull_request` (not `pull_request_target`) ⇒ forks get no secret ⇒ can't trigger.
+4. ✅ **The Action:** `.github/workflows/review-hog.yml` — `on: pull_request_target [labeled]`,
+   `permissions: {}`, per-PR concurrency, `if:` gates (human-applied label + non-fork; any author — unmapped authors
+   resolve via the acting-user fallback), one `curl` with the bearer secret. `pull_request_target` runs the base
+   branch's version of the file (a PR can't edit its own trigger) and fires even on conflicted PRs; it exposes
+   secrets to fork PRs, so the non-fork `if:` gate is the fork barrier — safe because the job never runs PR code.
+   Residual gap: stacked PRs whose base branch predates this file still dispatch nothing (no workflow on the base).
+   A paired `bot-labeler-skip` job (Stamphog's pattern) turns the bot-labeler skip into feedback: it comments why
+   and strips the label so a human can re-add it.
    **2026-07-14 update:** `synchronize` dropped (ADR 0002) — pushes no longer re-trigger; re-review = re-add the
-   label (or mark an already-labeled draft ready).
+   label.
 5. ⏳ **Later (v2):** label lifecycle (strip-on-non-approval / keep-on-error / dismiss-stale-on-push). (`synchronize` /
    `ready_for_review` events are already wired in step 4.) Then **Stage 5b** (iterate-on-same-PR validation).
 

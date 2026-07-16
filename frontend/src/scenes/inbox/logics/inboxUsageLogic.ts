@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -75,7 +76,18 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                     if (!values.featureFlags[FEATURE_FLAGS.SIGNALS_PR_REFUNDS] || values.currentTeamId == null) {
                         return null
                     }
-                    return await signalsReportsRefundSummaryRetrieve(String(values.currentTeamId))
+                    try {
+                        return await signalsReportsRefundSummaryRetrieve(String(values.currentTeamId))
+                    } catch (error) {
+                        // The refunds flag is org-keyed and resolves late on the client, so the client can
+                        // believe refunds are on while the server (re-checking the same flag) disagrees and
+                        // returns 404. Degrade to the same null the client-flag guard returns when refunds
+                        // are off, rather than surfacing a transient mismatch as an error.
+                        if (error instanceof ApiError && error.status === 404) {
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],

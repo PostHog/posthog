@@ -1,8 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { buildMarkdownNotebookContent, getMarkdownNotebookMarkdown } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { NotebookNodeType, NotebookTarget, NotebookType } from 'scenes/notebooks/types'
 
@@ -29,35 +27,8 @@ describe('notebooksModel', () => {
         jest.restoreAllMocks()
     })
 
-    it('creates rich notebooks when markdown notebooks are not enabled', async () => {
+    it('creates markdown notebooks with the title and passed content embedded', async () => {
         const createNotebookSpy = mockCreateNotebook()
-
-        await expectLogic(logic, () => {
-            logic.actions.createNotebook(NotebookTarget.Scene, 'Activation')
-        }).toDispatchActions(['createNotebookSuccess'])
-
-        expect(createNotebookSpy).toHaveBeenCalledWith(
-            expect.objectContaining({
-                title: 'Activation',
-                content: {
-                    type: 'doc',
-                    content: [
-                        {
-                            type: 'heading',
-                            attrs: { level: 1 },
-                            content: [{ type: 'text', text: 'Activation' }],
-                        },
-                    ],
-                },
-            })
-        )
-    })
-
-    it('creates markdown notebooks when markdown notebooks are enabled', async () => {
-        const createNotebookSpy = mockCreateNotebook()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MARKDOWN_NOTEBOOKS], {
-            [FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]: true,
-        })
 
         await expectLogic(logic, () => {
             logic.actions.createNotebook(NotebookTarget.Scene, 'Activation', [

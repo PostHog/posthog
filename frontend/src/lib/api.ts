@@ -2571,9 +2571,6 @@ const api = {
         async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().get()
         },
-        async seed(): Promise<CountedPaginatedResponse<UserProductListItem>> {
-            return await new ApiRequest().userProductList().withAction('seed').create()
-        },
         async bulkUpdate(
             items: { product_path: string; enabled: boolean }[]
         ): Promise<{ results: UserProductListItem[] }> {
