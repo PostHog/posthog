@@ -127,6 +127,32 @@ The set of available `function` templates and their required inputs is **live da
 
 `function_email`, `function_sms`, and `function_push` are the exception — their `template_id` is the fixed literal `template-email` / `template-twilio` / `template-native-push` (required by the editor), so you don't look the `template_id` up. `function_push` still has variable `inputs` (notably `channels`), so retrieve its `inputs_schema` even though the id is fixed.
 
+### `function_push` worked example
+
+Retrieve `template-native-push` with `cdp-function-templates-retrieve` for the full `inputs_schema` (it has many optional Android/iOS keys), but the core shape is:
+
+```json
+{
+  "id": "push_1",
+  "name": "Re-engagement push",
+  "type": "function_push",
+  "config": {
+    "template_id": "template-native-push",
+    "message_category_type": "marketing",
+    "inputs": {
+      "distinctId": { "value": "{event.distinct_id}" },
+      "channels": { "value": [123] },
+      "title": { "value": "You left something behind" },
+      "body": { "value": "Hi {person.properties.first_name}, come finish setting up." }
+    }
+  }
+}
+```
+
+- **`channels`** is an `integration_multi` input: its `value` is an array of **integration id numbers** (e.g. `[123]`), not objects. Find the FCM/APNs integration ids with `integrations-list` (look for `kind` `firebase` / `apns`); at least one is required or the send throws "No push channel configured".
+- Only `title` is required besides `distinctId` and `channels`; `body` and everything else (`image`, `data`, `ttlSeconds`, `android_*`, `ios_*`) are optional.
+- Push has no delivered/opened/clicked signal — the provider (FCM/APNs) responds synchronously, so a successful send means "accepted for delivery", nothing more.
+
 ## Duration strings (`delay_duration`, `max_wait_duration`)
 
 Must match `^\d*\.?\d+[dhm]$` — a number plus unit `m` | `h` | `d`. Examples: `30m`, `2h`, `1d`, `0.5m` (=30s).
