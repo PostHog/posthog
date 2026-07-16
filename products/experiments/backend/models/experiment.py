@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -11,6 +11,12 @@ from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import RootTeamMixin, UUIDModel
+
+from products.feature_flags.backend.facade.filters import (
+    CohortRestrictionBlocker,
+    group_cohort_restriction_blocker,
+    groups_carry_restriction_marker,
+)
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -30,6 +36,12 @@ EXPOSURE_FROZEN_COHORT_KEY = "exposure_frozen_cohort"
 # Human-readable note prepended to each release group's `description` when freezing. Purely
 # informational — the description stays user-editable prose and carries no state.
 EXPOSURE_FROZEN_GROUP_MARKER = "Added automatically when the experiment exposure was frozen to stop new enrollment."
+
+# Why an experiment's exposure can't be frozen right now. Experiment-state reasons plus the
+# flag-shape reasons computed flag-side by group_cohort_restriction_blocker.
+ExposureFreezeBlocker = (
+    Literal["draft", "stopped", "paused", "already_frozen", "no_flag", "flag_deleted"] | CohortRestrictionBlocker
+)
 
 
 class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
@@ -174,8 +186,46 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             return False
         # Enrollment is closed only when EVERY release group is stamped, so that add/edit groups
         # surfaces as the experiment reverting to "running".
-        groups = (self.feature_flag.filters or {}).get("groups", [])
-        return bool(groups) and all(group.get(EXPOSURE_FROZEN_GROUP_KEY) is True for group in groups)
+        return groups_carry_restriction_marker(self.feature_flag.filters or {}, marker_key=EXPOSURE_FROZEN_GROUP_KEY)
+
+    @property
+    def freeze_exposure_blocker(self) -> ExposureFreezeBlocker | None:
+        """Why exposure can't be frozen right now, or None. Single source for the freeze
+        validator's preconditions and the serializer's can_freeze_exposure gate — the service
+        maps each blocker to its user-facing validation message, so the UI gate can't drift
+        from what the validator enforces."""
+        if self.is_draft:
+            return "draft"
+        if self.is_stopped:
+            return "stopped"
+        if self.is_paused:
+            # A paused flag serves no one, so there is no live enrollment to freeze; freezing anyway
+            # would mislabel the (inactive) experiment as "exposure_frozen". Resume first.
+            return "paused"
+        if self.is_exposure_frozen:
+            return "already_frozen"
+        # Guard on the id, not the relation: feature_flag is a non-nullable FK, so accessing
+        # self.feature_flag when it's unset raises RelatedObjectDoesNotExist rather than
+        # returning None. Widened to Optional because django-stubs types the id as int, but an
+        # unsaved in-memory instance can still carry None.
+        feature_flag_id: int | None = self.feature_flag_id
+        if feature_flag_id is None:
+            return "no_flag"
+        if self.feature_flag.deleted:
+            return "flag_deleted"
+        # The flag-shape preconditions (group aggregation, evaluation order, empty groups) live
+        # flag-side in group_cohort_restriction_blocker. Fail closed rather than freeze partially.
+        flag_blocker = group_cohort_restriction_blocker(self.feature_flag.filters or {})
+        if flag_blocker == "group_aggregation":
+            return flag_blocker
+        # An experiment-level holdout blocks freezing even before the flag filters carry holdout keys.
+        if self.holdout_id is not None or flag_blocker == "holdout":
+            return "holdout"
+        return flag_blocker
+
+    @property
+    def can_freeze_exposure(self) -> bool:
+        return self.freeze_exposure_blocker is None
 
     @property
     def computed_status(self) -> "Experiment.Status":
