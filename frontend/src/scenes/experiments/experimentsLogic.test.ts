@@ -130,9 +130,7 @@ describe('experimentsLogic', () => {
                 })
                 .toFinishAllListeners()
 
-            expect(api.get).toHaveBeenCalledWith(
-                expect.stringMatching(/api\/projects\/\d+\/experiments\/eligible_feature_flags\/\?/)
-            )
+            expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/api\/projects\/\d+\/feature_flags\/\?/))
         })
 
         it('hides pagination when insufficient results', () => {

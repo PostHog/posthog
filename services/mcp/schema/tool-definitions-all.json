@@ -5329,6 +5329,34 @@
             "readOnlyHint": true
         }
     },
+    "llma-prompt-label-delete": {
+        "description": "Remove a label from an LLM prompt. The label stops pointing at any version; recreate it with the set-label tool if needed. Confirm nothing depends on the label before removing it.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Delete prompt label",
+        "title": "Delete prompt label",
+        "required_scopes": ["llm_prompt:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-prompt-label-set": {
+        "description": "Point a label (for example 'production') at a specific version of an LLM prompt. A label is a movable pointer to exactly one version: if the label already exists on another version of this prompt, it is moved there. Use labels to mark a version as released ('production', 'staging') or roll back by pointing the label at an earlier version. Label names use lowercase letters, numbers, dots, hyphens and underscores; 'latest' is reserved and numbers-only names are not allowed. Each prompt can have at most 50 labels.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Set prompt label",
+        "title": "Set prompt label",
+        "required_scopes": ["llm_prompt:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "llma-prompt-list": {
         "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content. Every result also includes `outline`, a flat list of markdown headings parsed from the prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small.",
         "category": "AI observability",
