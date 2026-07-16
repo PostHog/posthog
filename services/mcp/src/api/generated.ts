@@ -29010,6 +29010,9 @@ export namespace Schemas {
       has_content: boolean;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface HeatmapScreenshotResponse {
       readonly id: string;
       /** Short, URL-safe identifier used as the lookup key for saved-heatmap routes. */
@@ -29061,6 +29064,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly exception: string | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface HeatmapsResponse {
