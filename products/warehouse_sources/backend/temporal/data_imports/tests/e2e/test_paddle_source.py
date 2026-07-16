@@ -114,6 +114,39 @@ def test_get_rows_incremental(mock_request):
     assert actual_params["order_by"] == "billed_at[ASC]"
 
 
+@patch(MOCK_PATH)
+def test_get_rows_drops_null_billed_at_transactions(mock_request):
+    # Paddle's billed_at[ASC] listing includes draft transactions (billed_at null), and the first
+    # sync sends no billed_at[GT] filter. Drop them so they don't land in the fallback partition and
+    # duplicate once billed — matching the incremental cursor and the webhook path.
+    mock_request.return_value = MockResponse(
+        {
+            "data": [
+                {"id": "txn_billed", "billed_at": "2024-01-01T00:00:00Z"},
+                {"id": "txn_draft_null", "billed_at": None},
+                {"id": "txn_draft_missing"},
+            ],
+            "meta": {"pagination": {"next": None}},
+        }
+    )
+    logger = MagicMock()
+    mock_manager = _get_mock_resumable_manager()
+
+    items = list(
+        get_rows(
+            api_key="fake",
+            endpoint="transactions",
+            db_incremental_field_last_value=None,
+            logger=logger,
+            resumable_source_manager=mock_manager,
+            should_use_incremental_field=False,
+        )
+    )
+
+    ids = [row for table in items for row in table.column("id").to_pylist()]
+    assert ids == ["txn_billed"]
+
+
 @parameterized.expand(
     [
         ("utc_string", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z"),
@@ -209,7 +242,9 @@ def test_paddle_source_reads_webhook_items_when_enabled(mock_get_mapping, mock_r
 )
 def test_paddle_source_pulls_from_api_when_webhook_disabled(mock_get_mapping, mock_request):
     mock_get_mapping.return_value = {"id": {"data_type": "text"}}
-    mock_request.return_value = MockResponse({"data": [{"id": "txn_1"}], "meta": {"pagination": {"next": None}}})
+    mock_request.return_value = MockResponse(
+        {"data": [{"id": "txn_1", "billed_at": "2024-01-01T00:00:00Z"}], "meta": {"pagination": {"next": None}}}
+    )
     webhook_manager = _get_mock_webhook_manager(enabled=False)
 
     response = paddle_source(

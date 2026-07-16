@@ -142,6 +142,13 @@ def get_rows(
         items = data.get("data", [])
 
         for item in items:
+            # Skip rows without the cursor field — draft transactions have no billed_at. The first
+            # sync sends no billed_at[GT] filter and Paddle's billed_at-ordered listing still
+            # returns drafts, so filter here to match both the incremental cursor and the webhook
+            # path; otherwise a draft lands in the fallback partition and duplicates once billed.
+            if incremental_field_name and not item.get(incremental_field_name):
+                continue
+
             batcher.batch(item)
 
             if batcher.should_yield():
