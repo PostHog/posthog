@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
@@ -181,28 +182,31 @@ class TestQueryRunner(BaseTest):
         validation_rule.validate.assert_called_once_with(runner.validation_context)
         mock_calculate.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("query_service", True, True),
+            ("in_app", False, False),
+        ]
+    )
     @override_settings(EE_AVAILABLE=True, API_QUERIES_ENABLED=True)
     @mock.patch("ee.billing.quota_limiting.list_limited_team_attributes")
-    def test_query_service_quota_limit_blocks_fresh_calculation(self, mock_list_limited_team_attributes):
+    def test_api_query_quota_only_blocks_query_service_calculations(
+        self, _name, is_query_service, should_block, mock_list_limited_team_attributes
+    ):
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
-        runner.is_query_service = True
+        runner.is_query_service = is_query_service
         mock_list_limited_team_attributes.return_value = [self.team.api_token]
 
-        with self.assertRaises(QuotaLimitExceeded):
-            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        expected_result = self.assertRaises(QuotaLimitExceeded) if should_block else nullcontext()
+        with expected_result:
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
-    @override_settings(EE_AVAILABLE=True, API_QUERIES_ENABLED=True)
-    @mock.patch("ee.billing.quota_limiting.list_limited_team_attributes")
-    def test_query_quota_limit_does_not_block_in_app_calculation(self, mock_list_limited_team_attributes):
-        TestQueryRunner = self.setup_test_query_runner_class()
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
-        mock_list_limited_team_attributes.return_value = [self.team.api_token]
-
-        response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-
-        self.assertEqual(response.results[0], ["row", 1, 2, 3])
-        mock_list_limited_team_attributes.assert_not_called()
+        if should_block:
+            mock_list_limited_team_attributes.assert_called_once()
+        else:
+            self.assertEqual(response.results[0], ["row", 1, 2, 3])
+            mock_list_limited_team_attributes.assert_not_called()
 
     def test_init_with_query_instance(self):
         TestQueryRunner = self.setup_test_query_runner_class()
