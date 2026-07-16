@@ -245,14 +245,16 @@ export interface insightSceneLogicMeta {
         ) =>
             | ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => Node<Record<string, any>> | null)
             | undefined
-        insightQuery: (arg: any) => Node<Record<string, any>> | null | undefined
+        insightQuery: (
+            arg: Node<Record<string, any>> | null | undefined
+        ) => Node<Record<string, any>> | null | undefined
         insightDataSelector: (
             insightDataLogicRef: {
                 logic: BuiltLogic<insightDataLogicType>
                 unmount: () => void
             } | null
         ) => ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => Record<string, any>) | undefined
-        insightData: (arg: any) => Record<string, any> | null | undefined
+        insightData: (arg: Record<string, any> | null | undefined) => Record<string, any> | null | undefined
         insightSelector: (
             insightLogicRef: {
                 logic: BuiltLogic<insightLogicType>
@@ -264,7 +266,9 @@ export interface insightSceneLogicMeta {
                   props?: InsightLogicProps<QuerySchema> | undefined
               ) => Partial<QueryBasedInsightModel<Node<Record<string, any>>>>)
             | undefined
-        insight: (arg: any) => Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined
+        insight: (
+            arg: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined
+        ) => Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined
         breadcrumbs: (
             insightLogicRef: {
                 logic: BuiltLogic<insightLogicType>
