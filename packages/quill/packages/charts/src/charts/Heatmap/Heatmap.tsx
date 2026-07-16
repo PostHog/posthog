@@ -18,7 +18,7 @@ import type {
 import {
     cellRect,
     computeHeatmapLayout,
-    heatmapCellColor,
+    createCellColorRamp,
     maxCellValue,
     normalizeCount,
     rowAtY,
@@ -161,7 +161,7 @@ function HeatmapInner({
     )
 
     const createScales: CreateScalesFn = useCallback(
-        (coloredSeries: ResolvedSeries[], scaleLabels: string[], dimensions: ChartDimensions): ChartScales => {
+        (_coloredSeries: ResolvedSeries[], scaleLabels: string[], dimensions: ChartDimensions): ChartScales => {
             const layout = computeHeatmapLayout(dimensions, scaleLabels.length, yLabels.length)
             const labelIndex = new Map(scaleLabels.map((label, i) => [label, i]))
             const priv: HeatmapPrivate = {
@@ -187,6 +187,7 @@ function HeatmapInner({
             return
         }
         const { layout, cells: drawCells, accent: drawAccent, maxValue: max, colorScale: scale } = priv
+        const cellColor = createCellColorRamp(drawAccent)
         // A 1px gutter keeps cells readable as discrete buckets; collapse it when cells are so
         // small the gap would dominate the fill.
         const gap = layout.colWidth > 3 && layout.rowHeight > 3 ? 1 : 0
@@ -201,30 +202,33 @@ function HeatmapInner({
                     continue
                 }
                 const rect = cellRect(layout, c, r)
-                ctx.fillStyle = heatmapCellColor(drawAccent, normalizeCount(value, max, scale))
+                ctx.fillStyle = cellColor(normalizeCount(value, max, scale))
                 ctx.fillRect(rect.x + gap / 2, rect.y + gap / 2, rect.width - gap, rect.height - gap)
             }
         }
     }, [])
 
-    const drawHover = useCallback(({ ctx, scales, hoverIndex, hoverPosition, hoverProgress }: ChartDrawArgs): boolean => {
-        const priv = (scales._private as HeatmapPrivate | undefined)?.__heatmap
-        if (!priv || hoverIndex < 0 || !hoverPosition) {
-            return false
-        }
-        const row = rowAtY(priv.layout, hoverPosition.y)
-        if (row < 0) {
-            return false
-        }
-        const rect = cellRect(priv.layout, hoverIndex, row)
-        ctx.save()
-        ctx.globalAlpha = hoverProgress
-        ctx.strokeStyle = priv.accent
-        ctx.lineWidth = 1.5
-        ctx.strokeRect(rect.x + 0.75, rect.y + 0.75, rect.width - 1.5, rect.height - 1.5)
-        ctx.restore()
-        return true
-    }, [])
+    const drawHover = useCallback(
+        ({ ctx, scales, hoverIndex, hoverPosition, hoverProgress }: ChartDrawArgs): boolean => {
+            const priv = (scales._private as HeatmapPrivate | undefined)?.__heatmap
+            if (!priv || hoverIndex < 0 || !hoverPosition) {
+                return false
+            }
+            const row = rowAtY(priv.layout, hoverPosition.y)
+            if (row < 0) {
+                return false
+            }
+            const rect = cellRect(priv.layout, hoverIndex, row)
+            ctx.save()
+            ctx.globalAlpha = hoverProgress
+            ctx.strokeStyle = priv.accent
+            ctx.lineWidth = 1.5
+            ctx.strokeRect(rect.x + 0.75, rect.y + 0.75, rect.width - 1.5, rect.height - 1.5)
+            ctx.restore()
+            return true
+        },
+        []
+    )
 
     // Each row's tooltip anchor spans its cell exactly (top edge → bottom edge), so
     // `findClosestSeriesKey`'s containment pass resolves the hovered cell.
@@ -278,7 +282,11 @@ function HeatmapInner({
         () =>
             tooltip ??
             ((ctx: HeatmapTooltipContext) => (
-                <HeatmapTooltip ctx={ctx} labelFormatter={tooltipLabelFormatter} valueFormatter={tooltipValueFormatter} />
+                <HeatmapTooltip
+                    ctx={ctx}
+                    labelFormatter={tooltipLabelFormatter}
+                    valueFormatter={tooltipValueFormatter}
+                />
             )),
         [tooltip, tooltipLabelFormatter, tooltipValueFormatter]
     )
