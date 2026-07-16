@@ -195,6 +195,15 @@ async def handle_non_retryable_error(
     logger: FilteringBoundLogger,
     error: Exception,
 ) -> NoReturn:
+    # An expected, already-surfaced failure (e.g. a revoked source credential) ends the sync
+    # immediately: retrying can't fix it, and the retry loop below would re-raise the raw error a few
+    # times before giving up — each re-raise minting a fresh error-tracking issue for a condition the
+    # user already sees. Skip straight to the terminal NonRetryableException, flagged so the Temporal
+    # interceptor keeps it out of error tracking.
+    if getattr(error, "skip_error_capture", False):
+        await logger.adebug(f"Expected non-retryable error, ending sync without capture. error={error_msg}")
+        raise NonRetryableException(skip_error_capture=True) from error
+
     async with _get_redis() as redis_client:
         if redis_client is None:
             await logger.adebug(f"Failed to get Redis client for non-retryable error tracking. error={error_msg}")

@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
     MAX_CHILD_PAGES_PER_PARENT,
     MAX_RETRY_AFTER_SECONDS,
     NOTION_VERSION,
+    NotionAuthError,
     NotionBadRequestError,
     NotionNotFoundError,
     NotionResumeConfig,
@@ -365,6 +366,30 @@ class TestNotion:
                 _request(cast(requests.Session, session), "GET", "/v1/blocks/b1/children", mock.MagicMock(), params={})
 
         assert attempts["count"] == 1
+
+    @parameterized.expand([(401, "Unauthorized"), (403, "Forbidden")])
+    def test_request_auth_error_raises_and_is_not_retried(self, status_code: int, reason: str) -> None:
+        # A revoked/expired token (401) or a missing-capability/unshared 403 is a permanent credential
+        # failure. It must surface as the typed NotionAuthError — not the raw HTTPError — so the sync
+        # ends with a user-facing message and (via skip_error_capture) stays out of error tracking.
+        # Tenacity must not burn attempts retrying it. The message keeps the classifiable shape that
+        # NotionSource.get_non_retryable_errors matches on.
+        attempts = {"count": 0}
+
+        def request(*_args: Any, **_kwargs: Any) -> FakeResponse:
+            attempts["count"] += 1
+            return FakeResponse({}, status_code=status_code)
+
+        session = mock.MagicMock()
+        session.request.side_effect = request
+
+        with mock.patch(f"{MODULE}._wait_strategy", return_value=0):
+            with pytest.raises(NotionAuthError) as exc_info:
+                _request(cast(requests.Session, session), "POST", "/v1/search", mock.MagicMock(), json_body={})
+
+        assert attempts["count"] == 1
+        assert exc_info.value.skip_error_capture is True
+        assert f"{status_code} Client Error: {reason} for url: https://api.notion.com/v1/search" in str(exc_info.value)
 
     def test_block_children_skips_rejected_block(self) -> None:
         # A block Notion rejects with 400 (advertised has_children but can't be expanded) must
