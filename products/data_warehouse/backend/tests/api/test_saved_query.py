@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
 
+from posthog.hogql.errors import QueryError
+
 from posthog.models import ActivityLog
 from posthog.models.activity_logging.activity_log import Detail
 
@@ -417,6 +419,52 @@ class TestSavedQuery(APIBaseTest):
         assert response.status_code == 400, response.content
         response_json = response.json()
         assert "Invalid query" in response_json["detail"]
+
+    def test_create_with_forbidden_table_does_not_capture_exception(self):
+        with (
+            patch.object(
+                DataWarehouseSavedQuery,
+                "get_columns",
+                side_effect=QueryError("You don't have access to table `vitally.accounts`."),
+            ),
+            patch("products.data_warehouse.backend.presentation.views.saved_query.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "forbidden_view",
+                    "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+                },
+            )
+
+        assert response.status_code == 400, response.content
+        assert "You don't have access to table" in response.json()["detail"]
+        mock_capture.assert_not_called()
+
+    def test_update_with_forbidden_table_does_not_capture_exception(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="my_view",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            created_by=self.user,
+        )
+
+        with (
+            patch.object(
+                DataWarehouseSavedQuery,
+                "get_columns",
+                side_effect=QueryError("You don't have access to table `vitally.accounts`."),
+            ),
+            patch("products.data_warehouse.backend.presentation.views.saved_query.capture_exception") as mock_capture,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}",
+                {"query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"}},
+            )
+
+        assert response.status_code == 400, response.content
+        assert "You don't have access to table" in response.json()["detail"]
+        mock_capture.assert_not_called()
 
     def test_delete(self):
         query_name = "test_query"
