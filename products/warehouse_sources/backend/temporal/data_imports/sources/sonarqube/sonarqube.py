@@ -120,6 +120,14 @@ def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], lo
     if response.status_code == 429 or response.status_code >= 500:
         raise SonarqubeRetryableError(f"SonarQube API error (retryable): status={response.status_code}, url={url}")
 
+    # Redirects are disabled at the session level as an SSRF boundary; a 3xx means the configured
+    # server is redirecting elsewhere, which we treat as a configuration error rather than follow.
+    if 300 <= response.status_code < 400:
+        raise ValueError(
+            f"SonarQube server returned an unexpected redirect (status={response.status_code}); "
+            "check the configured server URL."
+        )
+
     if not response.ok:
         logger.error(f"SonarQube API error: status={response.status_code}, body={response.text[:500]}, url={url}")
         response.raise_for_status()
@@ -246,7 +254,7 @@ def get_rows(
     base_url = normalize_base_url(host)
     headers = _headers(token)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    session = make_tracked_session(redact_values=(token,))
+    session = make_tracked_session(redact_values=(token,), allow_redirects=False)
 
     if config.windowed_incremental:
         initial_created_after = (
@@ -306,7 +314,9 @@ def validate_credentials(host: str, token: str) -> tuple[bool, int | None]:
     """
     url = _build_url(normalize_base_url(host), "/api/authentication/validate", {})
     try:
-        response = make_tracked_session(redact_values=(token,)).get(url, headers=_headers(token), timeout=10)
+        response = make_tracked_session(redact_values=(token,), allow_redirects=False).get(
+            url, headers=_headers(token), timeout=10
+        )
     except Exception:
         return False, None
     if response.status_code != 200:
