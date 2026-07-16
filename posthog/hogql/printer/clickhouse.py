@@ -16,12 +16,8 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickh
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
-from posthog.hogql.printer.base import (
-    BasePrinter,
-    get_channel_definition_dict,
-    get_geoip_city_postal_dict,
-    resolve_field_type,
-)
+from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
+from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.type_system import parse_sql_runtime_type
@@ -29,7 +25,7 @@ from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
-from posthog.models.utils import UUIDT
+from posthog.uuidt import UUIDT
 
 
 def _table_filter_type(table_type: ast.TableOrSelectType) -> ast.TableOrSelectType:
@@ -87,6 +83,18 @@ COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
 # 'true'/'false' the property-group map stores booleans as. The printer refuses to inline anything else, so the flag can
 # never be turned into an unparameterized read of arbitrary (e.g. user-supplied) text.
 INLINE_SENTINEL_LITERALS = frozenset({"", "null", "true", "false", '^"|"$'})
+
+# Comparison ops where a datetime string with a timezone may be replaced by a datetime literal.
+ZONED_DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
+    {
+        ast.CompareOperationOp.Eq,
+        ast.CompareOperationOp.NotEq,
+        ast.CompareOperationOp.Gt,
+        ast.CompareOperationOp.GtEq,
+        ast.CompareOperationOp.Lt,
+        ast.CompareOperationOp.LtEq,
+    }
+)
 
 
 class ClickHousePrinter(BasePrinter):
@@ -275,31 +283,6 @@ class ClickHousePrinter(BasePrinter):
 
         if node.name == "embedText":
             return self.visit_constant(resolve_embed_text(self.context.team, node))
-        elif node.name in ("_lookupGeoipCityName", "_lookupGeoipPostalCode"):
-            # Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1), remove with the
-            # geoip_dict_fallback transform. toIPv6OrDefault
-            # covers both families (v4 input becomes a ::ffff: mapped address, which the ip_trie dict resolves against
-            # its IPv4 prefixes); empty or invalid input becomes '::', which misses and returns the '' default.
-            # Reads the once-per-query decision from the context (set in prepare_ast_for_printing) rather than
-            # re-probing, so a background cache refresh can never make this gate reject the transform's own calls.
-            if not self.context.geoip_dict_fallback_enabled:
-                raise QueryError(f"{node.name} is not available on this instance")
-            # Deliberately NO property-restriction guard here, reviewers included AI ones: these are pure functions
-            # over GeoLite2, a public IP->geo dataset, and they cannot circumvent property-level access control.
-            # (1) They never expose a restricted input: a restricted property read in the argument (e.g.
-            # `properties.$ip`) is scrubbed to constant NULL by the restriction layer before this function sees it,
-            # so the lookup misses and returns '' — there is no oracle for the restricted value. (2) They never serve
-            # a restricted *stored* property: the "restricted property reads as NULL" contract is enforced where
-            # properties are read (clickhouse_property_resolution + JSONDropKeys) and by the geoip_dict_fallback
-            # transform's own target guard. (3) The only capability left is deriving geo data from an IP the user can
-            # already read, which any external geo service provides — a guard here would add zero protection while
-            # risking the printer rejecting the transform's own emitted calls. Pinned by tests in
-            # test_geoip_dict_fallback.py.
-            attribute = "city_name" if node.name == "_lookupGeoipCityName" else "postal_code"
-            geoip_dict = get_geoip_city_postal_dict()
-            return (
-                f"dictGetStringOrDefault('{geoip_dict}', '{attribute}', toIPv6OrDefault(coalesce({args[0]}, '')), '')"
-            )
         elif node.name == "lookupDomainType":
             channel_dict = get_channel_definition_dict()
             return f"coalesce(dictGetOrNull('{channel_dict}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
@@ -580,6 +563,19 @@ class ClickHousePrinter(BasePrinter):
             return result
         return []
 
+    @staticmethod
+    def _parse_zoned_datetime_constant(node: ast.Expr) -> datetime | None:
+        return parse_zoned_datetime_string(node.value) if isinstance(node, ast.Constant) else None
+
+    def _resolves_to_datetime(self, node: ast.Expr) -> bool:
+        if node.type is None:
+            return False
+        try:
+            constant_type = node.type.resolve_constant_type(self.context)
+        except Exception:
+            return False
+        return isinstance(constant_type, ast.DateTimeType)
+
     def _is_events_table_timestamp_field(self, node: ast.Expr) -> bool:
         traverser = GetFieldsTraverser(node)
 
@@ -647,6 +643,17 @@ class ClickHousePrinter(BasePrinter):
         # The materialized columns mat_$ai_trace_id, mat_$ai_session_id, and mat_$ai_is_error have bloom filter indexes for performance
         if any(col in left or col in right for col in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING):
             not_nullable = True
+
+        # ClickHouse can't parse datetime strings ending in 'Z' or an offset, so print those as datetime literals.
+        if node.op in ZONED_DATETIME_COERCIBLE_COMPARE_OPS:
+            if (
+                zoned_left := self._parse_zoned_datetime_constant(node.left)
+            ) is not None and self._resolves_to_datetime(node.right):
+                left = self._print_escaped_string(zoned_left)
+            elif (
+                zoned_right := self._parse_zoned_datetime_constant(node.right)
+            ) is not None and self._resolves_to_datetime(node.left):
+                right = self._print_escaped_string(zoned_right)
 
         constant_lambda = None
         value_if_one_side_is_null = False

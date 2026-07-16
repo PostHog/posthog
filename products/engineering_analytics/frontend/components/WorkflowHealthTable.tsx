@@ -1,7 +1,7 @@
 // Per-workflow CI health table, shared by the Workflows tab and the repo hub.
 
 import { useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { ReactNode } from 'react'
 
 import { LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
@@ -9,10 +9,12 @@ import { LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import { withScope } from '../lib/scope'
 import { WorkflowHealthRow, workflowFailureSeries } from '../scenes/engineeringAnalyticsLogic'
 import { BillableBadge } from './BillableBadge'
 import { FailureSparkline } from './FailureSparkline'
@@ -73,37 +75,54 @@ export interface WorkflowHealthTableProps {
     loading?: boolean
     /** Threaded into the Workflow-name link so it preserves the active source. */
     sourceId?: string | null
-    /** Default column sort. Alphabetical by workflow name by default; click Status for failing-first. */
-    defaultSorting?: { columnKey: string; order: 1 | -1 }
+    /** Column sort override. Default (null) keeps the rows' failing-first-then-name order — the one
+     *  convention shared with the PR page; pass a column to sort by it instead. */
+    defaultSorting?: { columnKey: string; order: 1 | -1 } | null
     /** Show the billable cost column (needs per-workflow cost on the rows). */
     showCost?: boolean
-    /** Rows per page — 50 by default; the hub passes a small page to stay scannable. */
+    /** Rows per page — the shared 25 by default; the hub passes a small page to stay scannable. */
     pageSize?: number
     emptyState?: ReactNode
     dataAttr?: string
     /** Drop the table's own border when it sits inside a LemonCard (the hub) — avoids a double frame. */
     embedded?: boolean
+    /** Hub preview variant: a focused column set (status · pass rate · Δ · cost · health) with the health
+     *  sparkline given room. The full run/p50/p95/re-runs/last-failure columns stay on the Workflows tab. */
+    compact?: boolean
 }
+
+// The compact (hub preview) column set, in display order: the health-and-cost story with pass rate next
+// to its own trend (Δ). Cost only appears when showCost adds it. Headers stay intact.
+const COMPACT_COLUMN_ORDER = ['workflowName', 'status', 'successRate', 'successRateDelta', 'cost', 'trend']
 
 export function WorkflowHealthTable({
     rows,
     loading,
     sourceId,
-    defaultSorting = { columnKey: 'workflowName', order: 1 },
+    defaultSorting = null,
     showCost = false,
-    pageSize = 50,
+    pageSize = 25,
     emptyState,
     dataAttr = 'engineering-analytics-workflow-table',
     embedded = false,
+    compact = false,
 }: WorkflowHealthTableProps): JSX.Element {
     const { searchParams } = useValues(router)
-    // Carry the active window/branch scope into the drill-down; without `q` the detail page would
-    // silently widen to all branches.
-    const windowParams: Record<string, string> = {
-        ...(searchParams.date_from ? { date_from: searchParams.date_from } : {}),
-        ...(searchParams.date_to ? { date_to: searchParams.date_to } : {}),
-        ...(searchParams.q ? { q: searchParams.q } : {}),
-    }
+    // Each row opens the workflow's runs page, carrying the active window/branch scope + source so the
+    // drill-down doesn't silently widen to all branches.
+    const rowUrl = (row: WorkflowHealthRow): string =>
+        withScope(
+            urls.engineeringAnalyticsWorkflowRuns(row.repoOwner, row.repoName, row.workflowName),
+            searchParams,
+            sourceId
+        )
+    // Failing workflows first — the order a reviewer triages in — then everything else alphabetically by
+    // name. The one convention shared with the PR page; a passed defaultSorting still overrides on click.
+    const orderedRows = [...rows].sort(
+        (a, b) =>
+            Number(b.latestRunFailed === true) - Number(a.latestRunFailed === true) ||
+            a.workflowName.localeCompare(b.workflowName)
+    )
     const columns: LemonTableColumns<WorkflowHealthRow> = [
         {
             title: 'Workflow',
@@ -111,16 +130,7 @@ export function WorkflowHealthTable({
             sorter: (a, b) => a.workflowName.localeCompare(b.workflowName),
             render: (_, row) => (
                 <div className="flex items-center gap-2">
-                    <Link
-                        to={
-                            combineUrl(
-                                urls.engineeringAnalyticsWorkflowRuns(row.repoOwner, row.repoName, row.workflowName),
-                                { ...windowParams, ...(sourceId ? { source: sourceId } : {}) }
-                            ).url
-                        }
-                        className="font-medium"
-                        onClick={(e) => e.stopPropagation()}
-                    >
+                    <Link to={rowUrl(row)} className="font-medium" onClick={(e) => e.stopPropagation()}>
                         {row.workflowName}
                     </Link>
                 </div>
@@ -274,16 +284,46 @@ export function WorkflowHealthTable({
         },
     ]
 
+    // Compact keeps the focused column set (in COMPACT_COLUMN_ORDER) and lets the health sparkline breathe.
+    const displayColumns = compact
+        ? COMPACT_COLUMN_ORDER.map((key) => columns.find((column) => String(column.key) === key))
+              .filter((column): column is (typeof columns)[number] => column !== undefined)
+              .map((column) => (column.key === 'trend' ? { ...column, title: 'Health', width: 220 } : column))
+        : columns
+
     return (
         <LemonTable
             data-attr={dataAttr}
             size="small"
             embedded={embedded}
-            columns={columns}
-            dataSource={rows}
+            columns={displayColumns}
+            dataSource={orderedRows}
             rowKey={(row) => `${row.repoOwner}/${row.repoName}:${row.workflowName}`}
             // De-emphasize workflows with nothing settled — no pass/fail signal to read.
-            rowClassName={(row) => (row.successRate === null ? 'opacity-60' : null)}
+            rowClassName={(row) => cn('cursor-pointer', row.successRate === null && 'opacity-60')}
+            onRow={(row) => {
+                const url = rowUrl(row)
+                return {
+                    // Inner links (the workflow name) keep their own behavior.
+                    onClick: (e: React.MouseEvent) => {
+                        if ((e.target as HTMLElement).closest('a, button')) {
+                            return
+                        }
+                        if (e.metaKey || e.ctrlKey) {
+                            e.preventDefault()
+                            newInternalTab(url)
+                        } else {
+                            router.actions.push(url)
+                        }
+                    },
+                    onAuxClick: (e: React.MouseEvent) => {
+                        if (e.button === 1 && !(e.target as HTMLElement).closest('a, button')) {
+                            e.preventDefault()
+                            newInternalTab(url)
+                        }
+                    },
+                }
+            }}
             loading={loading}
             useURLForSorting={false}
             defaultSorting={defaultSorting}

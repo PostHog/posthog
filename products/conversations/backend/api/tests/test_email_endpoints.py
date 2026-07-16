@@ -109,6 +109,12 @@ class TestEmailChannelPermissions(BaseTest):
                 "/api/conversations/v1/email/disconnect",
                 {"config_id": "00000000-0000-0000-0000-000000000999"},
             ),
+            (
+                "set-default",
+                "post",
+                "/api/conversations/v1/email/set-default",
+                {"config_id": "00000000-0000-0000-0000-000000000999"},
+            ),
         ]
     )
     def test_member_cannot_access(self, _name, method, path, body):
@@ -917,6 +923,51 @@ class TestSendEmailReplyMultiConfig(BaseTest):
 
         assert outbox.status == EmailOutboxMessage.Status.SENT
         assert outbox.sent_at is not None
+
+    @parameterized.expand(
+        [
+            ("email_disabled", "email disabled for team"),
+            ("no_email_config", "no email config"),
+            ("no_customer_email", "no customer email"),
+        ]
+    )
+    @patch("products.conversations.backend.tasks.send_mime")
+    def test_undeliverable_reply_fails_visibly(self, name: str, expected_error: str, mock_send_mime: MagicMock):
+        from products.conversations.backend.tasks import send_email_reply
+
+        config = self._create_config("support@example.com", "aaa111")
+        if name == "email_disabled":
+            ticket = self._create_ticket(config)
+            self.team.conversations_settings = {"email_enabled": False}
+            self.team.save()
+        elif name == "no_email_config":
+            ticket = self._create_ticket(None)
+        else:
+            ticket = self._create_ticket(config)
+            ticket.email_from = None
+            ticket.save(update_fields=["email_from"])
+
+        comment = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Reply from agent",
+            created_by=self.user,
+            item_context={"author_type": "support"},
+        )
+        # The signal must create the row even for undeliverable replies; skipping it would
+        # leave the reply with no delivery record at all.
+        outbox = EmailOutboxMessage.objects.filter(comment=comment).first()
+        assert outbox is not None
+
+        send_email_reply(str(outbox.id))
+        outbox.refresh_from_db()
+
+        assert outbox.status == EmailOutboxMessage.Status.FAILED_PERMANENT
+        assert outbox.last_error == expected_error
+        mock_send_mime.assert_not_called()
+        comment.refresh_from_db()
+        assert (comment.item_context or {}).get("email_delivery_status") == "failed"
 
     @parameterized.expand(
         [
@@ -1763,3 +1814,73 @@ class TestEmailSendTestView(BaseTest):
 
         self.config.refresh_from_db()
         assert self.config.domain_verified is False
+
+
+class TestEmailDefaultChannel(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.force_login(self.user)
+
+    def _create_config(self, from_email: str, *, verified: bool = True, is_default: bool = False) -> EmailChannel:
+        return EmailChannel.objects.create(
+            team=self.team,
+            inbound_token=from_email,
+            from_email=from_email,
+            from_name="Support",
+            domain=from_email.split("@")[1],
+            domain_verified=verified,
+            is_default=is_default,
+        )
+
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_first_connected_channel_becomes_default(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock):
+        r1 = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "support@example.com", "from_name": "Support"},
+            content_type="application/json",
+        )
+        r2 = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "billing@example.com", "from_name": "Billing"},
+            content_type="application/json",
+        )
+        assert r1.json()["config"]["is_default"] is True
+        assert r2.json()["config"]["is_default"] is False
+        assert EmailChannel.objects.filter(team=self.team, is_default=True).count() == 1
+
+    def test_set_default_switches_and_unsets_previous(self):
+        first = self._create_config("support@example.com", is_default=True)
+        second = self._create_config("billing@example.com")
+
+        response = self.client.post(
+            "/api/conversations/v1/email/set-default",
+            {"config_id": str(second.id)},
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        assert first.is_default is False
+        assert second.is_default is True
+
+    @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
+    def test_disconnecting_default_promotes_a_replacement(self, _mock_delete: MagicMock):
+        default = self._create_config("support@example.com", is_default=True)
+        other = self._create_config("billing@example.com")
+
+        response = self.client.post(
+            "/api/conversations/v1/email/disconnect",
+            {"config_id": str(default.id)},
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+
+        other.refresh_from_db()
+        assert other.is_default is True

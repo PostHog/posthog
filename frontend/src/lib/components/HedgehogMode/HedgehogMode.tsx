@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { Suspense, lazy } from 'react'
+import { Suspense } from 'react'
 
+import { themeLogic } from 'lib/logic/themeLogic'
 import { inStorybook } from 'lib/utils/dom'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
 import { useShortcut } from '../Shortcuts/useShortcut'
@@ -12,7 +13,9 @@ import { HedgehogModeConfig } from './types'
 
 export const HedgeHogModeRenderer =
     typeof window !== 'undefined'
-        ? lazy(() => import('@posthog/hedgehog-mode').then((module) => ({ default: module.HedgehogModeRenderer })))
+        ? lazyWithRetry(() =>
+              import('@posthog/hedgehog-mode').then((module) => ({ default: module.HedgehogModeRenderer }))
+          )
         : () => null
 
 export const getHedgehogModeAssetsUrl = (): string => {
@@ -35,7 +38,7 @@ export type HedgehogModeProps = {
 }
 
 export function HedgehogMode({ enabledOverride }: HedgehogModeProps): JSX.Element | null {
-    const { hedgehogModeEnabled } = useValues(hedgehogModeLogic)
+    const { hedgehogModeEnabled, hedgehogConfig } = useValues(hedgehogModeLogic)
     const { setHedgehogMode, setHedgehogModeEnabled, toggleHedgehogMode } = useActions(hedgehogModeLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -43,6 +46,9 @@ export function HedgehogMode({ enabledOverride }: HedgehogModeProps): JSX.Elemen
 
     const config: HedgehogModeConfig = {
         assetsUrl: getHedgehogModeAssetsUrl(),
+        // Seed the actor so it spawns with the user's options (e.g. ai_enabled / "free to roam")
+        // already applied, instead of defaulting to roaming until the first syncGame corrects it.
+        state: { options: hedgehogConfig.actor_options },
         platforms: {
             selector:
                 '.border, .border-t, .LemonButton--primary, .LemonButton--secondary:not(.LemonButton--status-alt:not(.LemonButton--active)), .LemonInput, .LemonSelect, .LemonTable, .LemonSwitch--bordered, .LemonBanner',

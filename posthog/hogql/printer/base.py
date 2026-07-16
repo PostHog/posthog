@@ -35,8 +35,8 @@ from posthog.hogql.visitor import Visitor, clone_expr
 
 from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
 from posthog.models.team.team import WeekStartDay
-from posthog.models.utils import UUIDT
 from posthog.schema_enums import PersonsOnEventsMode
+from posthog.uuidt import UUIDT
 
 MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH = 8
 
@@ -45,15 +45,6 @@ def get_channel_definition_dict():
     """Get the channel definition dictionary name with the correct database.
     Evaluated at call time to work with test databases in Python 3.12."""
     return f"{django_settings.CLICKHOUSE_DATABASE}.channel_definition_dict"
-
-
-def get_geoip_city_postal_dict():
-    """Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1): the ip_trie dictionary backing the lookupGeoip* functions.
-
-    The dictionary maps an IP to GeoLite2 `city_name` / `postal_code` and was created manually on the cloud clusters
-    for the incident backfill — it is not part of any migration, so the functions only work where it exists.
-    """
-    return f"{django_settings.CLICKHOUSE_DATABASE}.city_postal_ip_trie"
 
 
 def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
@@ -264,15 +255,19 @@ class BasePrinter(Visitor[str]):
         inner = ", ".join(self.visit(e) for e in node.exprs)
         return f"({inner})"
 
+    def _visit_set_operand(self, node: ast.SelectQuery | ast.SelectSetQuery) -> str:
+        """Render one operand of a set query (UNION/INTERSECT/EXCEPT). Dialects whose grammar
+        needs each operand parenthesized (e.g. to carry a per-branch LIMIT) override this."""
+        query = self.visit(node)
+        if self.pretty:
+            query = query.strip()
+        return query
+
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self._indent -= 1
-        ret = self.visit(node.initial_select_query)
-        if self.pretty:
-            ret = ret.strip()
+        ret = self._visit_set_operand(node.initial_select_query)
         for expr in node.subsequent_select_queries:
-            query = self.visit(expr.select_query)
-            if self.pretty:
-                query = query.strip()
+            query = self._visit_set_operand(expr.select_query)
             if expr.set_operator is not None:
                 self._assert_set_operator_supported(expr.set_operator)
                 if self.pretty:
@@ -1000,10 +995,12 @@ class BasePrinter(Visitor[str]):
             # Handle format strings in function names before checking function type
             # HogQL preserves the macro in its original shape; SQL dialects expand it.
             if func_meta.using_placeholder_arguments and self._expands_placeholder_macros():
-                # Pre-#58714 behavior: single-arg toFloatOrDefault was degenerate and
-                # equivalent to toFloatOrZero. Rewrite here so saved queries still work.
-                if node.name == "toFloatOrDefault" and len(node.args) == 1:
-                    return self.visit(ast.Call(name="toFloatOrZero", args=node.args))
+                # The single-arg form of these is degenerate (equivalent to toFloatOrZero/toIntOrZero).
+                # For toFloatOrDefault this is pre-#58714 behavior kept so old saved queries still print;
+                # toIntOrDefault is new but made degenerate the same way for parity.
+                if len(node.args) == 1 and node.name in ("toFloatOrDefault", "toIntOrDefault"):
+                    zero_fn = "toFloatOrZero" if node.name == "toFloatOrDefault" else "toIntOrZero"
+                    return self.visit(ast.Call(name=zero_fn, args=node.args))
                 return self._render_placeholder_macro(
                     node=node,
                     clickhouse_name=func_meta.clickhouse_name,
@@ -1648,7 +1645,7 @@ class BasePrinter(Visitor[str]):
             case "text" | "varchar" | "char" | "string":
                 return f"toString({self.visit(node.expr)})"
             case "boolean" | "bool":
-                return f"toBoolean({self.visit(node.expr)})"
+                return f"accurateCastOrNull({self.visit(node.expr)}, 'Bool')"
             case "date":
                 return f"toDate({self.visit(node.expr)})"
             case (

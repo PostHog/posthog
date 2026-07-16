@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import structlog
 from corsheaders.defaults import default_headers
+from whitenoise.compress import Compressor
 
 from posthog.scopes import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, CLOUD_DEPLOYMENT, DEBUG, TEST
@@ -64,6 +65,7 @@ PRODUCTS_APPS = [
     "products.replay_vision.backend.apps.ReplayVisionConfig",
     "products.mcp_store.backend.apps.McpStoreConfig",
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
+    "products.review_hog.backend.apps.ReviewHogConfig",
     "products.logs.backend.apps.LogsConfig",
     "products.tracing.backend.apps.TracingConfig",
     "products.metrics.backend.apps.MetricsConfig",
@@ -95,6 +97,7 @@ PRODUCTS_APPS = [
     "products.growth.backend.apps.GrowthConfig",
     "products.reminders.backend.apps.RemindersConfig",
     "products.approvals.backend.apps.ApprovalsConfig",
+    "products.data_catalog.backend.apps.DataCatalogConfig",
 ]
 
 INSTALLED_APPS = [
@@ -261,6 +264,9 @@ X_FRAME_OPTIONS = "SAMEORIGIN"
 SOCIAL_AUTH_JSONFIELD_ENABLED = True
 SOCIAL_AUTH_USER_MODEL = "posthog.User"
 SOCIAL_AUTH_REDIRECT_IS_HTTPS: bool = get_from_env("SOCIAL_AUTH_REDIRECT_IS_HTTPS", not DEBUG, type_cast=str_to_bool)
+# social-auth-core reads REQUESTS_TIMEOUT in BaseAuth.request(); without it a hung self-hosted
+# GitLab/OIDC provider can block a web worker forever.
+SOCIAL_AUTH_REQUESTS_TIMEOUT: float = get_from_env("SOCIAL_AUTH_REQUESTS_TIMEOUT", 10.0, type_cast=float)
 
 SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.social_details",
@@ -332,10 +338,19 @@ SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "s
 # off in the test suite (like AXES_ENABLED) so its per-request feature-flag check doesn't run during
 # tests that assert posthoganalytics.feature_enabled call counts.
 SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=str_to_bool)
+# Kill switch for the real-time signup enrichment workflow (products/growth/backend/enrichment).
+# Off by default: it must stay off until the launch fill-rate/failure alert is in place, and v0 is
+# US-only. Fire-and-forget from signup, so this only gates whether the workflow is dispatched at all.
+GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool)
 # Session keys for risk-based step-up (posthog/session/risk.py). Named so every reader/writer shares
 # one source of truth, like SESSION_COOKIE_CREATED_AT_KEY above.
 SESSION_STEP_UP_REQUIRED_KEY = get_from_env("SESSION_STEP_UP_REQUIRED_KEY", "step_up_required")
 SESSION_LAST_REAUTH_AT_KEY = get_from_env("SESSION_LAST_REAUTH_AT_KEY", "last_reauth_at")
+# Dedup state for risk telemetry/enforcement: the last-emitted anomaly signature and when. A flagged
+# session is re-scored every request, but we only re-emit/re-enforce on a new signature or after the
+# cooldown, so one persistent anomaly can't fire on every request. Cleared on (re)login by post_login.
+SESSION_RISK_LAST_SIG_KEY = get_from_env("SESSION_RISK_LAST_SIG_KEY", "risk_last_sig")
+SESSION_RISK_LAST_EMIT_AT_KEY = get_from_env("SESSION_RISK_LAST_EMIT_AT_KEY", "risk_last_emit_at")
 
 # Impossible-travel risk thresholds (see posthog/session/risk.py). Tunable without a code change.
 RISK_DISTANCE_FLOOR_KM = get_from_env("RISK_DISTANCE_FLOOR_KM", 500.0, type_cast=float)
@@ -344,6 +359,10 @@ RISK_VELOCITY_MAX_KMH = get_from_env("RISK_VELOCITY_MAX_KMH", 1000.0, type_cast=
 # How often a low-risk request refreshes the known-good baseline snapshot (geo/UA + baseline_at).
 # Throttles the per-request write; the baseline geo lags by at most this interval, fine for scoring.
 RISK_BASELINE_REFRESH_S = get_from_env("RISK_BASELINE_REFRESH_S", 300.0, type_cast=float)
+# How long the same anomaly signature stays deduped before it re-emits telemetry / re-asserts step-up.
+# Bounds a persistent anomaly to one detection per window instead of one per request, while still
+# resurfacing a long-lived anomaly periodically.
+RISK_REEMIT_COOLDOWN_S = get_from_env("RISK_REEMIT_COOLDOWN_S", 3600.0, type_cast=float)
 
 PROJECT_SWITCHING_TOKEN_ALLOWLIST = get_list(os.getenv("PROJECT_SWITCHING_TOKEN_ALLOWLIST", "sTMFPsFhdP1Ssg"))
 
@@ -392,13 +411,23 @@ STORAGES = {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
+        # CompressedManifest: collectstatic pre-generates .br and .gz (brotli is
+        # already a dependency) so WhiteNoise serves compressed bytes from disk and
+        # the envoy edge — which otherwise gzips static per request (Contour's
+        # default compression filter) — skips recompression since Content-Encoding
+        # is already set. Same Manifest base class: hashed names unchanged.
         "BACKEND": (
             "django.contrib.staticfiles.storage.StaticFilesStorage"
             if TEST
-            else "whitenoise.storage.ManifestStaticFilesStorage"
+            else "whitenoise.storage.CompressedManifestStaticFilesStorage"
         ),
     },
 }
+# Never emit .map.gz/.map.br: the production image deletes *.map after the
+# sourcemap upload, and compressed variants would survive that cleanup and
+# leak the maps under /static. Also skips pointless build-time compression
+# of files that get deleted anyway.
+WHITENOISE_SKIP_COMPRESS_EXTENSIONS = [*Compressor.SKIP_COMPRESS_EXTENSIONS, "map"]
 
 
 def static_varies_origin(headers, path, url):
@@ -406,6 +435,14 @@ def static_varies_origin(headers, path, url):
 
 
 WHITENOISE_ADD_HEADERS_FUNCTION = static_varies_origin
+
+# Non-hashed static files (notably the posthog-js SDK bundles served to
+# end-user browsers) otherwise fall back to whitenoise's 60s default and
+# generate constant 304 revalidation churn (~a third of /static traffic).
+# Hashed manifest assets are unaffected — whitenoise already serves those
+# with far-future caching. One hour bounds how long a client that does not
+# cache-bust can hold a stale SDK bundle after a release.
+WHITENOISE_MAX_AGE = get_from_env("WHITENOISE_MAX_AGE", 3600, type_cast=int)
 
 # Per-IP signup throttle rate (see posthog.rate_limit.SignupIPThrottle). Overridable per-env so
 # non-prod (e.g. dev deploy smoke-tests) can raise it without weakening the prod default.
@@ -498,6 +535,7 @@ SPECTACULAR_SETTINGS = {
         #    both the no-x-spec-enum-id type-hint path and the inline-choices ChoiceField
         #    path (drf-spectacular generates the x-spec-enum-id from the same tuples).
         # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
+        "SignalReportRefundReasonEnum": "products.signals.backend.models.SignalReportRefund.Reason",
         "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
         "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
@@ -521,9 +559,16 @@ SPECTACULAR_SETTINGS = {
         # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
         "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
         "LLMProviderEnum": "products.ai_observability.backend.models.provider_keys.LLMProvider",
+        "EvaluationReportFrequencyEnum": (
+            "products.ai_observability.backend.models.evaluation_reports.EvaluationReport.Frequency"
+        ),
         "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
+        "MCPInstallationScopeEnum": ["personal", "shared"],
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
+        # Inline-choices variant of TaskRun.Status (labels == values), shared by
+        # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.
+        "RunStatusEnum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
         "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
         "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
@@ -534,23 +579,59 @@ SPECTACULAR_SETTINGS = {
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
         "ExportedRecordingStatusEnum": "products.replay.backend.models.exported_recording.ExportedRecording.Status",
         "VisionActionRunStatusEnum": "products.replay_vision.backend.models.vision_action.VisionActionRunStatus",
+        "VisionAlertMetricEnum": "products.replay_vision.backend.models.vision_action.AlertMetric",
+        "VisionAlertDirectionEnum": "products.replay_vision.backend.models.vision_action.AlertDirection",
         "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
+        # Pin the subscriptions target enum to its existing name so adding customer_analytics'
+        # `target_type` (below, inline-list category) doesn't auto-rename this shared-basename enum
+        # and churn subscriptions' generated types.
+        "TargetTypeEnum": "products.exports.backend.models.subscription.Subscription.SubscriptionTarget",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
+        # ReviewHog findings expose the same priority set on two fields (effective_priority +
+        # reviewer_priority); pin one shared name for the choice set.
+        "ReviewIssuePriorityEnum": ["must_fix", "should_fix", "consider"],
+        # Pin the customer_analytics custom-property target so it doesn't auto-collide with the
+        # subscriptions `target_type` enum (which would rename subscriptions' generated type).
+        "CustomPropertyDefinitionTargetType": ["account", "person"],
+        # The metrics query's OTel metric-type filter; without a pinned name it
+        # collides with the experiments MetricTypeEnum (funnel/ratio/...).
+        "OtelMetricTypeEnum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
+        # Staff flags-cache warm-run status; 'state'/'scope' are collision-prone field names.
+        "FlagsWarmRunStateEnum": ["running", "completed", "cancelled"],
+        "FlagsWarmRunScopeEnum": ["all_teams", "teams_with_flags"],
         # bulk_update_tags exposes an identical add/remove/set `action` ChoiceField on both
         # BulkUpdateTagsRequest and its UUID subclass, so the shared enum can't be component-prefixed
         # unambiguously and auto-resolves to a hash name. Pin it to a stable name.
         "BulkUpdateTagsActionEnum": ["add", "remove", "set"],
+        "ManagedWarehouseReadinessStateEnum": [
+            "not_configured",
+            "waiting",
+            "backfilling",
+            "catching_up",
+            "up_to_date",
+            "needs_attention",
+            "unknown",
+            "sync_paused",
+        ],
         # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
         # subset enums keep their own auto-resolved names.
         "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
         "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
+        # Shared by alert checks and analytics anomaly-investigation signals.
+        "InvestigationVerdictEnum": ["true_positive", "false_positive", "inconclusive"],
+        # Preserve Replay Vision's existing verdict type name after introducing the shared enum above.
+        "VerdictEnum": ["yes", "no", "inconclusive"],
         # AgentRevision.state (model ChoiceField) and RevisionNotDraftError.state (the
         # bundle-edit 409 body) share one choice set — pin them to a single named enum.
         "AgentRevisionStateEnum": ["draft", "ready", "live", "archived"],
+        # Tracing's span-filter `type` and attribute-breakdown `breakdownType` share one
+        # choice set (top-level column vs span attribute vs resource attribute).
+        "SpanPropertyTypeEnum": ["span", "span_attribute", "span_resource_attribute"],
+        "LogsViewColumnTypeEnum": ["timestamp", "level", "source", "trace_id", "span_id", "message", "custom"],
         "CustomPropertyDisplayTypeEnum": [
             "text",
             "number",
@@ -568,7 +649,7 @@ SPECTACULAR_SETTINGS = {
         # for the list endpoint) that both expose `type`/`status`. Pin both to their pre-existing
         # generated names so the shared enums don't get component-prefixed auto-names on collision.
         "ExperimentTypeEnum": ["web", "product", None],
-        "ExperimentStatusEnum": ["draft", "running", "paused", "stopped"],
+        "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
         # Two `sync_frequency` ChoiceFields with different member sets: warehouse-source schemas
         # accept sub-15min cadences, while saved-query (view) materialization floors at 15min.
         # Pin both to stable names so neither gets a component-prefixed auto-name on collision.
@@ -640,6 +721,7 @@ SPECTACULAR_SETTINGS = {
             "log",
             "log_attribute",
             "log_resource_attribute",
+            "metric_attribute",
             "span",
             "span_attribute",
             "span_resource_attribute",
@@ -689,6 +771,8 @@ SPECTACULAR_SETTINGS = {
             "user_attachment",
             "skill_bundle",
         ],
+        "AdapterEnum": ["slack_message", "slack_canvas", "slack_file", "document_connector", "github_pr"],
+        "TaskArtifactStatusEnum": ["active", "failed"],
         # Same-value collisions: identical choice sets appear on fields with different names.
         # href_matching, text_matching, url_matching on ActionStep all share the same choices.
         "ActionStepMatchingEnum": ["contains", "regex", "exact"],
@@ -715,6 +799,10 @@ SPECTACULAR_SETTINGS = {
         # redis/miss choice set. Pin to a stable name so the collision doesn't auto-resolve
         # to a hash name.
         "StaffCacheSourceEnum": ["redis", "miss"],
+        # StaffCacheEntryQuery/Response's singular `cache` field and StaffCacheMutation's
+        # `caches` list item share the same evaluation/definitions choice set. Pin to a
+        # stable name so "cache" and "caches" don't collide into a hash name.
+        "StaffCacheKindEnum": ["evaluation", "definitions"],
     },
 }
 
@@ -767,6 +855,9 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/api/organizations/@current/plugins/?$",
                 "^api/(environments|projects)/@current/feature_flags/my_flags/?$",
                 "^/?api/(environments|projects)/\\d+/query/?$",
+                # Deploy-static source catalog (no user input or secrets reflected): several
+                # hundred KB of JSON that compresses ~7x.
+                "^/?api/(environments|projects)/(\\d+|@current)/external_data_sources/wizard/?$",
                 "^/?api/instance_status/?$",
                 "^/array/.*$",
             ]
@@ -1070,15 +1161,24 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS: list[int] = [
     )
 ]
 
-# Teams whose PATHS precompute reads also dual-write into the colocated
-# `web_stats_paths_preaggregated_pathkey` table so its read layout can be
-# A/B-compared (PR #64948). Deliberately narrow — only the named teams pay the
-# extra mirror write — and defaults to the Cloud dogfooding team (project 2)
-# only, same as the precompute lists above. Temporary; removed once the
-# comparison concludes.
-WEB_STATS_PATHS_PREAGG_MIRROR_PATHKEY_TEAM_IDS: list[int] = [
+# Teams whose web analytics queries (overview, paths tile) skip the events↔sessions join
+# when nothing in the query (property filters, conversion goal, test-account filters,
+# sampling) constrains which sessions qualify. In that shape the join only multiplies
+# cost: the sessions-side subquery is re-executed per shard of the events cluster. Trial
+# rollout is per-team via comma-separated env var; defaults to the Cloud dogfooding team
+# (project 2, same default as the lazy precompute lists) so the fast paths activate there
+# on deploy, and to empty on self-hosted where project id 2 is an arbitrary customer.
+WEB_ANALYTICS_NO_JOIN_TEAM_IDS: list[int] = [
     int(team_id)
-    for team_id in get_list(
-        get_from_env("WEB_STATS_PATHS_PREAGG_MIRROR_PATHKEY_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS)
-    )
+    for team_id in get_list(get_from_env("WEB_ANALYTICS_NO_JOIN_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]
+
+# Percentage-of-teams rollout for the no-join fast paths, on top of the explicit
+# allowlist above. Bucketing is deterministic per team (team_id % 100) so everyone
+# on a team sees numbers from the same code path. 0 disables (allowlist only),
+# 100 enrolls every team. Defaults to 100 on US and EU Cloud; self-hosted stays 0.
+# Env var overrides in either direction and is the kill switch.
+_NO_JOIN_DEFAULT_ROLLOUT_PERCENT = 100 if (CLOUD_DEPLOYMENT or "").upper() in ("US", "EU") and not TEST else 0
+WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT: int = get_from_env(
+    "WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT", _NO_JOIN_DEFAULT_ROLLOUT_PERCENT, type_cast=int
+)

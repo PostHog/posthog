@@ -35,10 +35,9 @@ export interface _CompareFilterApi {
  * * `span_attribute` - span_attribute
  * * `span_resource_attribute` - span_resource_attribute
  */
-export type _SpanPropertyFilterTypeEnumApi =
-    (typeof _SpanPropertyFilterTypeEnumApi)[keyof typeof _SpanPropertyFilterTypeEnumApi]
+export type SpanPropertyTypeEnumApi = (typeof SpanPropertyTypeEnumApi)[keyof typeof SpanPropertyTypeEnumApi]
 
-export const _SpanPropertyFilterTypeEnumApi = {
+export const SpanPropertyTypeEnumApi = {
     Span: 'span',
     SpanAttribute: 'span_attribute',
     SpanResourceAttribute: 'span_resource_attribute',
@@ -80,7 +79,7 @@ export interface _SpanPropertyFilterApi {
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute */
-    type: _SpanPropertyFilterTypeEnumApi
+    type: SpanPropertyTypeEnumApi
     /** Comparison operator.
      *
      * * `exact` - exact
@@ -115,17 +114,6 @@ export interface _TracingAggregationRequestApi {
 }
 
 /**
- * * `span_attribute` - span_attribute
- * * `span_resource_attribute` - span_resource_attribute
- */
-export type BreakdownTypeEnumApi = (typeof BreakdownTypeEnumApi)[keyof typeof BreakdownTypeEnumApi]
-
-export const BreakdownTypeEnumApi = {
-    SpanAttribute: 'span_attribute',
-    SpanResourceAttribute: 'span_resource_attribute',
-} as const
-
-/**
  * * `count` - count
  * * `error_count` - error_count
  */
@@ -138,13 +126,18 @@ export const _TracingAttributeBreakdownQueryBodyOrderByEnumApi = {
 } as const
 
 export interface _TracingAttributeBreakdownQueryBodyApi {
-    /** Attribute key to group by (e.g. "server.address", "http.response.status_code"). Discover keys with apm-attributes-list. */
+    /** Attribute key to group by (e.g. "server.address", "http.response.status_code"). Discover keys with apm-attributes-list. For the "span" breakdown type, must be one of the allowlisted top-level columns: "service_name", "status_code". */
     breakdownKey: string
-    /** Where the key lives: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
+    /** Where the key lives: "span" for allowlisted top-level span columns, "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
      *
+     * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute */
-    breakdownType: BreakdownTypeEnumApi
+    breakdownType: SpanPropertyTypeEnumApi
+    /** Drop filters targeting the breakdown key itself (including serviceNames for a service_name breakdown), so a facet's value list stays complete while one of its values is selected. */
+    excludeBreakdownFilter?: boolean
+    /** Type-ahead filter over the breakdown field's own values (case-insensitive substring match). An empty string means no filter. Lets a facet's value search reach past the row limit. */
+    facetSearch?: string
     /** Order rows by span count or error count, descending. Defaults to count.
      *
      * * `count` - count
@@ -163,6 +156,29 @@ export interface _TracingAttributeBreakdownQueryBodyApi {
 export interface _TracingAttributeBreakdownRequestApi {
     /** The attribute breakdown query to execute. */
     query: _TracingAttributeBreakdownQueryBodyApi
+}
+
+export interface _TracingAttributeBreakdownRowApi {
+    /** The attribute's value for this group. Spans without the attribute group under ''. */
+    value: string
+    /** Number of matching spans with this value. */
+    count: number
+    /** Number of matching error spans (status_code = 2). */
+    error_count: number
+    /** Median span duration in nanoseconds. */
+    p50_duration_nano: number
+    /** 95th percentile span duration in nanoseconds. */
+    p95_duration_nano: number
+}
+
+export interface _TracingAttributeBreakdownResponseApi {
+    /** One row per distinct attribute value, ordered by the requested column descending. */
+    results: _TracingAttributeBreakdownRowApi[]
+    /**
+     * Rows for the comparison window when compareFilter.compare is true, else null.
+     * @nullable
+     */
+    compare: _TracingAttributeBreakdownRowApi[] | null
 }
 
 /**

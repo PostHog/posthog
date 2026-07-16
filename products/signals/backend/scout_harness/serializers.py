@@ -135,7 +135,7 @@ class SignalScoutRunDetailSerializer(SignalScoutRunSummarySerializer):
 
 class SignalScoutEmissionSerializer(serializers.ModelSerializer):
     """One finding a scout run emitted to the inbox — the persisted, queryable record of
-    *what* the run surfaced, returned by `signals-scout-runs-emissions-list`. The emitted text
+    *what* the run surfaced, returned by `scout-runs-emissions-list`. The emitted text
     lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
     back into the underlying signal store."""
 
@@ -613,14 +613,14 @@ class SuggestedReviewerSerializer(serializers.Serializer):
         max_length=200,
         help_text=(
             "GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display "
-            "name. Resolve one via `signals-scout-members-list` (each member row carries a resolved "
+            "name. Resolve one via `scout-members-list` (each member row carries a resolved "
             "`github_login`) or git history when you only have a name."
         ),
     )
     user_uuid = serializers.UUIDField(
         required=False,
         help_text=(
-            "PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). "
+            "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). "
             "Resolved server-side to the member's linked GitHub login — use this when you know the PostHog "
             "user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
         ),
@@ -822,6 +822,18 @@ class ExternalDataSourceEntrySerializer(serializers.Serializer):
     created_at = serializers.CharField(
         allow_null=True,
         help_text="ISO-8601 timestamp the source was connected.",
+    )
+    last_run_at = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "ISO-8601 timestamp of the most recent completed sync job, or null if this source has "
+            "never completed a sync. Use this to tell a healthy source apart from one stuck in "
+            "`Running` that has imported zero rows — `status` alone conflates the two."
+        ),
+    )
+    latest_error = serializers.CharField(
+        allow_null=True,
+        help_text="Newest schema-level sync error for this source, or null if no schema is erroring.",
     )
 
 
@@ -1291,7 +1303,7 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
             "experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each "
             "scope reports `edits` (total log entries), `users` (distinct user count), "
             "and `last_edit` (ISO-8601). Use to triage which scope a team has been working "
-            "in lately before drilling down via the per-entity readers or `activity-log-list`."
+            "in lately before drilling down via the per-entity readers or `advanced-activity-logs-list`."
         ),
     )
     recent_reviewer_corrections = RecentReviewerCorrectionsSerializer(
@@ -1551,7 +1563,7 @@ class SignalScoutManualRunSerializer(serializers.Serializer):
 
     The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
     row yet at response time — the bridge row is created once the run's first turn starts.
-    Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+    Poll the scout's runs (`scout-runs-list`) to see the resulting run and its findings.
     """
 
     skill_name = serializers.CharField(help_text="The `signals-scout-*` skill that was dispatched.")
@@ -1616,7 +1628,7 @@ class ScoutMetadataSerializer(serializers.Serializer):
 
 
 class ScoutMembersQuerySerializer(serializers.Serializer):
-    """Query params for `signals-scout-members-list`."""
+    """Query params for `scout-members-list`."""
 
     search = serializers.CharField(
         required=False,

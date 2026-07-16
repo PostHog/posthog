@@ -7,6 +7,7 @@ import { ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
+import type { ExecHelpCatalog } from './exec-help'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import type { ScopeGatedTool } from './toolDefinitions'
@@ -48,6 +49,7 @@ export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallP
 
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
+    helpCatalog?: ExecHelpCatalog
     /**
      * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
      * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
@@ -140,8 +142,7 @@ export function createExecInnerToolCallResolver(
 // guidance. A redirect only fires when the tool is absent, so an entry for a
 // conditionally-gated tool is inert whenever that tool is registered.
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
-    // Disabled while `mcp-sql-schema-discovery` is on; the SQL information_schema
-    // path replaces it. See readDataWarehouseSchema.ts for the flag/TODO.
+    // Removed in favor of SQL-based schema discovery via `system.information_schema.*`.
     'read-data-warehouse-schema': () =>
         'Tool "read-data-warehouse-schema" was removed in favor of SQL-based schema discovery. Use "execute-sql" against `system.information_schema.*` (`tables`, `columns`, `relationships`, `data_types`) — it scales to large catalogs and supports filtering/search (e.g. `WHERE description ILIKE \'%...%\'`). Consult the `querying-posthog-data` skill for patterns.',
     'entity-search': () =>
@@ -254,6 +255,35 @@ export function createExecTool(
             const { verb, rest } = parseCommand(params.command)
 
             switch (verb) {
+                case 'learn': {
+                    const helpCatalog = options.helpCatalog
+                    if (!helpCatalog) {
+                        throw new Error('The learning catalog is not available for this client.')
+                    }
+                    if (!rest) {
+                        return JSON.stringify(helpCatalog.list())
+                    }
+                    const topicIds = [...new Set(rest.split(/\s+/))]
+                    const entries = topicIds.map((topicId) => helpCatalog.get(topicId))
+                    const unknownTopicIds = topicIds.filter((_, index) => entries[index] === undefined)
+                    if (unknownTopicIds.length > 0) {
+                        const available = helpCatalog
+                            .list()
+                            .map((item) => item.id)
+                            .join(', ')
+                        if (unknownTopicIds.length === 1) {
+                            throw new Error(`Unknown learning topic: "${unknownTopicIds[0]}". Available: ${available}`)
+                        }
+                        const unknownTopics = unknownTopicIds.map((topicId) => `"${topicId}"`).join(', ')
+                        throw new Error(`Unknown learning topics: ${unknownTopics}. Available: ${available}`)
+                    }
+                    const resolvedEntries = entries.filter((entry) => entry !== undefined)
+                    if (resolvedEntries.length === 1) {
+                        return resolvedEntries[0]!.content
+                    }
+                    return resolvedEntries.map((entry) => `## ${entry.title}\n\n${entry.content}`).join('\n\n')
+                }
+
                 case 'tools': {
                     return JSON.stringify(allTools.map((t) => t.name))
                 }
@@ -335,7 +365,13 @@ export function createExecTool(
                         throw new Error('Usage: info [--json] <tool_name>')
                     }
                     const tool = findTool(allTools, infoArgs)
-                    const fullSchema = stripOutputFormatProperty(z.toJSONSchema(tool.schema) as Record<string, unknown>)
+                    // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
+                    // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
+                    // are optional and auto-filled. The default `io: 'output'` would list them as
+                    // required, misrepresenting them as mandatory input the caller must supply.
+                    const fullSchema = stripOutputFormatProperty(
+                        z.toJSONSchema(tool.schema, { io: 'input' }) as Record<string, unknown>
+                    )
                     // YAML for the top shape, but inputSchema stays as a JSON
                     // string dumped inside the YAML — JSON Schema is conventionally
                     // JSON and converting it to YAML obscures `$ref`, `oneOf`, etc.
@@ -372,8 +408,10 @@ export function createExecTool(
                     }
                     const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
                     const schemaTool = findTool(allTools, schemaToolName)
+                    // See the `info` command: `io: 'input'` keeps this in sync with the advertised
+                    // schema and validation, so `.default()` fields aren't shown as required.
                     const fullJsonSchema = stripOutputFormatProperty(
-                        z.toJSONSchema(schemaTool.schema) as Record<string, unknown>
+                        z.toJSONSchema(schemaTool.schema, { io: 'input' }) as Record<string, unknown>
                     )
 
                     if (!fieldPath) {
@@ -561,7 +599,9 @@ export function createExecTool(
                 }
 
                 default:
-                    throw new Error(`Unknown command: "${verb}". Supported commands: tools, search, info, schema, call`)
+                    throw new Error(
+                        `Unknown command: "${verb}". Supported commands: ${options.helpCatalog ? 'learn, ' : ''}tools, search, info, schema, call`
+                    )
             }
         },
     }

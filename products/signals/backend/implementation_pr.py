@@ -69,7 +69,9 @@ def close_implementation_pr_for_report(
 ) -> bool:
     """Best-effort: comment on and close the GitHub PR opened for this report's implementation task.
 
-    Called when a report is suppressed or snoozed — the open PR shouldn't linger. Leaves an
+    Called when a report is suppressed or snoozed — the open PR shouldn't linger. Only acts on a PR
+    that is still open: an already-closed or merged PR is left untouched (no comment, no close), so
+    we never leave a confusing "closing this PR" note on a PR that shipped months ago. Leaves an
     explanatory comment, then closes the PR. Returns True when the PR was closed, False when there
     was nothing to close or the close couldn't be completed. Never raises: the state transition
     must succeed regardless.
@@ -89,6 +91,30 @@ def close_implementation_pr_for_report(
         github = GitHubIntegration.first_for_team_repository(team_id, repository)
         if github is None:
             logger.info("close_implementation_pr_no_integration", report_id=str(report_id), repository=repository)
+            return False
+
+        # Only comment on and close a PR that's still open. A merged PR reports state "closed" with
+        # merged=True, and an already-closed PR reports state "closed" — in either case there's
+        # nothing to close, and leaving a comment would just be noise. If the state can't be
+        # confirmed, skip rather than risk commenting on a PR that already shipped.
+        pr_status = github.get_pull_request(repository, pr_number)
+        if not pr_status.get("success"):
+            logger.warning(
+                "close_implementation_pr_status_fetch_failed",
+                report_id=str(report_id),
+                pr_url=pr_url,
+                error=pr_status.get("error"),
+                status_code=pr_status.get("status_code"),
+            )
+            return False
+        if pr_status.get("state") != "open" or pr_status.get("merged"):
+            logger.info(
+                "close_implementation_pr_not_open",
+                report_id=str(report_id),
+                pr_url=pr_url,
+                state=pr_status.get("state"),
+                merged=pr_status.get("merged"),
+            )
             return False
 
         # Explain first, close second — a failed comment shouldn't stop the close.

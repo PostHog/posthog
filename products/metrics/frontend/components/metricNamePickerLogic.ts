@@ -1,17 +1,21 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { metricsValuesRetrieve } from 'products/metrics/frontend/generated/api'
+import type { _MetricNameApi } from 'products/metrics/frontend/generated/api.schemas'
+import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
 import type { metricNamePickerLogicType } from './metricNamePickerLogicType'
 
-export interface MetricNameItem {
-    name: string
-    metric_type: string
-}
+export type MetricNameItem = _MetricNameApi
 
 export const metricNamePickerLogic = kea<metricNamePickerLogicType>([
     path(['products', 'metrics', 'frontend', 'components', 'metricNamePickerLogic']),
+    connect(() => ({
+        values: [teamLogic, ['currentTeamId']],
+    })),
     actions({
         setSearch: (search: string) => ({ search }),
     }),
@@ -23,10 +27,16 @@ export const metricNamePickerLogic = kea<metricNamePickerLogicType>([
             [] as MetricNameItem[],
             {
                 loadItems: async (_, breakpoint) => {
+                    if (!canViewMetrics()) {
+                        return []
+                    }
                     // Debounce — match the 300ms cadence used in the viewer logic so
                     // both fetches feel cohesive.
                     await breakpoint(300)
-                    const response = await api.metrics.values({ search: values.search, limit: 100 })
+                    const response = await metricsValuesRetrieve(String(values.currentTeamId), {
+                        value: values.search,
+                        limit: 100,
+                    })
                     breakpoint()
                     return response.results
                 },
@@ -41,6 +51,8 @@ export const metricNamePickerLogic = kea<metricNamePickerLogicType>([
     afterMount(({ actions }) => {
         // Prime the list so the dropdown isn't empty on first open. Mirrors
         // serviceFilterLogic's afterMount in logs.
-        actions.loadItems({})
+        if (canViewMetrics()) {
+            actions.loadItems({})
+        }
     }),
 ])

@@ -61,6 +61,90 @@ export const SignalReportStatusEnumApi = {
     Suppressed: 'suppressed',
 } as const
 
+/**
+ * * `pr_incorrect` - PR incorrect
+ * * `pr_not_useful` - PR not useful
+ * * `duplicate` - Duplicate
+ * * `other` - Other
+ */
+export type SignalReportRefundReasonEnumApi =
+    (typeof SignalReportRefundReasonEnumApi)[keyof typeof SignalReportRefundReasonEnumApi]
+
+export const SignalReportRefundReasonEnumApi = {
+    PrIncorrect: 'pr_incorrect',
+    PrNotUseful: 'pr_not_useful',
+    Duplicate: 'duplicate',
+    Other: 'other',
+} as const
+
+/**
+ * * `excluded` - Excluded
+ * * `credited` - Credited
+ */
+export type BillingPathEnumApi = (typeof BillingPathEnumApi)[keyof typeof BillingPathEnumApi]
+
+export const BillingPathEnumApi = {
+    Excluded: 'excluded',
+    Credited: 'credited',
+} as const
+
+export interface SignalReportRefundApi {
+    readonly id: string
+    /** Why the user refunded this PR (feeds the refund review).
+     *
+     * * `pr_incorrect` - PR incorrect
+     * * `pr_not_useful` - PR not useful
+     * * `duplicate` - Duplicate
+     * * `other` - Other */
+    readonly reason: SignalReportRefundReasonEnumApi
+    /** Optional free-form note captured with the refund. */
+    readonly note: string
+    /** How the refund was executed, frozen at refund time: 'excluded' (same UTC day as the billable PR run — the report never reaches billing) or 'credited' (billing issues a Stripe customer-balance credit).
+     *
+     * * `excluded` - Excluded
+     * * `credited` - Credited */
+    readonly billing_path: BillingPathEnumApi
+    /** Signals credits refunded (flat per-PR charge snapshot; 1 credit = $0.01). */
+    readonly credits: number
+    /** The refunded implementation PR's GitHub URL, snapshotted at refund time. */
+    readonly pr_url: string
+    /** When the first billable PR run was created — the charge this reverses. */
+    readonly pr_run_created_at: string
+    /**
+     * USD amount the billing service credited (credited path only). Null until the sync completes; '0.00' is a legitimate outcome (e.g. the PR was inside the free tier).
+     * @nullable
+     * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+     */
+    readonly credit_amount_usd: string | null
+    /** Whether the billing service has acknowledged this refund. Always relevant for the credited path (the Stripe credit is issued asynchronously); excluded-path refunds need no billing sync and report false. */
+    readonly billing_synced: boolean
+    /** When the refund was created. */
+    readonly created_at: string
+}
+
+export type RefundIneligibilityReasonEnumApi =
+    (typeof RefundIneligibilityReasonEnumApi)[keyof typeof RefundIneligibilityReasonEnumApi]
+
+export const RefundIneligibilityReasonEnumApi = {
+    AlreadyRefunded: 'already_refunded',
+    BillingExempt: 'billing_exempt',
+    NoBillablePr: 'no_billable_pr',
+    OutOfPeriod: 'out_of_period',
+} as const
+
+/**
+ * * `posthog_health_check` - PostHog health check
+ * * `posthog_onboarding` - PostHog onboarding
+ * * `posthog_system` - PostHog system
+ */
+export type BillingExemptReasonEnumApi = (typeof BillingExemptReasonEnumApi)[keyof typeof BillingExemptReasonEnumApi]
+
+export const BillingExemptReasonEnumApi = {
+    PosthogHealthCheck: 'posthog_health_check',
+    PosthogOnboarding: 'posthog_onboarding',
+    PosthogSystem: 'posthog_system',
+} as const
+
 export interface SignalReportApi {
     readonly id: string
     /** @nullable */
@@ -112,6 +196,16 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly implementation_pr_url: string | null
+    /** The report's PR refund, when one exists. One refund per report, ever. */
+    readonly refund: SignalReportRefundApi | null
+    /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
+    readonly refund_ineligibility_reason: RefundIneligibilityReasonEnumApi | null
+    /** Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.
+     *
+     * * `posthog_health_check` - PostHog health check
+     * * `posthog_onboarding` - PostHog onboarding
+     * * `posthog_system` - PostHog system */
+    readonly billing_exempt_reason: BillingExemptReasonEnumApi | null
 }
 
 export interface PaginatedSignalReportListApi {
@@ -145,11 +239,63 @@ export interface PatchedSignalReportContentUpdateApi {
     summary?: string
 }
 
+export interface SignalReportRefundRequestApi {
+    /** Why this PR is being refunded. One of: pr_incorrect (the PR doesn't address what the report promised), pr_not_useful (technically fine but not worth paying for), duplicate (covers work already charged elsewhere), other. Required — refund reviews key on it.
+     *
+     * * `pr_incorrect` - PR incorrect
+     * * `pr_not_useful` - PR not useful
+     * * `duplicate` - Duplicate
+     * * `other` - Other */
+    reason: SignalReportRefundReasonEnumApi
+    /**
+     * Optional free-form context for the refund; stored on the refund and echoed in the report's dismissal artefact. Capped at 4000 characters.
+     * @maxLength 4000
+     */
+    note?: string
+}
+
+export interface SignalReportRefundResponseApi {
+    readonly id: string
+    /** Why the user refunded this PR (feeds the refund review).
+     *
+     * * `pr_incorrect` - PR incorrect
+     * * `pr_not_useful` - PR not useful
+     * * `duplicate` - Duplicate
+     * * `other` - Other */
+    readonly reason: SignalReportRefundReasonEnumApi
+    /** Optional free-form note captured with the refund. */
+    readonly note: string
+    /** How the refund was executed, frozen at refund time: 'excluded' (same UTC day as the billable PR run — the report never reaches billing) or 'credited' (billing issues a Stripe customer-balance credit).
+     *
+     * * `excluded` - Excluded
+     * * `credited` - Credited */
+    readonly billing_path: BillingPathEnumApi
+    /** Signals credits refunded (flat per-PR charge snapshot; 1 credit = $0.01). */
+    readonly credits: number
+    /** The refunded implementation PR's GitHub URL, snapshotted at refund time. */
+    readonly pr_url: string
+    /** When the first billable PR run was created — the charge this reverses. */
+    readonly pr_run_created_at: string
+    /**
+     * USD amount the billing service credited (credited path only). Null until the sync completes; '0.00' is a legitimate outcome (e.g. the PR was inside the free tier).
+     * @nullable
+     * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+     */
+    readonly credit_amount_usd: string | null
+    /** Whether the billing service has acknowledged this refund. Always relevant for the credited path (the Stripe credit is issued asynchronously); excluded-path refunds need no billing sync and report false. */
+    readonly billing_synced: boolean
+    /** When the refund was created. */
+    readonly created_at: string
+    /** True when the report already had a refund and that existing refund is returned unchanged — refunds are one-per-report and repeat calls are idempotent. */
+    readonly already_refunded: boolean
+}
+
 /**
  * * `session_replay` - session_replay
  * * `llm_analytics` - llm_analytics
  * * `github` - github
  * * `linear` - linear
+ * * `jira` - jira
  * * `zendesk` - zendesk
  * * `conversations` - conversations
  * * `error_tracking` - error_tracking
@@ -159,6 +305,7 @@ export interface PatchedSignalReportContentUpdateApi {
  * * `logs` - logs
  * * `health_checks` - health_checks
  * * `replay_vision` - replay_vision
+ * * `analytics` - analytics
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -167,6 +314,7 @@ export const SignalSourceProductApi = {
     LlmAnalytics: 'llm_analytics',
     Github: 'github',
     Linear: 'linear',
+    Jira: 'jira',
     Zendesk: 'zendesk',
     Conversations: 'conversations',
     ErrorTracking: 'error_tracking',
@@ -176,6 +324,7 @@ export const SignalSourceProductApi = {
     Logs: 'logs',
     HealthChecks: 'health_checks',
     ReplayVision: 'replay_vision',
+    Analytics: 'analytics',
 } as const
 
 /**
@@ -194,6 +343,7 @@ export const SignalSourceProductApi = {
  * * `alert_state_change` - alert_state_change
  * * `health_issue` - health_issue
  * * `scanner_finding` - scanner_finding
+ * * `anomaly_investigation` - anomaly_investigation
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
 
@@ -213,6 +363,7 @@ export const SignalSourceTypeApi = {
     AlertStateChange: 'alert_state_change',
     HealthIssue: 'health_issue',
     ScannerFinding: 'scanner_finding',
+    AnomalyInvestigation: 'anomaly_investigation',
 } as const
 
 export type ProblemTypeEnumApi = (typeof ProblemTypeEnumApi)[keyof typeof ProblemTypeEnumApi]
@@ -298,6 +449,17 @@ export interface LinearIssueSignalExtraApi {
     team_name: string | null
     created_at: string
     updated_at: string
+}
+
+export interface JiraIssueSignalExtraApi {
+    key: string
+    url: string | null
+    status: string | null
+    priority: string | null
+    assignee: string | null
+    labels: string[]
+    created: string | null
+    updated: string | null
 }
 
 export interface ConversationsTicketSignalExtraApi {
@@ -432,6 +594,33 @@ export interface ReplayVisionScannerFindingSignalExtraApi {
     recording_active_seconds?: number | null
 }
 
+/**
+ * * `true_positive` - true_positive
+ * * `false_positive` - false_positive
+ * * `inconclusive` - inconclusive
+ */
+export type InvestigationVerdictEnumApi = (typeof InvestigationVerdictEnumApi)[keyof typeof InvestigationVerdictEnumApi]
+
+export const InvestigationVerdictEnumApi = {
+    TruePositive: 'true_positive',
+    FalsePositive: 'false_positive',
+    Inconclusive: 'inconclusive',
+} as const
+
+export interface AnalyticsAnomalyInvestigationSignalExtraApi {
+    alert_id: string
+    alert_name: string
+    alert_check_id: string
+    insight_id: string
+    detector_type: string
+    verdict: InvestigationVerdictEnumApi
+    url: string
+    insight_name?: string | null
+    insight_short_id?: string | null
+    triggered_dates?: string[] | null
+    notebook_short_id?: string | null
+}
+
 export type HealthCheckSignalExtraSeverityEnumApi =
     (typeof HealthCheckSignalExtraSeverityEnumApi)[keyof typeof HealthCheckSignalExtraSeverityEnumApi]
 
@@ -461,6 +650,7 @@ export type SignalExtraApi =
     | ZendeskTicketSignalExtraApi
     | GithubIssueSignalExtraApi
     | LinearIssueSignalExtraApi
+    | JiraIssueSignalExtraApi
     | ConversationsTicketSignalExtraApi
     | ErrorTrackingSignalExtraApi
     | PgAnalyzeIssueSignalExtraApi
@@ -469,6 +659,7 @@ export type SignalExtraApi =
     | SignalsScoutSignalExtraApi
     | LogsAlertStateChangeSignalExtraApi
     | ReplayVisionScannerFindingSignalExtraApi
+    | AnalyticsAnomalyInvestigationSignalExtraApi
     | HealthCheckSignalExtraApi
 
 export interface SpecificityMetadataApi {
@@ -513,6 +704,7 @@ export interface SignalNodeApi {
      * * `llm_analytics` - llm_analytics
      * * `github` - github
      * * `linear` - linear
+     * * `jira` - jira
      * * `zendesk` - zendesk
      * * `conversations` - conversations
      * * `error_tracking` - error_tracking
@@ -521,7 +713,8 @@ export interface SignalNodeApi {
      * * `signals_scout` - signals_scout
      * * `logs` - logs
      * * `health_checks` - health_checks
-     * * `replay_vision` - replay_vision */
+     * * `replay_vision` - replay_vision
+     * * `analytics` - analytics */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -539,7 +732,8 @@ export interface SignalNodeApi {
      * * `cross_source_issue` - cross_source_issue
      * * `alert_state_change` - alert_state_change
      * * `health_issue` - health_issue
-     * * `scanner_finding` - scanner_finding */
+     * * `scanner_finding` - scanner_finding
+     * * `anomaly_investigation` - anomaly_investigation */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
     source_id: string
@@ -636,6 +830,7 @@ export interface SignalReportStateRequestApi {
  * * `note` - Note
  * * `title_change` - Title Change
  * * `summary_change` - Summary Change
+ * * `code_review` - Code Review
  */
 export type SignalReportArtefactTypeEnumApi =
     (typeof SignalReportArtefactTypeEnumApi)[keyof typeof SignalReportArtefactTypeEnumApi]
@@ -655,6 +850,7 @@ export const SignalReportArtefactTypeEnumApi = {
     Note: 'note',
     TitleChange: 'title_change',
     SummaryChange: 'summary_change',
+    CodeReview: 'code_review',
 } as const
 
 export interface _UserApi {
@@ -816,6 +1012,15 @@ export interface SignalReportBulkStateResponseApi {
     not_found_count: number
 }
 
+export interface SignalReportRefundSummaryResponseApi {
+    /** Number of credited-path refunds across the whole organization whose refunded PR run falls in the current billing period. Excluded-path refunds never reach billing usage, so they are deliberately absent. */
+    credited_refund_count: number
+    /** Total signals credits those refunds returned (1 credit = $0.01). Divide by the flat per-PR charge to get the number of PRs to subtract from billing usage. */
+    credited_credits: number
+    /** The organization's live billable signals credits for the current billing period, computed by the same rules as the nightly usage report — including PRs created today that billing hasn't recorded yet, and already excluding refund-excluded and billing-exempt reports. Take the max of this and billing's recorded usage for a live PR count that reacts to new PRs and same-day refunds immediately. */
+    period_billable_credits: number
+}
+
 export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
 
 export const ScoutOriginEnumApi = {
@@ -916,7 +1121,7 @@ export interface PatchedSignalScoutConfigApi {
  *
  * The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
  * row yet at response time — the bridge row is created once the run's first turn starts.
- * Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+ * Poll the scout's runs (`scout-runs-list`) to see the resulting run and its findings.
  */
 export interface SignalScoutManualRunApi {
     /** The `signals-scout-*` skill that was dispatched. */
@@ -1046,6 +1251,16 @@ export interface ExternalDataSourceEntryApi {
      * @nullable
      */
     created_at: string | null
+    /**
+     * ISO-8601 timestamp of the most recent completed sync job, or null if this source has never completed a sync. Use this to tell a healthy source apart from one stuck in `Running` that has imported zero rows — `status` alone conflates the two.
+     * @nullable
+     */
+    last_run_at: string | null
+    /**
+     * Newest schema-level sync error for this source, or null if no schema is erroring.
+     * @nullable
+     */
+    latest_error: string | null
 }
 
 /**
@@ -1528,7 +1743,7 @@ export interface ProjectProfileInventoryApi {
     emit_eligibility: EmitEligibilityApi
     /** Counts of reports already in the inbox, grouped by status. */
     existing_inbox_reports: ExistingInboxReportsApi
-    /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `activity-log-list`. */
+    /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `advanced-activity-logs-list`. */
     recent_activity: RecentActivityApi
     /** Recent human edits to report reviewer lists (before/after GitHub logins). The strongest ownership precedent available — check it before setting `suggested_reviewers` and fold what it shows into `reviewer:` memory keys. */
     recent_reviewer_corrections: RecentReviewerCorrectionsApi
@@ -1721,11 +1936,11 @@ export interface SignalScoutRunDetailApi {
  */
 export interface SuggestedReviewerApi {
     /**
-     * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `signals-scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.
+     * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.
      * @maxLength 200
      */
     github_login?: string
-    /** PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
+    /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
     user_uuid?: string
 }
 
@@ -1788,7 +2003,7 @@ export const AutonomyPriorityEnumApi = {
 
 /**
  * One finding a scout run emitted to the inbox — the persisted, queryable record of
- * *what* the run surfaced, returned by `signals-scout-runs-emissions-list`. The emitted text
+ * *what* the run surfaced, returned by `scout-runs-emissions-list`. The emitted text
  * lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
  * back into the underlying signal store.
  */
@@ -2170,6 +2385,7 @@ export interface ForgetResponseApi {
  * * `llm_analytics` - LLM analytics
  * * `github` - GitHub
  * * `linear` - Linear
+ * * `jira` - Jira
  * * `zendesk` - Zendesk
  * * `conversations` - Conversations
  * * `error_tracking` - Error tracking
@@ -2179,6 +2395,7 @@ export interface ForgetResponseApi {
  * * `health_checks` - Health checks
  * * `endpoints` - Endpoints
  * * `replay_vision` - Replay Vision
+ * * `analytics` - Product analytics
  */
 export type SignalSourceConfigSourceProductEnumApi =
     (typeof SignalSourceConfigSourceProductEnumApi)[keyof typeof SignalSourceConfigSourceProductEnumApi]
@@ -2188,6 +2405,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
     LlmAnalytics: 'llm_analytics',
     Github: 'github',
     Linear: 'linear',
+    Jira: 'jira',
     Zendesk: 'zendesk',
     Conversations: 'conversations',
     ErrorTracking: 'error_tracking',
@@ -2197,6 +2415,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
     HealthChecks: 'health_checks',
     Endpoints: 'endpoints',
     ReplayVision: 'replay_vision',
+    Analytics: 'analytics',
 } as const
 
 /**
@@ -2214,6 +2433,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
  * * `endpoint_execution_failed` - Endpoint execution failed
  * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
  * * `scanner_finding` - Scanner finding
+ * * `anomaly_investigation` - Anomaly investigation
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -2233,6 +2453,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     EndpointExecutionFailed: 'endpoint_execution_failed',
     EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
     ScannerFinding: 'scanner_finding',
+    AnomalyInvestigation: 'anomaly_investigation',
 } as const
 
 export interface SignalSourceConfigApi {
@@ -2317,6 +2538,10 @@ export type SignalsReportsListParams = {
      * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
      */
     has_implementation_pr?: boolean
+    /**
+     * When true, the list includes reports in every status with no default exclusions applied — currently that adds suppressed (dismissed) reports, which are otherwise hidden. Use it to see the full inbox state (e.g. deduplicating before creating a report) and read each row's status (plus dismissal_reason/dismissal_note on dismissed rows) before acting. Deleted reports are terminal and never returned. Defaults to false, which keeps the existing default exclusions. Ignored when an explicit 'status' filter is set — that filter alone decides which statuses are returned.
+     */
+    include_all_statuses?: boolean
     /**
      * Number of results to return per page.
      */

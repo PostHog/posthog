@@ -55,6 +55,8 @@ const EXCEPTION_CODE_OPTIONS = [
     { value: '159', label: '159 (timeout)' },
     { value: '241', label: '241 (memory)' },
     { value: '202', label: '202 (cluster busy)' },
+    { value: '164', label: '164 (readonly)' },
+    { value: '47', label: '47 (unknown identifier)' },
 ]
 
 // Group total = the read plus its precompute-build sub-queries (the user paid for all of them),
@@ -69,6 +71,7 @@ const SKIP_REASON_LABELS: Record<string, string> = {
     team_disabled: 'precompute off for team',
     min_runtime: 'experiment <12h old',
     data_warehouse: 'data warehouse metric',
+    group_aggregation: 'group-aggregated experiment',
 }
 
 function reasonForDirect(item: SlowestQuery, table: 'exposures' | 'metric_events'): string {
@@ -92,6 +95,8 @@ const EXCEPTION_CODE_LABELS: Record<number, string> = {
     159: 'timeout',
     241: 'out of memory',
     202: 'cluster busy',
+    164: 'readonly',
+    47: 'unknown identifier',
 }
 
 const codeLabel = (code: number): string => EXCEPTION_CODE_LABELS[code] ?? `error ${code}`
@@ -323,6 +328,8 @@ export function QueryPerformance(): JSX.Element {
         },
         {
             title: 'Scan window',
+            tooltip:
+                "The read query's analysis window (experiment start → end/now). Direct-scan reads scan this whole range — that's expected, not a bug. Precompute build jobs are capped at 7 days each; expand a row to see per-build windows.",
             width: 110,
             render: function ScanWindowCol(_, item): JSX.Element | null {
                 return <ScanWindow from={item.experiment_scan_date_from} to={item.experiment_scan_date_to} />
@@ -452,6 +459,7 @@ export function QueryPerformance(): JSX.Element {
         },
         {
             title: 'Scan window',
+            tooltip: "This build INSERT's job window — capped at 7 days per job.",
             width: 110,
             render: function SubQueryWindow(_, item): JSX.Element | null {
                 return <ScanWindow from={item.precompute_window_start} to={item.precompute_window_end} />

@@ -105,6 +105,40 @@ export interface _DayBreakdownApi {
     truncated: boolean
 }
 
+export interface _BucketBreakdownRowApi {
+    /** UTC start of the time bucket the events fall in (`toStartOfInterval(timestamp, ...)`). */
+    bucket_start: string
+    /** Number of $ai_generation + $ai_embedding events in this bucket for the scoped product. */
+    event_count: number
+    /** Total cost in USD in this bucket (sum of `$ai_total_cost_usd`). Authoritative: the component columns below can sum to less than this when the cost breakdown was unavailable for some events; render any remainder as uncategorized rather than assuming the components reconcile. */
+    cost_usd: number
+    /** Cost of uncached (full-price) input tokens in USD, derived per event as `$ai_input_cost_usd` minus the cache read/write costs (the stored input cost includes them), clamped at zero. The four component columns are disjoint: they sum to `cost_usd` when the full breakdown is present, so they can be stacked without double counting cache costs. */
+    input_cost_usd: number
+    /** Cost of output tokens in USD (sum of `$ai_output_cost_usd`). */
+    output_cost_usd: number
+    /** Cost of prompt-cache reads in USD (sum of `$ai_cache_read_cost_usd`). */
+    cache_read_cost_usd: number
+    /** Cost of prompt-cache writes in USD (sum of `$ai_cache_creation_cost_usd`). A spike here with near-zero cache reads is the signature of a cold session being revived: the full conversation context is re-written to the cache at the cache-write rate instead of being read back cheaply. */
+    cache_creation_cost_usd: number
+    /** Sum of `$ai_input_tokens` in this bucket. Whether cached tokens are included follows the provider's reporting (`$ai_cache_reporting_exclusive`): Anthropic-style events exclude them, OpenAI-style events include them, so don't stack this with the cache token sums. */
+    input_tokens: number
+    /** Sum of `$ai_output_tokens` in this bucket. */
+    output_tokens: number
+    /** Sum of `$ai_cache_read_input_tokens` (prompt tokens served from cache) in this bucket. */
+    cache_read_input_tokens: number
+    /** Sum of `$ai_cache_creation_input_tokens` (prompt tokens written to cache) in this bucket. */
+    cache_creation_input_tokens: number
+}
+
+export interface _BucketBreakdownApi {
+    /** One row per UTC time bucket that has events, ordered by bucket start ascending. Buckets with no events are omitted; zero-fill client-side when rendering a continuous series. */
+    items: _BucketBreakdownRowApi[]
+    /** Bucket size in minutes the series was computed at; echoes the request `bucket_minutes`. */
+    bucket_minutes: number
+    /** Effectively always false: `by_bucket` ignores `limit` because truncating a time series by cost would be meaningless, and the 600-bucket window cap already bounds the series length. */
+    truncated: boolean
+}
+
 export interface _TopTraceRowApi {
     /**
      * `$ai_trace_id` of the session — opaque string scoped to the originating product. Format is not stable: most are UUIDs but some SDK wrappers emit JSON-shaped strings like `{"device_id":"...","session_id":"..."}`. Callers should treat this as an opaque identifier (URL-encode before linking to a trace view).
@@ -143,6 +177,8 @@ export interface PersonalSpendAnalysisResponseApi {
     by_model: _ModelBreakdownApi
     /** Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`. */
     by_day: _DayBreakdownApi
+    /** Spend grouped by UTC time bucket with per-bucket cost/token components, ordered ascending. Scoped to `product`. Only present when the request set `bucket_minutes`. */
+    by_bucket?: _BucketBreakdownApi
     /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
     top_traces: _TopTracesApi
 }
@@ -437,6 +473,7 @@ export const EvaluationTargetEnumApi = {
  * * `azure_openai` - Azure OpenAI
  * * `together_ai` - Together AI
  * * `minimax` - MiniMax
+ * * `zeabur` - Zeabur AI Hub
  */
 export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
 
@@ -449,6 +486,7 @@ export const LLMProviderEnumApi = {
     AzureOpenai: 'azure_openai',
     TogetherAi: 'together_ai',
     Minimax: 'minimax',
+    Zeabur: 'zeabur',
 } as const
 
 /**
@@ -459,7 +497,7 @@ export interface ModelConfigurationApi {
     /** @maxLength 100 */
     model: string
     /**
-     * Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.
+     * Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.
      * @nullable
      */
     provider_key_id?: string | null
@@ -552,6 +590,7 @@ export interface EvaluationApi {
     target?: EvaluationTargetEnumApi
     /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
     target_config?: EvaluationApiTargetConfig
+    /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
     readonly created_at: string
     readonly updated_at: string
@@ -654,6 +693,7 @@ export interface PatchedEvaluationApi {
     target?: EvaluationTargetEnumApi
     /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
     target_config?: PatchedEvaluationApiTargetConfig
+    /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
     readonly created_at?: string
     readonly updated_at?: string
@@ -1000,23 +1040,20 @@ export interface EvaluationReportApi {
     readonly id: string
     /** UUID of the evaluation this report config belongs to. */
     evaluation: string
-    /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
+    /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.
      *
      * * `scheduled` - Scheduled
      * * `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
-    /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
+    /** RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
     /**
-     * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
+     * Read-only anchor datetime used to expand scheduled reports. The server sets this automatically when a report is switched to scheduled mode.
      * @nullable
      */
-    starts_at?: string | null
-    /**
-     * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
-     * @maxLength 64
-     */
-    timezone_name?: string
+    readonly starts_at: string | null
+    /** Read-only timezone used for scheduled reports. Evaluation reports use UTC. */
+    readonly timezone_name: string
     /** @nullable */
     readonly next_delivery_date: string | null
     /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
@@ -1029,15 +1066,15 @@ export interface EvaluationReportApi {
     max_sample_size?: number
     /** Whether report delivery is active. Disabled configs do not fire. */
     enabled?: boolean
-    /** Set to true to soft-delete this report config. */
-    deleted?: boolean
+    /** Read-only. Report configs are soft-deleted only when their evaluation is deleted. Use enabled=false to stop deliveries. */
+    readonly deleted: boolean
     /** @nullable */
     readonly last_delivered_at: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
-     * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
-     * @minimum 10
+     * Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+     * @minimum 100
      * @maximum 10000
      * @nullable
      */
@@ -1068,27 +1105,84 @@ export interface PaginatedEvaluationReportListApi {
     results: EvaluationReportApi[]
 }
 
-export interface PatchedEvaluationReportApi {
-    readonly id?: string
+export interface EvaluationReportUpdateApi {
+    readonly id: string
     /** UUID of the evaluation this report config belongs to. */
-    evaluation?: string
-    /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
+    readonly evaluation: string
+    /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.
      *
      * * `scheduled` - Scheduled
      * * `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
-    /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
+    /** RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
     /**
-     * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
+     * Read-only anchor datetime used to expand scheduled reports. The server sets this automatically when a report is switched to scheduled mode.
      * @nullable
      */
-    starts_at?: string | null
+    readonly starts_at: string | null
+    /** Read-only timezone used for scheduled reports. Evaluation reports use UTC. */
+    readonly timezone_name: string
+    /** @nullable */
+    readonly next_delivery_date: string | null
+    /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
+    delivery_targets?: unknown
     /**
-     * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
-     * @maxLength 64
+     * Maximum number of evaluation runs included in each report. Defaults to 200.
+     * @minimum -2147483648
+     * @maximum 2147483647
      */
-    timezone_name?: string
+    max_sample_size?: number
+    /** Whether report delivery is active. Disabled configs do not fire. */
+    enabled?: boolean
+    /** Read-only. Report configs are soft-deleted only when their evaluation is deleted. Use enabled=false to stop deliveries. */
+    readonly deleted: boolean
+    /** @nullable */
+    readonly last_delivered_at: string | null
+    /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
+    report_prompt_guidance?: string
+    /**
+     * Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+     * @minimum 100
+     * @maximum 10000
+     * @nullable
+     */
+    trigger_threshold?: number | null
+    /**
+     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+     * @minimum 60
+     * @maximum 1440
+     */
+    cooldown_minutes?: number
+    /**
+     * Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.
+     * @minimum 1
+     * @maximum 24
+     */
+    daily_run_cap?: number
+    /** @nullable */
+    readonly created_by: number | null
+    readonly created_at: string
+}
+
+export interface PatchedEvaluationReportUpdateApi {
+    readonly id?: string
+    /** UUID of the evaluation this report config belongs to. */
+    readonly evaluation?: string
+    /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.
+     *
+     * * `scheduled` - Scheduled
+     * * `every_n` - Every N */
+    frequency?: EvaluationReportFrequencyEnumApi
+    /** RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise. */
+    rrule?: string
+    /**
+     * Read-only anchor datetime used to expand scheduled reports. The server sets this automatically when a report is switched to scheduled mode.
+     * @nullable
+     */
+    readonly starts_at?: string | null
+    /** Read-only timezone used for scheduled reports. Evaluation reports use UTC. */
+    readonly timezone_name?: string
     /** @nullable */
     readonly next_delivery_date?: string | null
     /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
@@ -1101,15 +1195,15 @@ export interface PatchedEvaluationReportApi {
     max_sample_size?: number
     /** Whether report delivery is active. Disabled configs do not fire. */
     enabled?: boolean
-    /** Set to true to soft-delete this report config. */
-    deleted?: boolean
+    /** Read-only. Report configs are soft-deleted only when their evaluation is deleted. Use enabled=false to stop deliveries. */
+    readonly deleted?: boolean
     /** @nullable */
     readonly last_delivered_at?: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
-     * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
-     * @minimum 10
+     * Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+     * @minimum 100
      * @maximum 10000
      * @nullable
      */
@@ -1131,8 +1225,98 @@ export interface PatchedEvaluationReportApi {
     readonly created_at?: string
 }
 
+export interface EvaluationReportSectionApi {
+    /** Agent-generated section heading. */
+    title?: string
+    /** Markdown narrative for this section. */
+    content?: string
+}
+
+export interface EvaluationReportCitationApi {
+    /** Generation UUID referenced by this citation. */
+    generation_id?: string
+    /** Trace identifier containing the referenced generation. */
+    trace_id?: string
+    /** Short explanation of why the generation is cited. */
+    reason?: string
+}
+
+/**
+ * Count by output-specific result label, such as pass/fail/N/A or positive/neutral/negative.
+ */
+export type EvaluationReportMetricsApiResultCounts = { [key: string]: number }
+
+/**
+ * Percentage by output-specific result label, from 0 to 100.
+ */
+export type EvaluationReportMetricsApiResultRates = { [key: string]: number }
+
+/**
+ * Count by result label for the previous period, or null when unavailable.
+ * @nullable
+ */
+export type EvaluationReportMetricsApiPreviousResultCounts = { [key: string]: number } | null
+
+/**
+ * Percentage by result label for the previous period, or null when unavailable.
+ * @nullable
+ */
+export type EvaluationReportMetricsApiPreviousResultRates = { [key: string]: number } | null
+
+export interface EvaluationReportMetricsApi {
+    /** Evaluation result type. Stored metrics without this field represent boolean evaluations.
+     *
+     * * `boolean` - Boolean (Pass/Fail)
+     * * `sentiment` - Sentiment */
+    output_type?: OutputTypeEnumApi
+    /** Number of evaluation results in the report period. */
+    total_runs?: number
+    /** Count by output-specific result label, such as pass/fail/N/A or positive/neutral/negative. */
+    result_counts?: EvaluationReportMetricsApiResultCounts
+    /** Percentage by output-specific result label, from 0 to 100. */
+    result_rates?: EvaluationReportMetricsApiResultRates
+    /** ISO 8601 start of the evaluation window represented by these metrics. */
+    period_start?: string
+    /** ISO 8601 end of the evaluation window represented by these metrics. */
+    period_end?: string
+    /**
+     * Number of evaluation results in the previous comparison period, or null when unavailable.
+     * @nullable
+     */
+    previous_total_runs?: number | null
+    /**
+     * Count by result label for the previous period, or null when unavailable.
+     * @nullable
+     */
+    previous_result_counts?: EvaluationReportMetricsApiPreviousResultCounts
+    /**
+     * Percentage by result label for the previous period, or null when unavailable.
+     * @nullable
+     */
+    previous_result_rates?: EvaluationReportMetricsApiPreviousResultRates
+    /** Boolean pass percentage, excluding results marked not applicable. */
+    pass_rate?: number
+    /**
+     * Boolean pass percentage for the previous period, or null when unavailable.
+     * @nullable
+     */
+    previous_pass_rate?: number | null
+}
+
+export interface EvaluationReportRunContentApi {
+    /** Agent-generated report headline. */
+    title?: string
+    /** Ordered narrative sections in the report. */
+    sections?: EvaluationReportSectionApi[]
+    /** Trace references grounding findings in the report. */
+    citations?: EvaluationReportCitationApi[]
+    /** Structured metrics computed for the report period. */
+    metrics?: EvaluationReportMetricsApi | null
+}
+
 /**
  * * `pending` - Pending
+ * * `generated` - Generated
  * * `delivered` - Delivered
  * * `partial_failure` - Partial Failure
  * * `failed` - Failed
@@ -1141,6 +1325,7 @@ export type DeliveryStatusEnumApi = (typeof DeliveryStatusEnumApi)[keyof typeof 
 
 export const DeliveryStatusEnumApi = {
     Pending: 'pending',
+    Generated: 'generated',
     Delivered: 'delivered',
     PartialFailure: 'partial_failure',
     Failed: 'failed',
@@ -1151,23 +1336,25 @@ export interface EvaluationReportRunApi {
     readonly id: string
     /** UUID of the report config that generated this run. */
     readonly report: string
-    /** Generated report content (markdown or structured text). */
-    readonly content: unknown
-    /** Run metadata including model used, token counts, and generation stats. */
-    readonly metadata: unknown
+    /** Structured report narrative, citations, and metrics. Legacy runs may contain only some fields. */
+    readonly content: EvaluationReportRunContentApi
+    /** Legacy mirror of content.metrics. May contain partial boolean metrics on older runs. */
+    readonly metadata: EvaluationReportMetricsApi | null
     /** Start of the evaluation window covered by this report. */
     readonly period_start: string
     /** End of the evaluation window covered by this report. */
     readonly period_end: string
-    /** 'pending', 'delivered', or 'failed'.
+    /** Delivery result: 'pending', 'generated', 'delivered', 'partial_failure', or 'failed'.
      *
      * * `pending` - Pending
+     * * `generated` - Generated
      * * `delivered` - Delivered
      * * `partial_failure` - Partial Failure
      * * `failed` - Failed */
     readonly delivery_status: DeliveryStatusEnumApi
-    /** List of delivery error messages if delivery failed. */
-    readonly delivery_errors: unknown
+    /** Delivery error messages. Empty when all configured deliveries succeeded. */
+    readonly delivery_errors: readonly string[]
+    /** When this report run was created. */
     readonly created_at: string
 }
 
@@ -2167,7 +2354,8 @@ export interface TaggerModelConfigurationApi {
      * * `fireworks` - Fireworks
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
-     * * `minimax` - MiniMax */
+     * * `minimax` - MiniMax
+     * * `zeabur` - Zeabur AI Hub */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -2220,7 +2408,8 @@ export interface TaggerModelConfigurationWriteApi {
      * * `fireworks` - Fireworks
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
-     * * `minimax` - MiniMax */
+     * * `minimax` - MiniMax
+     * * `zeabur` - Zeabur AI Hub */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -2336,6 +2525,15 @@ export interface TestHogTaggerResponseApi {
 
 export type LlmAnalyticsPersonalSpendListParams = {
     /**
+     * When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 50 hours at 5-minute buckets).
+     *
+     * * `5` - 5
+     * * `15` - 15
+     * * `30` - 30
+     * * `60` - 60
+     */
+    bucket_minutes?: LlmAnalyticsPersonalSpendListBucketMinutes
+    /**
      * Start of the spend window. Accepts absolute dates (`2026-04-23`) or relative strings (`-7d`, `-1m`, etc.) — same parser used elsewhere in PostHog. Defaults to `-30d`. The window between `date_from` and `date_to` cannot exceed 90 days.
      * @minLength 1
      * @maxLength 32
@@ -2364,6 +2562,16 @@ export type LlmAnalyticsPersonalSpendListParams = {
      */
     refresh?: boolean
 }
+
+export type LlmAnalyticsPersonalSpendListBucketMinutes =
+    (typeof LlmAnalyticsPersonalSpendListBucketMinutes)[keyof typeof LlmAnalyticsPersonalSpendListBucketMinutes]
+
+export const LlmAnalyticsPersonalSpendListBucketMinutes = {
+    Number5: 5,
+    Number15: 15,
+    Number30: 30,
+    Number60: 60,
+} as const
 
 export type DatasetItemsListParams = {
     /**
@@ -2474,6 +2682,10 @@ export type LlmAnalyticsClusteringJobsListParams = {
 
 export type LlmAnalyticsEvaluationReportsListParams = {
     /**
+     * Only return report configs for this evaluation UUID.
+     */
+    evaluation?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -2525,6 +2737,7 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     Openai: 'openai',
     Openrouter: 'openrouter',
     TogetherAi: 'together_ai',
+    Zeabur: 'zeabur',
 } as const
 
 export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown }

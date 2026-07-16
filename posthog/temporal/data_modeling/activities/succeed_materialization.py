@@ -62,8 +62,8 @@ def _view_enrichment_needed(node: Node | None) -> tuple[bool, str | None]:
             return False, str(node.saved_query_id)
         if compute_enrichment_hash(saved_query) == saved_query.semantic_enrichment_hash:
             return False, str(node.saved_query_id)
-        # Gate on the flag + AI-processing approval before enqueuing, so a disabled team's re-materialization
-        # never creates enrichment workflow work. The child activity re-checks both as the source of truth.
+        # Gate on AI-processing approval before enqueuing, so a non-consented team's re-materialization
+        # never creates enrichment workflow work. The child activity re-checks it as the source of truth.
         if not enrichment_gates_pass(saved_query):
             return False, str(node.saved_query_id)
         return True, str(node.saved_query_id)

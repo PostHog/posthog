@@ -36,6 +36,7 @@ import {
     isQuickFilterItem,
     quickFilterToPropertyFilters,
 } from '../TaxonomicFilter/types'
+import { DEFAULT_UNIVERSAL_GROUP_FILTER } from './constants'
 import type { universalFiltersLogicType } from './universalFiltersLogicType'
 
 function isApplicableSavedFilter(
@@ -80,15 +81,7 @@ function isPropertyEditableTaxonomicGroupType(groupType: TaxonomicFilterGroupTyp
     )
 }
 
-export const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalFiltersGroup = {
-    type: FilterLogicalOperator.And,
-    values: [
-        {
-            type: FilterLogicalOperator.And,
-            values: [],
-        },
-    ],
-}
+export { DEFAULT_UNIVERSAL_GROUP_FILTER }
 
 export type UniversalFiltersLogicProps = {
     rootKey: string

@@ -18,10 +18,11 @@ const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(50);
 /// matching the four-phase handoff protocol
 /// (`Freezing → Draining → Warming → Complete`):
 ///   - `drain_partition_inflight` (fired in `Draining` for the
-///     old owner): waits until no in-flight request handlers remain
-///     for the partition. By the time the coordinator advances to
-///     `Draining`, every router has acked freeze and stopped
-///     forwarding, so the inflight count strictly drops to zero.
+///     old owner): fences the partition against new writes, then waits
+///     until no in-flight request handlers remain. By the time the
+///     coordinator advances to `Draining`, every router has acked freeze
+///     and stopped forwarding, so any write arriving after this point is
+///     protocol-violating (a router with a stale view) and is rejected.
 ///     Because the produce path awaits the Kafka delivery future
 ///     before returning, "no in-flight" implies "every write this
 ///     pod ever acked is durable in Kafka." The pod then writes
@@ -30,8 +31,15 @@ const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(50);
 ///     consumes the `personhog_updates` topic for the partition and
 ///     repopulates the in-memory cache up to the now-stable HWM.
 ///   - `release_partition` (fired in `Complete` for the old owner):
-///     drops the partition's cache after the routing table has
-///     flipped to the new owner.
+///     drops the partition's cache (and its write fence) after the
+///     routing table has flipped to the new owner.
+///   - `resume_partition` (fired when a handoff is cancelled while this
+///     pod still owns the partition): lifts the write fence so the
+///     still-owning pod serves normally again.
+///
+/// Reads are never fenced: while writes are frozen the cached state
+/// cannot change, so the old owner's cache remains the latest state
+/// right up to cutover.
 pub struct LeaderHandoffHandler {
     cache: Arc<PartitionedCache>,
     inflight: Arc<InflightTracker>,
@@ -59,25 +67,41 @@ impl LeaderHandoffHandler {
 #[async_trait]
 impl HandoffHandler for LeaderHandoffHandler {
     async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
-        info!(partition, "draining inflight handlers");
+        info!(partition, "fencing writes and draining inflight handlers");
+        // Fence before waiting: fencing only after the wait would leave a
+        // window between the inflight count reaching zero and the
+        // DrainedAck where a late write could advance the Kafka HWM past
+        // the point warming snapshots.
+        self.inflight.fence(partition);
         self.inflight
             .wait_until_empty(partition, DRAIN_POLL_INTERVAL)
             .await;
-        info!(partition, "inflight drained");
+        info!(partition, "inflight drained; writes fenced");
         Ok(())
     }
 
     async fn warm_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "warming partition cache from kafka");
         warm_from_kafka(&self.warming, &self.cache, partition).await?;
+        // This pod may still carry a fence from a previous ownership of
+        // the partition (a drain whose handoff never completed); taking
+        // ownership through a fresh warm re-admits writes.
+        self.inflight.unfence(partition);
         info!(partition, "partition warmed");
         Ok(())
     }
 
     async fn release_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "releasing partition");
+        self.inflight.unfence(partition);
         self.cache.drop_partition(partition);
         info!(partition, "partition released");
+        Ok(())
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        info!(partition, "handoff cancelled; re-admitting writes");
+        self.inflight.unfence(partition);
         Ok(())
     }
 }

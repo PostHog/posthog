@@ -43,23 +43,35 @@ def journeys_for(
     Writing tests in this way reduces duplication in test setup
     And clarifies the preconditions of the test
     """
+    from posthog.test.persons import create_people_bulk  # noqa: PLC0415
+
     flush_persons_and_events()
     people = {}
-    events_to_create = []
-    for distinct_id, events in events_by_person.items():
+    to_create_bulk: list[dict[str, Any]] = []
+    for distinct_id in events_by_person:
         if create_people:
             # Create the person UUID from the distinct ID and test path, so that SQL snapshots are deterministic
             derived_uuid = UUID(
                 bytes=md5((os.getenv("PYTEST_CURRENT_TEST", "some_test") + distinct_id).encode("utf-8")).digest()
             )
-            people[distinct_id] = update_or_create_person(
-                distinct_ids=[distinct_id], team_id=team.pk, uuid=derived_uuid
-            )
+            existing_person = get_person_by_distinct_id(team.pk, distinct_id)
+            if existing_person is not None:
+                people[distinct_id] = update_or_create_person(
+                    distinct_ids=[distinct_id], team_id=team.pk, uuid=derived_uuid
+                )
+            else:
+                to_create_bulk.append({"team_id": team.pk, "distinct_ids": [distinct_id], "uuid": derived_uuid})
         else:
             existing_person = get_person_by_distinct_id(team.pk, distinct_id)
             assert existing_person is not None
             people[distinct_id] = existing_person
 
+    # One bulk ClickHouse insert per table instead of two inserts per person.
+    for spec, person in zip(to_create_bulk, create_people_bulk(to_create_bulk)):
+        people[spec["distinct_ids"][0]] = person
+
+    events_to_create = []
+    for distinct_id, events in events_by_person.items():
         for event in events:
             # Populate group properties as well
             group_mapping = {}

@@ -583,59 +583,24 @@ describe('logsViewerLogic', () => {
         })
     })
 
-    describe('attribute columns', () => {
+    describe('attribute columns facade', () => {
         beforeEach(() => {
             ;({ logic } = mountWithLogs())
         })
 
-        describe('moveAttributeColumn', () => {
-            beforeEach(async () => {
-                // Set up initial columns: [A, B, C]
-                logic.actions.toggleAttributeColumn('A')
-                logic.actions.toggleAttributeColumn('B')
-                logic.actions.toggleAttributeColumn('C')
-                await expectLogic(logic).toFinishAllListeners()
-            })
+        it('toggling an attribute adds a custom column and toggling again removes it', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.toggleAttributeColumn('k8s.pod')
+            }).toFinishAllListeners()
 
-            it('moves column left', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.moveAttributeColumn('B', 'left')
-                }).toMatchValues({
-                    attributeColumns: ['B', 'A', 'C'],
-                })
-            })
+            const added = logic.values.columns.find((c) => c.type === 'custom' && c.name === 'k8s.pod')
+            expect(added?.expression).toContain("attributes['k8s.pod']")
+            expect(logic.values.isAttributeColumn('k8s.pod')).toBe(true)
 
-            it('moves column right', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.moveAttributeColumn('B', 'right')
-                }).toMatchValues({
-                    attributeColumns: ['A', 'C', 'B'],
-                })
-            })
-
-            it('does nothing when moving first column left', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.moveAttributeColumn('A', 'left')
-                }).toMatchValues({
-                    attributeColumns: ['A', 'B', 'C'],
-                })
-            })
-
-            it('does nothing when moving last column right', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.moveAttributeColumn('C', 'right')
-                }).toMatchValues({
-                    attributeColumns: ['A', 'B', 'C'],
-                })
-            })
-
-            it('does nothing for non-existent column', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.moveAttributeColumn('Z', 'left')
-                }).toMatchValues({
-                    attributeColumns: ['A', 'B', 'C'],
-                })
-            })
+            await expectLogic(logic, () => {
+                logic.actions.toggleAttributeColumn('k8s.pod')
+            }).toFinishAllListeners()
+            expect(logic.values.isAttributeColumn('k8s.pod')).toBe(false)
         })
     })
 
@@ -654,7 +619,7 @@ describe('logsViewerLogic', () => {
 
         it.each<['left' | 'right', string, string[]]>([
             ['left', 'c1', ['c1', 'timestamp', 'message']],
-            ['right', 'c1', ['timestamp', 'message', 'c1']],
+            ['right', 'c1', ['timestamp', 'c1', 'message']], // message pinned last, so a no-op
             ['left', 'timestamp', ['timestamp', 'c1', 'message']], // first, no-op
             ['right', 'message', ['timestamp', 'c1', 'message']], // last, no-op
             ['left', 'missing', ['timestamp', 'c1', 'message']], // unknown id, no-op

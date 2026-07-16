@@ -105,7 +105,7 @@ export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TCo
                                         // deterministic server-side hash (and derive the session) before extraction,
                                         // which keys heatmaps on distinct id and session id.
                                         .gather()
-                                        .pipeBatch(createApplyCookielessProcessingStep(cookielessManager))
+                                        .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
                                         .sequentially((b) =>
                                             b
                                                 .pipe(createCheckHeatmapOptInStep())

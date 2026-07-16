@@ -19,7 +19,12 @@ export const SubscriptionsListParams = /* @__PURE__ */ zod.object({
 export const SubscriptionsListQueryParams = /* @__PURE__ */ zod.object({
     created_by: zod.string().optional().describe('Filter by creator user UUID.'),
     dashboard: zod.number().optional().describe('Filter by dashboard ID.'),
+    dashboard_tiles: zod
+        .number()
+        .optional()
+        .describe('Filter to subscriptions on insights that are tiles of the given dashboard ID.'),
     insight: zod.number().optional().describe('Filter by insight ID.'),
+    insights: zod.string().optional().describe('Filter by a comma-separated list of insight IDs.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe('Which field to use when ordering the results.'),
@@ -182,6 +187,12 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .number()
             .nullish()
             .describe('ID of a connected Slack integration. Required when target_type is slack.'),
+        send_test_now: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected.'
+            ),
         summary_enabled: zod
             .boolean()
             .optional()

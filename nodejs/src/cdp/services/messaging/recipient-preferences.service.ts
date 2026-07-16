@@ -4,7 +4,7 @@ import { logger } from '~/common/utils/logger'
 import { CyclotronJobInvocationHogFunction } from '../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 
-type MessageFunctionActionType = 'function_email' | 'function_sms'
+type MessageFunctionActionType = 'function_email' | 'function_sms' | 'function_push'
 
 type MessageAction = Extract<HogFlowAction, { type: MessageFunctionActionType }>
 
@@ -15,13 +15,21 @@ export class RecipientPreferencesService {
         invocation: CyclotronJobInvocationHogFunction,
         action: HogFlowAction
     ): Promise<boolean> {
-        return (
-            this.isSubjectToRecipientPreferences(action) && (await this.isRecipientOptedOutOfAction(invocation, action))
-        )
+        if (!this.isSubjectToRecipientPreferences(action)) {
+            return false
+        }
+
+        // Transactional messages are not eligible for opt-outs, so they send regardless of
+        // whether the recipient has opted out of this category or of all marketing messaging.
+        if (action.config.message_category_type === 'transactional') {
+            return false
+        }
+
+        return await this.isRecipientOptedOutOfAction(invocation, action)
     }
 
     private isSubjectToRecipientPreferences(action: HogFlowAction): action is MessageAction {
-        return ['function_email', 'function_sms'].includes(action.type)
+        return ['function_email', 'function_sms', 'function_push'].includes(action.type)
     }
 
     private async isRecipientOptedOutOfAction(
@@ -34,6 +42,13 @@ export class RecipientPreferencesService {
             identifier = invocation.state.globals.inputs?.to_number
         } else if (action.type === 'function_email') {
             identifier = invocation.state.globals.inputs?.email?.to?.email
+        } else if (action.type === 'function_push') {
+            // Push has no email/phone "to" field. Delivery reads the device token from the invocation's
+            // person (globals.person.properties), so key the opt-out on that same person's distinct_id —
+            // not the configurable inputs.distinctId or the triggering event — so the recipient we check
+            // is always the recipient we deliver to. Fall back to the event distinct_id when the person
+            // has no resolved one.
+            identifier = invocation.state.globals.person?.distinct_id ?? invocation.state.globals.event?.distinct_id
         }
 
         if (!identifier) {

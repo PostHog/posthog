@@ -251,6 +251,19 @@ class TestSafetyRails:
         job.refresh_from_db()
         assert job.status == ExternalDataJob.Status.RUNNING
 
+    def test_created_after_excludes_older_backlog(self, team, fake_temporal, queue_conn):
+        _, old_zombie = _create_stuck_job(team, created_at=datetime(2024, 9, 1, tzinfo=UTC))
+        schema, incident_job = _create_stuck_job(team, created_at=BEFORE_CUTOFF)
+        assert incident_job.workflow_run_id is not None
+        fake_temporal.describe_results[incident_job.workflow_run_id] = _wedged()
+
+        _call("--created-after", "2026-06-28T00:00:00Z", "--live-run", "--yes")
+
+        old_zombie.refresh_from_db()
+        incident_job.refresh_from_db()
+        assert old_zombie.status == ExternalDataJob.Status.RUNNING
+        assert incident_job.status == ExternalDataJob.Status.FAILED
+
     def test_max_jobs_cap_aborts_before_any_write(self, team, fake_temporal, queue_conn):
         _, job_a = _create_stuck_job(team)
         _, job_b = _create_stuck_job(team)

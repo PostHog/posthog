@@ -94,6 +94,48 @@ describe('databaseTableListLogic', () => {
         expect(posthog.captureException).not.toHaveBeenCalled()
     })
 
+    it('refreshDatabaseSchema issues a fresh request instead of piggybacking on an in-flight load', () => {
+        ;(performQuery as jest.Mock).mockImplementation(() => new Promise(() => {}))
+
+        logic = databaseTableListLogic()
+        logic.mount()
+        logic.actions.setConnection('conn-123')
+
+        logic.actions.loadDatabase()
+        expect(performQuery).toHaveBeenCalledTimes(1)
+
+        // A plain reload would dedupe onto the in-flight request and return its (pre-mutation)
+        // result; the forced refresh must issue its own request.
+        logic.actions.refreshDatabaseSchema()
+        expect(performQuery).toHaveBeenCalledTimes(2)
+    })
+
+    it('discards a superseded in-flight response so a refreshed post-deletion schema is not overwritten', async () => {
+        let resolveStale: ((value: { tables: Record<string, unknown>; joins: never[] }) => void) | undefined
+        let resolveFresh: ((value: { tables: Record<string, unknown>; joins: never[] }) => void) | undefined
+        ;(performQuery as jest.Mock)
+            .mockImplementationOnce(() => new Promise((resolve) => (resolveStale = resolve)))
+            .mockImplementationOnce(() => new Promise((resolve) => (resolveFresh = resolve)))
+
+        logic = databaseTableListLogic()
+        logic.mount()
+
+        const stalePreDeletion = logic.asyncActions.loadDatabase()
+        const freshPostDeletion = logic.asyncActions.loadDatabase({ force: true })
+        expect(performQuery).toHaveBeenCalledTimes(2)
+
+        // The forced (post-deletion) refresh resolves first: the deleted view is gone.
+        resolveFresh?.({ tables: {}, joins: [] })
+        await freshPostDeletion
+        expect(logic.values.views).toEqual([])
+
+        // The older in-flight request resolves later, still carrying the deleted view. It is
+        // superseded and must not clobber the refreshed schema.
+        resolveStale?.({ tables: { my_view: { name: 'my_view', type: 'view' } }, joins: [] })
+        await stalePreDeletion
+        expect(logic.values.views).toEqual([])
+    })
+
     it('does not let a stale schema response overwrite the selected connection schema', async () => {
         let resolvePosthogQuery:
             | ((value: { tables: Record<string, { name: string; type: 'posthog' }>; joins: never[] }) => void)

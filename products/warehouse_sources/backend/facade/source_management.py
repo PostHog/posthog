@@ -19,6 +19,9 @@ _LAZY = {
     "CDCSourceAdapter": "cdc.adapters",
     "get_cdc_adapter": "cdc.adapters",
     "source_type_supports_cdc": "cdc.adapters",
+    "CDCRepairError": "cdc.repair",
+    "CDCRepairInProgress": "cdc.repair",
+    "repair_cdc_source": "cdc.repair",
     "ClickHouseSource": "sources.clickhouse.source",
     "AnySource": "sources.common.base",
     "ExternalWebhookInfo": "sources.common.base",
@@ -28,6 +31,9 @@ _LAZY = {
     "WebhookSource": "sources.common.base",
     "WebhookSyncResult": "sources.common.base",
     "Config": "sources.common.config",
+    "IntegrationAccountListingError": "sources.common.integration_accounts",
+    "filter_integration_accounts": "sources.common.integration_accounts",
+    "OAuthMixin": "sources.common.mixins",
     "SourceSchema": "sources.common.schema",
     "build_default_schemas": "sources.common.schema",
     "RowFilterValidationError": "sources.common.sql",
@@ -62,6 +68,7 @@ _LAZY = {
     "get_primary_key_columns": "sources.postgres.postgres",
     "source_requires_ssl": "sources.postgres.postgres",
     "PostgresSource": "sources.postgres.source",
+    "RedshiftSource": "sources.redshift.source",
     "SnowflakeSource": "sources.snowflake.source",
 }
 

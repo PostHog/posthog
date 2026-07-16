@@ -1,1 +1,1 @@
-0017_relabel_terminal_status_reasons
+0022_add_generated_delivery_status

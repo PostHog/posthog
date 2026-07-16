@@ -67,7 +67,7 @@ from products.signals.backend.scout_harness.tools.profile import (
     get_project_profile,
 )
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
@@ -176,6 +176,30 @@ class TestExternalDataSources(BaseTest):
         result = _external_data_sources(self.team)
         assert result[0]["status"] == "Failed"
         assert result[0]["prefix"] == "pg_"
+
+    def test_last_run_at_none_when_never_completed_a_sync(self) -> None:
+        # A source stuck in `Running` that has never completed a sync must read as `last_run_at=None`
+        # so a scout can tell it apart from a healthy source — `status` alone conflates the two. Only
+        # a `Completed` job counts; a `Running` job present here must not populate `last_run_at`.
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type="BigQuery", status="Running", prefix="bq_"
+        )
+        ExternalDataJob.objects.create(team=self.team, pipeline=source, status=ExternalDataJob.Status.RUNNING)
+        result = _external_data_sources(self.team)
+        assert result[0]["last_run_at"] is None
+        assert result[0]["latest_error"] is None
+
+    def test_surfaces_last_run_at_and_latest_error(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type="Stripe", status="Completed", prefix="stripe_"
+        )
+        job = ExternalDataJob.objects.create(team=self.team, pipeline=source, status=ExternalDataJob.Status.COMPLETED)
+        ExternalDataSchema.objects.create(
+            team=self.team, source=source, name="charges", latest_error="permission denied for table charges"
+        )
+        result = _external_data_sources(self.team)
+        assert result[0]["last_run_at"] == job.created_at.isoformat()
+        assert result[0]["latest_error"] == "permission denied for table charges"
 
 
 class TestSignalSourceConfigs(BaseTest):

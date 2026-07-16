@@ -31,6 +31,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
 )
 
 _RP = "products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline"
+_SG = "products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator"
 # slo_operation emits through posthoganalytics.capture; patch that boundary to inspect the SLO events.
 _SLO_CAPTURE = "posthog.slo.events.posthoganalytics.capture"
 
@@ -282,13 +283,16 @@ async def test_run_steps_retries_then_succeeds(mock_executor_cls: MagicMock, moc
         side_effect=[ExposedHogQLError("bad query"), ("formatted table", None)]
     )
     mock_fix.return_value = "SELECT fixed"
-    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
+    spec = _spec(steps=1)
+    rendered, failed, diagnostics = await _run_steps(spec, MagicMock(), MagicMock(), _test_window(), None)
     assert failed == 0
     assert "formatted table" in rendered[0]
     mock_fix.assert_awaited_once()
     # The diagnostic tracks the fixed query (current_hogql), not the original SELECT 1.
     assert diagnostics[0].ok is True
     assert diagnostics[0].hogql == "SELECT fixed"
+    # Proves the in-place write-back; test_freeze_carries_post_fix_hogql covers the guard -> freeze path.
+    assert spec.plan.steps[0].hogql == "SELECT fixed"
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
@@ -423,6 +427,77 @@ async def test_unfrozen_run_returns_plan_to_persist(
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
     assert result.plan_to_persist == {"version": AI_QUERY_PLAN_VERSION, "plan": spec.plan.model_dump()}
+
+
+@pytest.mark.parametrize(
+    "fixed_hogql,expected_frozen_hogql",
+    [
+        # The fix LLM rewrote the step and the rerun succeeded: the frozen plan must carry the post-fix
+        # query, or every reused delivery replays the broken original and re-bills the fix LLM.
+        pytest.param(
+            "SELECT uniq(person_id) FROM events WHERE {{date_range}}",
+            "SELECT uniq(person_id) FROM events WHERE {{date_range}}",
+            id="post_fix_hogql_is_frozen",
+        ),
+        # The fixer stripped the window placeholder: the guard applies to the post-fix text, so nothing
+        # is frozen — freezing it would cement an unbounded scan.
+        pytest.param("SELECT uniq(person_id) FROM events", None, id="fix_without_placeholder_not_frozen"),
+    ],
+)
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
+@patch(f"{_RP}.AssistantQueryExecutor")
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_freeze_carries_post_fix_hogql(
+    mock_bep: MagicMock,
+    mock_executor_cls: MagicMock,
+    mock_fix: AsyncMock,
+    mock_chat: MagicMock,
+    _mock_capture: MagicMock,
+    fixed_hogql: str,
+    expected_frozen_hogql: str | None,
+) -> None:
+    mock_bep.return_value = _spec_with_window_placeholder()
+    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(
+        side_effect=[ExposedHogQLError("bad query"), ("formatted table", None)]
+    )
+    mock_fix.return_value = fixed_hogql
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+
+    if expected_frozen_hogql is None:
+        assert result.plan_to_persist is None
+        return
+    assert result.plan_to_persist is not None
+    assert result.plan_to_persist["version"] == AI_QUERY_PLAN_VERSION
+    assert result.plan_to_persist["plan"]["steps"][0]["hogql"] == expected_frozen_hogql
+
+    # Round trip — the payoff the freeze exists for: reusing the frozen plan runs the fixed query
+    # first try, so the fix LLM is never invoked again (the pre-fix bug re-billed it every delivery).
+    mock_fix.reset_mock()
+
+    # Succeed only for the fixed query: a regression that froze the pre-fix original would fail here,
+    # re-invoke the fixer, and trip the assert_not_awaited below.
+    async def _reuse_execute(query):
+        if "uniq(person_id)" not in query.query:
+            raise ExposedHogQLError("bad query")
+        return ("formatted table", None)
+
+    reuse_executor = AsyncMock(side_effect=_reuse_execute)
+    mock_executor_cls.return_value.arun_and_format_query = reuse_executor
+    with patch(f"{_SG}.build_context_blob", return_value="c"):
+        reused = await generate_ai_report(
+            team=MagicMock(),
+            user=MagicMock(),
+            prompt="x",
+            window=_test_window(),
+            ai_query_plan=result.plan_to_persist,
+        )
+    mock_fix.assert_not_awaited()
+    reuse_executor.assert_awaited_once()  # fixed query succeeds on the first attempt, no retry
+    assert reused.plan_to_persist is None  # nothing new to freeze on a reused run
 
 
 @patch(f"{_RP}.AssistantQueryExecutor")

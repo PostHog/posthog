@@ -1,6 +1,7 @@
 """Tests for the review_pr.py output format."""
 
 import sys
+from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock
@@ -58,6 +59,22 @@ def test_summarize_assurance_counts_threads_not_flattened_replies() -> None:
     pipeline.pr = pr
 
     assert pipeline._summarize_assurance()["unresolved_threads"] == 1
+
+
+def test_summarize_assurance_excludes_author_self_review() -> None:
+    # An author replying within their own PR records a COMMENTED review at head.
+    # That self-review must not read as a vouch — otherwise the review body and
+    # the trusted assurance block both claim "<author> reviewed the current head."
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")  # _fake_pr author is "alice"
+    pr.reviews = [
+        {"user": "alice", "state": "COMMENTED", "is_current_head": True, "commit_id": "abc123"},
+        {"user": "bob", "state": "COMMENTED", "is_current_head": True, "commit_id": "abc123"},
+    ]
+    pipeline.pr = pr
+
+    assurance = pipeline._summarize_assurance()
+    assert assurance["head_commented_users"] == ["bob"]
 
 
 def test_to_dict_includes_head_sha() -> None:
@@ -357,10 +374,15 @@ def test_title_flags_respect_exempt_paths(
     assert pipeline.classification["title_scrutiny_flags"] == expected_flags
 
 
-def test_gate_denied_pr_skips_the_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_gate_denied_pr_skips_the_wait(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # A deny-listed PR can't be approved over an in-flight review, so waiting
     # 5 minutes before the inevitable REFUSE is pure runner cost.
     monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    # Stub the diff production: the review path would otherwise shell out to a real
+    # `git diff` here, whose internal waiting trips the sleep trap below.
+    diff_path = tmp_path / "diff.patch"
+    diff_path.write_text("")
+    monkeypatch.setattr(review_pr, "write_pr_diff", lambda *a, **k: diff_path)
     monkeypatch.setattr(review_pr.time, "sleep", lambda _s: pytest.fail("gate-denied PR must not wait"))
 
     class _RefusingReviewer:

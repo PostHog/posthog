@@ -21,7 +21,7 @@ import { experimentLogic } from '../experimentLogic'
 import { experimentMetricsLogic } from '../experimentMetricsLogic'
 import { isLaunched } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
-import { getOrderedMetricsWithResults } from '../utils'
+import { getFlagVariants, getOrderedMetricsWithResults } from '../utils'
 import {
     ManualCalculatorMetricType,
     baselineStatsFromResults,
@@ -140,7 +140,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
     selectors({
         numberOfVariants: [
             (s) => [s.experiment],
-            (experiment): number => experiment?.feature_flag?.filters?.multivariate?.variants?.length ?? 2,
+            (experiment): number => getFlagVariants(experiment?.feature_flag).length || 2,
         ],
 
         isManualMode: [

@@ -15,7 +15,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { evaluationErrorMessage } from './apiErrors'
-import { evaluationCanResolveModel, evaluationTypeCanBeCreated } from './evaluationCapabilities'
+import { evaluationCanResolveModel } from './evaluationCapabilities'
 import type { llmEvaluationsLogicType } from './llmEvaluationsLogicType'
 import { EvaluationConfig } from './types'
 
@@ -59,12 +59,11 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         updateEvaluationSuccess: (id: string, evaluation: Partial<EvaluationConfig>) => ({ id, evaluation }),
         deleteEvaluation: (id: string) => ({ id }),
         deleteEvaluationSuccess: (id: string) => ({ id }),
-        duplicateEvaluation: (id: string) => ({ id }),
-        duplicateEvaluationSuccess: (evaluation: EvaluationConfig) => ({ evaluation }),
         toggleEvaluationEnabled: (id: string) => ({ id }),
         toggleEvaluationEnabledSuccess: (id: string) => ({ id }),
         toggleEvaluationEnabledFailure: (id: string, error: string) => ({ id, error }),
         setEvaluationsFilter: (filter: string) => ({ filter }),
+        setShowDisabledEvaluations: (show: boolean) => ({ show }),
     }),
 
     reducers({
@@ -88,7 +87,6 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                         e.id === id ? ({ ...e, ...evaluation } as EvaluationConfig) : e
                     ),
                 deleteEvaluationSuccess: (state, { id }) => state.filter((e: EvaluationConfig) => e.id !== id),
-                duplicateEvaluationSuccess: (state, { evaluation }) => [...state, evaluation],
                 toggleEvaluationEnabledSuccess: (state, { id }) =>
                     state.map((e: EvaluationConfig) =>
                         e.id === id
@@ -115,6 +113,12 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             '',
             {
                 setEvaluationsFilter: (_, { filter }) => filter,
+            },
+        ],
+        showDisabledEvaluations: [
+            true,
+            {
+                setShowDisabledEvaluations: (_, { show }) => show,
             },
         ],
     }),
@@ -187,41 +191,6 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             }
         },
 
-        duplicateEvaluation: async ({ id }) => {
-            try {
-                const original = values.evaluations.find((e: EvaluationConfig) => e.id === id)
-                if (!original) {
-                    return
-                }
-                if (!evaluationTypeCanBeCreated(original.evaluation_type, values.featureFlags)) {
-                    lemonToast.error('Sentiment evaluations are not available for this project.')
-                    return
-                }
-
-                const duplicate = {
-                    name: `${original.name} (Copy)`,
-                    description: original.description,
-                    enabled: original.enabled,
-                    evaluation_type: original.evaluation_type,
-                    evaluation_config: original.evaluation_config,
-                    output_type: original.output_type,
-                    output_config: original.output_config,
-                    conditions: original.conditions,
-                }
-
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId) {
-                    return
-                }
-
-                // nosemgrep: prefer-codegen-api
-                const response = await api.create(`/api/environments/${teamId}/evaluations/`, duplicate)
-                actions.duplicateEvaluationSuccess(response)
-            } catch (error) {
-                console.error('Failed to duplicate evaluation:', error)
-            }
-        },
-
         toggleEvaluationEnabled: async ({ id }) => {
             const evaluation = values.evaluations.find((e: EvaluationConfig) => e.id === id)
             if (!evaluation) {
@@ -250,12 +219,15 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
 
     selectors({
         filteredEvaluations: [
-            (s) => [s.evaluations, s.evaluationsFilter],
-            (evaluations: EvaluationConfig[], filter: string) => {
+            (s) => [s.evaluations, s.evaluationsFilter, s.showDisabledEvaluations],
+            (evaluations: EvaluationConfig[], filter: string, showDisabledEvaluations: boolean) => {
+                const visible = showDisabledEvaluations
+                    ? evaluations
+                    : evaluations.filter((e: EvaluationConfig) => e.enabled)
                 if (!filter) {
-                    return evaluations
+                    return visible
                 }
-                return evaluations.filter(
+                return visible.filter(
                     (e: EvaluationConfig) =>
                         e.name.toLowerCase().includes(filter.toLowerCase()) ||
                         e.description?.toLowerCase().includes(filter.toLowerCase()) ||

@@ -6,7 +6,8 @@ import { LemonButton, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
-import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
+import { RepoEntityHeader } from '../components/EntityHeader'
+import { BranchScopeChip, ScopeDateFilter, SourceScopeChip } from '../components/ScopeBar'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
 import { WorkflowsHealthHeader } from '../components/WorkflowsHealthHeader'
 import { WORKFLOW_HEALTH_LIMIT, WorkflowStatusFilter, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
@@ -22,6 +23,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
         hasActiveWorkflowFilters,
         workflowCostAvailable,
         sourceId,
+        activeSource,
         notConnected,
         workflowHealthLoadError,
     } = useValues(engineeringAnalyticsLogic)
@@ -37,9 +39,15 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <ScopeBar repoSlot={<SourceScopeChip />} showBranch />
+            <RepoEntityHeader repoFullName={activeSource?.repo || ''} right={<SourceScopeChip pickerOnly />} />
 
-            <WorkflowsHealthHeader summary={fleetSummary} truncated={fleetTruncated} />
+            {/* Branch + window govern every surface below — the same scope the overview's date filter carries. */}
+            <div className="flex flex-wrap items-center justify-end gap-2">
+                <BranchScopeChip />
+                <ScopeDateFilter />
+            </div>
+
+            <WorkflowsHealthHeader summary={fleetSummary} truncated={fleetTruncated} loading={workflowHealthLoading} />
 
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput
@@ -70,7 +78,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                 loading={workflowHealthLoading}
                 sourceId={sourceId}
                 showCost={workflowCostAvailable}
-                defaultSorting={{ columnKey: 'runCount', order: -1 }}
+                pageSize={25}
                 emptyState={
                     hasActiveWorkflowFilters ? (
                         <div className="flex flex-col items-center gap-2">

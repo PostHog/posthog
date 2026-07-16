@@ -30,8 +30,6 @@ class TestSourceConfig:
         config = EasypostSource().get_source_config
         assert config.name == SchemaExternalDataSourceType.EASYPOST
         assert config.label == "EasyPost"
-        # Stays hidden behind the unreleased flag while in alpha.
-        assert config.unreleasedSource is True
 
     def test_source_config_has_password_api_key_field(self) -> None:
         fields = EasypostSource().get_source_config.fields

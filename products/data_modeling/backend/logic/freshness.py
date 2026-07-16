@@ -175,6 +175,61 @@ def declared_target_bounds(
     return source_floor, consumer_ceiling
 
 
+def nearest_schedulable_bucket_at_least(floor: timedelta) -> timedelta:
+    """The finest schedulable bucket no finer than `floor` — coarsen up to a runnable cadence.
+
+    A source delivering every 45min means running finer than 1hour recomputes identical data, so
+    the meaningful cadence is the smallest bucket >= the floor. Falls back to the coarsest bucket
+    when the floor is coarser than every bucket (nothing coarser is schedulable).
+    """
+    coarser_or_equal = [bucket for bucket in SCHEDULABLE_BUCKETS if bucket >= floor]
+    return min(coarser_or_equal) if coarser_or_equal else max(SCHEDULABLE_BUCKETS)
+
+
+@dataclasses.dataclass
+class ClampedCadence:
+    """A node whose effective cadence was coarsened to what its ancestor sources can deliver."""
+
+    node_id: str
+    demanded: timedelta  # cadence propagation or the seed asked for
+    source_floor: timedelta  # slowest ancestor source
+    clamped_to: timedelta  # the schedulable bucket it will actually run at
+
+
+def clamp_to_source_floor(
+    effective: dict[str, timedelta | None],
+    *,
+    edges: list[tuple[str, str]],
+    source_intervals: dict[str, timedelta],
+) -> tuple[dict[str, timedelta | None], list[ClampedCadence]]:
+    """Coarsen every node scheduled finer than its sources can deliver to the nearest bucket >= its
+    source floor, returning the adjusted cadences and the list of changes.
+
+    Clamping each node independently stays consistent because the floor spans the whole ancestor
+    cone (`declared_target_bounds`): a consumer that pulled an ancestor too fine shares that same
+    source and clamps to the same bucket. Streaming/best-effort sources have a zero floor and are
+    never clamped.
+    """
+    clamped: dict[str, timedelta | None] = {}
+    changes: list[ClampedCadence] = []
+    for node_id, cadence in effective.items():
+        if cadence is None:
+            clamped[node_id] = None
+            continue
+        source_floor, _consumer_ceiling = declared_target_bounds(
+            node_id=node_id, edges=edges, declared_targets={}, source_intervals=source_intervals
+        )
+        if is_finer_than(cadence, source_floor):
+            target = nearest_schedulable_bucket_at_least(source_floor)
+            clamped[node_id] = target
+            changes.append(
+                ClampedCadence(node_id=node_id, demanded=cadence, source_floor=source_floor, clamped_to=target)
+            )
+        else:
+            clamped[node_id] = cadence
+    return clamped, changes
+
+
 def validate_declared_target(
     *,
     node_id: str,

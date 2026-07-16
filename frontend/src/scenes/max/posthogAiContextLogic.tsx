@@ -9,6 +9,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import { AttachedContext, MaxContextInput, MaxContextType } from './maxTypes'
 import type { posthogAiContextLogicType } from './posthogAiContextLogicType'
+import { activeSceneLogicHasMaxContext } from './utils'
 
 export interface PosthogAiContextLogicProps {
     conversationId: string
@@ -131,7 +132,7 @@ export const posthogAiContextLogic = kea<posthogAiContextLogicType>([
     listeners(({ values, actions }) => ({
         syncSceneAttachments: () => {
             const activeSceneLogic = values.activeSceneLogic
-            if (!activeSceneLogic || !('maxContext' in activeSceneLogic.selectors)) {
+            if (!activeSceneLogicHasMaxContext(activeSceneLogic)) {
                 return
             }
             let sceneItems: MaxContextInput[] = []

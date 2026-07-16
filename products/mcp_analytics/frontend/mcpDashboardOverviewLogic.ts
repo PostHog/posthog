@@ -153,6 +153,7 @@ export interface KPIMetric {
     previousValue: number
     deltaPct: number | null
     sparkline: number[]
+    sparklineLabels: string[]
     goodDirection: 'up' | 'down'
 }
 
@@ -223,7 +224,14 @@ export interface NotableSession {
     session: SessionRow
 }
 
-const EMPTY_METRIC: KPIMetric = { value: 0, previousValue: 0, deltaPct: null, sparkline: [], goodDirection: 'up' }
+const EMPTY_METRIC: KPIMetric = {
+    value: 0,
+    previousValue: 0,
+    deltaPct: null,
+    sparkline: [],
+    sparklineLabels: [],
+    goodDirection: 'up',
+}
 const EMPTY_KPIS: KPIData = {
     sessions: { ...EMPTY_METRIC, goodDirection: 'up' },
     toolCalls: { ...EMPTY_METRIC, goodDirection: 'up' },
@@ -397,18 +405,27 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
     const current = rows.filter((r) => r.bucket >= currentStartBucket).sort((a, b) => a.bucket.localeCompare(b.bucket))
     const previous = rows.filter((r) => r.bucket < currentStartBucket)
 
+    // Newest bucket with latency data — p95 === 0 marks a bucket without any.
+    const latestP95 = (rows_: BucketRow[]): number =>
+        [...rows_].sort((a, b) => b.bucket.localeCompare(a.bucket)).find((r) => r.p95 > 0)?.p95 ?? 0
+
+    // Newest bucket with any calls — a 0% rate from an empty bucket would be meaningless.
+    const latestErrorRate = (rows_: BucketRow[]): number => {
+        const row = [...rows_].sort((a, b) => b.bucket.localeCompare(a.bucket)).find((r) => r.tool_calls > 0)
+        return row ? (row.errors / row.tool_calls) * 100 : 0
+    }
+
     const curSessions = current.reduce((acc, r) => acc + r.sessions, 0)
     const curCalls = current.reduce((acc, r) => acc + r.tool_calls, 0)
-    const curErrors = current.reduce((acc, r) => acc + r.errors, 0)
-    const curP95 = current.length ? Math.max(...current.map((r) => r.p95)) : 0
+    const curP95 = latestP95(current)
 
     const prevSessions = previous.reduce((acc, r) => acc + r.sessions, 0)
     const prevCalls = previous.reduce((acc, r) => acc + r.tool_calls, 0)
-    const prevErrors = previous.reduce((acc, r) => acc + r.errors, 0)
-    const prevP95 = previous.length ? Math.max(...previous.map((r) => r.p95)) : 0
+    const prevP95 = latestP95(previous)
 
-    const curErrorRate = curCalls ? (curErrors / curCalls) * 100 : 0
-    const prevErrorRate = prevCalls ? (prevErrors / prevCalls) * 100 : 0
+    const curErrorRate = latestErrorRate(current)
+    const prevErrorRate = latestErrorRate(previous)
+    const sparklineLabels = current.map((r) => r.bucket)
 
     return {
         sessions: {
@@ -416,6 +433,7 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
             previousValue: prevSessions,
             deltaPct: deltaPct(curSessions, prevSessions),
             sparkline: current.map((r) => r.sessions),
+            sparklineLabels,
             goodDirection: 'up',
         },
         toolCalls: {
@@ -423,6 +441,7 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
             previousValue: prevCalls,
             deltaPct: deltaPct(curCalls, prevCalls),
             sparkline: current.map((r) => r.tool_calls),
+            sparklineLabels,
             goodDirection: 'up',
         },
         errorRatePct: {
@@ -430,6 +449,7 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
             previousValue: prevErrorRate,
             deltaPct: deltaPct(curErrorRate, prevErrorRate),
             sparkline: current.map((r) => (r.tool_calls ? (r.errors / r.tool_calls) * 100 : 0)),
+            sparklineLabels,
             goodDirection: 'down',
         },
         p95LatencyMs: {
@@ -437,6 +457,7 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
             previousValue: prevP95,
             deltaPct: deltaPct(curP95, prevP95),
             sparkline: current.map((r) => r.p95),
+            sparklineLabels,
             goodDirection: 'down',
         },
     }
@@ -522,6 +543,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                         deltaPct: deltaPct(value, previousValue),
                         // No sparkline: the headline is a window-level distinct count, not a per-bucket series.
                         sparkline: [],
+                        sparklineLabels: [],
                         goodDirection: 'up',
                     }
                 },
@@ -687,6 +709,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 previousValue: 0,
                 deltaPct: null,
                 sparkline: [],
+                sparklineLabels: [],
                 goodDirection: 'up',
             }),
         ],

@@ -1,13 +1,14 @@
 import { useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useState } from 'react'
 
 import { IconArrowLeft, IconDocument, IconEllipsis, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
@@ -24,6 +25,7 @@ import {
     safeHttpUrl,
 } from '../../utils/reportPresentation'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
+import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import {
@@ -35,7 +37,8 @@ import {
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
 import { DetailSection } from './DetailSection'
-import { PullRequestDiffPanel } from './PullRequestDiffPanel'
+import { DiscussReportButton } from './DiscussReportButton'
+import { PullRequestBranchTag, PullRequestDiffPanel } from './PullRequestDiffPanel'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportDetailAction, useReportDetailActions } from './ReportDetailActions'
 import { ReportTasksSection } from './ReportTasksSection'
@@ -64,6 +67,7 @@ export function ReportDetailBadges({
                 actionability={report.actionability}
                 explanation={actionabilityExplanation}
             />
+            <SignalReportBillingBadge report={report} />
         </>
     )
 }
@@ -81,13 +85,13 @@ function ReportDetailMeta({
     report,
     evidenceCount,
     actionabilityExplanation,
-    scoutName,
+    scoutSkillName,
 }: {
     report: SignalReport
     evidenceCount: number
     actionabilityExplanation?: string | null
-    /** Authoring scout's display name, when the report was scout-authored — appended to the "Scout" chip. */
-    scoutName?: string | null
+    /** Authoring scout's raw skill slug, when scout-authored — its name links to the scout off the "Scout" chip. */
+    scoutSkillName?: string | null
 }): JSX.Element {
     const hasSource = hasKnownSourceProduct(report.source_products)
     // "Ready" is the default terminal state; surface the status chip only until actionability is known.
@@ -117,7 +121,7 @@ function ReportDetailMeta({
         </span>
     )
     if (hasSource) {
-        stats.push(<MetaSourceStack sourceProducts={report.source_products} scoutName={scoutName} />)
+        stats.push(<MetaSourceStack sourceProducts={report.source_products} scoutSkillName={scoutSkillName} />)
     }
 
     return (
@@ -127,6 +131,7 @@ function ReportDetailMeta({
                 actionability={report.actionability}
                 explanation={actionabilityExplanation}
             />
+            <SignalReportBillingBadge report={report} />
             <span className="flex items-center gap-2 flex-wrap min-w-0">
                 {stats.map((node, i) => (
                     <span key={i} className="flex items-center gap-2 min-w-0">
@@ -142,27 +147,33 @@ function ReportDetailMeta({
 /** Source-product icon stack reused inside the detail meta row. */
 function MetaSourceStack({
     sourceProducts,
-    scoutName,
+    scoutSkillName,
 }: {
     sourceProducts?: string[] | null
-    scoutName?: string | null
+    scoutSkillName?: string | null
 }): JSX.Element | null {
     const entries = knownSourceProductEntries(sourceProducts)
     const [primary, ...overflow] = entries
     if (!primary) {
         return null
     }
-    // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it.
-    const primaryLabel =
-        primary.key === SignalSourceProduct.SignalsScout && scoutName
-            ? `${primary.meta.label} · ${scoutName}`
-            : primary.meta.label
+    // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it,
+    // and link the name straight to the scout's detail page. The scout may not sort first among mixed
+    // sources, so key off whether any source is a scout rather than just the primary.
+    const scoutName = scoutDisplayName(scoutSkillName)
+    const showScout = entries.some(({ key }) => key === SignalSourceProduct.SignalsScout) && !!scoutName
     return (
         <Tooltip title={sourceProductsTooltipTitle(entries)}>
             <span className="inline-flex items-center gap-1.5 min-w-0 cursor-help">
                 <SourceProductIconRow entries={entries} className="inline-flex items-center gap-1 shrink-0" />
                 <span>
-                    {primaryLabel}
+                    {primary.meta.label}
+                    {showScout && scoutSkillName ? (
+                        <>
+                            {' · '}
+                            <ScoutLink skillName={scoutSkillName} className="text-tertiary" />
+                        </>
+                    ) : null}
                     {overflow.length > 0 ? ` + ${overflow.length}` : null}
                 </span>
             </span>
@@ -242,8 +253,10 @@ interface InboxDetailFrameProps {
     summary: { icon: ReactNode; title: string }
     /** Extra primary action(s) rendered after the shared report actions. */
     primaryAction?: ReactNode
-    /** Full-width section rendered below the two-column overview (the Graphite-style diff). */
+    /** Diff body. When present, the overview and this render behind two tabs (GitHub-style PR view). */
     diffSection?: ReactNode
+    /** Branch tag shown in the "Files changed" tab label, so the tab signals there's code behind it. */
+    diffBranchTag?: ReactNode
     /** Extra sections (Tasks, Reviewers) – defaults applied by callers. */
     children?: ReactNode
 }
@@ -260,24 +273,27 @@ export function InboxDetailFrame({
     summary,
     primaryAction,
     diffSection,
+    diffBranchTag,
     children,
 }: InboxDetailFrameProps): JSX.Element {
     const { reportSignals, reportSignalsLoading, priorityExplanation, actionabilityExplanation } = useValues(
         inboxReportDetailLogic({ reportId: report.id, report })
     )
+    // GitHub-style PR view: when a diff is present, the overview and the diff live behind two tabs.
+    const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'files'>('overview')
+    const hasDiff = !!diffSection
     const signals = reportSignals ?? []
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
-
-    // Which scout authored this report — the serializer resolves the skill_name off the backing signals.
-    const scoutName = scoutDisplayName(report.scout_name)
 
     const summaryPending =
         report.status === SignalReportStatus.IN_PROGRESS || report.status === SignalReportStatus.CANDIDATE
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
-    const reportPath = urls.inboxReport(tab, report.id)
+    // Absolute URL to this report – used for the copy-link action and seeded into the Discuss prompt
+    // so the agent can open and read the report directly.
+    const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport(tab, report.id))}`
 
     // Secondary actions as data so the same set renders inline as buttons on wide layouts and as a
     // standard `LemonMenu` on narrow ones; the primary action stays inline either way.
@@ -288,15 +304,14 @@ export function InboxDetailFrame({
             label: 'Copy link',
             icon: <IconLink />,
             tooltip: 'Copy a link to this report',
-            onClick: () =>
-                void copyToClipboard(`${window.location.origin}${addProjectIdIfMissing(reportPath)}`, 'report link'),
+            onClick: () => void copyToClipboard(reportUrl, 'report link'),
         },
         ...detailActions,
     ]
     const overflowMenuItems: LemonMenuItem[] = reportActions.map((action) => ({
         label: action.label,
         icon: action.icon,
-        disabledReason: action.loading ? 'Working…' : undefined,
+        disabledReason: action.loading ? 'Working…' : action.disabledReason,
         onClick: action.onClick,
     }))
 
@@ -354,7 +369,8 @@ export function InboxDetailFrame({
 
     return (
         <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm">
-            <div className="flex flex-col gap-3.5 mb-6 pb-5 border-b border-primary">
+            {/* With a diff present the tab bar owns the full-width divider, so the heading drops its own. */}
+            <div className={`flex flex-col gap-3.5 ${hasDiff ? 'mb-4' : 'mb-6 pb-5 border-b border-primary'}`}>
                 <LemonButton
                     type="tertiary"
                     size="small"
@@ -389,12 +405,14 @@ export function InboxDetailFrame({
                                 report={report}
                                 evidenceCount={evidenceCount}
                                 actionabilityExplanation={actionabilityExplanation}
-                                scoutName={scoutName}
+                                scoutSkillName={report.scout_name}
                             />
                         </div>
                     </div>
                     <div className="flex items-center gap-2 @2xl:shrink-0">
                         {primaryAction}
+                        {/* Discuss is always available and stays inline as its own dropdown button. */}
+                        <DiscussReportButton report={report} reportUrl={reportUrl} />
                         {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
                         <div className="hidden @4xl:flex items-center gap-2">
                             {reportActions.map((action) => (
@@ -404,7 +422,9 @@ export function InboxDetailFrame({
                                     size="small"
                                     icon={action.icon}
                                     loading={action.loading}
-                                    tooltip={action.tooltip}
+                                    // A disabled action explains only why it's unavailable — not what it would do.
+                                    tooltip={action.disabledReason ? undefined : action.tooltip}
+                                    disabledReason={action.disabledReason}
                                     onClick={action.onClick}
                                 >
                                     {action.label}
@@ -424,11 +444,27 @@ export function InboxDetailFrame({
                 </div>
             </div>
 
-            <div className="flex flex-col gap-8">
-                {overviewBody}
-                {/* Full-width diff below the overview, Graphite-style — always visible, not tabbed away. */}
-                {diffSection}
-            </div>
+            {hasDiff ? (
+                <LemonTabs
+                    activeKey={activeDetailTab}
+                    onChange={setActiveDetailTab}
+                    tabs={[
+                        { key: 'overview', label: 'Overview', content: overviewBody },
+                        {
+                            key: 'files',
+                            label: (
+                                <span className="flex items-center gap-1.5">
+                                    <span>Files changed</span>
+                                    {diffBranchTag}
+                                </span>
+                            ),
+                            content: <>{diffSection}</>,
+                        },
+                    ]}
+                />
+            ) : (
+                overviewBody
+            )}
         </div>
     )
 }
@@ -441,8 +477,8 @@ function prFilesUrl(prUrl: string): string {
 /**
  * Unified report detail for Pull requests / Reports / Not actionable. The "Open in GitHub" action
  * surfaces only when the report has a shipped implementation PR; otherwise it reads as a plain
- * report. When the report has a "Commit pushed" artefact, a full-width "Files changed" section at the
- * bottom renders the branch's diff against the default branch. Runs keep their own `AgentRunDetail`.
+ * report. When the report has a "Commit pushed" artefact, a GitHub-style "Files changed" tab renders
+ * the branch's diff against the default branch alongside the overview. Runs keep their own `AgentRunDetail`.
  */
 export function ReportDetail({ report, tab }: { report: SignalReport; tab: InboxTabKey }): JSX.Element {
     const { latestCommitArtefact } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
@@ -479,6 +515,9 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
                 canDiff && commit && latestCommitArtefact ? (
                     <PullRequestDiffPanel report={report} commit={commit} />
                 ) : undefined
+            }
+            diffBranchTag={
+                canDiff && commit && latestCommitArtefact ? <PullRequestBranchTag commit={commit} /> : undefined
             }
         />
     )

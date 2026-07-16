@@ -143,14 +143,9 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub backend_keepalive_timeout_secs: u64,
 
-    /// Maximum gRPC message size to encode (send), in bytes.
-    /// Applied to the router's gRPC server and its backend clients (replica, leader).
-    /// Defaults to 128 MiB.
-    #[envconfig(default = "134217728")]
-    pub grpc_max_send_message_size: usize,
-
-    /// Maximum gRPC message size to decode (receive), in bytes.
-    /// Applied to the router's gRPC server and its backend clients (replica, leader).
+    /// Maximum request body size the proxy will collect before forwarding,
+    /// in bytes. Oversized requests are rejected with RESOURCE_EXHAUSTED.
+    /// Responses stream through unbounded (see `response_size_warn_bytes`).
     #[envconfig(default = "134217728")]
     pub grpc_max_recv_message_size: usize,
 
@@ -229,6 +224,13 @@ pub struct Config {
     /// Debounce interval (ms) for batching pod events before rebalancing
     #[envconfig(default = "1000")]
     pub coordinator_rebalance_debounce_ms: u64,
+
+    /// How often the coordinator re-evaluates in-flight handoffs
+    /// regardless of watch events — the liveness backstop for state
+    /// changes that fire no event (e.g. router departures) and for
+    /// events missed before a watch attaches.
+    #[envconfig(default = "5")]
+    pub coordinator_reconcile_secs: u64,
 
     // ── K8s awareness (leader mode only) ────────────────────────
     /// Enable K8s-aware departure classification for smarter rebalancing.
@@ -419,6 +421,10 @@ impl Config {
 
     pub fn coordinator_rebalance_debounce_interval(&self) -> Duration {
         Duration::from_millis(self.coordinator_rebalance_debounce_ms)
+    }
+
+    pub fn coordinator_reconcile_interval(&self) -> Duration {
+        Duration::from_secs(self.coordinator_reconcile_secs)
     }
 
     pub fn stash_max_wait(&self) -> Duration {

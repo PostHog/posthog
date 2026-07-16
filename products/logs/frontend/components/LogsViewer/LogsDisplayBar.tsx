@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
@@ -10,17 +10,10 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { logsGroupByLogic } from 'products/logs/frontend/components/LogsGroupBy/logsGroupByLogic'
 import { logsPatternsLogic } from 'products/logs/frontend/components/LogsPatterns/logsPatternsLogic'
-import type { GroupBySourceEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsViewerConfigLogic } from './config/logsViewerConfigLogic'
+import { resolveGroupBySource } from './groupBySource'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
-
-// Maps the picker's taxonomic group onto the group-by endpoint's source vocabulary.
-const TAXONOMIC_GROUP_TO_SOURCE: Partial<Record<TaxonomicFilterGroupType, GroupBySourceEnumApi>> = {
-    [TaxonomicFilterGroupType.Logs]: 'column',
-    [TaxonomicFilterGroupType.LogAttributes]: 'log',
-    [TaxonomicFilterGroupType.LogResourceAttributes]: 'resource',
-}
 
 export interface LogsDisplayBarProps {
     id: string
@@ -36,8 +29,9 @@ export interface LogsDisplayBarProps {
  *    the filters toggle, the Logs⇄Patterns⇄Group switch, and a lens-aware count indicator.
  *  - lens configuration: the group-by key picker, shown only in Group mode (the mode lives
  *    in the segmented bar; the key is that mode's setting, like Patterns owns its mining).
- *  - contextual-right: the Logs-only presentation tools (sort, wrap, timezone, export,
- *    shortcuts), hidden in Patterns/Group modes where none of them apply.
+ *  - contextual-right: each lens's own tools. Logs mode gets the presentation tools (sort,
+ *    wrap, timezone, export, shortcuts); Patterns mode gets the compare controls; Group
+ *    mode has none.
  *
  * Sits below the sparkline, next to the table it affects.
  */
@@ -94,15 +88,21 @@ export const LogsDisplayBar = ({
                             TaxonomicFilterGroupType.LogResourceAttributes,
                         ]}
                         // `message` is not a grouping key — high-cardinality free text is the
-                        // Patterns lens's job. Excluding it also drops the message-search item.
-                        excludedProperties={{ [TaxonomicFilterGroupType.Logs]: ['message'] }}
+                        // Patterns lens's job, and the backend can't aggregate by it. Excluding it
+                        // from the Logs group drops the message-search item; excluding it from
+                        // LogAttributes keeps a `message contains …` search from leaking back in via
+                        // the Recent tab (message searches are recorded under LogAttributes).
+                        excludedProperties={{
+                            [TaxonomicFilterGroupType.Logs]: ['message'],
+                            [TaxonomicFilterGroupType.LogAttributes]: ['message'],
+                        }}
                         value={groupBy?.key}
                         onChange={(value, groupType) =>
                             // Clearing the key keeps you in the Group view (empty state) — leaving
-                            // the view is the segmented bar's job, not the picker's.
-                            setGroupBy(
-                                value ? { key: value, source: TAXONOMIC_GROUP_TO_SOURCE[groupType] ?? 'log' } : null
-                            )
+                            // the view is the segmented bar's job, not the picker's. The source is
+                            // resolved from the key so a recent (recorded under LogAttributes) still
+                            // groups by the right top-level column instead of a missing attribute.
+                            setGroupBy(value ? { key: value, source: resolveGroupBySource(value, groupType) } : null)
                         }
                         allowClear
                         placeholder="Group by"
@@ -126,7 +126,51 @@ export const LogsDisplayBar = ({
                     )
                 )}
             </div>
-            {!inPatternsMode && !inGroupByMode && <LogsViewerToolbar totalLogsCount={totalLogsCount} />}
+            {inPatternsMode ? (
+                <PatternsCompareControls id={id} />
+            ) : (
+                !inGroupByMode && <LogsViewerToolbar totalLogsCount={totalLogsCount} />
+            )}
+        </div>
+    )
+}
+
+/**
+ * Patterns mode's contextual-right tools: the Compare toggle and its baseline picker. Lives in
+ * the display bar's right slot (like the Logs toolbar) rather than inside the results region,
+ * and in its own component so `logsPatternsLogic` only mounts while Patterns is active.
+ */
+const PatternsCompareControls = ({ id }: { id: string }): JSX.Element => {
+    const { compareEnabled, baselineMode, diffResponseLoading, patternsResponseLoading } = useValues(
+        logsPatternsLogic({ id })
+    )
+    const { setCompareEnabled, setBaselineMode } = useActions(logsPatternsLogic({ id }))
+
+    return (
+        <div className="flex items-center gap-2">
+            {compareEnabled && (
+                <LemonSelect
+                    size="small"
+                    loading={diffResponseLoading}
+                    value={baselineMode}
+                    onChange={setBaselineMode}
+                    options={[
+                        { value: 'lastWeek' as const, label: 'vs. same time last week' },
+                        { value: 'preceding' as const, label: 'vs. preceding period' },
+                    ]}
+                    data-attr="logs-patterns-baseline-mode"
+                />
+            )}
+            <LemonSwitch
+                checked={compareEnabled}
+                onChange={setCompareEnabled}
+                // Toggling swaps which loader runs, so a toggle mid-flight is a double submission.
+                loading={diffResponseLoading || patternsResponseLoading}
+                label="Compare"
+                bordered
+                size="small"
+                data-attr="logs-patterns-compare-toggle"
+            />
         </div>
     )
 }
@@ -136,7 +180,14 @@ export const LogsDisplayBar = ({
  * mounted while Patterns is active — mounting it in Logs mode would kick off the heavier patterns query.
  */
 const PatternsCountIndicator = ({ id }: { id: string }): JSX.Element | null => {
-    const { patterns } = useValues(logsPatternsLogic({ id }))
+    const { patterns, compareEnabled, diffResponse } = useValues(logsPatternsLogic({ id }))
+
+    // In compare mode the table renders diff entries, not the plain mine — counting `patterns`
+    // there would show a number from a different dataset than the rows on screen.
+    if (compareEnabled) {
+        const count = diffResponse?.entries.length ?? 0
+        return count > 0 ? <span className="text-muted text-xs">{humanFriendlyNumber(count)} changes</span> : null
+    }
 
     if (patterns.length === 0) {
         return null

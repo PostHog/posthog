@@ -90,8 +90,7 @@
             "type": "boolean"
         },
         "filterTestAccounts": {
-            "default": false,
-            "description": "Exclude internal and test users by applying the team's test-account filter.",
+            "description": "Exclude internal and test users by applying the respective filters. When omitted, follows the project's \"Filter out internal and test users\" default setting.",
             "type": "boolean"
         },
         "kind": {

@@ -28,7 +28,7 @@ describe('featurePreviewsLogic - submitEarlyAccessFeatureFeedback', () => {
 
         useMocks({
             post: {
-                'https://posthoghelp.zendesk.com/api/v2/requests.json': [200, {}],
+                'https://posthoghelp.zendesk.com/api/v2/requests.json': [200, { request: { id: 123 } }],
             },
         })
         initKeaTests()
@@ -48,6 +48,34 @@ describe('featurePreviewsLogic - submitEarlyAccessFeatureFeedback', () => {
         await expectLogic(logic)
             .toMatchValues({ activeFeedbackFlagKeyLoading: false })
             .toDispatchActions(['submitEarlyAccessFeatureFeedbackSuccess'])
+    })
+})
+
+describe('featurePreviewsLogic - submitEarlyAccessFeatureFeedback failure', () => {
+    let logic: ReturnType<typeof featurePreviewsLogic.build>
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+        useMocks({
+            post: {
+                // Zendesk rejects the ticket; with no beacon fallback the support submit reports failure
+                'https://posthoghelp.zendesk.com/api/v2/requests.json': [500, {}],
+            },
+        })
+        ;(navigator as any).sendBeacon = jest.fn(() => false)
+        initKeaTests()
+        logic = featurePreviewsLogic()
+        logic.mount()
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+    })
+
+    test('keeps the feedback panel open so the text survives for a retry', async () => {
+        logic.actions.beginEarlyAccessFeatureFeedback('test')
+        await logic.asyncActions.submitEarlyAccessFeatureFeedback('important feedback')
+
+        // The submit failed, so activeFeedbackFlagKey stays set — the panel (and the component's
+        // local draft) survive. On success it would be cleared to null, closing the panel.
+        await expectLogic(logic).toMatchValues({ activeFeedbackFlagKey: 'test', activeFeedbackFlagKeyLoading: false })
     })
 })
 

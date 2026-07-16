@@ -324,6 +324,7 @@ mod test {
             client.clone(),
             config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
+            std::time::Duration::from_secs(config.symbol_set_negative_cache_ttl_seconds),
         );
 
         let hmp = ChunkIdFetcher::new(

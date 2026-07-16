@@ -30,14 +30,14 @@ import {
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
 import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/common/steps/event-processing/emit-event-step'
-import { createFetchPersonBatchStep } from '~/ingestion/common/steps/event-processing/fetch-person-batch-step'
+import { createFetchPersonChunkStep } from '~/ingestion/common/steps/event-processing/fetch-person-chunk-step'
 import { createHogTransformEventStep } from '~/ingestion/common/steps/event-processing/hog-transform-event-step'
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { IngestionOverflowMode } from '~/ingestion/config'
-import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
-import { BatchPipelineBuilder } from '~/ingestion/framework/builders/batch-pipeline-builders'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
+import { ChunkPipelineBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
+import { ChunkPipelineUnwrapper } from '~/ingestion/framework/chunk-pipeline-unwrapper'
 import { TopHogRegistry, count, countOk, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { createBatch, createUnwrapper } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
@@ -121,10 +121,10 @@ export interface PostCymbalRateLimiterInput {
  * contravariant in T, so a narrower spec assigns into the wider chain context.
  */
 function applyKeyedRateLimiters<TInput, TOutput, CInput, COutput, R extends string>(
-    builder: BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R>,
+    builder: ChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R>,
     specs: KeyedRateLimiterStepOptions<TOutput>[]
-): BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
-    return specs.reduce((b, spec) => b.pipeBatch(createKeyedRateLimiterStep(spec)), builder)
+): ChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
+    return specs.reduce((b, spec) => b.pipeChunk(createKeyedRateLimiterStep(spec)), builder)
 }
 
 /**
@@ -155,7 +155,7 @@ function applyKeyedRateLimiters<TInput, TOutput, CInput, COutput, R extends stri
  */
 export function createErrorTrackingPipeline(
     config: ErrorTrackingPipelineConfig
-): BatchPipelineUnwrapper<
+): ChunkPipelineUnwrapper<
     ErrorTrackingPipelineInput,
     ErrorTrackingPipelineOutput,
     { message: Message },
@@ -187,7 +187,7 @@ export function createErrorTrackingPipeline(
         promiseScheduler,
     }
 
-    const pipeline = newBatchPipelineBuilder<ErrorTrackingPipelineInput, { message: Message }>()
+    const pipeline = newChunkPipelineBuilder<ErrorTrackingPipelineInput, { message: Message }>()
         .messageAware((b) =>
             b
                 // Header-only steps: parse Kafka headers and apply token-level restrictions.
@@ -204,7 +204,7 @@ export function createErrorTrackingPipeline(
                 // Cookieless events (headers.distinct_id === sentinel) pass through and are
                 // handled post-cookieless by createOnlyCookielessRateLimitToOverflowStep, which
                 // keys on the hashed distinct_id assigned by the cookieless step.
-                .pipeBatch(
+                .pipeChunk(
                     createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService)
                 )
                 // Body parse and team resolution. Anything that needs the parsed event lives here.
@@ -243,11 +243,11 @@ export function createErrorTrackingPipeline(
                                 // the final distinct ID.
                                 const afterCookieless = b
                                     .gather()
-                                    .pipeBatch(createApplyCookielessProcessingStep(cookielessManager))
+                                    .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
                                     // Rate-limit only cookieless events to overflow now that they
                                     // have a real hashed distinct_id. Non-cookieless events were
                                     // rate-limited pre-parse above.
-                                    .pipeBatch(
+                                    .pipeChunk(
                                         createOnlyCookielessRateLimitToOverflowStep(
                                             preservePartitionLocality,
                                             overflowRedirectService
@@ -255,7 +255,7 @@ export function createErrorTrackingPipeline(
                                     )
                                 const preCymbal = afterCookieless
                                     // Refresh TTLs for overflow lane events (keeps Redis flags alive)
-                                    .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
+                                    .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
                                 const afterCymbal = preCymbal
                                     // Process through Cymbal as a batch (before enrichment - Cymbal only
                                     // needs raw exception data, not person/geoip/group data).
@@ -263,10 +263,8 @@ export function createErrorTrackingPipeline(
                                     // 3 retries keeps the worst-case batch time (3 × 45s timeout =
                                     // 135s) well within the 180s liveness interval, and reduces
                                     // amplification pressure on Cymbal during degradation.
-                                    .pipeBatchWithRetry(createCymbalProcessingStep(cymbalClient), {
-                                        tries: 3,
-                                        sleepMs: 100,
-                                        name: 'cymbal_processing',
+                                    .pipeChunk(createCymbalProcessingStep(cymbalClient), {
+                                        retry: { tries: 3, sleepMs: 100, name: 'cymbal_processing' },
                                     })
                                 // Post-Cymbal team-global rate-limit chain. Drops events the team
                                 // has explicitly capped. Empty / undefined → no-op.
@@ -275,7 +273,7 @@ export function createErrorTrackingPipeline(
                                     afterRateLimit
                                         // Enrich, prepare, create, and emit events
                                         // Batch fetch person (read-only, no updates)
-                                        .pipeBatch(createFetchPersonBatchStep(personRepository))
+                                        .pipeChunk(createFetchPersonChunkStep(personRepository))
                                         .sequentially((b) =>
                                             b
                                                 // Run Hog transformations (including GeoIP if team has it enabled)
@@ -324,7 +322,7 @@ export function createErrorTrackingPipeline(
  * handled by the result handling pipeline (DLQ, drop, redirect).
  */
 export async function runErrorTrackingPipeline(
-    pipeline: BatchPipelineUnwrapper<
+    pipeline: ChunkPipelineUnwrapper<
         ErrorTrackingPipelineInput,
         ErrorTrackingPipelineOutput,
         { message: Message },

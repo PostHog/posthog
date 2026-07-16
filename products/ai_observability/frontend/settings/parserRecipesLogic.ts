@@ -5,8 +5,6 @@ import { parse as parseYaml } from 'yaml'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -44,13 +42,13 @@ export function sourceCompileError(source: string): string | null {
     }
 }
 
-// Owns the team's custom recipes end to end: loads them (flag-gated), pushes them into
-// the live trace-rendering normalizer, and backs the settings editor. Mounted on every
-// AI observability view via aiObservabilitySharedLogic so customizations apply even when
+// Owns the team's custom recipes end to end: loads them, pushes them into the live
+// trace-rendering normalizer, and backs the settings editor. Mounted on every AI
+// observability view via aiObservabilitySharedLogic so customizations apply even when
 // the settings scene was never opened; the editor parts stay dormant outside settings.
 export const parserRecipesLogic = kea<parserRecipesLogicType>([
     path(['products', 'ai_observability', 'frontend', 'settings', 'parserRecipesLogic']),
-    connect(() => ({ values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']] })),
+    connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
     actions({
         openEditorForNew: true,
         openEditorForItem: (item: CustomRecipeItem) => ({ item }),
@@ -67,9 +65,6 @@ export const parserRecipesLogic = kea<parserRecipesLogicType>([
             [] as ParserRecipeApi[],
             {
                 loadRecipes: async () => {
-                    if (!values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOM_PARSERS]) {
-                        return []
-                    }
                     return (await llmAnalyticsParserRecipesList(String(values.currentTeamId), { limit: 1000 })).results
                 },
             },
@@ -117,19 +112,12 @@ export const parserRecipesLogic = kea<parserRecipesLogicType>([
             (s) => [s.editor],
             (editor): string | null => (editor ? sourceCompileError(editor.source) : null),
         ],
-        // The team whose recipes should be loaded, or null when the feature is off.
-        // Re-fetches on team switch and when the flag flips on (see subscriptions).
-        loadKey: [
-            (s) => [s.currentTeamId, s.featureFlags],
-            (currentTeamId, featureFlags): number | null =>
-                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOM_PARSERS] ? currentTeamId : null,
-        ],
     }),
     subscriptions(({ actions }) => ({
         // Fires on mount with the initial value, then on every change — so this covers
-        // the first load, project switches, and the flag turning on.
-        loadKey: (loadKey: number | null) => {
-            if (loadKey !== null) {
+        // the first load and project switches.
+        currentTeamId: (currentTeamId: number | null) => {
+            if (currentTeamId !== null) {
                 actions.loadRecipes()
             }
         },

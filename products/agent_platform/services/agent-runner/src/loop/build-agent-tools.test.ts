@@ -15,6 +15,7 @@ import {
     S3BundleStore,
     ToolRefSchema,
     wipeTestPrefix,
+    writeToolSourceAndSchema,
 } from '@posthog/agent-shared'
 
 import { AgentToolDeps, buildAgentTools } from './build-agent-tools'
@@ -349,21 +350,27 @@ describe('buildAgentTools', () => {
         await expect(byId(built, 'fetch-acme').execute('c1', {})).rejects.toThrow(/requires a sandbox/)
     })
 
-    it('custom tool description + parameters load from schema.json in the bundle', async () => {
+    it('custom tool parameters survive the writeToolSourceAndSchema → loadCustomSchema round-trip', async () => {
+        // Author through the real writer (typed-bundle.ts writeToolSourceAndSchema)
+        // rather than a hand-written fixture — the janitor's typed pipeline is the
+        // sole production writer of schema.json and writes `{ description, args_schema }`,
+        // so the runner reads that key and nothing else.
         const bundle = makeBundle()
-        await bundle.write(
-            'rev1',
-            'tools/fetch-acme/schema.json',
-            JSON.stringify({
-                description: 'Fetch from Acme',
-                args: { type: 'object', properties: { name: { type: 'string' } } },
-            })
-        )
-        const rev = makeRev([{ kind: 'custom', id: 'fetch-acme', path: 'tools/fetch-acme/' }])
+        await writeToolSourceAndSchema('rev1', bundle, {
+            id: 'add-numbers',
+            description: 'Add two numbers',
+            args_schema: { type: 'object', properties: { n: { type: 'number' } }, required: ['n'] },
+            source: '// source',
+        })
+        const rev = makeRev([{ kind: 'custom', id: 'add-numbers', path: 'tools/add-numbers/' }])
         const built = await buildAgentTools(rev, makeDeps(rev, { bundle }))
-        const tool = byId(built, 'fetch-acme')
-        expect(tool.description).toBe('Fetch from Acme')
-        expect(tool.parameters).toEqual({ type: 'object', properties: { name: { type: 'string' } } })
+        const tool = byId(built, 'add-numbers')
+        expect(tool.description).toBe('Add two numbers')
+        expect(tool.parameters).toEqual({
+            type: 'object',
+            properties: { n: { type: 'number' } },
+            required: ['n'],
+        })
     })
 
     describe('mcp tools', () => {

@@ -68,12 +68,15 @@ def sync_custom_property_values(*, team_id: int, saved_query_id: str | UUID) -> 
     usable: list[CustomPropertySource] = []
     selected_columns: set[str] = set()
     for source in sources:
-        missing = [column for column in (source.key_column, source.source_column) if column not in available_columns]
+        source_column = source.source_column
+        if source_column is None:
+            continue  # only account sources (which always set source_column) reach this saved-query sync
+        missing = [column for column in (source.key_column, source_column) if column not in available_columns]
         if missing:
             result.source_errors[str(source.id)] = f"View {saved_query.name} has no column(s): {', '.join(missing)}"
             continue
         usable.append(source)
-        selected_columns.update((source.key_column, source.source_column))
+        selected_columns.update((source.key_column, source_column))
     if not usable:
         return result
 
@@ -91,7 +94,10 @@ def sync_custom_property_values(*, team_id: int, saved_query_id: str | UUID) -> 
 
     unmatched: set[Any] = set()
     for source in usable:
-        key_index, value_index = column_index[source.key_column], column_index[source.source_column]
+        source_column = source.source_column
+        if source_column is None:
+            continue
+        key_index, value_index = column_index[source.key_column], column_index[source_column]
         for row in rows_by_key_column[source.key_column]:
             key = row[key_index]
             if key is None:

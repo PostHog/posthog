@@ -166,16 +166,29 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=tools/hogli,target=tools/hogli \
+    # uv sync validates workspace membership even with --no-dev, so every
+    # workspace member must be present in the build context.
+    --mount=type=bind,source=tools/owners,target=tools/owners \
     uv sync --locked --no-dev --no-install-project --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
+
+# Pre-warm the tiktoken BPE encoding cache into the image so runtime token counting reads the
+# blobs from disk instead of fetching them from OpenAI's blob host on first use, which fails under
+# restricted egress or flaky DNS. Covers the two encodings our callers resolve to: o200k_base
+# (gpt-4o) and cl100k_base (text-embedding-3-small). The cache is keyed by the blob URL, which is
+# stable for the pinned tiktoken version, so the baked files are used verbatim at runtime.
+ENV TIKTOKEN_CACHE_DIR=/code/.tiktoken_cache
+RUN mkdir -p "$TIKTOKEN_CACHE_DIR" && \
+    python -c "import tiktoken; [tiktoken.get_encoding(e) for e in ('o200k_base', 'cl100k_base')]"
 
 # Add in Django deps
 COPY manage.py manage.py
 COPY common/esbuilder common/esbuilder
 COPY common/hogvm common/hogvm/
 COPY common/migration_utils common/migration_utils/
+COPY common/alerting common/alerting/
 COPY posthog posthog/
 COPY products/ products/
 COPY ee ee/
@@ -195,7 +208,7 @@ RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgr
 COPY --from=sourcemap-upload /tmp/.sourcemaps-status /tmp/.sourcemaps-status
 RUN if [ "$(cat /tmp/.sourcemaps-status)" = uploaded ]; then \
         echo "sourcemaps uploaded — stripping .map files from the image"; \
-        find /code/staticfiles /code/frontend/dist -name '*.map' -delete; \
+        find /code/staticfiles /code/frontend/dist \( -name '*.map' -o -name '*.map.gz' -o -name '*.map.br' \) -delete; \
     else \
         echo "sourcemaps NOT uploaded — retaining .map files in the image"; \
     fi
@@ -373,6 +386,11 @@ COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.j
 # Copy the GeoLite2-City database from the fetch-geoip-db stage.
 COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
 
+# Copy the pre-warmed tiktoken encoding cache and point tiktoken at it so token counting never
+# reaches out to OpenAI's blob host at runtime (see the posthog-build stage for details).
+COPY --from=posthog-build --chown=posthog:posthog /code/.tiktoken_cache /code/.tiktoken_cache
+ENV TIKTOKEN_CACHE_DIR=/code/.tiktoken_cache
+
 # Copy plugin transpiler (used by Django for site destinations/apps). The transpiler dist is a
 # self-contained esbuild bundle (build.mjs uses bundle:true), so only its own dist + node_modules
 # are needed at runtime — the full root /code/node_modules COPY was redundant.
@@ -389,7 +407,12 @@ COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
+COPY --chown=posthog:posthog common/alerting common/alerting/
 COPY --chown=posthog:posthog products products/
+# Generated MCP tool catalog, read at runtime from BASE_DIR by the OAuth consent page
+# (posthog/api/oauth/mcp_resource_scopes.py) and the tasks permission broker. The rest of
+# services/ is a Node build (Dockerfile.node) and deliberately stays out of this image.
+COPY --chown=posthog:posthog services/mcp/schema services/mcp/schema/
 
 # Validate the Playwright client library (used to drive the remote browserless service over CDP —
 # no browser binary ships in this image).

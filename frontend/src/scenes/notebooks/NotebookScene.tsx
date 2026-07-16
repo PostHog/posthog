@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
-import { IconInfo, IconOpenSidebar } from '@posthog/icons'
+import { IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
@@ -17,24 +17,20 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
-import { isMarkdownNotebookContent } from './Notebook/markdownNotebookV2'
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
 import { notebookLogic } from './Notebook/notebookLogic'
 import {
-    NotebookCollabStatus,
     NotebookExpandButton,
     NotebookKernelInfoButton,
     NotebookPresence,
     NotebookSyncInfo,
-    NotebookTableOfContentsButton,
 } from './Notebook/NotebookMeta'
 import { NotebookShareModal } from './Notebook/NotebookShareModal'
 import { NotebookMenu } from './NotebookMenu'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
 import { NotebookSceneLogicProps, notebookSceneLogic } from './notebookSceneLogic'
 import { NotebookSceneMenuBar } from './NotebookSceneMenuBar'
-import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
 import { NotebookTarget } from './types'
 
 interface NotebookSceneProps {
@@ -52,10 +48,9 @@ export const scene: SceneExport<NotebookSceneLogicProps> = {
 export function NotebookScene(): JSX.Element {
     const { notebookId, loading } = useValues(notebookSceneLogic)
     const { createNotebook } = useActions(notebookSceneLogic)
-    const { notebook, content, conflictWarningVisible, accessDeniedToNotebook } = useValues(
+    const { notebook, accessDeniedToNotebook } = useValues(
         notebookLogic({ shortId: notebookId, target: NotebookTarget.Scene })
     )
-    const isMarkdownNotebook = isMarkdownNotebookContent(content)
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { selectedNotebook, visibility } = useValues(notebookPanelLogic)
     const [isMarkdownSourceOpen, setIsMarkdownSourceOpen] = useState(false)
@@ -93,14 +88,14 @@ export function NotebookScene(): JSX.Element {
     useFileSystemLogView({
         type: 'notebook',
         ref: notebook?.short_id,
-        enabled: Boolean(notebook?.short_id && notebookId !== 'new' && !loading && !conflictWarningVisible),
+        enabled: Boolean(notebook?.short_id && notebookId !== 'new' && !loading),
     })
 
     if (accessDeniedToNotebook) {
         return <AccessDenied object="notebook" />
     }
 
-    if (!notebook && !loading && !conflictWarningVisible) {
+    if (!notebook && !loading) {
         return <NotFound object="notebook" />
     }
 
@@ -140,55 +135,19 @@ export function NotebookScene(): JSX.Element {
                 </div>
 
                 <div className="flex gap-2 items-center">
-                    <NotebookCollabStatus shortId={notebookId} />
                     <NotebookSyncInfo shortId={notebookId} />
                     <NotebookPresence shortId={notebookId} />
 
                     {!sceneMenuBarEnabled && <NotebookMenu shortId={notebookId} />}
 
-                    {!isMarkdownNotebook ? (
-                        <>
-                            <LemonButton
-                                type="secondary"
-                                icon={<IconInfo />}
-                                size="small"
-                                onClick={() => {
-                                    if (
-                                        selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id &&
-                                        visibility === 'visible'
-                                    ) {
-                                        closeSidePanel()
-                                    } else {
-                                        selectNotebook(LOCAL_NOTEBOOK_TEMPLATES[0].short_id)
-                                    }
-                                }}
-                            >
-                                {selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id && visibility === 'visible'
-                                    ? 'Close '
-                                    : ''}
-                                Guide
-                            </LemonButton>
-                            {/* Moved into the View menu under SCENE_MENU_BAR. */}
-                            {!sceneMenuBarEnabled && <NotebookTableOfContentsButton type="secondary" size="small" />}
-                        </>
-                    ) : null}
                     {!sceneMenuBarEnabled && (
                         <NotebookKernelInfoButton
                             type="secondary"
                             size="small"
-                            onBeforeShowKernelInfo={
-                                isMarkdownNotebook ? () => setIsMarkdownSourceOpen(false) : undefined
-                            }
+                            onBeforeShowKernelInfo={() => setIsMarkdownSourceOpen(false)}
                         />
                     )}
-                    {!sceneMenuBarEnabled && (
-                        <NotebookExpandButton
-                            type="secondary"
-                            size="small"
-                            inPanel={false}
-                            isMarkdownNotebook={isMarkdownNotebook}
-                        />
-                    )}
+                    {!sceneMenuBarEnabled && <NotebookExpandButton type="secondary" size="small" inPanel={false} />}
                     {!sceneMenuBarEnabled && (
                         <LemonButton
                             type="secondary"

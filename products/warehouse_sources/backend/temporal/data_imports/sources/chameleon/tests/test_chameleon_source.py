@@ -44,7 +44,6 @@ class TestChameleonSourceConfig:
 
     def test_stays_unreleased_alpha(self) -> None:
         config = self.source.get_source_config
-        assert config.unreleasedSource is True
         assert config.releaseStatus is not None
         assert config.releaseStatus.value == "alpha"
 

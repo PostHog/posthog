@@ -30,7 +30,9 @@ class LicenseSerializer(serializers.ModelSerializer):
         extra_kwargs = {"key": {"write_only": True}}
 
     def validate(self, data):
-        validation = requests.post("https://license.posthog.com/licenses/activate", data={"key": data["key"]})
+        validation = requests.post(
+            "https://license.posthog.com/licenses/activate", data={"key": data["key"]}, timeout=10
+        )
         resp = validation.json()
         user = self.context["request"].user
         if not validation.ok:
@@ -71,7 +73,9 @@ class LicenseViewSet(
 
     def destroy(self, request: request.Request, *args, **kwargs) -> Response:
         license = self.get_object()
-        validation = requests.post("https://license.posthog.com/licenses/deactivate", data={"key": license.key})
+        validation = requests.post(
+            "https://license.posthog.com/licenses/deactivate", data={"key": license.key}, timeout=10
+        )
         validation.raise_for_status()
 
         has_another_valid_license = License.objects.filter(valid_until__gte=now()).exclude(pk=license.pk).exists()

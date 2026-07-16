@@ -1,10 +1,17 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, screen, waitFor } from '@testing-library/react'
+import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, renderInsightPage } from '~/test/insight-testing'
+
+// The disabled-reason copy shows through LemonButton's Tooltip, which has a 400ms open
+// delay. On contended CI shards that delay plus jsdom positioning can exceed the default
+// 1s waitFor budget, so the hover assertions flake. Give them room (and raise the per-test
+// timeout to match, so a single waitFor can't exhaust the 5s default test budget).
+configure({ asyncUtilTimeout: 5000 })
+jest.setTimeout(15000)
 
 jest.mock('lib/components/AutoSizer', () => ({
     AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) =>

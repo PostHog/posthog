@@ -6,7 +6,6 @@ import posthog from 'posthog-js'
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
-import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -60,6 +59,8 @@ import {
     QueryBasedInsightModel,
     SetInsightOptions,
 } from '~/types'
+
+import { insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
 
 import { teamLogic } from '../teamLogic'
 import { insightDataLogic, isInsightSceneInstance } from './insightDataLogic'

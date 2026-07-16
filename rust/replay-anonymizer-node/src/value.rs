@@ -1,5 +1,4 @@
 //! Generic / network / console value scrubs over parsed JSON (Custom and Plugin payloads).
-//! Mirrors `anonymize/value.ts`.
 
 use simd_json::borrowed::{Object, Value};
 

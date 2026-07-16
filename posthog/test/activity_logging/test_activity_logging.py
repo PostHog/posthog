@@ -1,12 +1,14 @@
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.db.utils import IntegrityError
 
 from parameterized import parameterized
 
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, Trigger, log_activity
+from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.activity_logging.utils import activity_storage, activity_visibility_manager
 from posthog.models.utils import UUIDT
 
@@ -189,7 +191,10 @@ class TestActivityLogModel(BaseTest):
         )
 
     def test_does_not_throw_if_cannot_log_activity(self) -> None:
-        with self.assertLogs(level="WARN") as log:
+        # Assert on the module logger directly instead of assertLogs: the root logger sits at
+        # ERROR under test settings, so whether the warning reaches a root handler depends on
+        # global logging state other tests may have touched
+        with patch("posthog.models.activity_logging.activity_log.logger") as mock_logger:
             with self.settings(TEST=False):  # Enable production-level silencing
                 try:
                     log_activity(
@@ -207,16 +212,13 @@ class TestActivityLogModel(BaseTest):
                 except Exception as e:
                     raise pytest.fail(f"Should not have raised exception: {e}")
 
-            logged_warning = log.records[0].__dict__
-            self.assertEqual(logged_warning["levelname"], "WARNING")
-            self.assertEqual(
-                logged_warning["msg"]["event"],
-                "activity_log.failed_to_write_to_activity_log",
-            )
-            self.assertEqual(logged_warning["msg"]["scope"], "testing throwing exceptions on create")
-            self.assertEqual(logged_warning["msg"]["team"], 1)
-            self.assertEqual(logged_warning["msg"]["activity"], "does not explode")
-            self.assertIsInstance(logged_warning["msg"]["exception"], ValueError)
+            warning = mock_logger.warn.call_args
+            self.assertIsNotNone(warning)
+            self.assertEqual(warning.args[0], "activity_log.failed_to_write_to_activity_log")
+            self.assertEqual(warning.kwargs["scope"], "testing throwing exceptions on create")
+            self.assertEqual(warning.kwargs["team"], 1)
+            self.assertEqual(warning.kwargs["activity"], "does not explode")
+            self.assertIsInstance(warning.kwargs["exception"], ValueError)
 
 
 class TestActivityLogVisibilityManager(BaseTest):
@@ -330,3 +332,26 @@ class TestActivityLogVisibilityManager(BaseTest):
         filtered = activity_visibility_manager.apply_to_queryset(queryset, is_staff=True)
 
         self.assertEqual(filtered.count(), 4)
+
+
+class TestActivityTriggerContext(BaseTest):
+    def tearDown(self):
+        activity_storage.clear_trigger()
+        super().tearDown()
+
+    def test_nested_contexts_restore_the_outer_trigger(self):
+        outer = Trigger(job_type="hog_flow", job_id="outer", payload={})
+        inner = Trigger(job_type="hog_flow", job_id="inner", payload={})
+
+        with ActivityTriggerContext(outer):
+            with ActivityTriggerContext(inner):
+                self.assertEqual(activity_storage.get_trigger(), inner)
+            self.assertEqual(activity_storage.get_trigger(), outer)
+        self.assertIsNone(activity_storage.get_trigger())
+
+    def test_none_trigger_is_a_noop(self):
+        outer = Trigger(job_type="hog_flow", job_id="outer", payload={})
+        with ActivityTriggerContext(outer):
+            with ActivityTriggerContext(None):
+                self.assertEqual(activity_storage.get_trigger(), outer)
+            self.assertEqual(activity_storage.get_trigger(), outer)

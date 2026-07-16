@@ -30,6 +30,35 @@ impl ExceptionResolver {
         // Checking if the exception is a Dart exception
         exc.exception_type.starts_with("minified:")
     }
+
+    pub async fn resolve_exception_list(
+        team_id: i32,
+        list: ExceptionList,
+        ctx: ResolutionStage,
+    ) -> Result<ExceptionList, UnhandledError> {
+        let resolved = Batch::from(list.0)
+            .apply_func(
+                move |exc, ctx| async move {
+                    let ctx = ctx.clone();
+                    if ExceptionResolver::is_java_exception(&exc) {
+                        let _permit = ctx.acquire_symbol_resolution_permit().await?;
+                        ctx.symbol_resolver
+                            .resolve_java_exception(team_id, exc)
+                            .await
+                    } else if ExceptionResolver::is_dart_exception(&exc) {
+                        let _permit = ctx.acquire_symbol_resolution_permit().await?;
+                        ctx.symbol_resolver
+                            .resolve_dart_exception(team_id, exc)
+                            .await
+                    } else {
+                        Ok(exc)
+                    }
+                },
+                ctx,
+            )
+            .await?;
+        Ok(ExceptionList::from(Vec::from(resolved)))
+    }
 }
 
 impl ValueOperator for ExceptionResolver {
@@ -47,28 +76,13 @@ impl ValueOperator for ExceptionResolver {
         mut evt: ExceptionProperties,
         ctx: ResolutionStage,
     ) -> OperatorResult<Self> {
-        evt.exception_list = Batch::from(evt.exception_list.0)
-            .apply_func(
-                move |exc, ctx| async move {
-                    let ctx = ctx.clone();
-                    if ExceptionResolver::is_java_exception(&exc) {
-                        let _permit = ctx.acquire_symbol_resolution_permit().await?;
-                        ctx.symbol_resolver
-                            .resolve_java_exception(evt.team_id, exc)
-                            .await
-                    } else if ExceptionResolver::is_dart_exception(&exc) {
-                        let _permit = ctx.acquire_symbol_resolution_permit().await?;
-                        ctx.symbol_resolver
-                            .resolve_dart_exception(evt.team_id, exc)
-                            .await
-                    } else {
-                        Ok(exc)
-                    }
-                },
-                ctx,
-            )
-            .await
-            .map(|v| ExceptionList::from(Vec::from(v)))?;
+        let team_id = evt.team_id;
+        evt.exception_list = ExceptionResolver::resolve_exception_list(
+            team_id,
+            std::mem::take(&mut evt.exception_list),
+            ctx,
+        )
+        .await?;
 
         Ok(Ok(evt))
     }

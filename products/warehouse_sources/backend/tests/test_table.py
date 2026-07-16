@@ -1,9 +1,38 @@
 import subprocess
 
 import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from products.warehouse_sources.backend.models.table import DataWarehouseTable, run_chdb_query
+
+
+class TestDataWarehouseTableColumnOrder(BaseTest):
+    def test_hogql_definition_honors_recorded_column_order(self) -> None:
+        # A materialized-view backing table stores its columns in a jsonb object (order not
+        # preserved) plus column_order (the physical/SELECT order). hogql_definition must expose
+        # fields in recorded order so a materialized view's SELECT * matches the view's SELECT.
+        table = DataWarehouseTable(
+            name="my_matview",
+            format="DeltaS3Wrapper",
+            team=self.team,
+            url_pattern="s3://bucket/team_1/modeling/my_matview",
+            columns={
+                "a": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+                "zebra": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+                "m": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+            },
+            column_order=["zebra", "a", "m"],
+        )
+
+        assert list(table.hogql_definition().fields.keys()) == ["zebra", "a", "m"]
+
+    def test_set_columns_records_order(self) -> None:
+        # The write-side chokepoint must set columns and column_order together so they cannot drift.
+        table = DataWarehouseTable(name="t", format="DeltaS3Wrapper", team=self.team, url_pattern="s3://b/t")
+        table.set_columns({"z": {"clickhouse": "String"}, "a": {"clickhouse": "String"}})
+
+        assert table.column_order == ["z", "a"]
 
 
 class TestRunChdbQuery:

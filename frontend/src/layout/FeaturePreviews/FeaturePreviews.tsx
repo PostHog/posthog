@@ -1,5 +1,5 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
-import { useLayoutEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 
 import { IconBell, IconCheck } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -275,6 +275,15 @@ function FeaturePreview({ feature, warning }: FeaturePreviewProps): JSX.Element 
 
     const [feedback, setFeedback] = useState('')
 
+    // Clear the draft when this card's feedback panel closes (success or cancel). A failed submit
+    // leaves the panel open (activeFeedbackFlagKey is unchanged on failure), so the text is kept
+    // for a retry rather than lost.
+    useEffect(() => {
+        if (!isFeedbackActive) {
+            setFeedback('')
+        }
+    }, [isFeedbackActive])
+
     return (
         <PreviewCard
             feature={feature}
@@ -329,9 +338,9 @@ function FeaturePreview({ feature, warning }: FeaturePreviewProps): JSX.Element 
                         onChange={(value) => setFeedback(value)}
                         onKeyDown={(e) => {
                             if (e.key === 'Enter' && e.metaKey) {
-                                void submitEarlyAccessFeatureFeedback(feedback).then(() => {
-                                    setFeedback('')
-                                })
+                                // Clearing on success is handled when the panel closes; a failed
+                                // submit keeps the panel open so the text survives for a retry
+                                void submitEarlyAccessFeatureFeedback(feedback)
                             } else if (e.key === 'Escape') {
                                 cancelEarlyAccessFeatureFeedback()
                                 setFeedback('')
@@ -352,9 +361,9 @@ function FeaturePreview({ feature, warning }: FeaturePreviewProps): JSX.Element 
                         <LemonButton
                             type="primary"
                             onClick={() => {
-                                void submitEarlyAccessFeatureFeedback(feedback).then(() => {
-                                    setFeedback('')
-                                })
+                                // Clearing on success is handled when the panel closes; a failed
+                                // submit keeps the panel open so the text survives for a retry
+                                void submitEarlyAccessFeatureFeedback(feedback)
                             }}
                             loading={activeFeedbackFlagKeyLoading}
                             className="flex-1"

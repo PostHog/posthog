@@ -73,6 +73,18 @@ Additional signals that a skill is the right answer even when tool prompts are a
 
 Don't write a skill for something the agent already one-shots from generic knowledge. A few real examples from review: `creating-isolated-project` or `finding-experiments` were unnecessary — the agent can do it without help. `setting-up-reverse-proxy` was the right call — the agent failed at it, and the skill needed to ship code snippets it couldn't derive. The bar is PostHog-specific judgement that a smart generalist agent wouldn't have, not project setup it can already handle.
 
+### How many skills is too many?
+
+A common worry when shipping a set of skills is "am I adding too many?" — and it's the right worry. Skill count is a budgeted, shared resource, not a free axis to expand. Agents pick skills from a list of _all_ available descriptions, and many harnesses **truncate that list** once it grows long. Every extra skill dilutes discovery for every other skill, so a bloated set makes each individual skill _less_ likely to fire, not more.
+
+So the number of skills is a cost to weigh, not just the content of each one. Before adding another skill, decide whether you have a genuinely new job-to-be-done or just more detail for a job you've already covered:
+
+- **New trigger → new skill.** A skill earns its own entry point only when it has a distinct trigger an agent would match against on its own. If you can't write a description whose "when to use it" is clearly different from an existing skill's, it isn't a separate skill.
+- **More detail → `references/`, not a new skill.** When the extra material is depth on an existing workflow (another failure mode, an SDK-specific variant, a longer query catalog), add it to that skill's [`references/`](#progressive-disclosure) rather than spinning up a sibling. The entry point stays lean and the detail loads on demand — you get coverage without spending a skill slot.
+- **Consolidate near-duplicate siblings.** If two skills share the same diagnosis, bug class, or trigger and differ only in a detail, merge them into one skill with references. Splitting the same job across two files adds a slot for no discovery benefit — reviewers will (and should) push back on it.
+
+The rule of thumb: prefer a small set of focused skills, each with rich `references/`, over a large set of thin ones. Reach for a reference file first; add a whole new skill only when the job and its trigger are genuinely distinct.
+
 ### Referencing MCP tools in skills
 
 When a skill references an MCP tool, use the `posthog:` namespace prefix

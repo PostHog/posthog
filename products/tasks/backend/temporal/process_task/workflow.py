@@ -17,11 +17,17 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM
+from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextInput, get_pr_context
 
-from .activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
+from .activities.cleanup_sandbox import (
+    CleanupSandboxInput,
+    CompleteRunStreamInput,
+    cleanup_sandbox,
+    complete_run_stream,
+)
 from .activities.create_resume_snapshot import CreateResumeSnapshotInput, create_resume_snapshot
 from .activities.emit_progress_activity import EmitProgressInput, emit_progress_activity
 from .activities.execute_task_in_sandbox import ExecuteTaskOutput
@@ -47,17 +53,30 @@ from .activities.provision_sandbox import (
     checkout_branch_in_sandbox,
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
+    get_fresh_image_source_for_context,
     inject_fresh_tokens_on_resume,
     invalidate_resume_snapshot,
     prepare_sandbox_for_repository,
 )
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
-from .activities.relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
+from .activities.relay_sandbox_events import (
+    RelaySandboxEventsInput,
+    relay_sandbox_events,
+    relay_sandbox_events_deferred_completion,
+)
 from .activities.run_wizard import RunWizardInput, run_wizard
 from .activities.send_followup_to_sandbox import (
     SEND_FOLLOWUP_MAX_ATTEMPTS,
     SendFollowupToSandboxInput,
     send_followup_to_sandbox,
+)
+from .activities.send_permission_response_to_sandbox import (
+    PostPermissionDeliveryFailureInput,
+    SendPermissionDenialGuidanceInput,
+    SendPermissionResponseToSandboxInput,
+    post_permission_delivery_failure_notice,
+    send_permission_denial_guidance,
+    send_permission_response_to_sandbox,
 )
 from .activities.slack_agent_design_signals import RelayAgentDesignSignalsInput, relay_agent_design_signals
 from .activities.start_agent_server import (
@@ -95,6 +114,17 @@ class ProcessTaskInput:
 class PendingFollowup:
     message: str | None
     artifact_ids: list[str]
+
+
+@dataclass
+class PendingPermissionResponse:
+    request_id: str
+    option_id: str
+    actor_user_id: int
+    actor_slack_user_id: str | None = None
+    is_denial: bool = False
+    denial_message: str | None = None
+    broker_reason: str | None = None
 
 
 @dataclass
@@ -173,9 +203,25 @@ _PATCH_ID_SLACK_AGENT_DESIGN_STATUS = "tasks-slack-agent-design-status"
 # deterministic. Same two-step cleanup lifecycle as above.
 _PATCH_ID_SKIP_LOCAL_ENVIRONMENT_RUNS = "tasks-skip-local-environment-runs"
 
+# Defers stream completion to cleanup without breaking existing histories.
+_PATCH_ID_DEFER_RUN_STREAM_COMPLETION = "tasks-defer-run-stream-completion"
+_PATCH_ID_COMPLETE_STREAM_AFTER_CLEANUP_FAILURE = "tasks-complete-stream-after-cleanup-failure"
+
 
 def _deprecate_ci_follow_up_pr_context_patch() -> None:
     workflow.deprecate_patch(_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT)
+
+
+def _defer_run_stream_completion() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_DEFER_RUN_STREAM_COMPLETION)
+
+
+def _complete_stream_after_cleanup_failure() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_COMPLETE_STREAM_AFTER_CLEANUP_FAILURE)
 
 
 @temporalio.workflow.defn(name="process-task")
@@ -188,12 +234,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._task_completed: bool = False
         self._completion_status: str = "completed"
         self._completion_error: Optional[str] = None
+        self._completion_error_type: Optional[str] = None
         self._heartbeat_received: bool = False
         self._prewarmed: bool = False
         self._first_user_message_received: bool = False
         self._sandbox_gone: bool = False
         self._pending_followup: PendingFollowup | None = None
         self._pending_followups: list[PendingFollowup] = []
+        self._pending_permission_responses: list[PendingPermissionResponse] = []
         self._ci_repetitions: int = 0
         self._last_active_time: Optional[datetime] = None
         # Tracks which progress step is currently in-progress (step, label,
@@ -237,6 +285,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 or self._heartbeat_received
                 or self._pending_followup is not None
                 or len(self._pending_followups) > 0
+                or len(self._pending_permission_responses) > 0
             )
         )
         if self._sandbox_gone and not self._task_completed:
@@ -440,12 +489,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
         sandbox_id = None
         sandbox_cleaned = False
+        run_stream_completed = False
         timed_out = False
         run_id = input.run_id
         self._sandbox_id_for_cleanup = None
         self._slack_thread_context = input.slack_thread_context
         self._prewarmed = input.prewarmed
         credential_refresh_task: asyncio.Task[None] | None = None
+        permission_response_task: asyncio.Task[None] | None = None
         try:
             self._context = await self._get_task_processing_context(input)
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
@@ -553,6 +604,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 # the per-turn Slack updates still fire.
                 relay_task = asyncio.ensure_future(self._relay_agent_design_signals())
 
+            # Delivered concurrently with the main loop: an approval can arrive while
+            # the loop is parked inside a followup activity whose turn is blocked on
+            # that very approval — delivering inline would livelock until the
+            # followup read-times-out.
+            permission_response_task = asyncio.ensure_future(self._deliver_pending_permission_responses())
+
             if self.context.has_github_credentials:
                 credential_refresh_task = asyncio.ensure_future(
                     self._run_credential_refresh_until_sandbox_gone(sandbox_id)
@@ -645,11 +702,24 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if credential_refresh_task is not None:
                 await self._cancel_relay(credential_refresh_task)
                 credential_refresh_task = None
+            if permission_response_task is not None:
+                if self._task_completed:
+                    # The drainer exits on its own once the queue is empty, so a response
+                    # that raced the completion signal is delivered (or its failure
+                    # surfaced in the thread) instead of silently dropped.
+                    await permission_response_task
+                else:
+                    await self._cancel_relay(permission_response_task)
+                permission_response_task = None
 
             if self._task_completed:
-                await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
+                await self._update_task_run_status(
+                    self._completion_status,
+                    error_message=self._completion_error,
+                    error_type=self._completion_error_type,
+                )
             elif timed_out:
-                await self._update_task_run_status("completed", error_message="Run timed out due to inactivity")
+                await self._update_task_run_status("completed", timed_out_inactivity=True)
 
             # Close out the keep-it-green step so a finished run doesn't show a still-spinning CI step.
             if self._pr_progress_emitted:
@@ -687,7 +757,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
             await self._update_task_run_status("cancelled", run_id=run_id)
             if current_sandbox_id:
-                await self._cleanup_sandbox(current_sandbox_id)
+                complete_stream = _defer_run_stream_completion()
+                await self._cleanup_sandbox(
+                    current_sandbox_id,
+                    complete_stream=complete_stream,
+                )
+                run_stream_completed = complete_stream
                 sandbox_id = None
                 self._sandbox_id_for_cleanup = None
             raise
@@ -698,7 +773,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # the UI show the persisted message, so surface the cause instead.
             cause = e.cause if isinstance(e, temporalio.exceptions.ActivityError) else None
             cause_message = getattr(cause, "message", None) or (str(cause) if cause is not None else None)
-            error_message = (cause_message or str(e))[:500]
+            error_message = truncate_error_message(cause_message or str(e))
             if self._context:
                 if self._current_progress_step is not None:
                     failed_step, failed_label, failed_group = self._current_progress_step
@@ -709,6 +784,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         failed_group,
                         detail=error_message[:200],
                     )
+                # Metrics and logs only: the status-update activity below owns the
+                # task_run_failed analytics capture, keyed on the DB transition.
                 await self._track_workflow_event(
                     "task_run_failed",
                     {
@@ -724,12 +801,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         "model": self.context.model,
                         "reasoning_effort": self.context.reasoning_effort,
                         "error_type": type(e).__name__,
-                        "error_message": str(e)[:500],
+                        "error_message": truncate_error_message(str(e)),
                         "sandbox_id": current_sandbox_id,
                         **self._activity_error_properties(e),
                     },
+                    capture_analytics=False,
                 )
-            await self._update_task_run_status("failed", error_message=error_message, run_id=run_id)
+            await self._update_task_run_status(
+                "failed", error_message=error_message, run_id=run_id, error_type=type(e).__name__
+            )
             if self._context:
                 await self._post_slack_update()
 
@@ -743,6 +823,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         finally:
             if credential_refresh_task is not None:
                 await self._cancel_relay(credential_refresh_task)
+            if permission_response_task is not None:
+                await self._cancel_relay(permission_response_task)
 
             cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
             if cleanup_sandbox_id:
@@ -750,9 +832,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     await self._create_resume_snapshot(cleanup_sandbox_id)
 
                 await self._read_sandbox_logs(cleanup_sandbox_id)
-                await self._cleanup_sandbox(cleanup_sandbox_id)
+                await self._cleanup_sandbox(
+                    cleanup_sandbox_id,
+                    complete_stream=_defer_run_stream_completion(),
+                )
                 sandbox_cleaned = True
                 self._sandbox_id_for_cleanup = None
+            elif not run_stream_completed and (
+                (self._context is None or self._context.environment == "cloud") and _defer_run_stream_completion()
+            ):
+                await self._complete_run_stream(run_id)
 
             if sandbox_cleaned and self._slack_thread_context and self._context:
                 await self._post_slack_update(sandbox_cleaned=True)
@@ -839,6 +928,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
                 await self._cleanup_sandbox(created.sandbox_id)
                 self._sandbox_id_for_cleanup = None
+                fresh_image_source, fresh_image_source_label = get_fresh_image_source_for_context(self.context)
                 prepared = replace(
                     prepared,
                     snapshot_id=None,
@@ -848,8 +938,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     snapshot_kind=SNAPSHOT_KIND_FILESYSTEM,
                     snapshot_mount_path=None,
                     snapshot_source="none",
-                    image_source="base_image",
-                    image_source_label="published sandbox base image",
+                    image_source=fresh_image_source,
+                    image_source_label=fresh_image_source_label,
                 )
                 await self._emit_progress(
                     "sandbox",
@@ -944,17 +1034,30 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             launch_ms=launch_ms,
         )
 
-    async def _cleanup_sandbox(self, sandbox_id: str) -> None:
+    async def _cleanup_sandbox(self, sandbox_id: str, *, complete_stream: bool = False) -> None:
         context = self._context
         cleanup_input = CleanupSandboxInput(
             sandbox_id=sandbox_id,
             run_id=context.run_id if context else None,
-            complete_stream_on_cleanup=bool(context and context.sandbox_event_ingest_enabled),
+            complete_stream_on_cleanup=bool(context and complete_stream),
         )
+        try:
+            await workflow.execute_activity(
+                cleanup_sandbox,
+                cleanup_input,
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except Exception:
+            if context and complete_stream and _complete_stream_after_cleanup_failure():
+                await self._complete_run_stream(context.run_id)
+            raise
+
+    async def _complete_run_stream(self, run_id: str) -> None:
         await workflow.execute_activity(
-            cleanup_sandbox,
-            cleanup_input,
-            start_to_close_timeout=timedelta(minutes=5),
+            complete_run_stream,
+            CompleteRunStreamInput(run_id=run_id),
+            start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
@@ -1074,6 +1177,113 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
+    async def _deliver_pending_permission_responses(self) -> None:
+        """Drain queued human permission responses, concurrently with the main loop.
+
+        Exits once the run completes and the queue is empty, so a response that
+        raced the completion signal is still delivered.
+        """
+        while True:
+            await workflow.wait_condition(lambda: len(self._pending_permission_responses) > 0 or self._task_completed)
+            while self._pending_permission_responses:
+                response = self._pending_permission_responses.pop(0)
+                self._last_active_time = workflow.now()
+                workflow.logger.info(
+                    "Pending permission response received, sending to sandbox",
+                    extra={
+                        "run_id": self.context.run_id,
+                        "request_id": response.request_id,
+                        "option_id": response.option_id,
+                        "actor_user_id": response.actor_user_id,
+                        "is_denial": response.is_denial,
+                    },
+                )
+                await self._send_permission_response_to_sandbox(response)
+            if self._task_completed:
+                return
+
+    async def _send_permission_response_to_sandbox(self, response: PendingPermissionResponse) -> None:
+        if response.is_denial and response.denial_message:
+            # Best-effort and single-attempt: the guidance message is not idempotent,
+            # so it must not share a retry boundary with the response delivery below,
+            # and a failure to deliver it must not block the rejection itself.
+            try:
+                await workflow.execute_activity(
+                    send_permission_denial_guidance,
+                    SendPermissionDenialGuidanceInput(
+                        run_id=self.context.run_id,
+                        request_id=response.request_id,
+                        actor_user_id=response.actor_user_id,
+                        denial_message=response.denial_message,
+                    ),
+                    start_to_close_timeout=timedelta(seconds=20),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except Exception as e:
+                workflow.logger.warning(
+                    "permission_denial_guidance_failed",
+                    extra={
+                        "run_id": self.context.run_id,
+                        "request_id": response.request_id,
+                        "error": str(e),
+                    },
+                )
+
+        try:
+            await workflow.execute_activity(
+                send_permission_response_to_sandbox,
+                SendPermissionResponseToSandboxInput(
+                    run_id=self.context.run_id,
+                    request_id=response.request_id,
+                    option_id=response.option_id,
+                    actor_user_id=response.actor_user_id,
+                    actor_slack_user_id=response.actor_slack_user_id,
+                    is_denial=response.is_denial,
+                    broker_reason=response.broker_reason,
+                ),
+                start_to_close_timeout=timedelta(seconds=45),
+                retry_policy=RetryPolicy(initial_interval=timedelta(seconds=5), maximum_attempts=3),
+            )
+        except Exception as e:
+            # A failed delivery must not fail the run: the sandbox is usually still
+            # healthy (transient tunnel blip) and the request can still be answered
+            # from the task UI. The Slack card already shows the response as
+            # recorded, so surface the miss in the thread instead.
+            workflow.logger.warning(
+                "permission_response_delivery_failed",
+                extra={
+                    "run_id": self.context.run_id,
+                    "request_id": response.request_id,
+                    "option_id": response.option_id,
+                    "error": str(e),
+                },
+            )
+            await self._notify_permission_delivery_failure(response)
+
+    async def _notify_permission_delivery_failure(self, response: PendingPermissionResponse) -> None:
+        if not self._slack_thread_context:
+            return
+        try:
+            await workflow.execute_activity(
+                post_permission_delivery_failure_notice,
+                PostPermissionDeliveryFailureInput(
+                    run_id=self.context.run_id,
+                    request_id=response.request_id,
+                    slack_thread_context=self._slack_thread_context,
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except Exception as e:
+            workflow.logger.warning(
+                "permission_response_delivery_failure_notice_failed",
+                extra={
+                    "run_id": self.context.run_id,
+                    "request_id": response.request_id,
+                    "error": str(e),
+                },
+            )
+
     def _should_forward_pending_user_message(self) -> bool:
         if not self._context:
             return False
@@ -1082,7 +1292,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
         return self.context.mode != "interactive" and not is_resume
 
-    async def _track_workflow_event(self, event_name: str, properties: dict) -> None:
+    async def _track_workflow_event(self, event_name: str, properties: dict, capture_analytics: bool = True) -> None:
         track_input = TrackWorkflowEventInput(
             event_name=event_name,
             distinct_id=self.context.distinct_id,
@@ -1091,6 +1301,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "organization": self.context.organization_id,
                 "project": self.context.team_uuid,
             },
+            capture_analytics=capture_analytics,
         )
         await workflow.execute_activity(
             track_workflow_event,
@@ -1146,7 +1357,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
     async def _update_task_run_status(
-        self, status: str, error_message: Optional[str] = None, run_id: Optional[str] = None
+        self,
+        status: str,
+        error_message: Optional[str] = None,
+        run_id: Optional[str] = None,
+        timed_out_inactivity: bool = False,
+        error_type: Optional[str] = None,
     ) -> None:
         await workflow.execute_activity(
             update_task_run_status,
@@ -1154,6 +1370,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 run_id=run_id if run_id is not None else self.context.run_id,
                 status=status,
                 error_message=error_message,
+                timed_out_inactivity=timed_out_inactivity,
+                error_type=error_type,
             ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1194,8 +1412,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 slack_thread_context=self._slack_thread_context,
                 is_agent_design_enabled=self._is_agent_design_enabled,
             )
+            relay_activity = (
+                relay_sandbox_events_deferred_completion if _defer_run_stream_completion() else relay_sandbox_events
+            )
             await workflow.execute_activity(
-                relay_sandbox_events,
+                relay_activity,
                 relay_input,
                 start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
                 schedule_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
@@ -1356,6 +1577,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def complete_task(self, status: str = "completed", error_message: Optional[str] = None) -> None:
         self._completion_status = status
         self._completion_error = error_message
+        # Completion signals come from the agent reporting its own terminal state
+        # through the run PATCH endpoint (which flips the row first, so the status
+        # activity usually sees no transition and skips its capture).
+        self._completion_error_type = "agent_reported" if status == "failed" else None
         self._task_completed = True
 
     # ─── Slack agent-design streaming ─── (per-turn signals from relay_sandbox_events)
@@ -1454,6 +1679,52 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         workflow.deprecate_patch(_PATCH_ID_FOLLOWUP_QUEUE)
         self._pending_followups.append(pending_followup)
 
+    @temporalio.workflow.signal
+    async def send_permission_response(self, response: dict[str, Any]) -> None:
+        request_id = response.get("request_id")
+        option_id = response.get("option_id")
+        actor_user_id = response.get("actor_user_id")
+        if not isinstance(request_id, str) or not request_id:
+            workflow.logger.warning("permission_response_signal_ignored", extra={"reason": "missing_request_id"})
+            return
+        if not isinstance(option_id, str) or not option_id:
+            workflow.logger.warning(
+                "permission_response_signal_ignored",
+                extra={"request_id": request_id, "reason": "missing_option_id"},
+            )
+            return
+        if not isinstance(actor_user_id, int) or isinstance(actor_user_id, bool):
+            workflow.logger.warning(
+                "permission_response_signal_ignored",
+                extra={"request_id": request_id, "reason": "missing_actor_user_id"},
+            )
+            return
+
+        actor_slack_user_id = response.get("actor_slack_user_id")
+        denial_message = response.get("denial_message")
+        broker_reason = response.get("broker_reason")
+        pending_response = PendingPermissionResponse(
+            request_id=request_id,
+            option_id=option_id,
+            actor_user_id=actor_user_id,
+            actor_slack_user_id=actor_slack_user_id if isinstance(actor_slack_user_id, str) else None,
+            is_denial=bool(response.get("is_denial")),
+            denial_message=denial_message if isinstance(denial_message, str) else None,
+            broker_reason=broker_reason if isinstance(broker_reason, str) else None,
+        )
+        self._pending_permission_responses.append(pending_response)
+        context = self._context
+        workflow.logger.info(
+            "permission_response_signal_received",
+            extra={
+                "run_id": context.run_id if context is not None else None,
+                "request_id": request_id,
+                "option_id": option_id,
+                "actor_user_id": actor_user_id,
+                "is_denial": pending_response.is_denial,
+            },
+        )
+
     async def _send_followup_to_sandbox(self, message: str | None, artifact_ids: list[str]) -> None:
         workflow.logger.info(
             "send_followup_dispatch_begin",
@@ -1500,4 +1771,5 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # immediately instead of waiting for the inactivity timeout.
             self._completion_status = "failed"
             self._completion_error = f"Follow-up delivery failed: {cause_message or e}"
+            self._completion_error_type = "followup_delivery_failed"
             self._task_completed = True

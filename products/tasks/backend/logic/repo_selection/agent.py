@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from django.db.models import Case, IntegerField, Value, When
 
 from posthog.models.github_integration_base import GitHubIntegrationBase
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration, Integration
 from posthog.models.integration_repository_cache import GitHubRepositoryFullCache
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -112,6 +112,9 @@ def resolve_team_github_integration(
         Integration.objects.filter(team_id=team_id, kind="github")
         # Skip integrations whose installation has been synced and confirmed empty (0 repos)
         .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
+        # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
+        # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
+        .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
         # Prioritize orgs vs users (alphabetically), then oldest first
         .order_by("config__account__type", "created_at", "id")
         .first()

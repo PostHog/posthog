@@ -1,18 +1,19 @@
 import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { urls } from 'scenes/urls'
-
-import type { ExternalDataSourceConnectionOption } from '~/types'
 
 import IconPostHog from 'public/posthog-icon.svg'
 import IconDuckDB from 'public/services/duckdb.svg'
 import IconMySQL from 'public/services/mysql.png'
 import IconPostgres from 'public/services/postgres.png'
+import IconRedshift from 'public/services/redshift.png'
 import IconSnowflake from 'public/services/snowflake.png'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+import { externalDataSourcesConnectionsList } from 'products/warehouse_sources/frontend/generated/api'
+import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import type { connectionSelectorLogicType } from './connectionSelectorLogicType'
 
@@ -21,6 +22,7 @@ export const LOADING_CONNECTIONS = '__loading_connections__'
 export const ADD_POSTGRES_DIRECT_CONNECTION = '__add_postgres_direct_connection__'
 export const ADD_MYSQL_DIRECT_CONNECTION = '__add_mysql_direct_connection__'
 export const ADD_SNOWFLAKE_DIRECT_CONNECTION = '__add_snowflake_direct_connection__'
+export const ADD_REDSHIFT_DIRECT_CONNECTION = '__add_redshift_direct_connection__'
 export const CONFIGURE_SOURCES = '__configure_sources__'
 
 export interface ConnectionSelectOption {
@@ -37,13 +39,14 @@ export interface ConnectionSelectOptionGroup {
     options: ConnectionSelectOption[]
 }
 
-type ConnectionEngine = 'duckdb' | 'postgres' | 'mysql' | 'snowflake'
+type ConnectionEngine = 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift'
 
 const ENGINE_LABELS: Record<ConnectionEngine, string> = {
     duckdb: 'DuckDB',
     postgres: 'Postgres',
     mysql: 'MySQL',
     snowflake: 'Snowflake',
+    redshift: 'Redshift',
 }
 
 const ENGINE_ICONS: Record<ConnectionEngine, string> = {
@@ -51,17 +54,23 @@ const ENGINE_ICONS: Record<ConnectionEngine, string> = {
     postgres: IconPostgres,
     mysql: IconMySQL,
     snowflake: IconSnowflake,
+    redshift: IconRedshift,
 }
 
-function getConnectionEngine(source: Pick<ExternalDataSourceConnectionOption, 'engine'>): ConnectionEngine {
-    if (source.engine === 'duckdb' || source.engine === 'mysql' || source.engine === 'snowflake') {
+function getConnectionEngine(source: Pick<ExternalDataSourceConnectionOptionApi, 'engine'>): ConnectionEngine {
+    if (
+        source.engine === 'duckdb' ||
+        source.engine === 'mysql' ||
+        source.engine === 'snowflake' ||
+        source.engine === 'redshift'
+    ) {
         return source.engine
     }
     return 'postgres'
 }
 
 export function getConnectionSelectorValue(
-    connectionOptions: ExternalDataSourceConnectionOption[] | null,
+    connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
     connectionOptionsLoading: boolean,
     selectedConnectionId: string | undefined
 ): string {
@@ -83,11 +92,13 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
     })),
     loaders(() => ({
         connectionOptions: [
-            null as ExternalDataSourceConnectionOption[] | null,
+            null as ExternalDataSourceConnectionOptionApi[] | null,
             {
-                loadConnectionOptions: async (): Promise<ExternalDataSourceConnectionOption[]> => {
+                loadConnectionOptions: async (): Promise<ExternalDataSourceConnectionOptionApi[]> => {
                     try {
-                        return await api.externalDataSources.connections()
+                        // The projects route treats the path param as a team id (environments transition),
+                        // so pass the current team id to keep per-environment scoping.
+                        return await externalDataSourcesConnectionsList(String(ApiConfig.getCurrentTeamId()))
                     } catch (error: any) {
                         if (error?.status === 403) {
                             return []
@@ -103,7 +114,7 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
         connectionSelectOptions: [
             (s) => [s.connectionOptions, s.connectionOptionsLoading],
             (
-                connectionOptions: ExternalDataSourceConnectionOption[] | null,
+                connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
                 connectionOptionsLoading: boolean
             ): ConnectionSelectOptionGroup[] => {
                 const sourceOptions = connectionOptionsLoading
@@ -146,6 +157,11 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
                                         value: ADD_SNOWFLAKE_DIRECT_CONNECTION,
                                         label: 'Snowflake',
                                         iconSrc: IconSnowflake,
+                                    },
+                                    {
+                                        value: ADD_REDSHIFT_DIRECT_CONNECTION,
+                                        label: 'Redshift',
+                                        iconSrc: IconRedshift,
                                     },
                                 ],
                             },

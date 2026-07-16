@@ -566,7 +566,7 @@ database "posthog" {
       type = "UInt64"
     }
     column "inserted_at" {
-      type    = "Nullable(DateTime64(6, 'UTC'))"
+      type    = "DateTime64(6, 'UTC')"
       default = "now64()"
     }
     engine "distributed" {
@@ -773,6 +773,9 @@ database "posthog" {
     column "client_name" {
       type = "String"
     }
+    column "client_agent" {
+      type = "LowCardinality(String)"
+    }
     column "client_revision" {
       type = "UInt64"
     }
@@ -784,6 +787,9 @@ database "posthog" {
     }
     column "client_version_patch" {
       type = "UInt64"
+    }
+    column "client_agent" {
+      type = "LowCardinality(String)"
     }
     column "http_method" {
       type = "UInt8"
@@ -1415,7 +1421,7 @@ database "posthog" {
       type = "UInt64"
     }
     column "inserted_at" {
-      type    = "Nullable(DateTime64(6, 'UTC'))"
+      type    = "DateTime64(6, 'UTC')"
       default = "now64()"
     }
     engine "distributed" {
@@ -1764,32 +1770,32 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     column "category" {
-      type         = "LowCardinality(String)"
-      default      = "coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown')"
+      type    = "LowCardinality(String)"
+      default = "coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown')"
     }
     column "severity" {
-      type         = "LowCardinality(String)"
-      default      = "coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning')"
+      type    = "LowCardinality(String)"
+      default = "coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning')"
     }
     column "pipeline_step" {
-      type         = "LowCardinality(String)"
-      default      = "coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown')"
+      type    = "LowCardinality(String)"
+      default = "coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown')"
     }
     column "event_uuid" {
-      type         = "Nullable(UUID)"
-      default      = "toUUIDOrNull(JSONExtractString(details, 'eventUuid'))"
+      type    = "Nullable(UUID)"
+      default = "toUUIDOrNull(JSONExtractString(details, 'eventUuid'))"
     }
     column "distinct_id" {
-      type         = "Nullable(String)"
-      default      = "nullIf(JSONExtractString(details, 'distinctId'), '')"
+      type    = "Nullable(String)"
+      default = "nullIf(JSONExtractString(details, 'distinctId'), '')"
     }
     column "group_key" {
-      type         = "Nullable(String)"
-      default      = "nullIf(JSONExtractString(details, 'groupKey'), '')"
+      type    = "Nullable(String)"
+      default = "nullIf(JSONExtractString(details, 'groupKey'), '')"
     }
     column "person_id" {
-      type         = "Nullable(UUID)"
-      default      = "toUUIDOrNull(JSONExtractString(details, 'personId'))"
+      type    = "Nullable(UUID)"
+      default = "toUUIDOrNull(JSONExtractString(details, 'personId'))"
     }
     column "_timestamp" {
       type = "DateTime"

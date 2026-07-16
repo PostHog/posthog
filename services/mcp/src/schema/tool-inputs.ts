@@ -341,6 +341,96 @@ export const EventDefinitionUpdateSchema = z.object({
     data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
 })
 
+const PathCleaningAliasField = z
+    .string()
+    .describe(
+        'The human-readable replacement, e.g. "/users/<id>/profile". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a "?page=N" fragment). Not a regex template — backreferences are not supported.'
+    )
+const PathCleaningRegexField = z
+    .string()
+    .min(1)
+    .describe(
+        'A re2 pattern matched against the path, e.g. "/users/\\\\d+/profile". No need to escape "/". Anchor with ^ / $ when you mean it.'
+    )
+const PathCleaningTargetAlias = z
+    .string()
+    .describe(
+        'The alias of the existing rule to target (must match an existing rule exactly). Use "" to target a rule whose alias is empty.'
+    )
+
+export const PathCleaningRulesUpdateSchema = z.object({
+    operations: z
+        .array(
+            z.discriminatedUnion('action', [
+                z
+                    .object({
+                        action: z.literal('append'),
+                        alias: PathCleaningAliasField,
+                        regex: PathCleaningRegexField,
+                    })
+                    .describe('Add a new rule at the end of the ordered list (runs last).'),
+                z
+                    .object({
+                        action: z.literal('insert'),
+                        index: z
+                            .number()
+                            .int()
+                            .min(0)
+                            .describe('Zero-based position to insert the rule at. Existing rules shift down.'),
+                        alias: PathCleaningAliasField,
+                        regex: PathCleaningRegexField,
+                    })
+                    .describe(
+                        'Insert a new rule at a specific position — use when it must run before more general rules.'
+                    ),
+                z
+                    .object({
+                        action: z.literal('replace'),
+                        target_alias: PathCleaningTargetAlias,
+                        alias: PathCleaningAliasField.optional().describe('New alias. Omit to keep the current alias.'),
+                        regex: PathCleaningRegexField.optional().describe('New regex. Omit to keep the current regex.'),
+                    })
+                    .describe('Replace the alias and/or regex of an existing rule, keeping its position.'),
+                z
+                    .object({
+                        action: z.literal('remove'),
+                        target_alias: PathCleaningTargetAlias,
+                    })
+                    .describe('Remove an existing rule by alias.'),
+                z
+                    .object({
+                        action: z.literal('reorder'),
+                        ordered_aliases: z
+                            .array(z.string())
+                            .describe(
+                                'The full set of current aliases in the new desired order (including "" for any empty-alias rule and any duplicates). Must be a permutation of the existing aliases.'
+                            ),
+                    })
+                    .describe(
+                        'Reorder the existing rules. Order matters: rules apply sequentially, each feeding the next.'
+                    ),
+            ])
+        )
+        .min(1)
+        .describe('Ordered list of edits to apply to the current path cleaning rules, in sequence.'),
+    sample_paths: z
+        // Bounded (count + length) so a pathological user-supplied regex can't burn unbounded
+        // CPU backtracking over the preview. A handful of representative paths is the point.
+        .array(z.string().max(2048))
+        .max(25)
+        .optional()
+        .describe(
+            'Optional real paths (e.g. "/users/123/profile") to preview against, up to 25. The response shows how the resulting rule set rewrites each one. Approximate (JS regex, not re2) — use execute-sql with replaceRegexpAll to confirm edge cases.'
+        ),
+    confirm: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+            'Must be true to persist. When false (default) the tool returns a preview of the resulting rules (and any sample-path rewrites) WITHOUT saving — surface it to the user, then re-run with confirm:true.'
+        ),
+})
+
 export const ProjectSetActiveSchema = z.object({
     projectId: z.number().int().positive(),
 })
@@ -367,10 +457,6 @@ export const ExecuteSQLSchema = z.object({
             'Optional id of an external data source (e.g. a Postgres, DuckDB, or MySQL direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
         ),
 })
-
-export const ReadDataWarehouseSchemaSchema = z
-    .object({})
-    .describe('No input required. Returns core data warehouse schemas.')
 
 const ReadEventsQuerySchema = z.object({
     kind: z.literal('events'),
@@ -503,7 +589,7 @@ const WorkflowGraphOperationSchema = z.discriminatedUnion('op', [
 ])
 
 export const WorkflowGraphPatchSchema = z.object({
-    id: z.string().describe('The workflow (HogFlow) id to edit. Draft only — active workflows are read-only via MCP.'),
+    id: z.string().describe('The workflow (HogFlow) id to edit.'),
     operations: z
         .array(WorkflowGraphOperationSchema)
         .min(1)

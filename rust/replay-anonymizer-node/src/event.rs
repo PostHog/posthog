@@ -1,5 +1,5 @@
 //! Routes each parsed rrweb event to the right scrubber by type/source, and walks a whole parsed
-//! message (`{ windowId: Event[] }`). Mirrors `anonymize/anonymize-event.ts` (`routeEvent`).
+//! message (`{ windowId: Event[] }`).
 
 use anyhow::{bail, Context, Result};
 use simd_json::borrowed::{Object, Value};

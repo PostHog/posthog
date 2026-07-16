@@ -125,10 +125,12 @@ CREATE TABLE posthog.distributed_system_processes (
   os_user String,
   client_hostname String,
   client_name String,
+  client_agent LowCardinality(String),
   client_revision UInt64,
   client_version_major UInt64,
   client_version_minor UInt64,
   client_version_patch UInt64,
+  client_agent LowCardinality(String),
   http_method UInt8,
   http_user_agent String,
   http_referer String,
@@ -2719,7 +2721,7 @@ CREATE TABLE posthog.distributed_events_recent (
   historical_migration Bool,
   _timestamp DateTime,
   _offset UInt64,
-  inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT now64()
+  inserted_at DateTime64(6, 'UTC') DEFAULT now64()
 ) ENGINE = Distributed('posthog_primary_replica', 'posthog', 'sharded_events_recent', sipHash64(distinct_id));
 CREATE TABLE posthog.distributed_posthog_document_embeddings (
   team_id Int64,
@@ -2854,7 +2856,7 @@ CREATE TABLE posthog.events_recent (
   historical_migration Bool,
   _timestamp DateTime,
   _offset UInt64,
-  inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT now64()
+  inserted_at DateTime64(6, 'UTC') DEFAULT now64()
 ) ENGINE = Distributed('posthog_primary_replica', 'posthog', 'sharded_events_recent', sipHash64(distinct_id));
 CREATE TABLE posthog.experiment_exposures_preaggregated (
   team_id Int64,

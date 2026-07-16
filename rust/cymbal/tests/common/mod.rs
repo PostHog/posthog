@@ -503,5 +503,7 @@ pub fn build_event(num_exceptions: usize) -> ExceptionProperties {
         timestamp: String::new(),
         team_id: 7,
         issue: None,
+        legacy_order_exception_list: None,
+        legacy_order_resolved: None,
     }
 }

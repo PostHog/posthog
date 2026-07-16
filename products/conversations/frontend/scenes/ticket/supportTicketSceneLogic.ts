@@ -7,6 +7,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { isUUIDLike } from 'lib/utils/guards'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
@@ -15,7 +17,7 @@ import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import type { CommentType, PersonType } from '~/types'
+import type { Breadcrumb, CommentType, PersonType } from '~/types'
 import { PropertyFilterType, PropertyOperator, Region } from '~/types'
 
 import {
@@ -120,12 +122,39 @@ function createExceptionsQuery(sessionId?: string, ticketCreatedAt?: string): Da
     }
 }
 
+/** Why a customer-facing email reply on this ticket can never be delivered. */
+export type EmailReplyBlockedReason = 'email_disabled' | 'no_recipient' | 'no_channel'
+
+/**
+ * Mirrors the backend gates in send_email_reply_on_team_message / _process_outbox_row:
+ * a reply that fails any of these is saved as a comment but never delivered.
+ */
+export function getEmailReplyBlockedReason(
+    ticket: Pick<Ticket, 'channel_source' | 'email_from' | 'email_to'> | null,
+    conversationsSettings: { email_enabled?: boolean } | null | undefined
+): EmailReplyBlockedReason | null {
+    if (ticket?.channel_source !== 'email') {
+        return null
+    }
+    if (!conversationsSettings?.email_enabled) {
+        return 'email_disabled'
+    }
+    if (!ticket.email_from) {
+        return 'no_recipient'
+    }
+    if (!ticket.email_to) {
+        return 'no_channel'
+    }
+    return null
+}
+
 export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'ticket', 'supportTicketSceneLogic']),
     props({ id: 'new' as string | number }),
     key((props) => props.id),
     connect(() => ({
         actions: [supportTicketsSceneLogic, ['loadTickets']],
+        values: [teamLogic, ['currentTeam']],
     })),
     actions({
         loadTicket: true,
@@ -377,6 +406,26 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     }),
     selectors({
+        breadcrumbs: [
+            (_, p) => [p.id],
+            (id): Breadcrumb[] => {
+                let name: string
+                if (id === 'new') {
+                    name = 'New ticket'
+                } else if (typeof id === 'string' && isUUIDLike(id)) {
+                    // Legacy UUID URLs: show the first segment without a # (which implies a number)
+                    name = `Ticket ${id.split('-')[0]}`
+                } else {
+                    name = `Ticket #${id}`
+                }
+                return [{ key: ['SupportTicketDetail', id], name }]
+            },
+        ],
+        emailReplyBlockedReason: [
+            (s) => [s.ticket, s.currentTeam],
+            (ticket, currentTeam): EmailReplyBlockedReason | null =>
+                getEmailReplyBlockedReason(ticket, currentTeam?.conversations_settings),
+        ],
         hasUnsavedChanges: [
             (s) => [s.status, s.priority, s.assignee, s.tags, s.snoozedUntil, s.ticket],
             (status, priority, assignee, tags, snoozedUntil, ticket): boolean => {
@@ -632,7 +681,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     },
                     {}
                 )
-                lemonToast.success(isPrivate ? 'Private message sent' : 'Message sent')
+                // "Added", not "sent": email delivery is async (outbox + Celery) and can still fail
+                // after this API call succeeds; the per-message delivery status is the send signal.
+                lemonToast.success(isPrivate ? 'Private note added' : 'Reply added')
                 actions.setMessageSending(false)
                 onSuccess?.()
                 if (!isPrivate) {
