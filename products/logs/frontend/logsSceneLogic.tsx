@@ -116,9 +116,15 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 }
             }
             if (params.filterGroup) {
-                if (!equal(params.filterGroup, values.filters.filterGroup)) {
-                    filtersFromUrl.filterGroup = params.filterGroup
-                    hasFilterChanges = true
+                try {
+                    const filterGroup =
+                        typeof params.filterGroup === 'string' ? JSON.parse(params.filterGroup) : params.filterGroup
+                    if (!equal(filterGroup, values.filters.filterGroup)) {
+                        filtersFromUrl.filterGroup = filterGroup
+                        hasFilterChanges = true
+                    }
+                } catch {
+                    // Ignore malformed filterGroup JSON in URL
                 }
             } else if (!equal(DEFAULT_UNIVERSAL_GROUP_FILTER, values.filters.filterGroup)) {
                 filtersFromUrl.filterGroup = DEFAULT_UNIVERSAL_GROUP_FILTER
