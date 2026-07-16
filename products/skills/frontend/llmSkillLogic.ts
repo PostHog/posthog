@@ -550,6 +550,8 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                 const paddedSkill: ResolvedLLMSkill = {
                     ...existingSkill,
                     body: '',
+                    body_total_length: 0,
+                    body_next_offset: null,
                     files: [],
                     versions: [],
                     has_more: false,

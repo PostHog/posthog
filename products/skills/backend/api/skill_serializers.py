@@ -112,6 +112,11 @@ class LLMSkillFetchQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Specific skill version to fetch. If omitted, the latest version is returned.",
     )
+
+
+class LLMSkillBodyFetchQuerySerializer(LLMSkillFetchQuerySerializer):
+    """Fetch-by-name query params plus optional body paging — only the body-returning endpoint uses these."""
+
     body_offset = serializers.IntegerField(
         min_value=0,
         required=False,

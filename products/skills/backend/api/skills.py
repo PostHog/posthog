@@ -44,6 +44,7 @@ from ..marketplace.packaging import SkillImportError, build_skill_zip, parse_ski
 from ..models.skills import LLMSkill, LLMSkillFile
 from .skill_serializers import (
     MAX_SKILL_FILE_BYTES,
+    LLMSkillBodyFetchQuerySerializer,
     LLMSkillCreateSerializer,
     LLMSkillDuplicateSerializer,
     LLMSkillFetchQuerySerializer,
@@ -260,6 +261,11 @@ class LLMSkillViewSet(
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data
 
+    def _get_body_fetch_params(self, request: Request) -> dict[str, Any]:
+        serializer = LLMSkillBodyFetchQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
     def _get_resolve_query_params(self, request: Request) -> dict[str, Any]:
         serializer = LLMSkillResolveQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
@@ -318,14 +324,14 @@ class LLMSkillViewSet(
         )
 
     @extend_schema(
-        parameters=[LLMSkillFetchQuerySerializer],
+        parameters=[LLMSkillBodyFetchQuerySerializer],
         responses={200: LLMSkillSerializer},
     )
     @action(methods=["GET"], detail=False, url_path=r"name/(?P<skill_name>[^/]+)")
     @llma_track_latency("llma_skills_get_by_name")
     @monitor(feature=None, endpoint="llma_skills_get_by_name", method="GET")
     def get_by_name(self, request: Request, skill_name: str = "", **kwargs) -> Response:
-        version_params = self._get_requested_version_params(request)
+        version_params = self._get_body_fetch_params(request)
         version = cast(int | None, version_params.get("version"))
         skill = get_skill_by_name_from_db(self.team, skill_name, version)
 
