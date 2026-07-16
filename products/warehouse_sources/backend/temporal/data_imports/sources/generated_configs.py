@@ -3022,7 +3022,7 @@ class PabblySubscriptionsBillingSourceConfig(config.Config):
 
 @config.config
 class PackagistSourceConfig(config.Config):
-    pass
+    packages: str
 
 
 @config.config
