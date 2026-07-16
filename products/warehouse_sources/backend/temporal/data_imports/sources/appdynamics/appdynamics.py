@@ -1,3 +1,5 @@
+import json
+import time
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -21,6 +23,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 
 REQUEST_TIMEOUT = 60
 MAX_RETRY_ATTEMPTS = 5
+# The controller host is user-supplied, so a hostile or misbehaving controller could stream
+# an unbounded or slowly-trickled body. `requests`' read timeout only limits idle gaps between
+# reads, not total size or duration, so cap both: no single response may buffer more than this
+# many bytes or take longer than the wall-clock budget to download.
+MAX_RESPONSE_BYTES = 256 * 1024 * 1024
+MAX_DOWNLOAD_SECONDS = 120
+RESPONSE_CHUNK_SIZE = 1024 * 1024
 # Controller OAuth tokens default to a ~5 minute TTL (configurable per controller);
 # refresh well before expiry so a request never rides a token that dies mid-flight.
 TOKEN_REFRESH_MARGIN_SECONDS = 60
@@ -123,21 +132,65 @@ def _fetch_oauth_token(session: requests.Session, base_url: str, auth: Appdynami
         },
         timeout=REQUEST_TIMEOUT,
         allow_redirects=False,
+        stream=True,
     )
 
     if response.status_code == 429 or response.status_code >= 500:
+        response.close()
         raise AppdynamicsRetryableError(
             f"AppDynamics OAuth token request failed (retryable): status={response.status_code}"
         )
     if not response.ok:
+        response.close()
         raise AppdynamicsError(OAUTH_FAILED_MESSAGE)
 
-    payload = response.json()
+    payload = _read_json_within_limits(response)
     token = payload.get("access_token")
     if not token:
         raise AppdynamicsError(OAUTH_FAILED_MESSAGE)
     # The default token TTL is 5 minutes; fall back to that when the response omits it.
     return token, int(payload.get("expires_in") or 300)
+
+
+def _read_json_within_limits(response: requests.Response) -> Any:
+    """Stream a response body under fixed byte and wall-clock caps, then parse it as JSON.
+
+    Reading in chunks means an oversized or trickled body is rejected before it can exhaust
+    memory or hold an import worker open indefinitely, rather than being buffered whole by
+    `requests`. Exceeding a limit is non-retryable — a host that behaves this way won't stop
+    on a retry.
+    """
+    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_SIZE):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > MAX_RESPONSE_BYTES:
+                raise AppdynamicsError(
+                    f"AppDynamics response exceeded the {MAX_RESPONSE_BYTES // (1024 * 1024)} MiB size limit"
+                )
+            if time.monotonic() > deadline:
+                raise AppdynamicsError(f"AppDynamics response exceeded the {MAX_DOWNLOAD_SECONDS}s download time limit")
+            chunks.append(chunk)
+    finally:
+        response.close()
+    return json.loads(b"".join(chunks))
+
+
+def _read_capped_text(response: requests.Response, limit: int = 64 * 1024) -> str:
+    """Read at most `limit` bytes of a streamed body for error logging, then close it."""
+    data = bytearray()
+    try:
+        for chunk in response.iter_content(chunk_size=8192):
+            data.extend(chunk)
+            if len(data) >= limit:
+                break
+    finally:
+        response.close()
+    return bytes(data[:limit]).decode("utf-8", errors="replace")
 
 
 class AppdynamicsClient:
@@ -191,6 +244,8 @@ class AppdynamicsClient:
         # `output=JSON` is required on Controller REST endpoints — the default is XML.
         # The base URL is user-supplied; refuse redirects so a safe-looking host can't
         # bounce us to an internal one (SSRF guard).
+        # `stream=True` keeps the body off the wire until we read it in bounded chunks below,
+        # so a hostile controller can't make `requests` buffer an arbitrarily large response.
         response = self._session.get(
             f"{self._base_url}{path}",
             params={**params, "output": "JSON"},
@@ -198,25 +253,28 @@ class AppdynamicsClient:
             auth=self._basic_auth(),
             timeout=REQUEST_TIMEOUT,
             allow_redirects=False,
+            stream=True,
         )
 
         if response.status_code == 429 or response.status_code >= 500:
+            response.close()
             raise AppdynamicsRetryableError(
                 f"AppDynamics API error (retryable): status={response.status_code}, path={path}"
             )
 
         if 300 <= response.status_code < 400:
+            response.close()
             raise AppdynamicsError(
                 f"AppDynamics returned an unexpected redirect (status={response.status_code}, path={path}); refusing to follow"
             )
 
         if not response.ok:
             self._logger.error(
-                f"AppDynamics API error: status={response.status_code}, body={response.text}, path={path}"
+                f"AppDynamics API error: status={response.status_code}, body={_read_capped_text(response)}, path={path}"
             )
             response.raise_for_status()
 
-        return response.json()
+        return _read_json_within_limits(response)
 
 
 def validate_credentials(
@@ -248,7 +306,9 @@ def validate_credentials(
 
     try:
         # Cheap probe; every Controller stream shares the same account-level read roles,
-        # so one probe covers all endpoints. Refuse redirects (SSRF guard).
+        # so one probe covers all endpoints. Refuse redirects (SSRF guard). Only the status
+        # code matters, so stream and close without downloading a body a hostile host could
+        # bloat.
         response = session.get(
             f"{base_url}{APPLICATIONS_PATH}",
             params={"output": "JSON"},
@@ -256,7 +316,9 @@ def validate_credentials(
             auth=basic_auth,
             timeout=10,
             allow_redirects=False,
+            stream=True,
         )
+        response.close()
     except requests.RequestException as exc:
         return False, str(exc)
 

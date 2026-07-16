@@ -1,3 +1,4 @@
+import json
 from typing import Any
 from urllib.parse import urlparse
 
@@ -44,6 +45,13 @@ class FakeResponse:
 
     def json(self) -> Any:
         return self._json
+
+    def iter_content(self, chunk_size: int = 1) -> Any:
+        body = self.text.encode() if self.text else json.dumps(self._json).encode()
+        yield body
+
+    def close(self) -> None:
+        pass
 
     def raise_for_status(self) -> None:
         if not self.ok:
@@ -171,6 +179,8 @@ class TestValidateCredentials:
             validate_credentials(BASE_URL, BASIC_AUTH, team_id=1)
         _, _, kwargs = session.get_calls[0]
         assert kwargs["allow_redirects"] is False
+        # The probe only needs the status code, so it must stream rather than buffer a body.
+        assert kwargs["stream"] is True
 
 
 class TestAppdynamicsClient:
@@ -223,6 +233,23 @@ class TestAppdynamicsClient:
             client = AppdynamicsClient(BASE_URL, BASIC_AUTH, mock.MagicMock())
         with pytest.raises(requests.HTTPError):
             client.get_json("/controller/rest/applications", {})
+
+    def test_response_body_is_streamed(self) -> None:
+        session = FakeSession()
+        with _patch_session(session):
+            client = AppdynamicsClient(BASE_URL, BASIC_AUTH, mock.MagicMock())
+        client.get_json("/controller/rest/applications", {})
+        _, _, kwargs = session.get_calls[0]
+        assert kwargs["stream"] is True
+
+    def test_oversized_response_is_rejected(self) -> None:
+        session = FakeSession(responder=lambda path, params: FakeResponse(json_data=[{"a": "b" * 100}]))
+        with _patch_session(session):
+            client = AppdynamicsClient(BASE_URL, BASIC_AUTH, mock.MagicMock())
+        # Non-retryable: a host that overflows the cap won't stop on a retry.
+        with mock.patch.object(appdynamics_module, "MAX_RESPONSE_BYTES", 10):
+            with pytest.raises(AppdynamicsError):
+                client.get_json("/controller/rest/applications", {})
 
 
 def _run_get_rows(
