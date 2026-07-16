@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Optional
 
-from django.db.models import F, OuterRef, Q, Subquery, Window
+from django.db.models import F, Max, Q, Window
 from django.db.models.functions import RowNumber
 from django.utils import timezone
 
@@ -157,25 +157,28 @@ def _select_recent_task_ids(team_id: int, cutoff: datetime) -> list[uuid.UUID]:
     # Rank each user's tasks by most-recent run activity and keep only their freshest
     # MAX_TASKS_PER_USER, so one high-volume user can't evict another user's tasks. The
     # MAX_TASKS_PER_TEAM cap then bounds the whole team's set, still favouring recency.
-    last_activity = (
-        TaskRun.objects.filter(task_id=OuterRef("pk"), updated_at__gte=cutoff)
-        .order_by("-updated_at")
-        .values("updated_at")[:1]
-    )
+    # Candidates come from runs inside the activity window so the query's working set
+    # scales with recent activity, not the team's all-time task count.
     return list(
-        Task.objects.filter(team_id=team_id, archived=False, deleted=False, created_by__isnull=False)
-        .annotate(last_activity=Subquery(last_activity))
-        .filter(last_activity__isnull=False)
+        TaskRun.objects.filter(
+            team_id=team_id,
+            updated_at__gte=cutoff,
+            task__archived=False,
+            task__deleted=False,
+            task__created_by__isnull=False,
+        )
+        .values("task_id", "task__created_by_id")
+        .annotate(last_activity=Max("updated_at"))
         .annotate(
             user_rank=Window(
                 expression=RowNumber(),
-                partition_by=F("created_by_id"),
+                partition_by=F("task__created_by_id"),
                 order_by=F("last_activity").desc(),
             )
         )
         .filter(user_rank__lte=MAX_TASKS_PER_USER)
         .order_by("-last_activity")
-        .values_list("id", flat=True)[:MAX_TASKS_PER_TEAM]
+        .values_list("task_id", flat=True)[:MAX_TASKS_PER_TEAM]
     )
 
 
