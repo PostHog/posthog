@@ -115,9 +115,12 @@ practice.)
 #### 3a. Write the persona files
 
 Write one file per selected agent to `$RUN_DIR/personas/`, named with a numeric prefix so
-claim order is deterministic (`01-security.md`, `02-database.md`, ..., `09-generalist-a.md`,
-`10-generalist-b.md`). The number of persona files must equal the number of reviewers you
-will launch — the build script derives the launch count from this directory.
+claim order is deterministic (`01-generalist-a.md`, `02-generalist-b.md`, `03-security.md`,
+`04-database.md`, ...). The generalists come first because they run in every review, so
+reviewer 1 — the agent that warms the shared cache — is always the same persona
+regardless of which specialists the diff selects. The number of persona files must equal
+the number of reviewers you will launch — the build script derives the launch count from
+this directory.
 
 For each **specialist** (security, database, reliability, performance, frontend,
 compatibility, data-integrity, copy), the file contains:
