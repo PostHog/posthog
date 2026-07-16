@@ -158,6 +158,11 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
     below = alert_config.get("direction") == AlertDirection.BELOW
     breached = metric_value is not None and (metric_value <= threshold if below else metric_value >= threshold)
     if not breached:
+        # The check that observes the condition clearing after a breach persists a visible "recovered"
+        # run — the bookend that tells the user the firing is over. An unmeasurable metric (avg over an
+        # empty window) re-arms quietly instead: with no measurement there's no recovery to claim.
+        if previous is not None and previous_breached and metric_value is not None:
+            return _persist_recovered(run, action, alert_config, metric_value, matched_count, team)
         return EvaluateAlertResult(
             status=AlertStatus.NOT_BREACHED, observation_count=matched_count, metric_value=metric_value
         )
@@ -172,11 +177,17 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
     return _persist_fired(run, action, alert_config, metric_value, matched_count, observations_qs, team)
 
 
+def _is_recovery_run(run: VisionActionRun) -> bool:
+    output = run.output if isinstance(run.output, dict) else {}
+    return bool(output.get("recovered"))
+
+
 def _last_evaluated_run(team_id: int, action_id: Any, exclude_pk: Any) -> tuple[VisionActionRun | None, bool]:
     """The most recent prior run whose outcome reflects the alert's state, and whether it observed a
-    breach: a fired run (message persisted, even if delivery later failed) or an evaluated skip.
-    Failed or interrupted checks are walked past so a transient failure can't re-arm a still-breached
-    alert, and so an every-match window that a failed check never covered gets re-covered."""
+    breach: a run with a persisted message (fired = breached, recovered = cleared — even if delivery
+    later failed) or an evaluated skip. Failed or interrupted checks are walked past so a transient
+    failure can't re-arm a still-breached alert, and so an every-match window that a failed check
+    never covered gets re-covered."""
     runs = (
         VisionActionRun.objects.for_team(team_id)
         .filter(vision_action_id=action_id)
@@ -185,11 +196,26 @@ def _last_evaluated_run(team_id: int, action_id: Any, exclude_pk: Any) -> tuple[
     )
     for prev in runs:
         if prev.synthesized_markdown:
-            return prev, True
+            return prev, not _is_recovery_run(prev)
         error = prev.error if isinstance(prev.error, dict) else {}
         if prev.status == VisionActionRunStatus.SKIPPED and error.get("skip_reason") in _EVALUATED_SKIP_REASONS:
             return prev, error.get("skip_reason") == "still_breached"
     return None, False
+
+
+def _breach_started_at(team_id: int, action_id: Any, exclude_pk: Any) -> datetime | None:
+    """When the current breach began: the most recent fired (non-recovery) run's tick. None when the
+    firing has scrolled past the scan limit — the recovery message then just omits the duration."""
+    runs = (
+        VisionActionRun.objects.for_team(team_id)
+        .filter(vision_action_id=action_id)
+        .exclude(pk=exclude_pk)
+        .order_by("-created_at")[:_STATE_SCAN_LIMIT]
+    )
+    for prev in runs:
+        if prev.synthesized_markdown and not _is_recovery_run(prev):
+            return prev.scheduled_at or prev.created_at
+    return None
 
 
 def _persist_fired(
@@ -228,6 +254,47 @@ def _persist_fired(
     return EvaluateAlertResult(status=AlertStatus.FIRED, observation_count=matched_count, metric_value=metric_value)
 
 
+def _persist_recovered(
+    run: VisionActionRun,
+    action: Any,
+    alert_config: dict[str, Any],
+    metric_value: float,
+    matched_count: int,
+    team: Any,
+) -> EvaluateAlertResult:
+    """Persist the recovery bookend on the run: a short message that the condition cleared. The
+    `recovered` output marker is what distinguishes this from a firing everywhere a persisted message
+    implies breach — `_last_evaluated_run` state resolution and the API's `is_recovery` flag."""
+    threshold = alert_config.get("threshold", 0)
+    metric = alert_config.get("metric", AlertMetric.COUNT)
+    window_days = alert_config.get("window_days", DEFAULT_ALERT_WINDOW_DAYS)
+    metric_label = "average score" if metric == AlertMetric.AVG_SCORE else "matching observations"
+    window_label = "24 hours" if window_days == 1 else f"{window_days} days"
+    # Recovery means the metric sits strictly on the other side of the (inclusive) breach bound.
+    cleared_bound = "above" if alert_config.get("direction") == AlertDirection.BELOW else "below"
+    scanner_name = _scanner_display_name(action)
+
+    markdown = (
+        f"**Recovered: {scanner_name}** — {metric_label} over the last {window_label} is back at "
+        f"{_format_number(metric_value)}, {cleared_bound} the threshold of {_format_number(threshold)}."
+    )
+    started_at = _breach_started_at(team.id, action.id, run.pk)
+    if started_at is not None:
+        markdown += f" The alert had been firing since {started_at:%Y-%m-%d %H:%M} UTC."
+
+    markdown = strip_external_links_markdown(markdown)
+    # Same post-strip linkification as fired messages, so the URL isn't defanged off posthog.com hosts.
+    markdown = _linkify_header(markdown, action, _run_url(team.id, str(action.id), str(run.pk)), label="Recovered")
+    run.synthesized_markdown = markdown
+    # `recovered` rides `output` (alongside the Slack rendering, unused until recovery delivery is a
+    # thing) because the run row has no other slot that survives to both the engine and the API.
+    run.output = {"slack": _markdown_to_slack(markdown, team_id=team.id, observation_ids=[]), "recovered": True}
+    run.observation_count = matched_count
+    run.save(update_fields=["synthesized_markdown", "output", "observation_count", "updated_at"])
+
+    return EvaluateAlertResult(status=AlertStatus.RECOVERED, observation_count=matched_count, metric_value=metric_value)
+
+
 def _format_number(value: float) -> str:
     return str(int(value)) if float(value).is_integer() else f"{value:.2f}"
 
@@ -243,7 +310,7 @@ def _scanner_display_name(action: Any) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[*_`#\[\]()]", "", raw_name)).strip() or "your scanner"
 
 
-def _linkify_header(markdown: str, action: Any, run_url: str) -> str:
+def _linkify_header(markdown: str, action: Any, run_url: str, label: str = "Alert") -> str:
     """Wrap the header's scanner name in a link to this alert's run page — the alert's own message
     plus every matching observation (and breadcrumbs back to the scanner). A name the strip pass
     rewrote (e.g. it contained a bare URL, now a code span) won't match the expected header — leave
@@ -251,10 +318,10 @@ def _linkify_header(markdown: str, action: Any, run_url: str) -> str:
     if not action.scanner_id:
         return markdown
     name = _scanner_display_name(action)
-    prefix = f"**Alert: {name}**"
+    prefix = f"**{label}: {name}**"
     if not markdown.startswith(prefix):
         return markdown
-    return f"**Alert: [{name}]({run_url})**" + markdown[len(prefix) :]
+    return f"**{label}: [{name}]({run_url})**" + markdown[len(prefix) :]
 
 
 def _alert_markdown(
