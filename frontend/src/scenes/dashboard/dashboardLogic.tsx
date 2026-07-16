@@ -438,10 +438,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboard: [
             null as DashboardType<QueryBasedInsightModel> | null,
             {
-                loadDashboard: async ({ action }, breakpoint) => {
+                loadDashboard: async ({ action }) => {
                     actions.loadingDashboardItemsStarted(action)
-
-                    await breakpoint(200)
 
                     try {
                         const apiUrl = values.apiUrl('force_cache', values.filtersOverrideForLoad, values.urlVariables)
@@ -461,9 +459,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         throw error
                     }
                 },
-                loadDashboardStreaming: async ({ action }, breakpoint) => {
+                loadDashboardStreaming: async ({ action }) => {
                     actions.loadingDashboardItemsStarted(action)
-                    await breakpoint(200)
                     actions.resetIntermittentFilters()
 
                     // Start unified streaming - metadata followed by tiles
