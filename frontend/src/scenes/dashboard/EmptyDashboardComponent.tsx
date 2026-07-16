@@ -191,7 +191,9 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
 }
 
 export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean; canEdit: boolean }): JSX.Element {
-    if (loading) {
+    const { dashboard } = useValues(dashboardLogic)
+
+    if (loading && !dashboard) {
         return (
             <div className="flex justify-center items-center min-h-[24rem] py-8">
                 <Spinner />
