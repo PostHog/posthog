@@ -42,7 +42,7 @@ export interface heatmapRecordingFallbackLogicValues {
 export interface heatmapRecordingFallbackLogicActions {
     openSessionPlayer: (
         sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>,
-        initialTimestamp?: number | null | undefined
+        initialTimestamp?: number | null
     ) => {
         initialTimestamp: number | null
         sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>

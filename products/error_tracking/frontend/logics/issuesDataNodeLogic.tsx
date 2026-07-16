@@ -5,18 +5,27 @@ import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/data
 import { ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema/schema-general'
 
 import type {
+    AnyResponseType,
+    DataNode,
+    DateRange,
+    ErrorTrackingIssueAssignee,
+    ErrorTrackingIssueStatus,
     ErrorTrackingQueryResponse,
+    EventsQueryResponse,
     HogQLAutocompleteResponse,
     HogQLMetadataResponse,
     HogQLQueryResponse,
     HogQueryResponse,
     LogAttributesQueryResponse,
     LogValuesQueryResponse,
+    LogsQueryResponse,
     MetricsQueryResponse,
+    RefreshType,
     SessionsQueryResponse,
     TraceSpansAggregationQueryResponse,
     TraceSpansAttributeBreakdownQueryResponse,
     TraceSpansQueryResponse,
+    TraceSpansTreeQueryResponse,
 } from '../../../../frontend/src/queries/schema/schema-general'
 import { issueActionsLogic } from '../components/IssueActions/issueActionsLogic'
 import { mergeIssues } from '../utils'
@@ -53,9 +62,9 @@ export interface issuesDataNodeLogicValues {
 export interface issuesDataNodeLogicActions {
     loadSpikeEventsForIssues: (
         issueIds: string[],
-        dateRange?: import('~/queries/schema').DateRange | undefined
+        dateRange?: DateRange | undefined
     ) => {
-        dateRange: import('~/queries/schema').DateRange | undefined
+        dateRange: DateRange | undefined
         issueIds: string[]
     } // batchSpikeEventsLogic
     activateIssues: (ids: string[]) => {
@@ -63,9 +72,9 @@ export interface issuesDataNodeLogicActions {
     } // issueActionsLogic
     assignIssues: (
         ids: string[],
-        assignee: null | import('~/queries/schema').ErrorTrackingIssueAssignee
+        assignee: ErrorTrackingIssueAssignee | null
     ) => {
-        assignee: null | import('~/queries/schema').ErrorTrackingIssueAssignee
+        assignee: ErrorTrackingIssueAssignee | null
         ids: string[]
     } // issueActionsLogic
     clearNeedsReload: () => {
@@ -89,30 +98,30 @@ export interface issuesDataNodeLogicActions {
     } // issueActionsLogic
     updateIssueAssignee: (
         id: string,
-        assignee: null | import('~/queries/schema').ErrorTrackingIssueAssignee
+        assignee: ErrorTrackingIssueAssignee | null
     ) => {
-        assignee: null | import('~/queries/schema').ErrorTrackingIssueAssignee
+        assignee: ErrorTrackingIssueAssignee | null
         id: string
     } // issueActionsLogic
     updateIssueStatus: (
         id: string,
-        status: import('~/queries/schema').ErrorTrackingIssueStatus
+        status: ErrorTrackingIssueStatus
     ) => {
         id: string
-        status: import('~/queries/schema').ErrorTrackingIssueStatus
+        status: ErrorTrackingIssueStatus
     } // issueActionsLogic
     cancelQuery: () => {
         value: true
     } // nodeLogic
     loadData: (
-        refresh?: import('~/queries/schema').RefreshType | undefined,
-        alreadyRunningQueryId?: string | undefined,
-        overrideQuery?: import('~/queries/schema').DataNode<Record<string, any>> | undefined
+        refresh?: RefreshType,
+        alreadyRunningQueryId?: string,
+        overrideQuery?: DataNode<Record<string, any>>
     ) => {
-        overrideQuery: import('~/queries/schema').DataNode<Record<string, any>> | undefined
+        overrideQuery: DataNode<Record<string, any>> | undefined
         pollOnly: boolean
         queryId: string
-        refresh: import('~/queries/schema').RefreshType | undefined
+        refresh: RefreshType | undefined
     } // nodeLogic
     loadDataFailure: (
         error: string,
@@ -138,20 +147,18 @@ export interface issuesDataNodeLogicActions {
             | TraceSpansQueryResponse
             | null
             | undefined,
-        payload?:
-            | {
-                  overrideQuery: import('~/queries/schema').DataNode<Record<string, any>> | undefined
-                  pollOnly: boolean
-                  queryId: string
-                  refresh: import('~/queries/schema').RefreshType | undefined
-              }
-            | undefined
-    ) => {
         payload?: {
-            overrideQuery: import('~/queries/schema').DataNode<Record<string, any>> | undefined
+            overrideQuery: DataNode<Record<string, any>> | undefined
             pollOnly: boolean
             queryId: string
-            refresh: import('~/queries/schema').RefreshType | undefined
+            refresh: RefreshType | undefined
+        }
+    ) => {
+        payload?: {
+            overrideQuery: DataNode<Record<string, any>> | undefined
+            pollOnly: boolean
+            queryId: string
+            refresh: RefreshType | undefined
         }
         response:
             | ErrorTrackingQueryResponse
@@ -171,30 +178,16 @@ export interface issuesDataNodeLogicActions {
             | undefined
     } // nodeLogic
     setResponse: (
-        response:
-            | ErrorTrackingQueryResponse
-            | HogQLAutocompleteResponse
-            | HogQLMetadataResponse
-            | HogQLQueryResponse<any[]>
-            | HogQueryResponse
-            | LogAttributesQueryResponse
-            | LogValuesQueryResponse
-            | MetricsQueryResponse
-            | Record<string, any>
-            | SessionsQueryResponse
-            | TraceSpansAggregationQueryResponse
-            | TraceSpansAttributeBreakdownQueryResponse
-            | TraceSpansQueryResponse
-            | import('~/queries/schema').EventsQueryResponse
-            | import('~/queries/schema').LogsQueryResponse
-            | import('~/queries/schema').TraceSpansTreeQueryResponse
+        response: Exclude<AnyResponseType, undefined>
     ) =>
         | ErrorTrackingQueryResponse
+        | EventsQueryResponse
         | HogQLAutocompleteResponse
         | HogQLMetadataResponse
         | HogQLQueryResponse<any[]>
         | HogQueryResponse
         | LogAttributesQueryResponse
+        | LogsQueryResponse
         | LogValuesQueryResponse
         | MetricsQueryResponse
         | Record<string, any>
@@ -202,9 +195,7 @@ export interface issuesDataNodeLogicActions {
         | TraceSpansAggregationQueryResponse
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
-        | import('~/queries/schema').EventsQueryResponse
-        | import('~/queries/schema').LogsQueryResponse
-        | import('~/queries/schema').TraceSpansTreeQueryResponse // nodeLogic
+        | TraceSpansTreeQueryResponse // nodeLogic
     reloadData: () => {}
 }
 
@@ -276,20 +267,20 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             (s) => [s.response],
             (
                 response:
-                    | ErrorTrackingQueryResponse
-                    | HogQLAutocompleteResponse
-                    | HogQLMetadataResponse
-                    | HogQLQueryResponse<any[]>
-                    | HogQueryResponse
-                    | LogAttributesQueryResponse
-                    | LogValuesQueryResponse
-                    | MetricsQueryResponse
                     | Record<string, any>
-                    | SessionsQueryResponse
-                    | TraceSpansAggregationQueryResponse
-                    | TraceSpansAttributeBreakdownQueryResponse
-                    | TraceSpansQueryResponse
                     | null
+                    | import('~/queries/schema').ErrorTrackingQueryResponse
+                    | import('~/queries/schema').HogQLAutocompleteResponse
+                    | import('~/queries/schema').HogQLMetadataResponse
+                    | import('~/queries/schema').HogQLQueryResponse<any[]>
+                    | import('~/queries/schema').HogQueryResponse
+                    | import('~/queries/schema').LogAttributesQueryResponse
+                    | import('~/queries/schema').LogValuesQueryResponse
+                    | import('~/queries/schema').MetricsQueryResponse
+                    | import('~/queries/schema').SessionsQueryResponse
+                    | import('~/queries/schema').TraceSpansAggregationQueryResponse
+                    | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
+                    | import('~/queries/schema').TraceSpansQueryResponse
             ): ErrorTrackingIssue[] => (response && 'results' in response ? response.results : []),
         ],
     }),

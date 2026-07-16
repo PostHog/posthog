@@ -125,7 +125,7 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
     selectors({
         defaultQuery: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): DataTableNode =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): DataTableNode =>
                 buildDefaultQuery(currentTeam?.extra_settings?.person_last_seen_at_enabled === true),
         ],
         defaultColumns: [

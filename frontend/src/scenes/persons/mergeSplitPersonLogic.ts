@@ -9,6 +9,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { PersonType } from '~/types'
 
 import type { CountedPaginatedResponse } from '../../lib/api'
+import type { PersonListParams } from '../../types'
 import { personsLogic } from './personsLogic'
 
 export interface SplitPersonLogicProps {
@@ -38,8 +39,8 @@ export interface mergeSplitPersonLogicActions {
     loadPersons: (url?: string | null | undefined) => {
         url: string | null
     } // personsLogic
-    setListFilters: (payload: import('~/types').PersonListParams) => {
-        payload: import('~/types').PersonListParams
+    setListFilters: (payload: PersonListParams) => {
+        payload: PersonListParams
     } // personsLogic
     setPerson: (person: PersonType | null) => {
         person: PersonType | null

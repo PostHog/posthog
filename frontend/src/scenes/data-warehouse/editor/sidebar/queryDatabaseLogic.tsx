@@ -39,8 +39,7 @@ import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/l
 
 import type { PaginatedResponse } from '../../../../lib/api'
 import type { DatabaseSchemaViewTable } from '../../../../queries/schema/schema-general'
-import type { UserType } from '../../../../types'
-import type { ExternalDataSource } from '../../../../types'
+import type { ExternalDataSource, UserType } from '../../../../types'
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { viewLinkLogic } from '../../viewLinkLogic'
 import { draftsLogic } from '../draftsLogic'
@@ -2167,7 +2166,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         selectedDirectSource: [
             (s) => [s.dataWarehouseSources, s.connectionId],
             (
-                dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+                dataWarehouseSources: null | import('lib/api').PaginatedResponse<import('~/types').ExternalDataSource>,
                 connectionId: string | null
             ): { job_inputs?: Record<string, any> } | undefined => {
                 return dataWarehouseSources?.results.find((source) => source.id === connectionId)
@@ -2846,14 +2845,19 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.joinsByFieldName,
             ],
             (
-                selectedSchema: DatabaseSchemaTable | DataWarehouseSavedQuery | null,
+                selectedSchema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery | null,
                 posthogTablesMap: Record<string, DatabaseSchemaTable>,
                 systemTablesMap: Record<string, DatabaseSchemaTable>,
-                dataWarehouseTablesMap: Record<string, DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable>,
+                dataWarehouseTablesMap: Record<
+                    string,
+                    DatabaseSchemaDataWarehouseTable | import('~/queries/schema/schema-general').DatabaseSchemaViewTable
+                >,
                 dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery>,
                 viewsMapById: Record<
                     string,
-                    DatabaseSchemaEndpointTable | DatabaseSchemaManagedViewTable | DatabaseSchemaViewTable
+                    | DatabaseSchemaEndpointTable
+                    | DatabaseSchemaManagedViewTable
+                    | import('~/queries/schema/schema-general').DatabaseSchemaViewTable
                 >,
                 joinsByFieldName: Record<string, DataWarehouseViewLink>
             ): TreeItem[] => {

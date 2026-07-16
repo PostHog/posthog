@@ -276,13 +276,17 @@ export const tasksLogic = kea<tasksLogicType>([
 
     selectors({
         // The "all team" filter is staff-only; expose it so the menu can conditionally show it.
-        isStaffUser: [(s) => [s.user], (user: UserType | null): boolean => !!user?.is_staff],
+        isStaffUser: [(s) => [s.user], (user: null | import('~/types').UserType): boolean => !!user?.is_staff],
         // Combined list filters: search term + the assignee toggle. "For you" scopes to the current
         // user's own tasks; "team scouts" scopes to autonomous Signals Scout tasks; "all team" (staff
         // only) lists every task on the team, letting the server bypass the per-user visibility filter.
         taskListParams: [
             (s) => [s.searchQuery, s.assigneeFilter, s.user],
-            (searchQuery: string, assigneeFilter: TaskAssigneeFilter, user: UserType | null): TaskListParams => {
+            (
+                searchQuery: string,
+                assigneeFilter: TaskAssigneeFilter,
+                user: null | import('~/types').UserType
+            ): TaskListParams => {
                 const base: TaskListParams = { search: searchQuery || undefined }
                 // Guard here too: a non-staff user must never send `all_team_tasks` (the server ignores
                 // it, but this keeps the request honest and falls back to their own tasks).

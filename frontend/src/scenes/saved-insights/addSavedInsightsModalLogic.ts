@@ -304,21 +304,23 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         ],
         hasFilteredUI: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => {
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean => {
                 const variant = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS]
                 return variant === 'filtered' || variant === 'smart-filtered'
             },
         ],
         hasSmartDefaults: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean =>
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
                 featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS] === 'smart-filtered',
         ],
         insightsPerPage: [() => [], (): number => INSIGHTS_PER_PAGE],
         count: [
             (s) => [s.insights],
-            (insights: { count: number; results: QueryBasedInsightModel<Node<Record<string, any>>>[] }) =>
-                insights.count,
+            (insights: {
+                count: number
+                results: QueryBasedInsightModel<import('../../queries/schema').Node<Record<string, any>>>[]
+            }) => insights.count,
         ],
         sorting: [
             (s) => [s.filters],

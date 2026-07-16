@@ -263,7 +263,7 @@ export interface productToursLogicValues {
 export interface productToursLogicActions {
     reportProductTourCreated: (
         tour: ProductTour,
-        creationSource?: 'app' | 'toolbar' | undefined
+        creationSource?: 'app' | 'toolbar'
     ) => {
         creationSource: 'app' | 'toolbar' | undefined
         tour: ProductTour

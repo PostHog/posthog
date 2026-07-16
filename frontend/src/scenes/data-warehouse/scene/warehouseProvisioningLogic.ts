@@ -406,7 +406,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
         // DNS zone for the connection host, resolved from the deployment region (null when unknown).
         warehouseDomain: [
             (s) => [s.preflight],
-            (preflight: PreflightStatus | null): string | null => {
+            (preflight: null | import('~/types').PreflightStatus): string | null => {
                 const region = preflight?.region
                 return region ? (MANAGED_WAREHOUSE_DOMAINS[region] ?? null) : null
             },

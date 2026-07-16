@@ -377,7 +377,8 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
     selectors({
         clickmapAvailable: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.HEATMAPS_RECORDING_CLICKMAP],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.HEATMAPS_RECORDING_CLICKMAP],
         ],
         clickmapActive: [
             (s) => [s.clickmapAvailable, s.clickmapEnabled],
@@ -385,7 +386,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
         ],
         wantedDataAttributes: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): string[] =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string[] =>
                 Array.from(new Set(['data-attr', ...(currentTeam?.data_attributes ?? [])])),
         ],
         highestClickCount: [

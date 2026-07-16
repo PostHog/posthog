@@ -14,7 +14,7 @@ import {
     TaskExecutionModeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
-import type { IntegrationType } from '../../../../../frontend/src/types'
+import type { IntegrationType, UserBasicType } from '../../../../../frontend/src/types'
 import { attachedContextItemKey, attachedContextLogic, runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
@@ -91,7 +91,7 @@ export interface taskTrackerSceneLogicActions {
         integrations: {
             config: any
             created_at: string
-            created_by?: null | import('../../../../../frontend/src/types').UserBasicType | undefined
+            created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
             icon_url: any
@@ -141,7 +141,7 @@ export interface taskTrackerSceneLogicActions {
         integrations: {
             config: any
             created_at: string
-            created_by?: null | import('../../../../../frontend/src/types').UserBasicType | undefined
+            created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
             icon_url: any

@@ -108,13 +108,7 @@ export interface dataWarehouseSettingsSceneLogicActions {
             types?: string[][]
         }
     } // dataWarehouseViewsLogic
-    loadDatabase: (
-        args_0?:
-            | {
-                  force?: boolean
-              }
-            | undefined
-    ) => {
+    loadDatabase: ({ force }?: { force?: boolean }) => {
         force?: boolean
     } // databaseTableListLogic
     loadDatabaseFailure: (
@@ -126,11 +120,9 @@ export interface dataWarehouseSettingsSceneLogicActions {
     } // databaseTableListLogic
     loadDatabaseSuccess: (
         database: Required<DatabaseSchemaQueryResponse> | null,
-        payload?:
-            | {
-                  force?: boolean
-              }
-            | undefined
+        payload?: {
+            force?: boolean
+        }
     ) => {
         database: Required<DatabaseSchemaQueryResponse> | null
         payload?: {
@@ -353,7 +345,9 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
     selectors({
         dataWarehouseTablesBySourceType: [
             (s) => [s.dataWarehouseTables],
-            (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]): Record<string, DatabaseSchemaTable[]> => {
+            (
+                dataWarehouseTables: import('~/queries/schema/schema-general').DatabaseSchemaDataWarehouseTable[]
+            ): Record<string, DatabaseSchemaTable[]> => {
                 return dataWarehouseTables.reduce((acc: Record<string, DatabaseSchemaTable[]>, table) => {
                     const group = table.source?.source_type ?? 'S3'
                     acc[group] ??= []
@@ -366,7 +360,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
         dataWarehouseTablesAndViews: [
             (s) => [s.dataWarehouseTables, s.views],
             (
-                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
+                dataWarehouseTables: import('~/queries/schema/schema-general').DatabaseSchemaDataWarehouseTable[],
                 views: DatabaseSchemaViewTable[]
             ): DatabaseSchemaTable[] => {
                 return [...dataWarehouseTables, ...views]
@@ -376,7 +370,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
             (s) => [s.views, s.dataWarehouseSavedQueryMapById],
             (
                 views: DatabaseSchemaViewTable[],
-                dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery>
+                dataWarehouseSavedQueryMapById: Record<string, import('../../../types').DataWarehouseSavedQuery>
             ): DatabaseSchemaTable[] => {
                 return views
                     .filter((view) => !dataWarehouseSavedQueryMapById[view.id]?.is_materialized)
@@ -390,7 +384,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
             (s) => [s.views, s.dataWarehouseSavedQueryMapById],
             (
                 views: DatabaseSchemaViewTable[],
-                dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery>
+                dataWarehouseSavedQueryMapById: Record<string, import('../../../types').DataWarehouseSavedQuery>
             ): DatabaseSchemaMaterializedViewTable[] => {
                 return views
                     .filter((view) => dataWarehouseSavedQueryMapById[view.id]?.is_materialized)

@@ -86,14 +86,14 @@ import { validateEndpointName } from 'products/endpoints/frontend/common'
 
 import type { PaginatedResponse } from '../../../lib/api'
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { Node } from '../../../queries/schema/schema-general'
-import type { DatabaseSchemaQueryResponse } from '../../../queries/schema/schema-general'
+import type { DatabaseSchemaQueryResponse, Node } from '../../../queries/schema/schema-general'
 import type { DataModelingDAG, DataWarehouseSavedQueryFolder, UserType } from '../../../types'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
 import { dataModelingLogic } from '../scene/dataModelingLogic'
 import { draftsLogic } from './draftsLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
+import type { Response } from './fixSQLErrorsLogic'
 import { findInnermostSelectAtOffset, findQueryAtCursor, type QueryRange, splitQueries } from './multiQueryUtils'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { resolveSaveCandidates as resolveSaveCandidatesPure, SaveTargetCycler } from './SaveTargetCycler'
@@ -626,13 +626,7 @@ export interface sqlEditorLogicActions {
             types?: string[][]
         }
     } // dataWarehouseViewsLogic
-    loadDatabase: (
-        args_0?:
-            | {
-                  force?: boolean
-              }
-            | undefined
-    ) => {
+    loadDatabase: ({ force }?: { force?: boolean }) => {
         force?: boolean
     } // databaseTableListLogic
     setConnection: (connectionId: string | null) => {
@@ -683,7 +677,7 @@ export interface sqlEditorLogicActions {
         errorObject?: any
     } // fixSQLErrorsLogic
     fixErrorsSuccess: (
-        response: import('./fixSQLErrorsLogic').Response,
+        response: Response,
         payload?:
             | {
                   error: string | undefined
@@ -695,7 +689,7 @@ export interface sqlEditorLogicActions {
             error: string | undefined
             query: string
         }
-        response: import('./fixSQLErrorsLogic').Response
+        response: Response
     } // fixSQLErrorsLogic
     setActiveTab: (tab: OutputTab) => {
         tab: OutputTab
@@ -2792,7 +2786,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         selectedDirectSource: [
             (s) => [s.dataWarehouseSources, s.selectedConnectionId],
             (
-                dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+                dataWarehouseSources: null | import('lib/api').PaginatedResponse<ExternalDataSource>,
                 selectedConnectionId: string | undefined
             ): ExternalDataSource | undefined => {
                 return dataWarehouseSources?.results.find((source) => source.id === selectedConnectionId)

@@ -51,7 +51,10 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
     selectors(() => ({
         release: [
             (s) => [s.frames, s.stackFrameRecords],
-            (frames: ErrorTrackingStackFrame[], stackFrameRecords: KeyedStackFrameRecords) => {
+            (
+                frames: import('lib/components/Errors/types').ErrorTrackingStackFrame[],
+                stackFrameRecords: import('lib/components/Errors/Frame/stackFrameLogic').KeyedStackFrameRecords
+            ) => {
                 if (!frames.length || Object.keys(stackFrameRecords).length === 0) {
                     return undefined
                 }

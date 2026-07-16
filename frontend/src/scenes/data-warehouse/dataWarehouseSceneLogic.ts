@@ -104,11 +104,18 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         // until it's ready and the scene shows the setup form on its own.
         warehouseReady: [
             (s) => [s.warehouseStatus],
-            (warehouseStatus: WarehouseStatusResponseApi | null): boolean => warehouseStatus?.state === 'ready',
+            (
+                warehouseStatus:
+                    | null
+                    | import('products/data_warehouse/frontend/generated/api.schemas').WarehouseStatusResponseApi
+            ): boolean => warehouseStatus?.state === 'ready',
         ],
         availableTabs: [
             (s) => [s.featureFlags, s.warehouseReady],
-            (featureFlags: FeatureFlagsSet, warehouseReady: boolean): DataWarehouseTab[] => {
+            (
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                warehouseReady: boolean
+            ): DataWarehouseTab[] => {
                 const tabs: DataWarehouseTab[] = []
                 if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE] && warehouseReady) {
                     tabs.push(DataWarehouseTab.OVERVIEW)

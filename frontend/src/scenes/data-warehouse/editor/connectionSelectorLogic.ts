@@ -15,6 +15,9 @@ import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics
 import { externalDataSourcesConnectionsList } from 'products/warehouse_sources/frontend/generated/api'
 import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
+import type { PaginatedResponse } from '../../../lib/api'
+import type { ExternalDataSource } from '../../../types'
+
 export const POSTHOG_WAREHOUSE = '__posthog_warehouse__'
 export const LOADING_CONNECTIONS = '__loading_connections__'
 export const ADD_POSTGRES_DIRECT_CONNECTION = '__add_postgres_direct_connection__'
@@ -94,27 +97,25 @@ export interface connectionSelectorLogicValues {
 export interface connectionSelectorLogicActions {
     loadSourcesSuccess: (
         dataWarehouseSources:
+            | PaginatedResponse<ExternalDataSource>
             | {
                   count: number
                   next: null
                   previous: null
                   results: never[]
-              }
-            | import('lib/api').PaginatedResponse<import('../../../types').ExternalDataSource>,
-        payload?:
-            | {
-                  value: true
-              }
-            | undefined
+              },
+        payload?: {
+            value: true
+        }
     ) => {
         dataWarehouseSources:
+            | PaginatedResponse<ExternalDataSource>
             | {
                   count: number
                   next: null
                   previous: null
                   results: never[]
               }
-            | import('lib/api').PaginatedResponse<import('../../../types').ExternalDataSource>
         payload?: {
             value: true
         }

@@ -67,7 +67,7 @@ export const debugLogsLogic = kea<debugLogsLogicType>([
          */
         canControlDebugLogs: [
             (s) => [s.user, s.isDev],
-            (user: UserType | null, isDev: boolean | undefined): boolean =>
+            (user: null | import('~/types').UserType, isDev: boolean | undefined): boolean =>
                 !user?.is_impersonated && (!!user?.is_staff || !!isDev),
         ],
         /**
@@ -76,8 +76,11 @@ export const debugLogsLogic = kea<debugLogsLogicType>([
          */
         showDebugLogs: [
             (s) => [s.user, s.canControlDebugLogs, s.debugLogsEnabled],
-            (user: UserType | null, canControlDebugLogs: boolean, debugLogsEnabled: boolean): boolean =>
-                !!user?.is_impersonated || (canControlDebugLogs && debugLogsEnabled),
+            (
+                user: null | import('~/types').UserType,
+                canControlDebugLogs: boolean,
+                debugLogsEnabled: boolean
+            ): boolean => !!user?.is_impersonated || (canControlDebugLogs && debugLogsEnabled),
         ],
     }),
 ])

@@ -32,6 +32,8 @@ import {
 } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import type { Node } from '../../queries/schema/schema-general'
+import type { DeleteDashboardForm } from '../dashboard/deleteDashboardLogic'
+import type { DuplicateDashboardForm } from '../dashboard/duplicateDashboardLogic'
 import { teamLogic } from '../teamLogic'
 
 export const INSIGHTS_PER_PAGE = 30
@@ -305,6 +307,42 @@ export interface savedInsightsLogicMeta {
             user?: true | undefined
         }
         pagination: (filters: SavedInsightFilters, count: number) => PaginationManual
+    }
+    __keaTypeGenInternalReducerActions: {
+        'rename insight success (models.insightsModel)': (item: QueryBasedInsightModel) => {
+            payload: {
+                item: QueryBasedInsightModel<Node<Record<string, any>>>
+            }
+            type: 'rename insight success (models.insightsModel)'
+        }
+        'update dashboard insight (models.dashboardsModel)': (
+            insight: QueryBasedInsightModel,
+            extraDashboardIds?: number[],
+            sourceDashboardId?: number
+        ) => {
+            payload: {
+                extraDashboardIds: number[] | undefined
+                insight: QueryBasedInsightModel<Node<Record<string, any>>>
+                sourceDashboardId: number | undefined
+            }
+            type: 'update dashboard insight (models.dashboardsModel)'
+        }
+        'submit delete dashboard success (scenes.dashboard.deleteDashboardLogic)': (
+            deleteDashboard: DeleteDashboardForm
+        ) => {
+            payload: {
+                deleteDashboard: DeleteDashboardForm
+            }
+            type: 'submit delete dashboard success (scenes.dashboard.deleteDashboardLogic)'
+        }
+        'submit duplicate dashboard success (scenes.dashboard.duplicateDashboardLogic)': (
+            duplicateDashboard: DuplicateDashboardForm
+        ) => {
+            payload: {
+                duplicateDashboard: DuplicateDashboardForm
+            }
+            type: 'submit duplicate dashboard success (scenes.dashboard.duplicateDashboardLogic)'
+        }
     }
 }
 

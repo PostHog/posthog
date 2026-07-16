@@ -539,7 +539,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     selectors({
         shouldShowEmptyState: [
             (s) => [s.views, s.databaseLoading],
-            (views: DatabaseSchemaViewTable[], databaseLoading: boolean): boolean => {
+            (views: import('../../../queries/schema').DatabaseSchemaViewTable[], databaseLoading: boolean): boolean => {
                 return views?.length == 0 && !databaseLoading
             },
         ],

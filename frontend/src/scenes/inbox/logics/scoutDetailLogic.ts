@@ -290,7 +290,10 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
         // never touches the shared rollup `runs` the header timeline reads (oldest-first).
         emittedRuns: [
             (s) => [s.rollups, (_, props) => props.skillName],
-            (rollups: Map<string, ScoutRollup>, skillName): SignalScoutRunSummary[] =>
+            (
+                rollups: Map<string, import('../utils/scoutRunsWindow').ScoutRollup>,
+                skillName
+            ): SignalScoutRunSummary[] =>
                 (rollups.get(skillName)?.runs ?? [])
                     .filter((run) => (run.emitted_count ?? 0) > 0)
                     .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
@@ -324,7 +327,10 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
         // the same report, so a report in both sets reads as "authored".
         touchedReports: [
             (s) => [s.rollups, (_, props) => props.skillName],
-            (rollups: Map<string, ScoutRollup>, skillName): { id: string; action: ScoutReportAction }[] => {
+            (
+                rollups: Map<string, import('../utils/scoutRunsWindow').ScoutRollup>,
+                skillName
+            ): { id: string; action: ScoutReportAction }[] => {
                 const rollup = rollups.get(skillName)
                 if (!rollup) {
                     return []

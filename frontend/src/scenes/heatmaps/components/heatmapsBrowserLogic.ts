@@ -491,7 +491,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
         viewportRange: [
             (s) => [s.heatmapFilters, s.widthOverride],
-            (heatmapFilters: HeatmapFilters, widthOverride: number) => {
+            (heatmapFilters: import('lib/components/heatmaps/types').HeatmapFilters, widthOverride: number) => {
                 return calculateViewportRange(heatmapFilters, widthOverride)
             },
         ],

@@ -452,7 +452,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
     })),
 
     selectors({
-        isTerminal: [(s) => [s.currentRunStatus], (status: RunStatus | null): boolean => isTerminalRunStatus(status)],
+        isTerminal: [
+            (s) => [s.currentRunStatus],
+            (status: null | import('./runStreamLogic').RunStatus): boolean => isTerminalRunStatus(status),
+        ],
         // The model/effort to display in the picker and launch the next run with: the optimistic client-side
         // override, else the run's stored value, else the default. Effort is clamped to one the model supports.
         selectedModel: [

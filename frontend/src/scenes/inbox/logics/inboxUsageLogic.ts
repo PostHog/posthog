@@ -317,11 +317,12 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
         // has mounted. Derived here so a subscription can react to it flipping on.
         refundsFlagEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.SIGNALS_PR_REFUNDS],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.SIGNALS_PR_REFUNDS],
         ],
         product: [
             (s) => [s.billing],
-            (billing: BillingType | null): BillingProductV2Type | null =>
+            (billing: null | import('~/types').BillingType): BillingProductV2Type | null =>
                 billing?.products?.find((p) => p.type === INBOX_PRODUCT_TYPE) ?? null,
         ],
         isLoading: [
@@ -334,7 +335,7 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                 s.refundsFlagEnabled,
             ],
             (
-                billing: BillingType | null,
+                billing: null | import('~/types').BillingType,
                 billingLoading: boolean,
                 product: BillingProductV2Type | null,
                 refundSummary: SignalReportRefundSummaryResponseApi | null,
@@ -399,7 +400,7 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
         ],
         customLimitUsd: [
             (s) => [s.billing, s.product],
-            (billing: BillingType | null, product: BillingProductV2Type | null): number | null => {
+            (billing: null | import('~/types').BillingType, product: BillingProductV2Type | null): number | null => {
                 if (!product) {
                     return null
                 }
@@ -471,7 +472,8 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
         ],
         resetDate: [
             (s) => [s.billing],
-            (billing: BillingType | null): Dayjs | null => billing?.billing_period?.current_period_end ?? null,
+            (billing: null | import('~/types').BillingType): Dayjs | null =>
+                billing?.billing_period?.current_period_end ?? null,
         ],
         // USD spend cap implied by the limit currently typed into the modal. Drives the live budget.
         estimatedBudgetUsd: [

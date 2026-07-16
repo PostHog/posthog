@@ -20,7 +20,7 @@ import type { SignalReportPriority } from '../types'
 import { DismissalReasonValue } from '../utils/dismissalReasons'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { buildSignalReportListOrdering, inboxFiltersLogic } from './inboxFiltersLogic'
-import type { InboxSortDirection, InboxSortField } from './inboxFiltersLogic'
+import type { InboxFilterState, InboxSortDirection, InboxSortField } from './inboxFiltersLogic'
 
 const PAGE_SIZE = 50
 
@@ -105,8 +105,8 @@ export interface reportListLogicActions {
     clearFilters: () => {
         value: true
     } // inboxFiltersLogic
-    setFilters: (filters: import('./inboxFiltersLogic').InboxFilterState) => {
-        filters: import('./inboxFiltersLogic').InboxFilterState
+    setFilters: (filters: InboxFilterState) => {
+        filters: InboxFilterState
     } // inboxFiltersLogic
     setScope: (scope: InboxScope) => {
         scope: InboxScope
@@ -232,6 +232,22 @@ export interface reportListLogicMeta {
         hasMore: (reportsResponse: CountedPaginatedResponse<SignalReport> | null) => boolean
         isLoaded: (reportsResponse: CountedPaginatedResponse<SignalReport> | null) => boolean
     }
+    __keaTypeGenInternalReducerActions: {
+        'load user success (scenes.userLogic)': (
+            user: UserType | null,
+            payload?: {
+                resetOnFailure: boolean | undefined
+            }
+        ) => {
+            payload: {
+                payload?: {
+                    resetOnFailure: boolean | undefined
+                }
+                user: UserType | null
+            }
+            type: 'load user success (scenes.userLogic)'
+        }
+    }
 }
 
 export type reportListLogicType = MakeLogicType<
@@ -356,12 +372,12 @@ export const reportListLogic = kea<reportListLogicType>([
             ],
             (
                 searchQuery: string,
-                sortField: InboxSortField,
-                sortDirection: InboxSortDirection,
+                sortField: import('./inboxFiltersLogic').InboxSortField,
+                sortDirection: import('./inboxFiltersLogic').InboxSortDirection,
                 sourceProductFilter: string[],
-                priorityFilter: SignalReportPriority[],
+                priorityFilter: import('../types').SignalReportPriority[],
                 scope: InboxScope,
-                user: UserType | null,
+                user: null | import('../../../types').UserType,
                 listParams
             ) => {
                 const suggestedReviewer =

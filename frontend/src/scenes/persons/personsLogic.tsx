@@ -639,7 +639,8 @@ export const personsLogic = kea<personsLogicType>([
         urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
         feedEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet) => !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet) =>
+                !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS],
         ],
         primaryDistinctId: [
             (s) => [s.person],

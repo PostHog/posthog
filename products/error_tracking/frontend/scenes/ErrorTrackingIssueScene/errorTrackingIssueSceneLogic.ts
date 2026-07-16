@@ -42,10 +42,11 @@ import {
 } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb, IntegrationType, UniversalFiltersGroup } from '~/types'
 
-import type { ErrorTrackingIssueAssignee, EventsQuery } from '../../../../../frontend/src/queries/schema/schema-general'
 import type {
     ErrorTrackingExternalReference,
+    ErrorTrackingIssueAssignee,
     ErrorTrackingIssueCohort,
+    EventsQuery,
 } from '../../../../../frontend/src/queries/schema/schema-general'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import {
@@ -881,7 +882,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         // once per key: it MUST change when the query content changes (that's how a new query
         // reaches the data layer) and must NOT change otherwise — every key change unmounts and
         // remounts the entire events table tree.
-        eventsQueryKey: [(s) => [s.eventsQuery], (eventsQuery: EventsQuery): string => JSON.stringify(eventsQuery)],
+        eventsQueryKey: [
+            (s) => [s.eventsQuery],
+            (eventsQuery: import('~/queries/schema').EventsQuery): string => JSON.stringify(eventsQuery),
+        ],
 
         maxContext: [
             (s) => [s.issue, s.issueId],

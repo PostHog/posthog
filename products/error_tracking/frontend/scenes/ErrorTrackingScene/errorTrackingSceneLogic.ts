@@ -184,15 +184,17 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 s.currentPendingUpdates,
             ],
             (
-                orderBy: import('~/queries/schema').ErrorTrackingOrderBy,
-                status: import('~/queries/schema').ErrorTrackingQueryStatus | undefined,
-                dateRange: DateRange,
-                assignee: null | import('~/queries/schema').ErrorTrackingIssueAssignee | undefined,
+                orderBy: import('../../components/IssueQueryOptions/issueQueryOptionsLogic').ErrorTrackingQueryOrderBy,
+                status: import('../../components/IssueQueryOptions/issueQueryOptionsLogic').ErrorTrackingQueryStatus,
+                dateRange: import('~/queries/schema').DateRange,
+                assignee:
+                    | null
+                    | import('../../components/IssueQueryOptions/issueQueryOptionsLogic').ErrorTrackingQueryAssignee,
                 filterTestAccounts: boolean,
                 mergedFilterGroup: UniversalFiltersGroup,
                 searchQuery: string,
-                orderDirection: 'ASC' | 'DESC' | undefined,
-                currentPendingUpdates: ErrorTrackingPendingFingerprintIssueStateUpdate[]
+                orderDirection: import('../../components/IssueQueryOptions/issueQueryOptionsLogic').ErrorTrackingQueryOrderDirection,
+                currentPendingUpdates: import('~/queries/schema').ErrorTrackingPendingFingerprintIssueStateUpdate[]
             ): DataTableNode => {
                 return errorTrackingQuery({
                     orderBy,

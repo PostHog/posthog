@@ -164,8 +164,10 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
         // Both source + scout config loaders have settled, so the set-up verdict is trustworthy.
         isSetupLoaded: [
             (s) => [s.sourceConfigs, s.scoutConfigs],
-            (sourceConfigs: SignalSourceConfig[] | null, scoutConfigs: SignalScoutConfig[] | null): boolean =>
-                sourceConfigs !== null && scoutConfigs !== null,
+            (
+                sourceConfigs: import('../types').SignalSourceConfig[] | null,
+                scoutConfigs: import('../types').SignalScoutConfig[] | null
+            ): boolean => sourceConfigs !== null && scoutConfigs !== null,
         ],
         // Counts are "resolved" once both limit=1 requests have returned, OR once neither is still
         // loading (so a failed count request can't strand the onboarding on the loading state – this

@@ -25,6 +25,7 @@ import { urls } from 'scenes/urls'
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
+import type { ErrorTrackingIssue } from '../../../../../frontend/src/queries/schema/schema-general'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { errorTrackingIssueFingerprintsQuery } from '../../queries'
 import {

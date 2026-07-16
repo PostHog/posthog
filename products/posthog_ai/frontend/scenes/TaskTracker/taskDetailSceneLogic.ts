@@ -23,7 +23,7 @@ import { phDebugQueryParams } from '../../lib/ph-debug'
 import { TaskLogicProps, taskLogic } from '../../logics/taskLogic'
 import { tasksLogic } from '../../logics/tasksLogic'
 import { TaskRun } from '../../types/taskTypes'
-import type { Task } from '../../types/taskTypes'
+import type { Task, TaskUpsertProps } from '../../types/taskTypes'
 
 export type TaskDetailSceneLogicProps = TaskLogicProps
 
@@ -69,8 +69,8 @@ export interface taskDetailSceneLogicActions {
         payload?: any
         task: Task
     } // taskLogic
-    updateTask: (args_0: { data: import('../../types/taskTypes').TaskUpsertProps }) => {
-        data: import('../../types/taskTypes').TaskUpsertProps
+    updateTask: (args_0: { data: TaskUpsertProps }) => {
+        data: TaskUpsertProps
     } // taskLogic
     loadSelectedTaskRun: () => any
     loadSelectedTaskRunFailure: (
@@ -238,7 +238,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         taskId: [() => [(_, props) => props.taskId], (taskId) => taskId],
         selectedRun: [
             (s) => [s.selectedRunData, s.runs, s.selectedRunId],
-            (selectedRunData: TaskRun | null, runs: TaskRun[], selectedRunId: string | null): TaskRun | null => {
+            (selectedRunData: TaskRun | null, runs: TaskRun[], selectedRunId: TaskRun['id'] | null): TaskRun | null => {
                 if (selectedRunData && selectedRunData.id === selectedRunId) {
                     return selectedRunData
                 }
@@ -256,7 +256,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         ],
         isTaskPending: [
             (s) => [s.taskLoading, s.task],
-            (taskLoading: boolean, task: Task | null): boolean => taskLoading && !task,
+            (taskLoading: boolean, task: null | import('../../types/taskTypes').Task): boolean => taskLoading && !task,
         ],
         isRunPending: [
             (s) => [s.runsLoading, s.runs, s.selectedRunDataLoading, s.selectedRun],
@@ -275,7 +275,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         ],
         title: [
             (s) => [s.task],
-            (task: Task | null): string => {
+            (task: null | import('../../types/taskTypes').Task): string => {
                 return task?.title || task?.slug || 'Task'
             },
         ],

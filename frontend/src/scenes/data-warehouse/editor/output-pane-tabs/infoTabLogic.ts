@@ -110,8 +110,8 @@ export const infoTabLogic = kea<infoTabLogicType>([
         sourceTableItems: [
             (s) => [s.metadata, s.dataWarehouseSavedQueryMap],
             (
-                metadata: HogQLMetadataResponse | null,
-                dataWarehouseSavedQueryMap: Record<string, DataWarehouseSavedQuery>
+                metadata: null | import('../../../../queries/schema').HogQLMetadataResponse,
+                dataWarehouseSavedQueryMap: Record<string, import('../../../../types').DataWarehouseSavedQuery>
             ) => {
                 if (!metadata) {
                     return []

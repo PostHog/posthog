@@ -275,31 +275,25 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
     selectors({
         activeRecommendations: [
             (s) => [s.recommendations],
-            (
-                recommendations: ErrorTrackingRecommendation<Record<string, unknown>>[]
-            ): ErrorTrackingRecommendation[] => {
+            (recommendations: ErrorTrackingRecommendation[]): ErrorTrackingRecommendation[] => {
                 return recommendations.filter((r) => !r.dismissed_at && !r.completed)
             },
         ],
         completedRecommendations: [
             (s) => [s.recommendations],
-            (
-                recommendations: ErrorTrackingRecommendation<Record<string, unknown>>[]
-            ): ErrorTrackingRecommendation[] => {
+            (recommendations: ErrorTrackingRecommendation[]): ErrorTrackingRecommendation[] => {
                 return recommendations.filter((r) => !r.dismissed_at && r.completed)
             },
         ],
         ignoredRecommendations: [
             (s) => [s.recommendations],
-            (
-                recommendations: ErrorTrackingRecommendation<Record<string, unknown>>[]
-            ): ErrorTrackingRecommendation[] => {
+            (recommendations: ErrorTrackingRecommendation[]): ErrorTrackingRecommendation[] => {
                 return recommendations.filter((r) => !!r.dismissed_at)
             },
         ],
         computingIds: [
             (s) => [s.recommendations],
-            (recommendations: ErrorTrackingRecommendation<Record<string, unknown>>[]): Set<string> =>
+            (recommendations: ErrorTrackingRecommendation[]): Set<string> =>
                 new Set(recommendations.filter((r) => r.status === 'computing').map((r) => r.id)),
         ],
     }),

@@ -57,7 +57,7 @@ export interface relatedFeatureFlagsLogicActions {
     loadFeatureFlags: () => any // featureFlagsLogic
     setFeatureFlagsFilters: (
         filters: Partial<FeatureFlagsFilters>,
-        replace?: boolean | undefined
+        replace?: boolean
     ) => {
         filters: Partial<FeatureFlagsFilters>
         replace: boolean | undefined
@@ -201,7 +201,7 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
             (selectors) => [selectors.relatedFeatureFlags, selectors.featureFlags],
             (
                 relatedFlags: RelatedFeatureFlagResponse | null,
-                featureFlags: FeatureFlagsResult
+                featureFlags: import('scenes/feature-flags/featureFlagsLogic').FeatureFlagsResult
             ): RelatedFeatureFlag[] => {
                 if (relatedFlags && featureFlags) {
                     let flags = featureFlags.results

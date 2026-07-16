@@ -154,7 +154,7 @@ export const hogReplLogic = kea<hogReplLogicType>([
         ],
         lastLocalGlobals: [
             (s) => [s.lastLocals],
-            (lastLocals: any[] | undefined): Record<string, any> | undefined => {
+            (lastLocals: ReplChunk['locals'] | undefined): Record<string, any> | undefined => {
                 if (lastLocals) {
                     return lastLocals.reduce((acc, local) => Object.assign(acc, { [local[0]]: 'local' }), {})
                 }
