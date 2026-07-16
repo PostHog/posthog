@@ -1,27 +1,26 @@
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.settings import ASHBY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponseCursorPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 ASHBY_BASE_URL = "https://api.ashbyhq.com"
 PAGE_SIZE = 100  # Ashby's documented max (and default).
-REQUEST_TIMEOUT_SECONDS = 60
 # Cheap endpoint to confirm a key is genuine when no specific schema is being validated.
 DEFAULT_PROBE_PATH = "department.list"
 
 AUTH_ERROR_HINT = "Ashby API authentication or permission error"
-
-
-class AshbyRetryableError(Exception):
-    pass
 
 
 class AshbyAPIError(Exception):
@@ -31,11 +30,6 @@ class AshbyAPIError(Exception):
 @dataclasses.dataclass
 class AshbyResumeConfig:
     cursor: str
-
-
-def _auth(api_key: str) -> tuple[str, str]:
-    # Ashby uses HTTP Basic auth: API key as username, empty password.
-    return (api_key, "")
 
 
 def _headers() -> dict[str, str]:
@@ -66,94 +60,87 @@ def _errors_from_payload(data: dict[str, Any]) -> list[Any]:
     return []
 
 
-@retry(
-    retry=retry_if_exception_type((AshbyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    api_key: str,
-    path: str,
-    body: dict[str, Any],
-    logger: FilteringBoundLogger,
-) -> dict[str, Any]:
-    response = session.post(
-        f"{ASHBY_BASE_URL}/{path}", json=body, auth=_auth(api_key), headers=_headers(), timeout=REQUEST_TIMEOUT_SECONDS
-    )
+class AshbyCursorPaginator(JSONResponseCursorPaginator):
+    """Cursor-in-JSON-body pagination plus Ashby's HTTP-200 error envelope.
 
-    if response.status_code == 429 or response.status_code >= 500:
-        raise AshbyRetryableError(f"Ashby API error (retryable): status={response.status_code}, path={path}")
+    Ashby reports many failures as HTTP 200 with ``success: false`` and an ``errors``
+    array — raise on those (auth-ish messages carry ``AUTH_ERROR_HINT`` so the job-level
+    classifier treats them as non-retryable). Termination honors ``moreDataAvailable``,
+    which can be false even when a ``nextCursor`` is present.
+    """
 
-    if response.status_code in (401, 403):
-        raise AshbyAPIError(f"{response.status_code} Client Error: {AUTH_ERROR_HINT} for path {path}")
+    def __init__(self, path: str) -> None:
+        super().__init__(cursor_path="nextCursor", cursor_param="cursor", param_location="json")
+        self._path = path
 
-    if not response.ok:
-        logger.error(f"Ashby API error: status={response.status_code}, body={response.text}, path={path}")
-        response.raise_for_status()
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        payload = response.json()
+        if not payload.get("success", False):
+            is_auth, message = _classify_failure_message(_errors_from_payload(payload))
+            if is_auth:
+                raise AshbyAPIError(f"{AUTH_ERROR_HINT} for path {self._path}: {message}")
+            raise AshbyAPIError(f"Ashby API error for path {self._path}: {message}")
 
-    data = response.json()
-    if not data.get("success", False):
-        is_auth, message = _classify_failure_message(_errors_from_payload(data))
-        if is_auth:
-            raise AshbyAPIError(f"{AUTH_ERROR_HINT} for path {path}: {message}")
-        raise AshbyAPIError(f"Ashby API error for path {path}: {message}")
-
-    return data
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[AshbyResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = ASHBY_ENDPOINTS[endpoint]
-    session = make_tracked_session()
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    cursor: Optional[str] = resume.cursor if resume else None
-    if cursor:
-        logger.debug(f"Ashby: resuming {endpoint} from cursor")
-
-    while True:
-        body: dict[str, Any] = {"limit": PAGE_SIZE}
-        if cursor:
-            body["cursor"] = cursor
-
-        data = _fetch_page(session, api_key, config.path, body, logger)
-
-        results = data.get("results") or []
-        if results:
-            yield results
-
-        next_cursor = data.get("nextCursor")
-        if not data.get("moreDataAvailable", False) or not next_cursor:
-            break
-
-        cursor = next_cursor
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages
-        # are persisted); merge/replace dedupes on the primary key.
-        resumable_source_manager.save_state(AshbyResumeConfig(cursor=cursor))
+        super().update_state(response, data)
+        if not payload.get("moreDataAvailable", False):
+            self._has_next_page = False
 
 
 def ashby_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[AshbyResumeConfig],
 ) -> SourceResponse:
     config = ASHBY_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": ASHBY_BASE_URL,
+            "headers": _headers(),
+            # Ashby uses HTTP Basic auth: API key as username, empty password.
+            "auth": {"type": "http_basic", "username": api_key, "password": ""},
+            "paginator": AshbyCursorPaginator(config.path),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "method": "post",
+                    "json": {"limit": PAGE_SIZE},
+                    "data_selector": "results",
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"cursor": resume.cursor}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; the checkpoint fires AFTER a page is yielded so a
+        # crash re-fetches from the next page (already-yielded pages are persisted); merge/replace
+        # dedupes on the primary key.
+        if state and state.get("cursor"):
+            resumable_source_manager.save_state(AshbyResumeConfig(cursor=str(state["cursor"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,  # every Ashby endpoint is full refresh
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_key,
         partition_count=1,
         partition_size=1,
@@ -166,14 +153,15 @@ def ashby_source(
 def check_access(api_key: str, path: str) -> tuple[int, Optional[str]]:
     """Probe a single endpoint to validate credentials.
 
-    Returns a normalized ``(status, message)`` where status mimics HTTP semantics even when
-    Ashby reports the failure as HTTP 200 + ``success: false``:
+    Ashby's RPC endpoints are POST-only and report many failures as HTTP 200 with
+    ``success: false``, so the generic GET-based ``validate_via_probe`` can't express this
+    check. Returns a normalized ``(status, message)`` where status mimics HTTP semantics:
       200 = reachable, 401 = bad key, 403 = valid key without scope, other = unexpected.
     """
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_key,))
     try:
         response = session.post(
-            f"{ASHBY_BASE_URL}/{path}", json={"limit": 1}, auth=_auth(api_key), headers=_headers(), timeout=15
+            f"{ASHBY_BASE_URL}/{path}", json={"limit": 1}, auth=(api_key, ""), headers=_headers(), timeout=15
         )
     except Exception as e:
         return 0, f"Could not connect to Ashby: {e}"
