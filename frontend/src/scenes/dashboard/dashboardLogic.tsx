@@ -3378,7 +3378,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         refreshDashboardItems: async ({ action, refresh }, breakpoint) => {
             const dashboardRefreshStartTime = performance.now()
-            const forceRefresh = refresh === 'force_blocking'
+            const isForcedRefresh = refresh === 'force_blocking'
             const isInitialLoad =
                 action === DashboardLoadAction.InitialLoad || action === DashboardLoadAction.InitialLoadWithVariables
             const isInitialLoadOrUpdate = isInitialLoad || action === DashboardLoadAction.Update
@@ -3396,7 +3396,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // only refresh stale insights
                 .filter(
                     (t) =>
-                        forceRefresh ||
+                        isForcedRefresh ||
                         !isInitialLoadOrUpdate ||
                         !t.insight.cache_target_age ||
                         dayjs(t.insight.cache_target_age).isBefore(dayjs())
@@ -3503,7 +3503,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 // update last refresh time, only if we've forced a blocking refresh of the dashboard
                 // and all tiles were refreshed
-                if (forceRefresh && tilesAbortedCount === 0 && tilesErroredCount === 0) {
+                if (isForcedRefresh && tilesAbortedCount === 0 && tilesErroredCount === 0) {
                     actions.updateDashboardLastRefresh(dayjs())
                 }
 
@@ -3532,7 +3532,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     urlVariables,
                     lastDashboardRefresh,
                     action,
-                    !!forceRefresh,
+                    isForcedRefresh,
                     {
                         totalTileCount,
                         tilesStaleCount,
@@ -3546,7 +3546,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             if (
                 isInitialLoad &&
-                !forceRefresh &&
+                !isForcedRefresh &&
                 tilesErroredCount === 0 &&
                 tilesAbortedCount === 0 &&
                 values.placement === DashboardPlacement.Public
@@ -3561,7 +3561,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             ) {
                 const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
                 if (widgetTileIds.length > 0) {
-                    actions.refreshDashboardWidgets({ tileIds: widgetTileIds, forceRefresh: !!forceRefresh })
+                    actions.refreshDashboardWidgets({ tileIds: widgetTileIds, forceRefresh: isForcedRefresh })
                 }
             }
         },
