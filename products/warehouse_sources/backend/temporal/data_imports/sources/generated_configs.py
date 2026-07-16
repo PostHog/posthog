@@ -3281,7 +3281,9 @@ class PostmarkSourceConfig(config.Config):
 
 @config.config
 class PrefectCloudSourceConfig(config.Config):
-    pass
+    account_id: str
+    workspace_id: str
+    api_key: str
 
 
 @config.config
