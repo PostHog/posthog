@@ -7,7 +7,11 @@ from temporalio import activity
 from posthog.models.user import User
 from posthog.temporal.common.utils import close_db_connections
 
-from products.tasks.backend.logic.services.agent_command import send_agent_command, send_user_message
+from products.tasks.backend.logic.services.agent_command import (
+    is_permission_already_resolved_error,
+    send_agent_command,
+    send_user_message,
+)
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.process_task.utils import get_actor_distinct_id
@@ -122,7 +126,11 @@ def send_permission_response_to_sandbox(input: SendPermissionResponseToSandboxIn
         auth_token=auth_token,
         timeout=PERMISSION_RESPONSE_TIMEOUT_SECONDS,
     )
-    if not result.success:
+    # A duplicate delivery may have already resolved the request. The decision is
+    # final on the sandbox, so record it as delivered instead of retrying the
+    # activity and posting a spurious "couldn't deliver" notice to the thread.
+    already_resolved = not result.success and is_permission_already_resolved_error(result.error)
+    if not result.success and not already_resolved:
         logger.warning(
             "permission_response_delivery_failed",
             run_id=input.run_id,
@@ -160,6 +168,7 @@ def send_permission_response_to_sandbox(input: SendPermissionResponseToSandboxIn
         actor_slack_user_id=input.actor_slack_user_id,
         broker_reason=input.broker_reason,
         is_denial=input.is_denial,
+        already_resolved=already_resolved,
     )
 
 

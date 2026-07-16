@@ -131,6 +131,34 @@ class TestSendPermissionResponseToSandbox:
 
         patches["task_run_cls"].update_state_atomic.assert_not_called()
 
+    def test_already_resolved_records_state_without_raising(self, patches):
+        # A duplicate delivery already resolved the request. The decision is final
+        # on the sandbox, so record it as delivered rather than retry the activity
+        # and post a spurious delivery-failure notice to the thread.
+        patches["send_agent_command"].return_value = CommandResult(
+            success=False,
+            status_code=200,
+            error="No pending permission request found for id: perm-1",
+        )
+
+        send_permission_response_to_sandbox(
+            SendPermissionResponseToSandboxInput(
+                run_id="run-1",
+                request_id="perm-1",
+                option_id="allow",
+                actor_user_id=42,
+            )
+        )
+
+        patches["task_run_cls"].update_state_atomic.assert_called_once_with(
+            "run-1",
+            updates={
+                "slack_actor_user_id": 42,
+                "slack_permission_response_last_request_id": "perm-1",
+                "slack_permission_response_last_option_id": "allow",
+            },
+        )
+
 
 class TestSendPermissionDenialGuidance:
     def test_sends_guidance_with_actor_token(self, patches):

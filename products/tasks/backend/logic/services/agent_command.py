@@ -40,6 +40,18 @@ BLOCKED_IP_RANGES = [
 
 NO_ACTIVE_SESSION_ERROR = "No active session for this run"
 
+# The agent-server raises this (as a JSON-RPC error) when a permission_response
+# targets a request that is no longer pending — it was already resolved, most
+# often by a duplicate delivery of the same response through the Modal tunnel.
+# The message carries the request id as a suffix, so match on the stable prefix.
+# A response that gets this back has effectively landed: callers should treat it
+# as delivered rather than retry it or escalate the request to a human.
+NO_PENDING_PERMISSION_REQUEST_ERROR = "No pending permission request found"
+
+
+def is_permission_already_resolved_error(error: str | None) -> bool:
+    return error is not None and NO_PENDING_PERMISSION_REQUEST_ERROR in error
+
 
 @dataclass
 class CommandResult:

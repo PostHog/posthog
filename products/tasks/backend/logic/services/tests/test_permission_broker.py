@@ -125,13 +125,15 @@ class TestTryAutoRespondPermissionRequest(APIBaseTest):
         assert parsed is not None
         return parsed
 
-    def _auto_respond(self, permission_request: dict, *, send_success: bool = True) -> tuple[bool, MagicMock]:
+    def _auto_respond(
+        self, permission_request: dict, *, send_success: bool = True, send_error: str | None = None
+    ) -> tuple[bool, MagicMock]:
         with (
             patch(f"{BROKER}.create_sandbox_connection_token", return_value="sandbox-token"),
             patch(
                 f"{BROKER}.send_agent_command",
                 return_value=SimpleNamespace(
-                    success=send_success, status_code=200 if send_success else 502, error=None
+                    success=send_success, status_code=200 if send_success else 502, error=send_error
                 ),
             ) as mock_send,
         ):
@@ -243,4 +245,21 @@ class TestTryAutoRespondPermissionRequest(APIBaseTest):
 
         assert first_handled is True
         assert second_handled is True
+        mock_send.assert_not_called()
+
+    def test_already_resolved_request_is_answered_not_escalated(self) -> None:
+        # A duplicate delivery already resolved the request; the agent-server
+        # reports it as gone. The broker must treat that as answered (and dedupe),
+        # never fall through to a human approval prompt.
+        request = self._permission_request(command="ls -la")
+
+        handled, _ = self._auto_respond(
+            request,
+            send_success=False,
+            send_error="No pending permission request found for id: perm-1",
+        )
+        assert handled is True
+
+        handled, mock_send = self._auto_respond(request)
+        assert handled is True
         mock_send.assert_not_called()

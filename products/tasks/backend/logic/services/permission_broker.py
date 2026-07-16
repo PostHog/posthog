@@ -27,7 +27,11 @@ from django.core.cache import cache
 
 import structlog
 
-from products.tasks.backend.logic.services.agent_command import CommandResult, send_agent_command
+from products.tasks.backend.logic.services.agent_command import (
+    CommandResult,
+    is_permission_already_resolved_error,
+    send_agent_command,
+)
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.run_actor import get_actor_distinct_id, get_task_run_credential_user
 
@@ -458,6 +462,19 @@ def try_auto_respond_permission_request(task_run: "TaskRun", permission_request:
         auth_token=auth_token,
     )
     if not result.success:
+        if is_permission_already_resolved_error(result.error):
+            # A duplicate delivery of this response already resolved the request,
+            # so the decision has landed. Dedupe and treat it as answered rather
+            # than escalating an already-approved request to a human.
+            cache.set(dedupe_key, True, timeout=AUTO_RESPONSE_DEDUPE_SECONDS)
+            logger.info(
+                "permission_broker_request_already_resolved",
+                run_id=run_id,
+                request_id=request_id,
+                option_id=option_id,
+                actor_user_id=actor.id,
+            )
+            return True
         logger.warning(
             "permission_broker_auto_allow_failed",
             run_id=run_id,
