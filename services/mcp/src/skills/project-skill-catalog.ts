@@ -79,7 +79,11 @@ export class ProjectSkillCatalog {
         const skillFile = makeSkillFile('SKILL.md', skill.body, 'text/markdown')
         return formatLearnDocument(identifier, skill.description, skillFile, [
             skillFile,
-            ...skill.files.map((file) => ({ path: file.path })),
+            ...skill.files.map((file) => ({
+                path: file.path,
+                lineCount: file.line_count,
+                charCount: file.char_count,
+            })),
         ])
     }
 
