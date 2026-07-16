@@ -104,7 +104,7 @@ impl ExceptionList {
 /// Deserialization checks only the wire shape. Sanitization, non-empty list
 /// validation, normalization, and construction of `ExceptionEvent<Parsed>`
 /// happen at the event conversion boundary.
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct RawExceptionProperties {
     #[serde(rename = "$exception_list")]
     pub exception_list: ExceptionList,
@@ -202,10 +202,6 @@ impl ProcessedExceptionProperties {
         &self.0.fingerprint
     }
 
-    pub fn fingerprint_version(&self) -> Option<FingerprintVersion> {
-        self.0.fingerprint_version
-    }
-
     pub fn fingerprint_record(&self) -> &[FingerprintRecordPart] {
         &self.0.fingerprint_record
     }
@@ -220,10 +216,6 @@ impl ProcessedExceptionProperties {
 
     pub fn is_handled(&self) -> bool {
         self.0.handled
-    }
-
-    pub fn releases(&self) -> &HashMap<String, ReleaseInfo> {
-        &self.0.releases
     }
 
     pub fn types(&self) -> &[String] {
