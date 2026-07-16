@@ -348,16 +348,15 @@ async fn run_dirty_index_prune_loop(
     let mut interval = tokio::time::interval(prune_interval);
     loop {
         interval.tick().await;
-        // One pass over the index for the read side, one batched
-        // OffsetFetch, one retain pass for the prune — the loop's cost
-        // stays linear in the index even when a lagging writer has made
-        // it large.
-        let stats = dirty_index.partition_marks();
+        // One batched OffsetFetch, then queue pops proportional to the
+        // marks actually reclaimed — a tick never scans the index, which
+        // is what makes the 1s interval affordable even when a lagging
+        // writer has made the index large.
+        let partitions = dirty_index.partitions_with_marks();
         gauge!("personhog_leader_dirty_index_size").set(dirty_index.len() as f64);
-        if stats.is_empty() {
+        if partitions.is_empty() {
             continue;
         }
-        let partitions: Vec<u32> = stats.keys().copied().collect();
         let committed_offsets = match fetch_writer_committed_offsets(
             &kafka,
             &writer_group,
@@ -380,10 +379,17 @@ async fn run_dirty_index_prune_loop(
         }
         // A partition absent from the committed offsets has no writer
         // commit yet: nothing is applied, every mark stays, and its lag
-        // is the entire marked backlog.
-        for (partition, marks) in &stats {
-            let committed = committed_offsets.get(partition).copied().unwrap_or(0);
-            let lag = (marks.max_offset + 1 - committed).max(0);
+        // is the entire marked backlog. A partition the prune fully
+        // reclaimed has no live marks left — the writer caught up, so its
+        // lag reads zero.
+        for partition in &partitions {
+            let lag = match dirty_index.max_offset(*partition) {
+                Some(max_offset) => {
+                    let committed = committed_offsets.get(partition).copied().unwrap_or(0);
+                    (max_offset + 1 - committed).max(0)
+                }
+                None => 0,
+            };
             gauge!(
                 "personhog_leader_writer_uncommitted_offsets",
                 "partition" => partition.to_string()

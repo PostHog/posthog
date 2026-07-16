@@ -127,8 +127,12 @@ pub struct Config {
 
     // ── Dirty index / changelog recovery ─────────────────────────
     /// How often to poll the writer's committed offsets and prune dirty
-    /// index marks the writer has applied to PG.
-    #[envconfig(default = "5")]
+    /// index marks the writer has applied to PG. A tick costs one batched
+    /// OffsetFetch plus work proportional to the marks actually reclaimed
+    /// (the index is never scanned), so a short interval is cheap — and it
+    /// bounds how long an applied-but-unpruned mark keeps sending reads to
+    /// the changelog for state PG already has.
+    #[envconfig(default = "1")]
     pub dirty_index_prune_interval_secs: u64,
 
     /// Overall deadline for recovering one evicted dirty person from the
@@ -157,8 +161,12 @@ pub struct Config {
     pub dirty_index_max_entries: usize,
 
     // ── PG fallback ───────────────────────────────────────────────
-    /// Read-only Postgres URL for cache miss fallback. If empty, cache
-    /// misses return NotFound without querying PG.
+    /// Postgres URL for cache miss fallback. If empty, cache misses
+    /// return NotFound without querying PG. Must point at the primary:
+    /// the dirty index prunes a mark as soon as the writer's committed
+    /// offset shows the primary has the row, so reading an async replica
+    /// here would serve stale rows for unmarked persons and silently
+    /// break read-your-write. Leader reads are strong reads.
     #[envconfig(default = "")]
     pub fallback_database_url: String,
 
