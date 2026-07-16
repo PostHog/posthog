@@ -121,12 +121,13 @@ export interface ToolContext {
      */
     memoryReadableAppIds?: ReadonlySet<string>
     /**
-     * True when this agent is reachable via a posthog `authenticated` audience —
+     * True when this agent is reachable by untrusted callers — a posthog
+     * `authenticated` audience (any PostHog user) or `public` auth (anonymous) —
      * i.e. its per-(team, application) memory/table store is shared across
      * mutually-untrusted callers. `table-append` uses this to force PLAIN append
      * (dedupe disabled) so its `skipped` count can't leak whether another caller
      * already wrote a key. Set from the spec at session start; see
-     * `specHasAuthenticatedAudience`.
+     * `specReachableByUntrustedCallers`.
      */
     crossTenantStore?: boolean
     /**

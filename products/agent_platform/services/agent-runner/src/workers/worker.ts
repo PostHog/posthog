@@ -53,7 +53,7 @@ import {
     SessionEventBus,
     SessionQueue,
     specGrantsCrossAgentRead,
-    specHasAuthenticatedAudience,
+    specReachableByUntrustedCallers,
     userFacingMessage,
 } from '@posthog/agent-shared'
 
@@ -415,8 +415,9 @@ export class Worker {
             // effort — a missing app just falls back to the id in the driver.
             const application = await this.deps.revisions.getApplication(session.application_id).catch(() => null)
             // Owner authority (the app's encrypted_env, reached via `ctx.secret`)
-            // is default-denied on an authenticated run: the caller is an arbitrary
-            // PostHog user, so any tool acting with the OWNER's credential is a
+            // is default-denied when the agent is reachable by untrusted callers —
+            // an authenticated audience (any PostHog user) or public auth (anonymous).
+            // Any tool acting with the OWNER's credential for such a caller is a
             // confused deputy by construction. Empty secrets makes that inexpressible
             // — Slack, http-request-with-secret, and kind:"agent" MCP all fail closed
             // with no owner credential to reach for — while per-caller authority
@@ -426,7 +427,7 @@ export class Worker {
             // future agent legitimately needs one shared owner credential here, that
             // is a deliberate, reviewable per-secret opt-in to add then — not a
             // reopening of the blanket default.
-            const secrets = specHasAuthenticatedAudience(rev.spec) ? {} : await this.deps.resolveSecrets(session)
+            const secrets = specReachableByUntrustedCallers(rev.spec) ? {} : await this.deps.resolveSecrets(session)
             const customTools = rev.spec.tools.filter((t) => t.kind === 'custom')
             if (customTools.length > 0) {
                 const loads = await Promise.all(

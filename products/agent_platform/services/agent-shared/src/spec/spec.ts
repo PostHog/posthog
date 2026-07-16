@@ -1099,10 +1099,11 @@ export const AgentSpecObjectSchema = z.object({
 const ADMISSION_WIRED_TRIGGER_TYPES: readonly Trigger['type'][] = ['slack']
 
 /**
- * Native memory/table tools forbidden on an `authenticated` agent. That state is
- * scoped per (team, application) — shared across ALL of an agent's callers, never
- * per-caller — and an `authenticated` agent is open to every PostHog user, who
- * are mutually untrusted. So:
+ * Native memory/table tools forbidden on an agent reachable by untrusted callers
+ * (an `authenticated` audience or `public` auth — see
+ * `specReachableByUntrustedCallers`). That state is scoped per (team, application)
+ * — shared across ALL of an agent's callers, never per-caller — and such an agent
+ * is open to mutually-untrusted callers (every PostHog user, or anonymous). So:
  *   - READS (memory-list/search/read, table-query/count/membership) let one
  *     caller see what another wrote — a confidentiality break.
  *   - MUTATIONS (memory-write/update/delete, table-delete/truncate) let one
@@ -1159,6 +1160,29 @@ export function specHasAuthenticatedAudience(spec: z.infer<typeof AgentSpecObjec
 }
 
 /**
+ * Whether any trigger accepts anonymous callers via a `public` auth mode. Public
+ * is strictly more open than `authenticated` (no identity at all), so it belongs
+ * to the same threat class: the store is cross-caller and no tool may act with
+ * the owner's ambient authority.
+ */
+export function specHasPublicAudience(spec: z.infer<typeof AgentSpecObjectSchema>): boolean {
+    return spec.triggers.some((t) => 'auth' in t && t.auth?.modes?.some((m) => m.type === 'public'))
+}
+
+/**
+ * Whether any trigger opens this agent to callers who are NOT guaranteed to be
+ * trusted members of the owning team — an `authenticated` audience (any PostHog
+ * user) or `public` auth (anonymous). Either makes the whole agent's per-(team,
+ * application) store cross-caller and forbids acting with owner authority, so
+ * both the freeze-time envelope (superRefine) and the runtime (empty secrets,
+ * plain append) key on this rather than on `authenticated` alone. `project` /
+ * `organization` callers are trusted and unaffected.
+ */
+export function specReachableByUntrustedCallers(spec: z.infer<typeof AgentSpecObjectSchema>): boolean {
+    return specHasAuthenticatedAudience(spec) || specHasPublicAudience(spec)
+}
+
+/**
  * Native tools that honour the cross-agent `owner` arg — i.e. consume
  * `ToolContext.memoryReadableAppIds`. The runner uses this to skip the
  * per-session team-wide-sharing lookup entirely for agents that grant none of
@@ -1179,21 +1203,22 @@ export function specGrantsCrossAgentRead(spec: z.infer<typeof AgentSpecObjectSch
 }
 
 export const AgentSpecSchema = AgentSpecObjectSchema.superRefine((spec, ctx) => {
-    // A posthog `authenticated` audience opens the agent to EVERY PostHog user
-    // (see AuthModeSchema). Such an agent must hold no ambient shared authority
-    // and must not read OR mutate shared per-(team, application) state —
+    // A posthog `authenticated` audience (any PostHog user) or `public` auth
+    // (anonymous) opens the agent to callers who aren't trusted members of the
+    // owning team (see AuthModeSchema). Such an agent must hold no ambient shared
+    // authority and must not read OR mutate shared per-(team, application) state —
     // otherwise any caller could drive its shared credential (confused deputy),
     // read another caller's data, or destroy it. These are documented on the
     // audience; enforce them here so a later revision can't silently violate
     // them. Runs before the authoritative_provider early-return below so it
     // applies to trigger-auth agents (which don't set authoritative_provider).
-    if (specHasAuthenticatedAudience(spec)) {
+    if (specReachableByUntrustedCallers(spec)) {
         if (spec.mcps.some((m) => m.kind === 'agent')) {
             ctx.addIssue({
                 code: 'custom',
                 path: ['mcps'],
                 message:
-                    'an agent with a posthog "authenticated" audience must not carry a kind:"agent" MCP — its one shared credential would be driven by every caller (confused deputy). Use kind:"principal" (per-caller identity) or remove the MCP.',
+                    'an agent reachable by untrusted callers (posthog "authenticated" audience or "public" auth) must not carry a kind:"agent" MCP — its one shared credential would be driven by every caller (confused deputy). Use kind:"principal" (per-caller identity) or remove the MCP.',
             })
         }
         const forbidden = [
@@ -1207,7 +1232,7 @@ export const AgentSpecSchema = AgentSpecObjectSchema.superRefine((spec, ctx) => 
             ctx.addIssue({
                 code: 'custom',
                 path: ['tools'],
-                message: `an agent with a posthog "authenticated" audience must not read or mutate shared per-(team, application) state: remove ${forbidden.join(', ')}. These stores are shared across all callers, so one caller could read, overwrite, or destroy another's data. Additive @posthog/table-append is allowed (the runtime forces it to plain, non-dedupe append).`,
+                message: `an agent reachable by untrusted callers (posthog "authenticated" audience or "public" auth) must not read or mutate shared per-(team, application) state: remove ${forbidden.join(', ')}. These stores are shared across all callers, so one caller could read, overwrite, or destroy another's data — including another agent's team-wide-shared memory via the cross-agent read tools. Additive @posthog/table-append is allowed (the runtime forces it to plain, non-dedupe append).`,
             })
         }
         const ownerCredentialTools = [
@@ -1221,7 +1246,7 @@ export const AgentSpecSchema = AgentSpecObjectSchema.superRefine((spec, ctx) => 
             ctx.addIssue({
                 code: 'custom',
                 path: ['tools'],
-                message: `an agent with a posthog "authenticated" audience must not act with the owner's ambient credential: remove ${ownerCredentialTools.join(', ')}. Every caller would drive the owner's Slack bot (confused deputy). Use a kind:"principal" MCP or a per-caller identity instead.`,
+                message: `an agent reachable by untrusted callers (posthog "authenticated" audience or "public" auth) must not act with the owner's ambient credential: remove ${ownerCredentialTools.join(', ')}. Every caller would drive the owner's Slack bot (confused deputy). Use a kind:"principal" MCP or a per-caller identity instead.`,
             })
         }
         if (spec.secrets.length > 0) {
@@ -1229,7 +1254,7 @@ export const AgentSpecSchema = AgentSpecObjectSchema.superRefine((spec, ctx) => 
                 code: 'custom',
                 path: ['secrets'],
                 message:
-                    'an agent with a posthog "authenticated" audience must not declare secrets — they are owner authority the runtime withholds from an open-to-everyone run, so any tool reaching for them would fail closed. Resolve per-caller credentials via a kind:"principal" MCP or identity_providers instead.',
+                    'an agent reachable by untrusted callers (posthog "authenticated" audience or "public" auth) must not declare secrets — they are owner authority the runtime withholds from an open-to-everyone run, so any tool reaching for them would fail closed. Resolve per-caller credentials via a kind:"principal" MCP or identity_providers instead.',
             })
         }
     }

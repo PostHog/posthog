@@ -1185,4 +1185,57 @@ describe('models.optimize_for', () => {
             expect(res.success).toBe(true)
         })
     })
+
+    describe('public auth shares the untrusted-caller envelope', () => {
+        // Public (anonymous) is strictly more open than `authenticated`, so the
+        // same envelope applies: an anonymous caller must not be able to proxy a
+        // cross-agent team-shared read, drive the owner's Slack bot, or reach a
+        // shared MCP credential.
+        const publicTrigger = {
+            type: 'chat' as const,
+            config: {},
+            auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+        }
+
+        it.each([
+            '@posthog/memory-read', // the cross-agent team-shared read an anonymous caller could proxy
+            '@posthog/table-query',
+            '@posthog/slack-post-message', // owner's ambient Slack credential
+        ])('rejects %s on a public agent', (id) => {
+            const res = AgentSpecSchema.safeParse({ triggers: [publicTrigger], tools: [{ kind: 'native', id }] })
+            expect(res.success).toBe(false)
+            if (!res.success) {
+                expect(res.error.issues.some((i) => i.path.includes('tools'))).toBe(true)
+            }
+        })
+
+        it('rejects a kind:"agent" MCP and declared secrets on a public agent', () => {
+            const res = AgentSpecSchema.safeParse({
+                triggers: [publicTrigger],
+                mcps: [
+                    {
+                        id: 'm',
+                        url: 'https://mcp.example.test',
+                        default_tool_approval: 'approve',
+                        kind: 'agent',
+                        connection: 'inst-1',
+                    },
+                ],
+                secrets: ['SOME_API_KEY'],
+            })
+            expect(res.success).toBe(false)
+            if (!res.success) {
+                expect(res.error.issues.some((i) => i.path.includes('mcps'))).toBe(true)
+                expect(res.error.issues.some((i) => i.path.includes('secrets'))).toBe(true)
+            }
+        })
+
+        it('allows a public agent holding no shared credential and reading no shared state', () => {
+            const res = AgentSpecSchema.safeParse({
+                triggers: [publicTrigger],
+                tools: [{ kind: 'native', id: '@posthog/load-skill' }],
+            })
+            expect(res.success).toBe(true)
+        })
+    })
 })
