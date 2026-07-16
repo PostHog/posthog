@@ -11,7 +11,7 @@ import {
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
 
-import type { CurrencyCode } from '../../../../../../queries/schema/schema-general'
+import type { CampaignFieldPreference, CurrencyCode } from '../../../../../../queries/schema/schema-general'
 import { similarityScore } from '../components/settings/stringSimilarity'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from './marketingAnalyticsTilesLogic'

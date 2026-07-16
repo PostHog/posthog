@@ -25,8 +25,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { ActorGroupType, AnyCohortCriteriaType, AvailableFeature } from '~/types'
 
 import type { Noun } from '../../../models/groupsModel'
-import type { AnyPropertyFilter, PropertyFilterValue } from '../../../types'
-import type { GroupType, GroupTypeIndex } from '../../../types'
+import type { AnyPropertyFilter, GroupType, GroupTypeIndex, PropertyFilterValue } from '../../../types'
 
 export interface CohortFieldLogicProps {
     cohortFilterLogicKey: string
@@ -139,8 +138,11 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
             ],
             (
                 fieldOptionGroupTypes,
-                groupTypes: Map<GroupTypeIndex, GroupType>,
-                aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
+                groupTypes: Map<import('~/types').GroupTypeIndex, import('~/types').GroupType>,
+                aggregationLabel: (
+                    groupTypeIndex: number | null | undefined,
+                    deferToUserWording?: boolean
+                ) => import('~/models/groupsModel').Noun,
                 hasBehavioralCohortFiltering: boolean
             ): FieldValues[] => {
                 const fieldOptions = hasBehavioralCohortFiltering
@@ -172,7 +174,10 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
         ],
         currentOption: [
             (s) => [s.fieldOptionGroups, s.value],
-            (fieldOptionGroups: FieldValues[], value: PropertyFilterValue | AnyPropertyFilter[] | undefined) =>
+            (
+                fieldOptionGroups: FieldValues[],
+                value: import('~/types').AnyPropertyFilter[] | import('~/types').PropertyFilterValue | undefined
+            ) =>
                 value && typeof value === 'string'
                     ? fieldOptionGroups.reduce(
                           (accumulator, group) => {
@@ -192,7 +197,7 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
                 actionsModel.selectors.actionsLoading,
             ],
             (
-                value: PropertyFilterValue | AnyPropertyFilter[] | undefined,
+                value: import('~/types').AnyPropertyFilter[] | import('~/types').PropertyFilterValue | undefined,
                 criteria: AnyCohortCriteriaType,
                 fieldKey: keyof import('~/types').CohortCriteriaType,
                 cohortsModelLoading: boolean,
@@ -219,7 +224,7 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
                 actionsModel.selectors.actionsLoading,
             ],
             (
-                value: PropertyFilterValue | AnyPropertyFilter[] | undefined,
+                value: import('~/types').AnyPropertyFilter[] | import('~/types').PropertyFilterValue | undefined,
                 criteria: AnyCohortCriteriaType,
                 fieldKey: keyof import('~/types').CohortCriteriaType,
                 cohortsModelLoading: boolean,

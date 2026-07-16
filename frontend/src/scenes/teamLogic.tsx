@@ -89,12 +89,12 @@ export interface teamLogicActions {
         currentProject: ProjectType | null
         payload?: any
     } // projectLogic
-    loadUser: (resetOnFailure?: boolean | undefined) => {
+    loadUser: (resetOnFailure?: boolean) => {
         resetOnFailure: boolean | undefined
     } // userLogic
     switchTeam: (
         teamId: number | string,
-        destination?: string | undefined
+        destination?: string
     ) => {
         destination: string | undefined
         teamId: number | string

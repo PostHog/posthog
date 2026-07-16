@@ -17,7 +17,8 @@ import {
 } from 'products/reminders/frontend/generated/api'
 import { RecurrenceIntervalEnumApi, ReminderApi } from 'products/reminders/frontend/generated/api.schemas'
 
-import type { OrganizationType, PreflightStatus } from '../../../types'
+import type { PreflightStatus } from '../../../types'
+import type { OrganizationType } from '../../../types'
 
 export type ReminderScheduleType = 'one-off' | 'repeats' | 'advanced'
 
@@ -295,14 +296,16 @@ export const remindersLogic = kea<remindersLogicType>([
         ],
         projectOptions: [
             (s) => [s.currentOrganization],
-            (currentOrganization: OrganizationType | null): { value: number | null; label: string }[] => [
+            (
+                currentOrganization: null | import('../../../types').OrganizationType
+            ): { value: number | null; label: string }[] => [
                 { value: null, label: 'Organization-wide (no project)' },
                 ...(currentOrganization?.teams ?? []).map((team) => ({ value: team.id, label: team.name })),
             ],
         ],
         timezoneOptions: [
             (s) => [s.preflight],
-            (preflight: PreflightStatus | null): { key: string; label: string }[] =>
+            (preflight: null | import('../../../types').PreflightStatus): { key: string; label: string }[] =>
                 Object.entries(preflight?.available_timezones ?? {}).map(([tz, offset]) => ({
                     key: tz,
                     label: timeZoneLabel(tz, offset),

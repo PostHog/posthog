@@ -329,7 +329,7 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
         ],
         enabledTabs: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): DataManagementTab[] => {
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): DataManagementTab[] => {
                 const allTabs = Object.entries(tabs)
 
                 return allTabs

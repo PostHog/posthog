@@ -116,7 +116,7 @@ describe('cohortCountWarningLogic', () => {
             })
             mockDataNodeLogic.mount()
             mockDataNodeLogic.actions.loadDataSuccess({
-                results: Array.from({ length: 50 }),
+                results: new Array(50),
                 hasMore: true,
             })
 
@@ -134,7 +134,7 @@ describe('cohortCountWarningLogic', () => {
             })
             mockDataNodeLogic.mount()
             mockDataNodeLogic.actions.loadDataSuccess({
-                results: Array.from({ length: 100 }),
+                results: new Array(100),
                 hasMore: false,
             })
 
@@ -152,7 +152,7 @@ describe('cohortCountWarningLogic', () => {
             })
             mockDataNodeLogic.mount()
             mockDataNodeLogic.actions.loadDataSuccess({
-                results: Array.from({ length: 85 }),
+                results: new Array(85),
                 hasMore: false,
             })
 
@@ -205,7 +205,7 @@ describe('cohortCountWarningLogic', () => {
             })
             mockDataNodeLogic.mount()
             mockDataNodeLogic.actions.loadDataSuccess({
-                results: Array.from({ length: 120 }),
+                results: new Array(120),
                 hasMore: false,
             })
 
@@ -224,7 +224,7 @@ describe('cohortCountWarningLogic', () => {
             })
             mockDataNodeLogic.mount()
             mockDataNodeLogic.actions.loadDataSuccess({
-                results: Array.from({ length: 50 }),
+                results: new Array(50),
                 hasMore: false,
             })
 
@@ -252,7 +252,7 @@ describe('cohortCountWarningLogic', () => {
             })
             mockDataNodeLogic.mount()
             mockDataNodeLogic.actions.loadDataSuccess({
-                results: Array.from({ length: 50 }),
+                results: new Array(50),
                 hasMore: false,
             })
 
@@ -281,7 +281,7 @@ describe('cohortCountWarningLogic', () => {
             })
             mockDataNodeLogic.mount()
             mockDataNodeLogic.actions.loadDataSuccess({
-                results: Array.from({ length: 25 }),
+                results: new Array(25),
                 hasMore: false,
             })
 
@@ -312,7 +312,7 @@ describe('cohortCountWarningLogic', () => {
             })
             mockDataNodeLogic.mount()
             mockDataNodeLogic.actions.loadDataSuccess({
-                results: Array.from({ length: 50 }),
+                results: new Array(50),
                 hasMore: false,
             })
 

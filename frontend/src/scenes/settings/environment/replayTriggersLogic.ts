@@ -530,18 +530,20 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
     selectors({
         shouldMinimizeLegacyConditions: [
             (s) => [s.augmentedData],
-            (augmentedData: AugmentedTeamSdkVersionsInfo): boolean =>
-                legacyConditionsAreInactive(augmentedData?.web?.allReleases ?? []),
+            (
+                augmentedData: import('scenes/onboarding/shared/sdkHealth/sdkHealthLogic').AugmentedTeamSdkVersionsInfo
+            ): boolean => legacyConditionsAreInactive(augmentedData?.web?.allReleases ?? []),
         ],
         hasOutdatedWebSdk: [
             (s) => [s.augmentedData],
-            (augmentedData: AugmentedTeamSdkVersionsInfo): boolean =>
-                hasOutdatedWebSdk(augmentedData?.web?.allReleases ?? []),
+            (
+                augmentedData: import('scenes/onboarding/shared/sdkHealth/sdkHealthLogic').AugmentedTeamSdkVersionsInfo
+            ): boolean => hasOutdatedWebSdk(augmentedData?.web?.allReleases ?? []),
         ],
         outdatedWebTraffic: [
             (s) => [s.augmentedData],
             (
-                augmentedData: AugmentedTeamSdkVersionsInfo
+                augmentedData: import('scenes/onboarding/shared/sdkHealth/sdkHealthLogic').AugmentedTeamSdkVersionsInfo
             ): { outdatedCount: number; totalCount: number; share: number } =>
                 outdatedWebTrafficShare(augmentedData?.web?.allReleases ?? []),
         ],

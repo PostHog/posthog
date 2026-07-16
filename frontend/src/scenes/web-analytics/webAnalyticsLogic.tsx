@@ -254,7 +254,7 @@ export interface webAnalyticsLogicValues {
 export interface webAnalyticsLogicActions {
     addAuthorizedUrl: (
         url: string,
-        launch?: boolean | undefined
+        launch?: boolean
     ) => {
         launch: boolean | undefined
         url: string
@@ -268,7 +268,7 @@ export interface webAnalyticsLogicActions {
     cancelAllLoading: () => {} // dataNodeCollectionLogic
     updateUser: (
         user: Partial<UserType>,
-        successCallback?: (() => void) | undefined
+        successCallback?: () => void
     ) => {
         successCallback: (() => void) | undefined
         user: Partial<UserType>
@@ -1235,7 +1235,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 deviceTypeFilter: DeviceType | null,
                 countryFilter: string | null,
                 referrerFilter: string | null,
-                compareFilter: CompareFilter,
+                compareFilter: import('~/queries/schema/schema-general').CompareFilter,
                 dateFilter: DateFilterState,
                 conversionGoal: WebAnalyticsConversionGoal | null,
                 isPathCleaningEnabled: boolean,
@@ -1439,7 +1439,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 webAnalyticsFilters: WebAnalyticsPropertyFilters,
                 replayFilters: RecordingUniversalFilters,
                 dateFilter: DateFilterState,
-                compareFilter: CompareFilter,
+                compareFilter: import('~/queries/schema/schema-general').CompareFilter,
                 webVitalsTab: WebVitalsMetric,
                 webVitalsPercentile: WebVitalsPercentile,
                 tablesOrderBy: WebAnalyticsOrderBy | null,
@@ -1573,7 +1573,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     selectors(({ actions }) => ({
         showFocusMode: [
             (s) => [s.featureFlags, s.productTab],
-            (featureFlags: FeatureFlagsSet, productTab: ProductTab): boolean =>
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet, productTab: ProductTab): boolean =>
                 featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE] === 'test' && productTab === ProductTab.ANALYTICS,
         ],
         hasSavedFocusMode: [
@@ -1632,7 +1632,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     webVitalsTab,
                     tablesOrderBy,
                 },
-                featureFlags: FeatureFlagsSet,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 isGreaterThanMd: boolean,
                 tileVisualizations: Record<TileId, TileVisualizationOption>,
                 preAggregatedEnabled: boolean | undefined,

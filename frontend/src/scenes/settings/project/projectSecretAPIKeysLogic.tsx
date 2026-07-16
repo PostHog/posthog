@@ -353,7 +353,7 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
             (s) => [s.searchTerm, s.featureFlags],
             (
                 searchTerm: string,
-                featureFlags: FeatureFlagsSet
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): { key: string; label: string; disabledActions: APIScopeAction[] }[] => {
                 const allActions: APIScopeAction[] = ['read', 'write']
                 // llm_gateway:read is added only when the ai-gateway flag is on, mirroring the backend.
@@ -383,7 +383,7 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
         ],
         availablePresets: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): ProjectSecretAPIKeyScopePreset[] =>
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): ProjectSecretAPIKeyScopePreset[] =>
                 PROJECT_SECRET_API_KEY_SCOPE_PRESETS.filter(
                     ({ value }) => value !== 'llm_gateway' || featureFlags[FEATURE_FLAGS.AI_GATEWAY]
                 ),

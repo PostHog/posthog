@@ -668,7 +668,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
         emailReplyBlockedReason: [
             (s) => [s.ticket, s.currentTeam],
-            (ticket: Ticket | null, currentTeam: TeamPublicType | TeamType | null): EmailReplyBlockedReason | null =>
+            (
+                ticket: Ticket | null,
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
+            ): EmailReplyBlockedReason | null =>
                 getEmailReplyBlockedReason(ticket, currentTeam?.conversations_settings),
         ],
         hasUnsavedChanges: [

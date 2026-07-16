@@ -572,7 +572,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
             (s) => [s.actors, s.aggregationLabel],
             (
                 actors: ActorType[],
-                aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+                aggregationLabel: (
+                    groupTypeIndex: number | null | undefined,
+                    deferToUserWording?: boolean
+                ) => import('~/models/groupsModel').Noun
             ) => {
                 const firstResult = actors[0]
 
@@ -628,7 +631,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
             (s) => [(_, p) => p.orderBy, s.query, s.searchTerm, s.selectFields],
             (
                 orderBy,
-                query: FunnelsActorsQuery | InsightActorsQuery<InsightQueryNode> | null,
+                query: FunnelsActorsQuery | InsightActorsQuery | null,
                 searchTerm: string,
                 selectFields: string[]
             ): ActorsQuery | null => {

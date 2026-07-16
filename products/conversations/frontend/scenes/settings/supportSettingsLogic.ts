@@ -965,22 +965,22 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
     selectors({
         conversationsDomains: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): string[] =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string[] =>
                 currentTeam?.conversations_settings?.widget_domains || [],
         ],
         notificationRecipients: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): number[] =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): number[] =>
                 currentTeam?.conversations_settings?.notification_recipients || [],
         ],
         slackEnabled: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): boolean =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 !!currentTeam?.conversations_settings?.slack_enabled,
         ],
         slackChannelIds: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): string[] => {
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string[] => {
                 const cs = currentTeam?.conversations_settings
                 if (Array.isArray(cs?.slack_channel_ids)) {
                     return cs.slack_channel_ids
@@ -990,42 +990,42 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         ],
         slackTicketEmoji: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): string =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string =>
                 currentTeam?.conversations_settings?.slack_ticket_emoji ?? 'ticket',
         ],
         slackConnected: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): boolean =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 !!currentTeam?.conversations_settings?.slack_enabled,
         ],
         slackBotIconUrl: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): string | null =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string | null =>
                 currentTeam?.conversations_settings?.slack_bot_icon_url ?? null,
         ],
         slackBotDisplayName: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): string | null =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string | null =>
                 currentTeam?.conversations_settings?.slack_bot_display_name ?? null,
         ],
         slackNotifyOnJoin: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): boolean =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 !!currentTeam?.conversations_settings?.slack_notify_on_join,
         ],
         slackNotifyOnLeave: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): boolean =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 !!currentTeam?.conversations_settings?.slack_notify_on_leave,
         ],
         slackNudgeEnabled: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): boolean =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 currentTeam?.conversations_settings?.slack_nudge_enabled ?? true,
         ],
         slackAlertChannelId: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): string | null =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string | null =>
                 currentTeam?.conversations_settings?.slack_alert_channel_id ?? null,
         ],
         emailConnected: [
@@ -1034,33 +1034,33 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         ],
         teamsConnected: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): boolean =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 !!currentTeam?.conversations_settings?.teams_enabled,
         ],
         teamsTeamId: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): string | null =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string | null =>
                 currentTeam?.conversations_settings?.teams_team_id ?? null,
         ],
         teamsTeamName: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): string | null =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string | null =>
                 currentTeam?.conversations_settings?.teams_team_name ?? null,
         ],
         teamsChannelId: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): string | null =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string | null =>
                 currentTeam?.conversations_settings?.teams_channel_id ?? null,
         ],
         teamsChannelName: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): string | null =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string | null =>
                 currentTeam?.conversations_settings?.teams_channel_name ?? null,
         ],
         teamsChannelPairs: [
             (s) => [s.currentTeam],
             (
-                currentTeam: TeamPublicType | TeamType | null
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
             ): {
                 team_id: string
                 team_name?: string | null
@@ -1088,27 +1088,30 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         ],
         githubConnected: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): boolean =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 !!currentTeam?.conversations_settings?.github_enabled,
         ],
         githubSelectedRepos: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): string[] =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string[] =>
                 currentTeam?.conversations_settings?.github_repos || [],
         ],
         aiSuggestionsEnabled: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): boolean =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 !!currentTeam?.conversations_settings?.ai_suggestions_enabled,
         ],
         aiDiagnosticsEnabled: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): boolean =>
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 !!currentTeam?.conversations_settings?.ai_diagnostics_enabled,
         ],
         aiEnabledChannels: [
             (s) => [s.currentTeam, s.emailConfigs],
-            (currentTeam: TeamPublicType | TeamType | null, emailConfigs: EmailConfigStatus[]): TicketChannel[] => {
+            (
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
+                emailConfigs: EmailConfigStatus[]
+            ): TicketChannel[] => {
                 const cs = currentTeam?.conversations_settings
                 if (!cs) {
                     return []
@@ -1132,12 +1135,13 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         ],
         aiAllChannels: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): TicketChannel[] => aiAllChannelsForFeatureFlags(featureFlags),
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): TicketChannel[] =>
+                aiAllChannelsForFeatureFlags(featureFlags),
         ],
         aiResolutionChannels: [
             (s) => [s.currentTeam, s.aiEnabledChannels, s.aiAllChannels],
             (
-                currentTeam: TeamPublicType | TeamType | null,
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
                 aiEnabledChannels: TicketChannel[],
                 aiAllChannels: TicketChannel[]
             ): TicketChannel[] => {
@@ -1154,7 +1158,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         aiReplyModes: [
             (s) => [s.currentTeam],
             (
-                currentTeam: TeamPublicType | TeamType | null
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
             ): Record<string, Record<string, 'private_note' | 'bot_reply'>> => {
                 return currentTeam?.conversations_settings?.ai_reply_modes ?? {}
             },

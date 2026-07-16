@@ -411,7 +411,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         allowedScopes: [
             (s) => [s.featureFlags, s.hasAvailableFeature],
             (
-                featureFlags: FeatureFlagsSet,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
             ): APIScope[] => {
                 let scopes = API_SCOPES
@@ -480,7 +480,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
 
         isEditingKeyLegacy: [
             (s) => [s.editingKeyId, s.keys],
-            (editingKeyId: string | null, keys: PersonalAPIKeyType[]): boolean => {
+            (editingKeyId: PersonalAPIKeyType['id'] | null, keys: PersonalAPIKeyType[]): boolean => {
                 if (!editingKeyId || editingKeyId === 'new') {
                     return false
                 }

@@ -516,7 +516,10 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
         activeExportedScene: [
             (s) => [s.activeSceneId, s.exportedScenes],
-            (activeSceneId: string | null, exportedScenes: Record<string, SceneExport<SceneProps>>) => {
+            (
+                activeSceneId: string | null,
+                exportedScenes: Record<string, SceneExport<import('scenes/sceneTypes').SceneProps>>
+            ) => {
                 return activeSceneId ? exportedScenes[activeSceneId] : null
             },
             { resultEqualityCheck: (a, b) => a === b },
@@ -525,7 +528,7 @@ export const sceneLogic = kea<sceneLogicType>([
             (s) => [s.activeSceneId, s.activeExportedScene, s.sceneParams],
             (
                 activeSceneId: string | null,
-                activeExportedScene: SceneExport<SceneProps> | null,
+                activeExportedScene: SceneExport<import('scenes/sceneTypes').SceneProps> | null,
                 sceneParams: SceneParams
             ): LoadedScene | null => {
                 return {
@@ -546,7 +549,10 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
         activeSceneLogicProps: [
             (s) => [s.activeExportedScene, s.sceneParams],
-            (activeExportedScene: SceneExport<SceneProps> | null, sceneParams: SceneParams): Record<string, any> => {
+            (
+                activeExportedScene: SceneExport<import('scenes/sceneTypes').SceneProps> | null,
+                sceneParams: SceneParams
+            ): Record<string, any> => {
                 return {
                     ...activeExportedScene?.paramsToProps?.(sceneParams),
                 }
@@ -556,7 +562,7 @@ export const sceneLogic = kea<sceneLogicType>([
         activeSceneLogic: [
             (s) => [s.activeExportedScene, s.activeSceneLogicProps],
             (
-                activeExportedScene: SceneExport<SceneProps> | null,
+                activeExportedScene: SceneExport<import('scenes/sceneTypes').SceneProps> | null,
                 activeSceneLogicProps: Record<string, any>
             ): BuiltLogic | null => {
                 if (activeExportedScene?.logic) {

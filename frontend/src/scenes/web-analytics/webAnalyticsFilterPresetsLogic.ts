@@ -426,7 +426,7 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
             (s) => [s.appliedPreset, s.currentFiltersConfig],
             (
                 appliedPreset: WebAnalyticsFilterPresetType | null,
-                currentFiltersConfig: WebAnalyticsFiltersConfig
+                currentFiltersConfig: import('~/types').WebAnalyticsFiltersConfig
             ): boolean => {
                 if (!appliedPreset) {
                     return false

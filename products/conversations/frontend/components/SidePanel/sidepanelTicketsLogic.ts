@@ -89,7 +89,7 @@ export interface sidepanelTicketsLogicActions {
     closeSupportForm: () => {
         value: true
     } // supportLogic
-    resetSendSupportRequest: (values?: SupportFormFields | undefined) => {
+    resetSendSupportRequest: (values?: SupportFormFields) => {
         values?: SupportFormFields
     } // supportLogic
     initTickets: () => {
@@ -302,7 +302,8 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     selectors({
         isEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL],
         ],
         totalUnreadCount: [
             (s) => [s.tickets],

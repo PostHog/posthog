@@ -8,6 +8,7 @@ import { EventDefinition, SchemaEnforcementMode } from '~/types'
 
 import type { Definition } from '../../../types'
 import { definitionLogic } from '../definition/definitionLogic'
+import type { SetDefinitionProps } from '../definition/definitionLogic'
 import { type SchemaPropertyGroup, schemaManagementLogic } from '../schema/schemaManagementLogic'
 
 export type { SchemaPropertyGroup }
@@ -76,10 +77,10 @@ export interface eventDefinitionSchemaLogicValues {
 export interface eventDefinitionSchemaLogicActions {
     setDefinition: (
         definition: Partial<Definition>,
-        options?: import('../definition/definitionLogic').SetDefinitionProps | undefined
+        options?: SetDefinitionProps | undefined
     ) => {
         definition: Partial<Definition>
-        options: import('../definition/definitionLogic').SetDefinitionProps
+        options: SetDefinitionProps
     } // definitionLogic
     createPropertyGroupSuccess: (
         propertyGroups: any[],
@@ -219,7 +220,7 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
     selectors({
         schemaEnforcementMode: [
             (s) => [s.definition],
-            (definition: Definition): SchemaEnforcementMode =>
+            (definition: import('~/types').Definition): SchemaEnforcementMode =>
                 (definition as EventDefinition).enforcement_mode ?? SchemaEnforcementMode.Allow,
         ],
         availablePropertyGroups: [

@@ -37,6 +37,7 @@ import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/l
 
 import type { PaginatedResponse } from '../../../../../../lib/api'
 import type { FeatureFlagsSet } from '../../../../../../lib/logic/featureFlagLogic'
+import type { ProductIntentProperties } from '../../../../../../lib/utils/product-intents'
 import { defaultConversionGoalFilter } from '../components/settings/constants'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { externalAdsCostTile } from './marketingCostTile'
@@ -322,11 +323,9 @@ export interface marketingAnalyticsLogicActions {
                   previous: null
                   results: never[]
               },
-        payload?:
-            | {
-                  value: true
-              }
-            | undefined
+        payload?: {
+            value: true
+        }
     ) => {
         dataWarehouseSources:
             | PaginatedResponse<ExternalDataSource>
@@ -340,9 +339,7 @@ export interface marketingAnalyticsLogicActions {
             value: true
         }
     } // sourceManagementLogic
-    addProductIntent: (
-        properties: import('../../../../../../lib/utils/product-intents').ProductIntentProperties
-    ) => import('../../../../../../lib/utils/product-intents').ProductIntentProperties // teamLogic
+    addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     applyConversionGoal: () => {
         value: true
     }
@@ -830,7 +827,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             (
                 dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
                 sources_map: Record<string, SourceMap>,
-                dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null
+                dataWarehouseSources: null | import('../../../../../../lib/api').PaginatedResponse<ExternalDataSource>
             ) => {
                 const externalTables: ExternalTable[] = []
                 if (dataWarehouseTables?.length) {
@@ -887,7 +884,9 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         ],
         nativeSources: [
             (s) => [s.dataWarehouseSources],
-            (dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null): ExternalDataSource[] =>
+            (
+                dataWarehouseSources: null | import('../../../../../../lib/api').PaginatedResponse<ExternalDataSource>
+            ): ExternalDataSource[] =>
                 dataWarehouseSources?.results.filter((source) =>
                     VALID_NATIVE_MARKETING_SOURCES.includes(source.source_type as NativeMarketingSource)
                 ) ?? [],

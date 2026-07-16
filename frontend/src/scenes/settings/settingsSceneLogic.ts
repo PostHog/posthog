@@ -123,9 +123,9 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
         breadcrumbs: [
             (s) => [s.selectedLevel, s.selectedSectionId, s.selectedSection],
             (
-                selectedLevel: 'environment' | 'organization' | 'project' | 'user',
+                selectedLevel: SettingLevelId,
                 selectedSectionId: SettingSectionId | null,
-                selectedSection: SettingSection | null
+                selectedSection: null | import('./types').SettingSection
             ): Breadcrumb[] => {
                 const sectionName = selectedSection?.title ?? capitalizeFirstLetter(selectedLevel)
 

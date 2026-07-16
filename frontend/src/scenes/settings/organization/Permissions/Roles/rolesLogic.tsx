@@ -250,7 +250,10 @@ export const rolesLogic = kea<rolesLogicType>([
     selectors({
         addableMembers: [
             (s) => [s.members, s.roleMembersInFocus],
-            (members: OrganizationMemberType[] | null, roleMembersInFocus: RoleMemberType[]): UserBasicType[] => {
+            (
+                members: import('~/types').OrganizationMemberType[] | null,
+                roleMembersInFocus: RoleMemberType[]
+            ): UserBasicType[] => {
                 const addableMembers: UserBasicType[] = []
                 for (const member of members || []) {
                     if (

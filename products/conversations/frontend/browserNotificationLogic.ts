@@ -174,7 +174,7 @@ export const browserNotificationLogic = kea<browserNotificationLogicType>([
                 isSupported: boolean,
                 permission: NotificationPermission,
                 enabled: boolean,
-                currentTeam: TeamPublicType | TeamType | null
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
             ): boolean => isSupported && permission === 'granted' && enabled && !!currentTeam?.conversations_enabled,
         ],
         isPermissionDenied: [

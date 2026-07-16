@@ -18,6 +18,8 @@ import {
 } from 'products/customer_analytics/frontend/generated/api'
 import type { GroupUsageMetricApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import type { ProductIntentProperties } from '../../../lib/utils/product-intents'
+
 export type UsageMetricSource = 'events' | 'data_warehouse'
 
 export type UsageMetricFiltersDataWarehouse = {
@@ -143,9 +145,7 @@ export interface usageMetricsConfigLogicActions {
     reportUsageMetricCreated: () => boolean // eventUsageLogic
     reportUsageMetricDeleted: () => boolean // eventUsageLogic
     reportUsageMetricUpdated: () => boolean // eventUsageLogic
-    addProductIntent: (
-        properties: import('../../../lib/utils/product-intents').ProductIntentProperties
-    ) => import('../../../lib/utils/product-intents').ProductIntentProperties // teamLogic
+    addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     addUsageMetric: (metric: UsageMetricFormData) => {
         metric: UsageMetricFormData
     }

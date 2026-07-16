@@ -87,7 +87,8 @@ export const realtimeNotificationPreferencesLogic = kea<realtimeNotificationPref
     selectors(() => ({
         teams: [
             (s) => [s.currentOrganization],
-            (currentOrganization: OrganizationType | null): TeamBasicType[] => currentOrganization?.teams ?? [],
+            (currentOrganization: null | import('~/types').OrganizationType): TeamBasicType[] =>
+                currentOrganization?.teams ?? [],
         ],
         teamIds: [(s) => [s.teams], (teams: TeamBasicType[]): number[] => teams.map((t) => t.id)],
         activeTypes: [

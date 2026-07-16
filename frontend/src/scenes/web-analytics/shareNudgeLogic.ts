@@ -95,11 +95,15 @@ export const shareNudgeLogic = kea<shareNudgeLogicType>([
     selectors({
         hasColleagues: [
             (s) => [s.currentOrganization],
-            (currentOrganization: OrganizationType | null): boolean => (currentOrganization?.member_count ?? 1) >= 2,
+            (currentOrganization: null | import('../../types').OrganizationType): boolean =>
+                (currentOrganization?.member_count ?? 1) >= 2,
         ],
         variant: [
             (s) => [s.featureFlags, s.hasColleagues],
-            (featureFlags: FeatureFlagsSet, hasColleagues: boolean): string | null => {
+            (
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                hasColleagues: boolean
+            ): string | null => {
                 const flag = featureFlags[FLAG]
                 return hasColleagues && typeof flag === 'string' ? flag : null
             },

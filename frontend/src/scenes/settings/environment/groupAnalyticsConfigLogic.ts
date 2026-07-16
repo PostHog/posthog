@@ -17,7 +17,7 @@ export interface groupAnalyticsConfigLogicValues {
 export interface groupAnalyticsConfigLogicActions {
     deleteGroupType: (groupTypeIndex: number) => number // groupsModel
     loadAllGroupTypes: () => any // groupsModel
-    updateGroupTypesMetadata: (payload: GroupType[]) => GroupType[] // groupsModel
+    updateGroupTypesMetadata: (payload: Array<GroupType>) => Array<GroupType> // groupsModel
     reset: () => {
         value: true
     }

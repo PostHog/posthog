@@ -106,7 +106,10 @@ export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
         ],
         resolveAssignee: [
             (s) => [s.roles, s.meFirstMembers],
-            (roles: RoleType[], members: OrganizationMemberType[]): ((assignee: TicketAssignee) => Assignee) => {
+            (
+                roles: RoleType[],
+                members: import('~/types').OrganizationMemberType[]
+            ): ((assignee: TicketAssignee) => Assignee) => {
                 return (assignee: TicketAssignee) => {
                     if (assignee) {
                         if (assignee.type === 'role') {

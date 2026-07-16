@@ -64,7 +64,10 @@ export const filterTestAccountsDefaultsLogic = kea<filterTestAccountsDefaultsLog
     selectors({
         filterTestAccountsDefault: [
             (s) => [s.localFilterTestAccountsDefault, s.currentTeam],
-            (localFilterTestAccountsDefault: boolean | null, currentTeam: TeamPublicType | TeamType | null) => {
+            (
+                localFilterTestAccountsDefault: boolean | null,
+                currentTeam: null | import('../../../types').TeamPublicType | import('../../../types').TeamType
+            ) => {
                 if (localFilterTestAccountsDefault !== null) {
                     return localFilterTestAccountsDefault
                 } else if (currentTeam?.test_account_filters_default_checked) {

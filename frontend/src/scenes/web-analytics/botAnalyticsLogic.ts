@@ -219,7 +219,7 @@ export const botAnalyticsLogic = kea<botAnalyticsLogicType>([
         tiles: [
             (s) => [s.dateFilter, s.filterTestAccounts, s.botTrendsTab, s.botFilters],
             (
-                dateFilter: DateFilterState,
+                dateFilter: import('./webAnalyticsLogic').DateFilterState,
                 filterTestAccounts: boolean,
                 botTrendsTab: string,
                 botFilters: WebAnalyticsPropertyFilters

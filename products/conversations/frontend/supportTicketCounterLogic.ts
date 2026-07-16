@@ -152,7 +152,8 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
     selectors({
         isSupportEnabled: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): boolean => !!currentTeam?.conversations_enabled,
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
+                !!currentTeam?.conversations_enabled,
         ],
     }),
     listeners(({ actions, values, cache }) => ({

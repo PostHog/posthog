@@ -13,7 +13,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ActivityScope, CommentType, InsightShortId } from '~/types'
 
-import type { TeamPublicType, TeamType, UserType } from '../../../types'
+import type { TeamPublicType, TeamType } from '../../../types'
+import type { UserType } from '../../../types'
 
 export const SCOPE_OPTIONS: LemonSelectOption<ActivityScope | null>[] = Object.values(ActivityScope).map((scope) => ({
     value: scope,

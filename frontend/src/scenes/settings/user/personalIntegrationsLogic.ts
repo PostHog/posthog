@@ -19,7 +19,7 @@ import {
 } from '~/generated/core/api'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { TeamPublicType, TeamType } from '../../../types'
+import type { TeamPublicType, TeamType, UserBasicType } from '../../../types'
 
 export interface PersonalGitHubIntegration {
     kind: 'github'
@@ -112,7 +112,7 @@ export interface personalIntegrationsLogicActions {
         integrations: {
             config: any
             created_at: string
-            created_by?: null | import('../../../types').UserBasicType | undefined
+            created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
             icon_url: any
@@ -162,7 +162,7 @@ export interface personalIntegrationsLogicActions {
         integrations: {
             config: any
             created_at: string
-            created_by?: null | import('../../../types').UserBasicType | undefined
+            created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
             icon_url: any
@@ -414,7 +414,8 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
         // is hidden, not the unlink path.
         slackLinkEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.SLACK_APP_OAUTH],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.SLACK_APP_OAUTH],
         ],
     }),
 

@@ -180,8 +180,11 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
         propertyTypeOptions: [
             (s) => [s.groupTypes, s.aggregationLabel],
             (
-                groupTypes: Map<GroupTypeIndex, GroupType>,
-                aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+                groupTypes: Map<import('~/types').GroupTypeIndex, import('~/types').GroupType>,
+                aggregationLabel: (
+                    groupTypeIndex: number | null | undefined,
+                    deferToUserWording?: boolean
+                ) => import('../../../models/groupsModel').Noun
             ) => {
                 const groupChoices: Array<LemonSelectOption<string>> = Array.from(groupTypes.values()).map((type) => ({
                     label: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties`,

@@ -521,8 +521,11 @@ export const mathsLogic = kea<mathsLogicType>([
         groupsMathDefinitions: [
             (s) => [s.groupTypes, s.aggregationLabel],
             (
-                groupTypes: Map<GroupTypeIndex, GroupType>,
-                aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+                groupTypes: Map<import('~/types').GroupTypeIndex, import('~/types').GroupType>,
+                aggregationLabel: (
+                    groupTypeIndex: number | null | undefined,
+                    deferToUserWording?: boolean
+                ) => import('~/models/groupsModel').Noun
             ): Partial<Record<string, MathDefinition>> =>
                 Object.fromEntries(
                     Array.from(groupTypes.values())

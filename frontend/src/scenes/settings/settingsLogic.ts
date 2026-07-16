@@ -15,14 +15,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type {
-    AvailableFeature,
-    IntegrationType,
-    OrganizationType,
-    PreflightStatus,
-    TeamPublicType,
-    TeamType,
-} from '../../types'
+import type { IntegrationType, PreflightStatus, TeamPublicType, TeamType } from '../../types'
+import type { AvailableFeature, OrganizationType } from '../../types'
 import { matchesFlagDefinition } from './flagGating'
 import { SETTINGS_MAP } from './SettingsMap'
 import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, SettingsLogicProps } from './types'
@@ -456,10 +450,10 @@ export const settingsLogic = kea<settingsLogicType>([
             (
                 doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
                 isCloudOrDev: boolean | undefined,
-                currentTeam: TeamPublicType | TeamType | null,
-                currentOrganization: OrganizationType | null,
-                organizationIntegrations: IntegrationType[] | null,
-                preflight: PreflightStatus | null,
+                currentTeam: null | import('../../types').TeamPublicType | import('../../types').TeamType,
+                currentOrganization: null | import('../../types').OrganizationType,
+                organizationIntegrations: import('../../types').IntegrationType[] | null,
+                preflight: null | import('../../types').PreflightStatus,
                 canAccessBilling: boolean,
                 isAdminOrOwner: boolean | null
             ): SettingSection[] => {
@@ -535,7 +529,7 @@ export const settingsLogic = kea<settingsLogicType>([
             (
                 selectedLevelRaw: 'environment' | 'organization' | 'project' | 'user',
                 selectedSectionIdRaw: SettingSectionId | null,
-                currentTeam: TeamPublicType | TeamType | null
+                currentTeam: null | import('../../types').TeamPublicType | import('../../types').TeamType
             ): SettingLevelId => {
                 if (
                     !selectedSectionIdRaw ||
@@ -566,10 +560,7 @@ export const settingsLogic = kea<settingsLogicType>([
         ],
         defaultSectionId: [
             (s) => [s.sections, s.selectedLevel],
-            (
-                sections: SettingSection[],
-                selectedLevel: 'environment' | 'organization' | 'project' | 'user'
-            ): SettingSectionId | null => {
+            (sections: SettingSection[], selectedLevel: SettingLevelId): SettingSectionId | null => {
                 const firstSection = sections.find((s) => s.level === selectedLevel)
                 return firstSection?.id ?? null
             },
@@ -596,13 +587,13 @@ export const settingsLogic = kea<settingsLogicType>([
                 s.currentTeam,
             ],
             (
-                selectedLevel: 'environment' | 'organization' | 'project' | 'user',
+                selectedLevel: SettingLevelId,
                 selectedSectionId: SettingSectionId | null,
                 defaultSectionId: SettingSectionId | null,
                 sections: SettingSection[],
                 doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
-                preflight: PreflightStatus | null,
-                currentTeam: TeamPublicType | TeamType | null
+                preflight: null | import('../../types').PreflightStatus,
+                currentTeam: null | import('../../types').TeamPublicType | import('../../types').TeamType
             ): Setting[] => {
                 const effectiveSectionId = selectedSectionId ?? defaultSectionId
 
@@ -641,7 +632,7 @@ export const settingsLogic = kea<settingsLogicType>([
         ],
         doesMatchFlags: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet) => {
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet) => {
                 return (flagDefinition: Pick<Setting, 'flag'>) =>
                     matchesFlagDefinition(flagDefinition.flag, featureFlags)
             },
@@ -685,8 +676,8 @@ export const settingsLogic = kea<settingsLogicType>([
             (
                 sections: SettingSection[],
                 doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
-                preflight: PreflightStatus | null,
-                currentTeam: TeamPublicType | TeamType | null
+                preflight: null | import('../../types').PreflightStatus,
+                currentTeam: null | import('../../types').TeamPublicType | import('../../types').TeamType
             ): GlobalSearchFuse => {
                 const entries: SearchIndexEntry[] = []
 
@@ -780,11 +771,7 @@ export const settingsLogic = kea<settingsLogicType>([
 
         filteredLevels: [
             (s) => [s.levels, s.searchResults, s.isSearching],
-            (
-                levels: ('environment' | 'organization' | 'project' | 'user')[],
-                searchResults: SearchResultGroup[],
-                isSearching: boolean
-            ): SettingLevelId[] => {
+            (levels: SettingLevelId[], searchResults: SearchResultGroup[], isSearching: boolean): SettingLevelId[] => {
                 if (!isSearching) {
                     return levels
                 }
