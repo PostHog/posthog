@@ -262,12 +262,26 @@ Two decisions locked in for this phase:
 **Phase 2 — let ClickHouse do the writing (implemented, behind `NOTEBOOKS_FRAME_STORE_CH_WRITES`, default
 off).**
 The worker-streamed upload is replaced with `INSERT INTO FUNCTION s3(...'ArrowStream')` (batch-exports
-recipe), issued through the pooled native clients (`sync_execute`, offline workload, `notebooks` user): the
-worker's job shrinks to issuing one statement; zero result bytes transit PostHog Python, errors arrive
-in-band and typed (no EOS-marker check, no `system.query_log` recovery), and the output cap is enforced
-post-write (`max_result_bytes` doesn't bound an INSERT's sink — an over-budget object is deleted and the run
-fails terminal). One object per frame, deliberately no `PARTITION BY`: the poll/presign contract is a single
-object, and partitioned files + a manifest + Range-based resume stay future work if frames outgrow it.
+recipe), issued through the pooled native clients (`sync_execute`, offline workload, `notebooks` user) with a
+bounded socket timeout (the pooled clients' prod default is effectively infinite; a sync activity can't be
+interrupted, so a half-open connection would pin the worker thread — the timeout mirrors the streaming path's
+read-timeout defense). The worker's job shrinks to issuing one statement; zero result bytes transit PostHog
+Python, and errors arrive in-band and typed — so the EOS-marker check and `system.query_log` recovery have no
+role, but note the budget codes come back as `sync_execute`'s wrapped exception types (`ClickHouse*` for
+241/159/160, `CHQueryError*`/`InternalCHQueryError` for 158/307/396), all mapped to terminal here. The s3()
+endpoint/bucket/key/credentials are **bound as query parameters**, not spliced as literals: `sync_execute`'s
+one `%`-substitution pass escapes them, so a `%` or quote in operator config can't corrupt the statement or
+reach the credential zone (this is the real binding channel — client-side `escape_param`, the same all HogQL
+`sync_execute` uses — not server-side binding). One object per frame, deliberately no `PARTITION BY`: the
+poll/presign contract is a single object, and partitioned files + a manifest + Range-based resume stay future
+work if frames outgrow it.
+
+The output cap is enforced **post-write** (`max_result_bytes` bounds a result set returned to a client, not
+an INSERT's sink). This is a real cost delta worth eyes-on: the in-flight bound is gone, so a pathological
+wide-row query (`repeat('x', N)` over 500k rows) can have CH write tens of GB to the store — bounded only by
+the 50GB scan budget, 600s time budget, and CH→S3 throughput — before the size check deletes it and fails the
+run terminal (no retry). A post-write freshness check (LastModified vs the write start, 5-min skew margin)
+also guards against a silent no-op write serving a stale prior-run object under endpoint skew.
 
 _Prerequisites for flipping the flag (per environment, on top of the phase-1 list):_
 
@@ -275,10 +289,19 @@ _Prerequisites for flipping the flag (per environment, on top of the phase-1 lis
   local dev works because compose puts CH and the store on one network).
 - Credentials: keyless in cloud (the CH instance role, write-scoped to the `notebooks/frames/` prefix);
   where `OBJECT_STORAGE_ACCESS_KEY_ID`/`SECRET` are set they ride inline in the statement and land in
-  `system.query_log` — acceptable for dev/self-hosted, not for cloud.
+  `system.query_log` — acceptable for dev/self-hosted, not for cloud. Verify the deployed CH version masks
+  `s3(url, key, secret, ...)` credential arguments as `[HIDDEN]` in `query_log` (masking is signature-based).
 - The writer identity per the security notes above: `readonly = 0` with **zero** table-write grants,
   `GRANT S3` + `CREATE TEMPORARY TABLE`, `remote_url_allow_hosts` pinned to our storage endpoints. This
-  supersedes the phase-1 `readonly = 2` spec for the `notebooks` user once the flag is on.
+  supersedes the phase-1 `readonly = 2` spec for the `notebooks` user once the flag is on. Fail-safe: the code
+  refuses to run the write-capable statement as the default user in a real deployment — if the flag is flipped
+  before this identity is provisioned (creds still resolving to default), materialization degrades to the
+  read-only streaming path with a warning rather than handing S3-egress to the broad account.
+- Resource note (not a blocker, but size the profile for it): Arrow encoding and S3 upload buffering now burn
+  CH initiator-node CPU/memory (the default S3 write buffers are ~hundreds of MiB per INSERT, counted against
+  the query's `max_memory_usage`), the trade for freeing worker CPU/NIC. The `mode` label on the started /
+  finished counters and the `clickhouse_seconds` histogram separates this path's footprint from the streaming
+  path's for the flip decision.
 
 Why the worker relay stays the default until then:
 
@@ -299,9 +322,15 @@ Why the worker relay stays the default until then:
 
 _Phase-2 security notes (splice analysis, 2026-07) — read before building the CH-side write:_
 
+This section is the pre-implementation analysis. As built (see the phase-2 block above), the s3() arguments
+are **bound as query parameters** rather than literal-spliced — which resolves the injection and escaping
+issue classes below by construction — and the interim-write bound became a post-write size check. The
+privilege amplification analysis stands unchanged and is the load-bearing part.
+
 The statement is `INSERT INTO FUNCTION s3('<url>/<key>', '<creds?>', 'ArrowStream') PARTITION BY rand() % N
 <printed SELECT ... SETTINGS ...>` — three trust zones: the prefix (our code, our metadata), the printed
-SELECT (user HogQL via the guarded printer), and the parameters (server-side `param_*` binding). Two facts
+SELECT (user HogQL via the guarded printer), and the query parameters (client-side `escape_param` inlining —
+the same channel all HogQL `sync_execute` uses; not literally server-side binding). Two facts
 cap the risk: the printed SELECT is already the trusted-executable artifact (executed verbatim today, and
 already spliced once into `DESCRIBE TABLE (...)`), and ClickHouse refuses multi-statement execution over both
 HTTP and native protocols — realistic injection is clause-level corruption of the prefix, not stacked
@@ -321,9 +350,10 @@ statements. Issue classes, by zone:
   placement, and the tempting `SELECT * FROM (<printed>)` wrap breaks the settings clause (invalid in a
   subquery), forcing settings-hoisting string surgery. Most failures are fail-safe syntax errors — but every
   workaround is string surgery on printer output, which is where the risk concentrates.
-- **The parameter channel must survive.** `param_hogql_val_N` server-side binding works for INSERT SELECT
-  unchanged; an implementation that inlines values client-side reintroduces classic injection for every
-  user literal.
+- **The parameter channel must survive.** The `%(hogql_val_N)s` placeholders resolve through `sync_execute`'s
+  single `escape_param` substitution pass (client-side, the same as all HogQL) — and the s3() arguments now
+  ride the same channel. An implementation that hand-inlines any of these values instead reintroduces classic
+  injection for every user literal.
 - **Privilege amplification is the deepest issue and is not about splicing — but it is narrower than it
   first looks, because `readonly` and GRANTs are independent layers.** An INSERT is a write statement even
   into a table function, so `readonly = 2` is off the table: the writer identity needs `readonly = 0`.

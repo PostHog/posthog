@@ -12,6 +12,7 @@ from posthog.schema import QueryStatus
 
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.errors import InternalCHQueryError
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError, ClickHouseTooManyRowsOrBytesError
@@ -221,37 +222,56 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
         self.assertTrue(pa.types.is_string(table.schema.field("u").type))
         self.assertEqual(table.column("u").to_pylist(), [frame_uuid] * 3)
 
-    def test_insert_sql_escapes_credentials_and_splices_nothing_else(self):
-        # The s3() literals are the only spliced zone; quote-doubling alone mishandles a
-        # trailing backslash (it escapes the closing quote), so a regression here turns a
-        # config value into SQL-syntax breakage — or worse.
+    def test_insert_sql_binds_s3_args_as_parameters(self):
+        # The s3() endpoint/bucket/key/credentials are bound as query params, not spliced as
+        # literals: sync_execute's single %-substitution pass escapes them (so a % or quote in
+        # a config value can't corrupt the format pass or reach the credential zone). A
+        # regression back to literal splicing is the design doc's named injection risk.
         with self.settings(
             OBJECT_STORAGE_ENDPOINT="http://store:19000",
             OBJECT_STORAGE_BUCKET="bucket",
-            OBJECT_STORAGE_ACCESS_KEY_ID="ke'y\\",
+            OBJECT_STORAGE_ACCESS_KEY_ID="ke'y%s",
             OBJECT_STORAGE_SECRET_ACCESS_KEY="s'ec\\ret",
         ):
-            sql = frame_materialize._insert_into_s3_sql("SELECT 1", "notebooks/frames/team_1/nb/abc.arrow")
+            sql, params = frame_materialize._insert_into_s3_sql("SELECT 1", "notebooks/frames/team_1/nb/abc.arrow")
         self.assertEqual(
             sql,
-            "INSERT INTO FUNCTION s3("
-            "'http://store:19000/bucket/notebooks/frames/team_1/nb/abc.arrow', "
-            "'ke''y\\\\', 's''ec\\\\ret', 'ArrowStream')\n"
-            "SELECT 1",
+            "INSERT INTO FUNCTION s3(%(_nb_s3_url)s, %(_nb_s3_key)s, %(_nb_s3_secret)s, 'ArrowStream')\nSELECT 1",
         )
+        # Raw values, unescaped, under reserved keys — escaping happens in the substitution
+        # pass, and nothing hostile is ever concatenated into the statement text.
+        self.assertEqual(params["_nb_s3_url"], "http://store:19000/bucket/notebooks/frames/team_1/nb/abc.arrow")
+        self.assertEqual(params["_nb_s3_key"], "ke'y%s")
+        self.assertEqual(params["_nb_s3_secret"], "s'ec\\ret")
+
+    def test_insert_sql_omits_credentials_when_unset(self):
+        # Keyless (cloud instance role): no credential args, no reserved keys — CH falls back
+        # to its provider chain.
+        with self.settings(
+            OBJECT_STORAGE_ENDPOINT="http://store:19000",
+            OBJECT_STORAGE_BUCKET="bucket",
+            OBJECT_STORAGE_ACCESS_KEY_ID=None,
+            OBJECT_STORAGE_SECRET_ACCESS_KEY=None,
+        ):
+            sql, params = frame_materialize._insert_into_s3_sql("SELECT 1", "notebooks/frames/team_1/nb/abc.arrow")
+        self.assertEqual(sql, "INSERT INTO FUNCTION s3(%(_nb_s3_url)s, 'ArrowStream')\nSELECT 1")
+        self.assertNotIn("_nb_s3_key", params)
 
     @parameterized.expand(
         [
-            # In-band budget failure: deterministic, must be terminal with the actionable
-            # message — not retried to the schedule bound.
-            ("memory_budget", 241, True, "materialization limits"),
+            # Budget failures sync_execute rewraps as APIException subclasses (NOT
+            # InternalCHQueryError) — the case the earlier hand-built InternalCHQueryError
+            # masked. Must be terminal, else the canonical whale failures retry 10x.
+            ("memory_wrapped", ClickHouseQueryMemoryLimitExceeded(), True, "materialization limits"),
+            ("timeout_wrapped", ClickHouseQueryTimeOut(), True, "time limit"),
+            # A code that does arrive as InternalCHQueryError (307 TOO_MANY_BYTES): terminal.
+            ("too_many_bytes", InternalCHQueryError("DB::Exception", code=307), True, "materialization limits"),
             # Unrecognized code (e.g. an S3-side blip): plausibly transient, retry per policy.
-            ("unrecognized_code", 499, False, None),
+            ("unrecognized_code", InternalCHQueryError("DB::Exception", code=499), False, None),
         ]
     )
-    def test_insert_error_code_maps_to_terminal_or_retryable(self, _name, code, terminal, expected_message):
+    def test_insert_error_maps_to_terminal_or_retryable(self, _name, error, terminal, expected_message):
         inputs, manager = _registered_inputs(self.team.id, self.notebook.short_id, self.user.id)
-        error = InternalCHQueryError("DB::Exception", code=code)
 
         with (
             self.settings(NOTEBOOKS_FRAME_STORE_CH_WRITES=True),
@@ -259,7 +279,7 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
             patch.object(frame_materialize, "_materialize_slots"),
             patch.object(frame_materialize, "sync_execute", side_effect=error),
         ):
-            with self.assertRaises(exceptions.ApplicationError if terminal else InternalCHQueryError) as caught:
+            with self.assertRaises(exceptions.ApplicationError if terminal else type(error)) as caught:
                 frame_materialize.materialize_frame(inputs)
 
         status = manager.get_query_status()
