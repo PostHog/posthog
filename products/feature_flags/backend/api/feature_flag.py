@@ -1055,12 +1055,17 @@ class FeatureFlagSerializer(
         # Note: for creation_context, we use initial_data since it's metadata not part of the model
         evaluation_contexts = attrs.get("evaluation_contexts")
 
-        if request.method == "POST":
+        # Distinguish create from update by whether we have an instance, not by request.method:
+        # gated internal writes route an existing-flag update through this serializer while carrying
+        # the triggering request (e.g. launching an experiment flips the flag's `active` under a POST).
+        # Keying off the HTTP verb treated those updates as creates and demanded evaluation_contexts
+        # the update payload never carries, blocking the launch even though the flag already has them.
+        if self.instance is None:
             if not evaluation_contexts:
                 raise serializers.ValidationError(
                     "At least one evaluation context is required to create a new feature flag."
                 )
-        elif request.method in ["PUT", "PATCH"] and self.instance:
+        else:
             # Flags that already have evaluation contexts can't have them all removed,
             # but flags without contexts aren't required to add them on update (only on creation).
             if (
