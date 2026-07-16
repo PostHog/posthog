@@ -11,13 +11,13 @@ Use this skill when building or updating Data warehouse sources in `products/war
 
 Before coding, read:
 
-- `products/warehouse_sources/backend/temporal/data_imports/sources/source.template` (use the top-of-file TODOs as a starting reference, but verify target files against the current source implementations — the template can drift, e.g. it currently still points at the old `posthog/warehouse/types.py` path instead of `products/warehouse_sources/backend/types.py`)
+- `products/warehouse_sources/backend/temporal/data_imports/sources/source.template` (the top-of-file TODOs are the bootstrap checklist; still verify target files against current source implementations, since the template can drift)
 - `products/warehouse_sources/backend/temporal/data_imports/sources/README.md`
 - `products/warehouse_sources/backend/temporal/data_imports/sources/SOURCES.md` — inventory of every registered source with its communication method (HTTP / vendor SDK / gRPC / DB protocol / webhook) and tracked-transport state. Skim this first to see how similar sources are wired and what state today's source you're touching is in. **Keep it in sync** — see "Updating SOURCES.md" below.
 - `products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py` — base classes (`SimpleSource`, `ResumableSource`, `WebhookSource`) and the `FieldType` union
 - `products/warehouse_sources/backend/temporal/data_imports/sources/common/resumable.py` — `ResumableSourceManager`
 - `products/warehouse_sources/backend/temporal/data_imports/sources/common/webhook_s3.py` — `WebhookSourceManager`
-- 1 API source with `settings.py` + transport logic (e.g. klaviyo, github). For dependent-resource fan-out (parent→child with `type: "resolve"`), also read `products/warehouse_sources/backend/temporal/data_imports/sources/common/rest_source/__init__.py` and `config_setup.py` (e.g. `process_parent_data_item`, `make_parent_key_name`).
+- **`chargebee/` — the canonical reference for a new REST source.** It uses the shared `rest_source` framework (declarative `RESTAPIConfig` + `rest_api_resource`, framework auth + paginators, tracked+retrying transport) and is resumable — proof the framework covers the dominant "paginate a list endpoint and yield, resumably" shape. Read it first, alongside "Prefer the shared REST framework" below. Read `klaviyo/` or `github/` only as a _bespoke-transport_ fallback: they hand-roll their client for edge cases (custom query-string encoding, multi-level fan-out, JSON:API reshaping) that most sources don't have — don't copy that boilerplate into a source that doesn't need it. For dependent-resource fan-out (parent→child with `type: "resolve"`), also read `products/warehouse_sources/backend/temporal/data_imports/sources/common/rest_source/__init__.py` and `config_setup.py` (e.g. `process_parent_data_item`, `make_parent_key_name`).
 - For webhook-capable sources, read `products/warehouse_sources/backend/temporal/data_imports/sources/stripe/source.py` as the reference implementation.
 
 ## Picking the right base class
@@ -47,6 +47,30 @@ Rule of thumb:
 
 Databases and file-transfer sources (SFTP, S3) stay on `SimpleSource` unless there's a clear reason otherwise.
 
+## Prefer the shared REST framework
+
+Most REST sources should be built on the shared `rest_source` framework
+(`common/rest_source/`), not a hand-rolled client. It already provides — so you write **none** of it:
+
+- **Tracked, retrying transport** — `RESTClient` defaults to `make_tracked_session()` and retries
+  `429` + transient `5xx` honoring `Retry-After`. No `tenacity`, no `RetryableError`, no fetch loop.
+- **Paginators** (`rest_source/paginators.py`, chosen by string/dict in the config, not hand-written):
+  `single_page`, `header_link`, `json_response` (next-URL in body), `cursor`, `offset`, `page_number`.
+- **Auth** (`rest_source/auth.py`): `bearer`, `api_key` (header/query/cookie), `http_basic`, `oauth2`
+  (customer-owned client-credentials/refresh). Each redacts its own secrets — no `_get_headers` builder.
+- **Incremental params, `data_selector`, response actions, resume** (`resume_hook` /
+  `initial_paginator_state`), and **parent/child fan-out** (`fanout.build_dependent_resource`).
+
+`chargebee/` is the canonical example (declarative endpoints + framework auth + resume). `zendesk/`
+shows multi-endpoint + `data_selector`; `attio/` shows cursor pagination.
+
+**When hand-rolling is justified** (read `klaviyo/` then): the API needs query strings the framework
+can't produce (literal brackets/operators, e.g. `filter=greater-than(...)`, `page[size]`);
+multi-level (2+ deep) fan-out; or per-item reshaping the `data_selector` can't express (e.g.
+flattening JSON:API `attributes` into the row root). Single-level fan-out and per-item maps are
+supported declaratively — don't hand-roll for those. If you must hand-roll, still ride
+`make_tracked_session()` and do **not** add a second status-code retry layer (see "Retry and throttling").
+
 ## End-to-end workflow for a new API source
 
 Follow this order. Each step maps to TODOs in `source.template`.
@@ -65,7 +89,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
 
    Then update the two hand-edited files (the template still lists `posthog/schema.py` too, but that file is regenerated by `pnpm run schema:build` in step 12 — don't maintain it by hand):
    - `ExternalDataSourceType` at `products/warehouse_sources/backend/types.py` — follow the existing convention in that file: `ALL_CAPS` with **no underscores** between words (e.g. `ACTIVECAMPAIGN`, `APPLESEARCHADS`), value is `PascalCase`
-   - `externalDataSources` at `frontend/src/queries/schema/schema-general.ts` (`lower-kebab-case`)
+   - `externalDataSources` at `frontend/src/queries/schema/schema-general.ts` — **PascalCase, identical to the `ExternalDataSourceType` value** (e.g. `'ActiveCampaign'`, `'GoogleAds'`, `'CustomerIO'`). NOT kebab-case. (The only kebab-case identifier in the flow is the optional `featureFlag="dwh-{source_name}"`.)
 
 3. **Pick the base class** (see above) and rename the class / `source_type` return.
 4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below).
@@ -74,7 +98,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
 7. **Swap the generic `Config` type** in `source.py` for the generated `{Source}SourceConfig` class.
 8. **Implement**: `validate_credentials`, `get_schemas`, `source_for_pipeline` (plus `get_resumable_source_manager` / `get_webhook_source_manager` as needed).
 9. **Split transport logic.** Put API client, paginator, row normalization, and `SourceResponse` assembly in `{source}.py`. Keep endpoint catalog/incremental fields/primary keys/partition defaults in `settings.py`.
-10. **Add icon.** Place at `frontend/public/services/{source}.svg` (prefer SVG). If the logo isn't already committed, fetch from [Logo.dev](https://docs.logo.dev/introduction) — **ask the user for the Logo.dev API key**; do not hardcode one. Keep file size reasonable.
+10. **Add icon.** Place at `frontend/public/services/{source}.png` — **PNG is the repo convention** (~800 png vs ~58 svg, and `source.template` defaults to `.png`). SVG is accepted but not the norm; set `iconPath` to match whichever extension you commit. If the logo isn't already committed, fetch from [Logo.dev](https://docs.logo.dev/introduction) — **ask the user for the Logo.dev API key**; do not hardcode one. Logo.dev's image API returns PNG (not SVG). Keep file size reasonable.
 11. **Run migrations.** `DEBUG=1 python manage.py makemigrations && DEBUG=1 ./bin/migrate` (only needed if a new enum value triggers a Django migration).
 12. **Rebuild schema types**: `pnpm run schema:build`. This updates `posthog/schema.py` from `schema-general.ts` and makes the source appear in frontend dropdowns. Re-run whenever `schema-general.ts` changes.
 13. **Release status — a finished source has no `unreleasedSource` flag.** The default for the deliverable this skill produces is **no `unreleasedSource`** — a completed, working source ships visible and connectable. You don't need anyone's sign-off to ship it released; that's just the finished state. The scaffolded stub ships with `unreleasedSource=True` pre-set, so deleting that line is part of finishing the source — go ahead and remove it. (Why it matters: `unreleasedSource=True` **hides the connector from users entirely** — the frontend filters out every source where it's truthy; see `DataWarehouseQueryVariant.tsx`, `InlineSourceSetup.tsx`, and the "coming soon / Notify me" path in `nonHogFunctionTemplatesLogic.tsx`.)
@@ -246,7 +270,7 @@ Return a `SourceResponse` directly. **Do not** use `dlt_source_to_source_respons
 
 Prefer yielding data in the shape the API returns it. No custom dataclasses, no heavy parsing. Yield either `dict`, `list[dict]` (preferred when possible), or a `pyarrow.Table`. The pipeline buffers and batches for you.
 
-**Don't import or instantiate `Batcher` at the source layer.** The pipeline already runs one (`pipelines/pipeline/pipeline.py`) at the same 5000-row / 200 MiB thresholds. Yielding raw `dict` / `list[dict]` from your generator is the canonical path — reach for `pyarrow.Table` only when you already have arrow-shaped data (e.g., a ClickHouse adapter). Source-level batching results in double-buffering with no behavioral win.
+**Default to yielding raw `dict` / `list[dict]` and let the pipeline batch for you.** The pipeline already runs a `Batcher` (`pipelines/pipeline/pipeline.py`) at 5000-row / 200 MiB thresholds, so the common case needs no batcher of its own. Reach for `pyarrow.Table` only when you already have arrow-shaped data (e.g. a ClickHouse adapter). A source _may_ instantiate its own `Batcher` with **smaller** thresholds (e.g. `chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024`, as klaviyo and ~70 other sources do) when it deliberately wants a tighter memory footprint for large/wide rows — that's a valid choice, not the default. What to avoid is a second _full-size_ batcher, which just double-buffers with no win.
 
 For pyarrow tables, cap in-memory rows at ~200 MiB or ~5000 rows. Use helpers like `table_from_iterator()` / `table_from_py_list()` from `products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline/utils.py`.
 
@@ -329,6 +353,11 @@ log line and OTel metric, and participates in opt-in sample capture.
 
 - For raw `requests` usage: `make_tracked_session(headers=..., retry=...)` returns a `requests.Session`. Use
   `session.get/post/...` instead of the module-level `requests.get/...` shortcuts.
+- **Redact secrets from the captured samples.** Pass `redact_values=(api_key, token, ...)` to
+  `make_tracked_session(...)` so the tracked transport masks those literal values in logged URLs, headers,
+  and sampled bodies — important for keys that ride in a query param or an odd header name. `rest_source`
+  auth classes do this automatically (each implements `secret_values()`); only raw-session sources need to
+  pass `redact_values` themselves.
 - For sources that already go through `rest_source.RESTClient`: it defaults to a tracked session
   automatically; no change needed.
 - For vendor SDKs that accept a session/HTTP-client hook (Stripe `RequestsClient(session=...)`,
@@ -381,6 +410,25 @@ each, also alphabetical) so adding or removing a source only touches its own lin
 concurrent PRs — don't collapse it back into a comma-separated paragraph. If you add a partially-tracked
 source, also append a short "Notes on partially-tracked sources" entry explaining what blocks tracking
 (e.g. a vendor SDK with no session/interceptor seam).
+
+## Base-class capability flags & API versioning
+
+`common/base.py` exposes class-level flags most API sources leave at their defaults, but which matter
+when they apply:
+
+- `supports_column_selection` (default `False`; `SQLSource` sets `True`) — whether the source honors
+  `enabled_columns` via SELECT projection.
+- `supports_row_filters` (default `False`) — must be `True` for a source to apply saved `row_filters`;
+  otherwise filters are ignored.
+- `has_managed_hogql_schema` (default `False`; `True` for revenue-analytics sources like Stripe,
+  Paddle, Zendesk) — a fixed field set powers a managed HogQL schema, which disables column selection.
+  A new billing/revenue source that ignores this can break revenue analytics.
+- `cleanup_cdc_resources_on_deletion` — best-effort teardown hook for sources that provision CDC
+  resources; override only if your source creates such resources.
+
+For vendor **API versioning** (`supported_versions`, `default_version`, `api_docs_url`,
+`deprecated_versions`, `resolve_api_version()`), use the dedicated **`warehouse-source-new-version`**
+skill — don't hand-roll version handling.
 
 ## Required coding conventions
 
@@ -447,10 +495,9 @@ If undocumented, keep parsing/merge logic conservative and add a short code comm
 
 ## Retry and throttling strategy
 
-- Use `tenacity` instead of manual retry loops.
-- Retry transport failures and retryable status codes (`429`, transient `5xx`).
-- Prefer server-provided rate-limit reset headers on `429`; fall back to exponential backoff.
-- Bound and make deterministic (`stop_after_attempt`). Preserve clear terminal behavior.
+- **`make_tracked_session()` and `rest_source.RESTClient` already retry `429` + transient `5xx` at the transport layer**, honoring `Retry-After`. Do NOT wrap a second `tenacity` `@retry` around your fetch for status codes — it compounds (e.g. 3 transport attempts × 5 tenacity attempts) and is the single most-copied mistake across existing sources. If you use the framework or the tracked session, status-code retries are already handled; write none.
+- Only add `tenacity` for a condition the transport does **not** cover — e.g. an app-level "still processing" body that isn't a retryable HTTP status. If you do, disable transport retries so they don't compound: `make_tracked_session(retry=Retry(total=0))`.
+- Prefer server-provided rate-limit reset headers on `429` — the transport already honors `Retry-After`. Keep any custom retry bounded and deterministic (`stop_after_attempt`), with clear terminal behavior.
 - Keep timeout/retry settings near the top of the module for easy tuning.
 
 The backoff above is the right control when the **customer owns the credential** — their own PAT / API key / OAuth token on their own third-party account, which is nearly every source.
@@ -549,7 +596,7 @@ preserved (omitted) secret is reused — exfiltrating the credential. `host` and
 already handled separately, so only sources whose connection target lives in a differently named field (e.g.
 Okta's `okta_domain`) need to override this. The default is `[]` (no extra fields).
 
-Pair this with `_is_host_safe` (see `## Outbound HTTP must go through the tracked transport`) at both
+Pair this with `_is_host_safe` (`common/mixins.py`) at both
 source-create and sync time to block hosts resolving to internal/private IPs.
 
 ## Mixins
@@ -562,8 +609,8 @@ From `products/warehouse_sources/backend/temporal/data_imports/sources/common/mi
 
 ## Icons
 
-- Prefer SVG over PNG. Keep file size reasonable.
-- Place in `frontend/public/services/` and reference as `/static/services/{name}.svg` in `iconPath`.
+- PNG is the repo convention (`source.template` defaults to `.png`; ~800 png vs ~58 svg). SVG is accepted but not the norm. Keep file size reasonable.
+- Place in `frontend/public/services/` and reference as `/static/services/{name}.png` (or `.svg`) in `iconPath` — match the extension you commit.
 - If the source logo isn't already in the project, pull via [Logo.dev](https://docs.logo.dev/introduction). **Ask the user for the API key** — do not hardcode one. If the user hasn't provided one, surface that as a blocker rather than committing a placeholder.
 
 ## Testing expectations
@@ -599,7 +646,7 @@ Use parameterized tests for status codes and edge cases. Lean toward over-coveri
 ```text
 Bootstrapping:
 - [ ] Enum added to products/warehouse_sources/backend/types.py (ALL_CAPS, no underscores between words)
-- [ ] Entry added to frontend/src/queries/schema/schema-general.ts (kebab-case) — `pnpm run schema:build` regenerates posthog/schema.py from this; don't hand-edit posthog/schema.py
+- [ ] Entry added to frontend/src/queries/schema/schema-general.ts (PascalCase, matching the ExternalDataSourceType value — NOT kebab-case) — `pnpm run schema:build` regenerates posthog/schema.py from this; don't hand-edit posthog/schema.py
 - [ ] Source imported in products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py + __all__
 - [ ] Class inherits from SimpleSource / ResumableSource / WebhookSource (or combo) — see "Picking the right base class"
 
@@ -621,7 +668,7 @@ Source implementation:
 - [ ] (Fixed-schema sources, static get_schemas only) Set lists_tables_without_credentials = True so public docs render the table catalog
 
 Tooling & assets:
-- [ ] Icon in frontend/public/services/ (SVG preferred — ask user for Logo.dev key if needed)
+- [ ] Icon in frontend/public/services/ (PNG is the convention; ask user for Logo.dev key if needed)
 - [ ] Run `pnpm run generate:source-configs`
 - [ ] Swap generic Config for generated {Source}SourceConfig in source.py
 - [ ] Run `pnpm run schema:build`
