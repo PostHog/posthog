@@ -28,6 +28,7 @@ import { Intro } from 'scenes/max/Intro'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -193,7 +194,9 @@ function IdleInput(): JSX.Element {
 function HomepageAiInput(): JSX.Element {
     const { threadLogicKey, conversation } = useValues(maxLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
-    const { acceptDataProcessing } = useAsyncActions(maxGlobalLogic)
+    // acceptDataProcessing's listener lives on aiConsentLogic (only connected into maxGlobalLogic),
+    // so useAsyncActions must read it from the owning logic or it comes back undefined.
+    const { acceptDataProcessing } = useAsyncActions(aiConsentLogic)
 
     const fallbackConversationId = useMemo(() => uuid(), [])
     const threadProps: MaxThreadLogicProps = {
