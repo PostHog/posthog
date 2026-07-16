@@ -3395,7 +3395,7 @@ class RKICovidSourceConfig(config.Config):
 
 @config.config
 class RailwaySourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
