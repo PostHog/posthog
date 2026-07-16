@@ -129,11 +129,17 @@ export type CyclotronV2JanitorConfig = {
     stallTimeoutMs?: number
     maxTouchCount?: number
     cleanupGraceMs?: number
+    // Kill-switch. When false the janitor reverts to master's legacy path — mark
+    // poison pills failed with no replay record (a give-up is lost). Defaults to true.
+    poisonRecoveryEnabled?: boolean
 }
 
 export type CyclotronV2CleanupResult = {
     deleted: number
     stalled: number
+    // Jobs the janitor gave up on this cycle (recorded as failed, replayable
+    // invocation results before deletion).
     poisoned: number
+    poisonedIds: string[]
     depths: Map<string, number>
 }

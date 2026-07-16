@@ -1,4 +1,11 @@
-import { CostableJob, RunCostSummary, computeFleetSummary, computeHealthSummary, summarizeRunCost } from './runHealth'
+import {
+    CostableJob,
+    RunCostSummary,
+    computeFleetSummary,
+    computeHealthSummary,
+    isNoOpRun,
+    summarizeRunCost,
+} from './runHealth'
 
 const at = (hour: number): string => `2026-06-24T${String(hour).padStart(2, '0')}:00:00Z`
 
@@ -59,6 +66,57 @@ describe('runHealth', () => {
         expect(summary.passRate).toBe(0.5)
         expect(summary.failures).toBe(1)
         expect(summary.reruns).toBe(1)
+    })
+
+    it.each([
+        ['seconds-long success (gate job, rest skipped) → no-op', 'success', 4, true],
+        ['seconds-long skipped run → no-op', 'skipped', 2, true],
+        ['seconds-long cancelled run (superseded) → no-op', 'cancelled', 3, true],
+        ['seconds-long failure is signal, not noise → kept', 'failure', 4, false],
+        ['seconds-long action_required needs attention → kept', 'action_required', 3, false],
+        ['at the threshold → kept', 'success', 10, false],
+        ['still running (no duration yet) → kept', null, null, false],
+    ])('flags no-op runs: %s', (_name, conclusion, durationSeconds, expected) => {
+        expect(isNoOpRun({ conclusion, durationSeconds })).toBe(expected)
+    })
+
+    it('keeps no-op runs in counts and pass rate but out of the duration percentiles', () => {
+        // A workflow dominated by no-op gate runs (e.g. a preview deploy that mostly decides "not
+        // eligible" in ~4s) must not read as having a ~4s median — that hides the real CI duration.
+        const summary = computeHealthSummary([
+            { conclusion: 'success', durationSeconds: 4, startedAt: at(9) },
+            { conclusion: 'success', durationSeconds: 4, startedAt: at(10) },
+            { conclusion: 'success', durationSeconds: 4, startedAt: at(11) },
+            { conclusion: 'success', durationSeconds: 600, startedAt: at(12) },
+            { conclusion: 'success', durationSeconds: 900, startedAt: at(13) },
+        ])
+        expect(summary.medianSeconds).toBe(600)
+        expect(summary.p95Seconds).toBe(900)
+        expect(summary.totalRuns).toBe(5)
+        expect(summary.completedRuns).toBe(5)
+        expect(summary.passRate).toBe(1)
+    })
+
+    it('falls back to every duration when a workflow is legitimately all-fast', () => {
+        // An intentionally quick workflow (a guard check finishing in seconds) has no "real" runs by
+        // the no-op definition — its median must come from what it has, not read as missing.
+        const summary = computeHealthSummary([
+            { conclusion: 'success', durationSeconds: 3, startedAt: at(9) },
+            { conclusion: 'success', durationSeconds: 4, startedAt: at(10) },
+            { conclusion: 'success', durationSeconds: 5, startedAt: at(11) },
+        ])
+        expect(summary.medianSeconds).toBe(4)
+    })
+
+    it('lets a lone real duration win over no-op noise', () => {
+        // With exactly one real execution among gate runs, falling back to all durations would let
+        // the no-ops drown it (~4s median) — the single real sample is the honest answer.
+        const summary = computeHealthSummary([
+            { conclusion: 'success', durationSeconds: 4, startedAt: at(9) },
+            { conclusion: 'success', durationSeconds: 4, startedAt: at(10) },
+            { conclusion: 'success', durationSeconds: 600, startedAt: at(11) },
+        ])
+        expect(summary.medianSeconds).toBe(600)
     })
 
     const fleetRow = (

@@ -26,6 +26,8 @@ import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSect
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { FixErrorButton } from './components/FixErrorButton'
 import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
@@ -116,6 +118,12 @@ export function QueryWindow({
         () => getExecuteSqlToolContext(debouncedMaxToolQueryInput, debouncedMaxToolSourceQuery),
         [debouncedMaxToolQueryInput, debouncedMaxToolSourceQuery]
     )
+
+    useAttachedContext(
+        [{ type: 'sql_editor_state', value: JSON.stringify(executeSqlToolContext), label: 'Current query' }],
+        { active: mode === SQLEditorMode.Embedded && showQueryPanel }
+    )
+
     const executeSqlToolContextDescription = useMemo(
         () => ({
             text: 'Current query',

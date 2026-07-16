@@ -151,6 +151,7 @@ layer = "modules"
 path = "products.agent_platform"
 depends_on = [
     "posthog",
+    "products.mcp_store",
     "products.skills",
 ]
 layer = "modules"
@@ -425,6 +426,7 @@ layer = "modules"
 path = "products.logs"
 depends_on = [
     "posthog",
+    "products.alerts",
     "products.cdp",
     "products.exports",
     "products.signals",

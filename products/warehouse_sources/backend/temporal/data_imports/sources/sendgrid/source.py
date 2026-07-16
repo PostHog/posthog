@@ -36,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://www.twilio.com/docs/sendgrid"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
