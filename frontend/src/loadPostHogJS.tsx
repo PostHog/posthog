@@ -5,6 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
+import { dropDevServerExceptions } from './beforeSendFilters'
 import { startDetachedElementTracking } from './detachedElementTracker'
 import { startFramerateTracking } from './framerateTracker'
 
@@ -56,7 +57,16 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: options.beforeSend,
+            // `dropDevServerExceptions` runs first so Vite's dev-only HMR errors never reach
+            // error tracking; any caller-supplied filter (e.g. the exporter's) composes after it.
+            before_send: [
+                dropDevServerExceptions,
+                ...(options.beforeSend
+                    ? Array.isArray(options.beforeSend)
+                        ? options.beforeSend
+                        : [options.beforeSend]
+                    : []),
+            ],
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true

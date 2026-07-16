@@ -7,6 +7,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { setReadOnlyGetter, setReadOnlyNotifier } from 'lib/readOnlyGuard'
 
+import { dropDevServerExceptions } from '~/beforeSendFilters'
+
 import type { selfReadOnlyModeLogicType } from './selfReadOnlyModeLogicType'
 
 export const ESCALATION_OPTIONS = [
@@ -104,9 +106,10 @@ export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
 
         // Central error-tracking filter — drops any `$exception` event whose
         // chain contains a ReadOnlyModeError. Catches direct captures *and*
-        // wrapped errors (`new Error('...', { cause: readOnlyErr })`). No
-        // existing code sets `before_send`, so we own this config slot.
-        posthog.set_config({ before_send: dropReadOnlyExceptions })
+        // wrapped errors (`new Error('...', { cause: readOnlyErr })`). Composed
+        // with `dropDevServerExceptions` (the init-time filter) so taking over
+        // this slot doesn't clobber it — see `loadPostHogJS.tsx`.
+        posthog.set_config({ before_send: [dropDevServerExceptions, dropReadOnlyExceptions] })
 
         // The user-facing toast for blocked writes is shown by the standard
         // `e instanceof ApiError → lemonToast.error(e.detail)` pattern that
@@ -118,8 +121,8 @@ export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
     beforeUnmount(() => {
         setReadOnlyGetter(null)
         setReadOnlyNotifier(null)
-        // Releasing ownership of `before_send` — if PostHog adds another filter
-        // here in the future, it should compose rather than be clobbered.
-        posthog.set_config({ before_send: undefined })
+        // Drop our filter but keep the init-time one — restore the config to just
+        // `dropDevServerExceptions` rather than clearing it.
+        posthog.set_config({ before_send: dropDevServerExceptions })
     }),
 ])
