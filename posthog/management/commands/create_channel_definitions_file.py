@@ -206,8 +206,27 @@ class Command(BaseCommand):
             # this showed up for some customers and after some head scratching, rot13(tbbtyf) = googls
             # I also googled this and most of the results were people asking what this was
             "tbbtyf",
+            # AI assistants / answer engines, increasingly common referrers
+            "chatgpt.com",
+            "chat.openai.com",
+            "claude.ai",
+            "gemini.google.com",
+            "copilot.microsoft.com",
+            "grok.com",
+            "chat.deepseek.com",
+            "deepseek.com",
+            "meta.ai",
+            "chat.mistral.ai",
         ):
             entries[(search_domain, EntryKind.source)] = SourceEntry("Search", "Paid Search", "Organic Search")
+
+        # add shopping domains not covered by the GA source list
+        for shopping_domain in (
+            "temu.com",
+            "shein.com",
+            "whatnot.com",
+        ):
+            entries[(shopping_domain, EntryKind.source)] = SourceEntry("Shopping", "Paid Shopping", "Organic Shopping")
 
         # add social domains
         for social_domain in (
@@ -236,6 +255,12 @@ class Command(BaseCommand):
             "twitter.com",
             "t.co",
             "x.com",
+            # truth social
+            "truthsocial.com",
+            # substack
+            "substack.com",
+            # xiaohongshu / rednote
+            "xiaohongshu.com",
         ):
             entries[(social_domain, EntryKind.source)] = SourceEntry("Social", "Paid Social", "Organic Social")
 
