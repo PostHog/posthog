@@ -296,6 +296,18 @@ class TestHttpSampleCapture:
 
         assert mock_session.call_args.kwargs["capture"] is expected_capture
 
+    @patch(f"{pabbly.__name__}.make_tracked_session")
+    def test_credential_probe_never_captures(self, mock_session: MagicMock) -> None:
+        # The probe hits /customers, so a captured sample would persist a raw customer record;
+        # credential validation must run with capture off.
+        session = MagicMock()
+        session.get.return_value = MagicMock(status_code=200, ok=True)
+        mock_session.return_value = session
+
+        pabbly.check_access("pabbly-key", "pabbly-secret")
+
+        assert mock_session.call_args.kwargs["capture"] is False
+
 
 class TestCheckAccess:
     @staticmethod

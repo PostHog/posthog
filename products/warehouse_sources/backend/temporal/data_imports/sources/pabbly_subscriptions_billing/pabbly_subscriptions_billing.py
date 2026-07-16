@@ -36,7 +36,10 @@ class PabblyResumeConfig:
     page: int = 1
 
 
-def _make_session(api_key: str, secret_key: str, capture: bool = True) -> requests.Session:
+def _make_session(api_key: str, secret_key: str, capture: bool = False) -> requests.Session:
+    # HTTP sample capture is opt-in: it defaults off here (so the credential-validation probe and
+    # any future caller stay safe by default) and get_rows enables it per endpoint via the
+    # capture_http_samples flag, which is only set on catalog-metadata endpoints.
     # Pabbly authenticates with HTTP Basic only: API key as username, secret key as password.
     # (Its docs portal shows a generic Bearer example, but the live API rejects Bearer tokens.)
     session = make_tracked_session(
