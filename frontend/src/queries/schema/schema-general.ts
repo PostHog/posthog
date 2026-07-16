@@ -1,8 +1,8 @@
 import { DataColorToken } from 'lib/colors'
 // eslint-disable-next-line import/no-cycle
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ConversionGoalSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
+import { ConversionGoalSchema } from '~/taxonomy/marketingAnalytics'
 import {
     AnyFilterLike,
     AnyGroupScopeFilter,
@@ -3869,6 +3869,11 @@ export interface TraceSpansAttributeBreakdownQuery extends DataNode<TraceSpansAt
      * breakdown) so a facet's value list stays complete while one of its values is selected.
      */
     excludeBreakdownFilter?: boolean
+    /**
+     * Type-ahead filter over the breakdown field's own values (case-insensitive substring match).
+     * Lets a facet's value search reach past the row limit.
+     */
+    facetSearch?: string
 }
 
 export interface TraceSpansAttributeBreakdownQueryResponse extends AnalyticsQueryResponseBase {
@@ -7584,6 +7589,101 @@ export const externalDataSources = [
     'Kickscale',
     'Zellify',
     'RudderStack',
+    'DodoPayments',
+    'Salestrics',
+    'Doppler',
+    'Usersnap',
+    'Asknicely',
+    'Featurebase',
+    'Frill',
+    'Bettermode',
+    'Dynatrace',
+    'Honeycomb',
+    'SumoLogic',
+    'LogzIO',
+    'Coralogix',
+    'BetterStack',
+    'Raygun',
+    'Honeybadger',
+    'Airbrake',
+    'Appsignal',
+    'Appdynamics',
+    'Instana',
+    'SplunkObservabilityCloud',
+    'Uptimerobot',
+    'Statuscake',
+    'Tailscale',
+    'Flagsmith',
+    'Xmatters',
+    'Squadcast',
+    'Zenduty',
+    'Cronitor',
+    'Jenkins',
+    'Bitbucket',
+    'Gitea',
+    'Teamcity',
+    'TravisCI',
+    'Semaphore',
+    'CircleciInsights',
+    'OctopusDeploy',
+    'Sourcegraph',
+    'Bitrise',
+    'Gerrit',
+    'TerraformCloud',
+    'PulumiCloud',
+    'Spacelift',
+    'Railway',
+    'Argocd',
+    'PrefectCloud',
+    'DagsterCloud',
+    'Env0',
+    'Kubecost',
+    'Snyk',
+    'Semgrep',
+    'Veracode',
+    'Checkmarx',
+    'Gitguardian',
+    'QualysVmdr',
+    'Rapid7Insightvm',
+    'TenableVulnerabilityManagement',
+    'Sentinelone',
+    'Lacework',
+    'OrcaSecurity',
+    'Drata',
+    'Secureframe',
+    'CiscoDuo',
+    'Jumpcloud',
+    'OnePassword',
+    'Stytch',
+    'Sonarqube',
+    'Codecov',
+    'Coveralls',
+    'Codacy',
+    'Deepsource',
+    'Linearb',
+    'Jellyfish',
+    'Swarmia',
+    'Packagist',
+    'Nuget',
+    'CratesIO',
+    'SonatypeNexus',
+    'JfrogArtifactory',
+    'Snowplow',
+    'WeightsAndBiases',
+    'MonteCarlo',
+    'Metaplane',
+    'Datahub',
+    'ClickhouseCloud',
+    'ConfluentCloud',
+    'KongKonnect',
+    'Kandji',
+    'Automox',
+    'Autumn',
+    'GetStream',
+    'Octolens',
+    'Kajabi',
+    'Shopware',
+    'Dubsado',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -8064,6 +8164,7 @@ export interface ProductsData {
 }
 
 export enum UserProductListReason {
+    DEFAULT = 'default',
     ONBOARDING = 'onboarding',
     PRODUCT_INTENT = 'product_intent',
     USED_BY_COLLEAGUES = 'used_by_colleagues',

@@ -31,7 +31,7 @@ For each action, the two key questions:
 
 Transitions draft → running. Activates the feature flag and sets `start_date`.
 
-- **Preconditions**: must be in draft, flag needs ≥2 variants with "control" first
+- **Preconditions**: must be in draft, flag needs 2-20 multivariate variants (no specific key required; the baseline defaults to "control" when present, else the first variant)
 - **Pre-launch checklist**: has at least one metric? Variants correct? Flag implemented in code?
 - **Variants**: users start being bucketed into variants based on the configured split
 - **Analysis**: data collection begins from `start_date`
@@ -129,7 +129,7 @@ Copies an experiment into a **different project in the same organization** as a 
     the next point — so to be safe, pass an explicit key.)
   - **If the resolved key already exists as a flag in the target project**: the copy **shares** that existing flag
     instead of creating one. Both experiments then point at the same flag, so lifecycle ops (ship, pause) on either
-    affect both. The existing flag must have ≥2 variants including one keyed `control`, otherwise the call returns 400.
+    affect both. The existing flag must be multivariate with 2-20 variants, otherwise the call returns 400.
   - **If the resolved key does not exist in the target project**: a new, independent flag is created with that key.
     To guarantee independence, pass a `feature_flag_key` that doesn't already exist in the target.
 

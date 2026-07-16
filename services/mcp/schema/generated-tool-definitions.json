@@ -2606,6 +2606,21 @@
             "readOnlyHint": true
         }
     },
+    "engineering-analytics-broken-tests": {
+        "description": "Live CI failures over the last 2 days, grouped into distinct failures (by failing test id + a normalized error signature) and classified by how each is behaving right now, most urgent first. Reach for this to answer \"what CI failures should I care about right now\" — it is the triage counterpart to the flaky-test leaderboard (which ranks week-long unreliability). Each row's state is the verdict: breaking_master (failing on the default branch and that job's latest run is still red — trunk is broken now), novel_burst (first seen within a day and already spreading across branches, not on trunk yet), potentially_resolved (hit trunk but that job is green again), flaky (sporadic across two or more branches over more than a day), or pr_only (confined to one branch — one PR's own problem). Also returns breaking_master_jobs, the default-branch jobs whose latest run is red. Pass a row's latest_run_id to run-failure-logs to read the actual failing lines. Caveats: fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the breaking/resolved distinction needs the job-level source synced — without it those failures fall through to flaky/pr_only rather than being misreported. Counts are absolute, never rates (passing runs aren't in this data).",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Broken tests triage",
+        "title": "Broken tests triage",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "engineering-analytics"
+    },
     "engineering-analytics-ci-failure-logs": {
         "description": "The thinned CI failure logs for a pull request, grouped by failed job — reach for this to answer \"why did this PR's CI fail\". Each failed job returns its failure region (the error lines plus surrounding context, with \"... N lines omitted ...\" markers) as ordered lines, and every line carries its original 1-based line number in the full pre-thinning log so you can locate it in the raw GitHub log. The PR is resolved to ALL its workflow runs across every push (via the pull_requests association, not the latest commit), so earlier pushes' failures are included too. logs_available is false when CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR has no run association to resolve. Use pr-runs or workflow-jobs for the run/job metadata behind these logs.",
         "category": "Engineering analytics",
@@ -2642,6 +2657,21 @@
         "feature": "engineering_analytics",
         "summary": "Estimated CI cost of a PR",
         "title": "Estimated CI cost of a PR",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "engineering-analytics"
+    },
+    "engineering-analytics-run-failure-logs": {
+        "description": "The thinned CI failure logs of one workflow run, grouped by failed job — the run-scoped twin of ci-failure-logs, for when you have a run id rather than a PR (default-branch failures, the broken-tests panel's latest_run_id, the run page). Each failed job returns its failure region (error lines plus surrounding context, with \"... N lines omitted ...\" markers) as ordered lines, every line carrying its original 1-based line number in the full pre-thinning log. logs_available is false when the run didn't fail or its logs aged out of the short Logs retention. Use ci-failure-logs instead when you have a PR number and want all its runs' failures.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "CI failure logs for a run",
+        "title": "CI failure logs for a run",
         "required_scopes": ["engineering_analytics:read"],
         "annotations": {
             "destructiveHint": false,
@@ -3076,7 +3106,7 @@
         }
     },
     "experiment-copy-to-project": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nREQUIRES EXPLICIT USER CONFIRMATION BEFORE CALLING. This writes a new experiment into a DIFFERENT project than the one the user is currently looking at. Resolve the target project from the user's wording to a concrete team id, then confirm the source experiment and the target project by name before invoking.\n\nCopies an experiment into another project in the SAME organization as a new draft. The target project must belong to the same organization — this CANNOT copy across organizations or regions. Use experiment-duplicate instead when the copy should land in the same project.\n\nWhat IS copied: name (defaults to \"Original Name (Copy)\", de-duplicated with a numeric suffix if that name already exists in the target), description, type, parameters (variant split, rollout), filters, primary and secondary metrics (each with freshly regenerated uuids and preserved ordering), stats config, scheduling config, exposure criteria, and the only_count_matured_users setting.\n\nWhat is NOT copied: saved-metric references (saved metrics are project-scoped, so they are dropped on a cross-project copy), holdout, exposure cohort, start/end dates, results, and conclusion. The copy always starts as a fresh draft.\n\nFeature flag: pass feature_flag_key to control the flag key created in the target project. If omitted, the source experiment's flag key is reused — and if a flag with that key already exists in the target project, the copy SHARES that existing flag (its variants are reused) rather than creating a new one. A shared flag means lifecycle operations on either experiment (shipping a variant, pausing) affect both. To avoid this, pass a feature_flag_key that does not already exist in the target project. If an existing target flag is reused, it must have at least 2 variants including one with key \"control\", otherwise the call returns 400 (\"Feature flag must have at least 2 variants (control and at least one test variant)\" or \"Feature flag must have a variant with key 'control'\").\n\nReturns 400 if the source experiment uses legacy metrics (\"Copying is not supported for experiments using legacy metrics.\"). Returns 404 if the target project is not found in the organization (\"Target team not found.\"). Returns 403 if you lack write access to the target project (\"You do not have write access to the target project.\").\n\nThe returned experiment (including its id) belongs to the TARGET project, not the source project.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nREQUIRES EXPLICIT USER CONFIRMATION BEFORE CALLING. This writes a new experiment into a DIFFERENT project than the one the user is currently looking at. Resolve the target project from the user's wording to a concrete team id, then confirm the source experiment and the target project by name before invoking.\n\nCopies an experiment into another project in the SAME organization as a new draft. The target project must belong to the same organization — this CANNOT copy across organizations or regions. Use experiment-duplicate instead when the copy should land in the same project.\n\nWhat IS copied: name (defaults to \"Original Name (Copy)\", de-duplicated with a numeric suffix if that name already exists in the target), description, type, parameters (variant split, rollout), filters, primary and secondary metrics (each with freshly regenerated uuids and preserved ordering), stats config, scheduling config, exposure criteria, and the only_count_matured_users setting.\n\nWhat is NOT copied: saved-metric references (saved metrics are project-scoped, so they are dropped on a cross-project copy), holdout, exposure cohort, start/end dates, results, and conclusion. The copy always starts as a fresh draft.\n\nFeature flag: pass feature_flag_key to control the flag key created in the target project. If omitted, the source experiment's flag key is reused — and if a flag with that key already exists in the target project, the copy SHARES that existing flag (its variants are reused) rather than creating a new one. A shared flag means lifecycle operations on either experiment (shipping a variant, pausing) affect both. To avoid this, pass a feature_flag_key that does not already exist in the target project. If an existing target flag is reused, it must be multivariate with 2 to 20 variants, otherwise the call returns 400 (\"Feature flag must have at least 2 variants (a baseline and at least one test variant)\" or \"Feature flag must have at most 20 variants\"). No specific variant key is required — the analysis baseline defaults to the variant keyed \"control\" when present, else the first variant. Exception: copying a web experiment requires the reused target flag to have a variant keyed \"control\", otherwise the call returns 400 (\"Web experiments require a variant with key 'control'\").\n\nReturns 400 if the source experiment uses legacy metrics (\"Copying is not supported for experiments using legacy metrics.\"). Returns 404 if the target project is not found in the organization (\"Target team not found.\"). Returns 403 if you lack write access to the target project (\"You do not have write access to the target project.\").\n\nThe returned experiment (including its id) belongs to the TARGET project, not the source project.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Copy experiment to another project",
@@ -3230,7 +3260,7 @@
         }
     },
     "experiment-launch": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nLaunch a draft experiment. Validates the feature flag has at least 2 multivariate variants with \"control\" as the first variant. Activates the feature flag (sets active=true), sets start_date to the current server time, recomputes metric fingerprints, and transitions status from draft to running.\n\nReturns 400 if the experiment has already been launched (\"Experiment has already been launched.\") or if the flag configuration is invalid.\n\nNo request body needed.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nLaunch a draft experiment. Validates the feature flag is multivariate with 2 to 20 variants. Activates the feature flag (sets active=true), sets start_date to the current server time, recomputes metric fingerprints, and transitions status from draft to running.\n\nReturns 400 if the experiment has already been launched (\"Experiment has already been launched.\") or if the flag configuration is invalid.\n\nNo request body needed.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Launch experiment",
@@ -3846,7 +3876,7 @@
         }
     },
     "feature-flags-copy-flags-create": {
-        "description": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Returns lists of successful and failed copies.",
+        "description": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Set copy_dependencies only when the user explicitly wants missing transitive flag dependencies copied too; existing active same-key dependencies in target projects are reused, disabled same-key dependencies are left untouched, and warnings explain any dependencies or schedules that could not be copied. Returns lists of successful and failed copies.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Copy feature flag across projects",
@@ -3874,7 +3904,7 @@
         }
     },
     "feature-flags-evaluation-reasons-retrieve": {
-        "description": "Debug why feature flags evaluate a certain way for a given user. Provide a distinct_id and optionally groups to see each flag's evaluated value and the reason for that evaluation (e.g. condition_match, no_condition_match, disabled).",
+        "description": "Debug why feature flags evaluate a certain way for a given user. Provide a distinct_id and optionally groups to see each flag's evaluated value and the reason for that evaluation (e.g. condition_match, no_condition_match, disabled). Pass flag_keys to scope the response to specific flags. This is strongly recommended on projects with many flags, since omitting it returns an entry for every flag and can produce a very large payload.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Get feature flag evaluation reasons",
@@ -4262,7 +4292,7 @@
         }
     },
     "inbox-reports-list": {
-        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers (PostHog user UUIDs), and task_id (only reports associated with that task — pass your own task id to see which reports you are already working against). For picking up work, filter to `ready` — earlier statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's full work log — signal findings (evidence), judgments, and log entries — is readable via inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
+        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers (PostHog user UUIDs), and task_id (only reports associated with that task — pass your own task id to see which reports you are already working against). Some statuses are hidden by default (currently suppressed, i.e. human-dismissed); pass `include_all_statuses=true` to list reports in every status — do this when deduplicating against the full inbox state, and read each row's `status` (plus `dismissal_reason` / `dismissal_note` on dismissed rows) before acting. For picking up work, filter to `ready` — earlier statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's full work log — signal findings (evidence), judgments, and log entries — is readable via inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List signal reports",
@@ -4318,7 +4348,7 @@
         }
     },
     "inbox-source-configs-create": {
-        "description": "Create a signal source config for the current project, switching an inbox signal source on. A source ties a `source_product` to a `source_type` and an `enabled` flag. Valid `source_product` values: session_replay, llm_analytics, github, linear, zendesk, conversations, error_tracking, pganalyze, signals_scout, logs. Valid `source_type` values: session_analysis_cluster, evaluation, evaluation_report, issue, ticket, issue_created, issue_reopened, issue_spiking, cross_source_issue, alert_state_change. To surface AI observability evaluation report findings in the inbox, create `source_product=llm_analytics`, `source_type=evaluation_report`. The Signals scout source is ON BY DEFAULT — scout findings reach the inbox with no config row needed. The only reason to create a `source_product=signals_scout`, `source_type=cross_source_issue` row is to OPT OUT: create it with `enabled=false` (the per-scout `emit` flag is set separately via `signals-scout-config-update`). There is at most one config per (source_product, source_type) per project; if one already exists, update it instead. Enabling the session_analysis_cluster source requires the organization to have approved AI data processing.",
+        "description": "Create a signal source config for the current project, switching an inbox signal source on. A source ties a `source_product` to a `source_type` and an `enabled` flag. Valid `source_product` values: session_replay, llm_analytics, github, linear, zendesk, conversations, error_tracking, pganalyze, signals_scout, logs. Valid `source_type` values: session_analysis_cluster, evaluation, evaluation_report, issue, ticket, issue_created, issue_reopened, issue_spiking, cross_source_issue, alert_state_change. To surface AI observability evaluation report findings in the inbox, create `source_product=llm_analytics`, `source_type=evaluation_report`. The Signals scout source is ON BY DEFAULT — scout findings reach the inbox with no config row needed. The only reason to create a `source_product=signals_scout`, `source_type=cross_source_issue` row is to OPT OUT: create it with `enabled=false` (the per-scout `emit` flag is set separately via `scout-config-update`). There is at most one config per (source_product, source_type) per project; if one already exists, update it instead. Enabling the session_analysis_cluster source requires the organization to have approved AI data processing.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Create signal source config",
@@ -5413,7 +5443,7 @@
         "feature_flag": "logs-alerting"
     },
     "logs-alerts-destinations-create": {
-        "description": "Attach a notification destination (Slack channel or webhook) to a log alert. Without a destination an alert evaluates silently and never notifies. One HogFunction is created per event kind (firing, resolved, broken, errored) atomically — the returned hog_function_ids identify the destination group.",
+        "description": "Attach a Slack, webhook, or Microsoft Teams notification destination to a log alert. Without a destination an alert evaluates silently and never notifies. One HogFunction is created per event kind (firing, resolved, broken, errored) atomically. The returned hog_function_ids identify the destination group.",
         "category": "Logs",
         "feature": "logs",
         "summary": "Attach alert destination",
@@ -6968,6 +6998,272 @@
             "readOnlyHint": false
         }
     },
+    "scout-config-create": {
+        "description": "Register the config for a freshly authored `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 30–43200), `enabled`, and `emit` (false = dry-run) in the same call. The skill must already exist on the project (author it via the skills store first). Upsert: if a config already exists for the skill, the provided fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Create a scout config",
+        "title": "Create a scout config",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scout-config-delete": {
+        "description": "Delete one scout config by its `id`, removing the per-scout schedule/emit row outright. Use it to clean up an orphaned config whose `signals-scout-*` skill was archived or deleted — it lingers in `scout-config-list` with an empty description and never runs, but can't otherwise be removed. Deletion is activity-logged. Note: if the skill still exists the coordinator re-creates a default-schedule config on its next tick — to retire a live scout, archive its skill (or set `enabled=false` via `scout-config-update` to make it inert) rather than deleting the config.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Delete a scout config",
+        "title": "Delete a scout config",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scout-config-list": {
+        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears once its config is registered — immediately via `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `scout-config-update` to tune them.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List scout configs",
+        "title": "List scout configs",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "scout-config-sync": {
+        "description": "Materialize the Signals scout fleet for this project (idempotent): seeds the canonical `signals-scout-*` skills and creates a default-schedule config for any scout lacking one, then returns all scout configs. The Temporal coordinator does the same on its next tick; call this when a setup flow needs a tunable fleet immediately instead of waiting for the tick. Pair with `scout-config-update` to tune the returned configs.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Sync scout configs",
+        "title": "Sync scout configs",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scout-config-update": {
+        "description": "Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 30–43200), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed. Enabling records who flipped it on and is activity-logged, since running a scout drives spend.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Update a scout config",
+        "title": "Update a scout config",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scout-edit-report": {
+        "description": "The report channel's edit half: rewrite a report's `title`/`summary`, append a note, and/or set its `suggested_reviewers`. Can target ANY of the project's inbox reports, not just scout-authored ones — the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Each reviewer is a `github_login` and/or a PostHog `user_uuid` (resolved server-side to the linked GitHub login). Prefer `append_note` over rewriting a report you didn't author (additive and audit-friendly); title/summary edits are best-effort, since the pipeline may later re-research and overwrite them. NOT idempotent — a retried `append_note` appends a second note. Opt-in: only available to scouts that list `edit_report` in their skill's `allowed_tools`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Edit an existing report for a run",
+        "title": "Edit an existing report for a run",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scout-emit-report": {
+        "description": "The report channel: author a complete `SignalReport` directly instead of emitting a weak signal, when you've already done the research and want 1:1 control over the report rather than letting the pipeline cluster it. The report passes the safety judge, then surfaces at the status your `actionability` call implies (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed); an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `inbox-reports-list` to find a prior report and `scout-edit-report` to update it instead. `suggested_reviewers` is the primary way a report reaches a human (each a `github_login` and/or a PostHog `user_uuid` resolved server-side); for a concrete, fixable issue, passing `repository` + `priority` + `suggested_reviewers` also opens a draft PR automatically (autostart, custom_agent parity); omit them to just surface the report. Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Author a full report for a run",
+        "title": "Author a full report for a run",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scout-emit-signal": {
+        "description": "Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit. Findings should carry `tags` — see the `tags` param for the slug and taxonomy convention.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Emit a finding for a run",
+        "title": "Emit a finding for a run",
+        "required_scopes": ["signal_scout_internal:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scout-members-list": {
+        "description": "Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `scout-emit-report` / `scout-edit-report` (a member with a null `github_login` can't be routed to — pick another owner). Pass `search` to narrow a large roster. Strictly team-scoped.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List project members for reviewer routing",
+        "title": "List project members for reviewer routing",
+        "required_scopes": ["signal_scout_internal:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "scout-project-profile-get": {
+        "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `advanced-activity-logs-list`. Distinct from `scout-scratchpad-search`: profile is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get the project profile",
+        "title": "Get the project profile",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "scout-run-now": {
+        "description": "Dispatch one on-demand run of a scout by its config `id`, regardless of its schedule — useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously and inherits the scheduled path's guards: it returns 429 if the project is over its Signals credits quota or its daily scout-run budget, and 409 if a run for this scout is already in progress. A manual run counts against the same daily run budget the scheduled runs draw from, so avoid triggering repeated runs of the same scout in a short window — each one consumes the project's scout-run allowance for the day. A manual run does not change the scout's schedule, and a disabled scout can still be run this way (to test before enabling). Returns the workflow id immediately — poll `scout-runs-list` for the resulting run and its findings.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Run a scout now",
+        "title": "Run a scout now",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scout-runs-emission-reports": {
+        "description": "For a `SignalScoutRun`, return each emitted finding paired with the inbox report its signal grouped into — the reverse lookup from a scout's emission to the `SignalReport` it actually produced. One row per emission with its `finding_id`, the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`), and the linked `report` (`id`, `title`, `status`) or `null` when the finding never matched a report (or the report was deleted/suppressed). Use this to see *which* findings turned into actionable reports, not just what a run surfaced (`scout-runs-emissions-list`). Requires `task:read` on top of `signal_scout:read` because it exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List the inbox reports a scout run's findings linked to",
+        "title": "List the inbox reports a scout run's findings linked to",
+        "required_scopes": ["signal_scout:read", "task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "scout-runs-emissions-list": {
+        "description": "Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal. Use this to see *what* a run actually surfaced, not just how many (`emitted_count`) or which ids (`emitted_finding_ids`). Strictly team-scoped — a run UUID belonging to another team returns 404.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List a scout run's emitted findings",
+        "title": "List a scout run's emitted findings",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "scout-runs-list": {
+        "description": "Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. Each row carries `emitted_count` (how many findings the run surfaced to the inbox) and `emitted_finding_ids`; `emitted_report_ids` (reports the run authored directly via `emit_report`) and `edited_report_ids` (reports the run mutated via `edit_report`) for the report channel; and — for runs that didn't complete cleanly — `error` (full TaskRun error) plus `failure_reason` (a concise derived one-liner). Pass `skill_name` (optionally with `skill_version`) to scope the dump to a single scout instead of every scout on the team — the primary scoping path when a specialist dedupes against its own past runs. Pass `emitted=true` to return only runs that emitted at least one finding (or `emitted=false` for runs that surfaced nothing). Pass `text` for a case-insensitive substring match on the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results capped at 100.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List recent scout runs",
+        "title": "List recent scout runs",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "scout-runs-recent-emissions": {
+        "description": "Return the team's recently emitted scout findings across *every* `SignalScoutRun`, newest first — the cross-run counterpart to `scout-runs-emissions-list` (which is scoped to one run). Each row carries its `run_id`, `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`). Use this to answer \"what has the fleet surfaced lately?\" in one call instead of listing runs and fanning out an emissions request per run. Pass `skill_name` to scope to a single scout, and `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to walk back past the cap. Capped at 200 rows (default 50). Strictly team-scoped.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List recent emitted findings across all scout runs",
+        "title": "List recent emitted findings across all scout runs",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "scout-runs-retrieve": {
+        "description": "Return the full `SignalScoutRun` row for the given `run_id`, including the agent's end-of-run `summary`, `emitted_count`, and `emitted_finding_ids`. Status, timestamps, `error` (full TaskRun error message), and the derived `failure_reason` flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows queryable by `source_id = run:<run_id>:finding:<finding_id>` (one per id in `emitted_finding_ids`). Strictly team-scoped — a UUID belonging to another team returns 404.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get a scout run by ID",
+        "title": "Get a scout run by ID",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "scout-scratchpad-forget": {
+        "description": "Delete a scratchpad entry by key. Returns `deleted=false` if no row matched — the call is idempotent.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Forget a scratchpad entry by key",
+        "title": "Forget a scratchpad entry by key",
+        "required_scopes": ["signal_scout_internal:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scout-scratchpad-remember": {
+        "description": "Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so this is an upsert rather than a strict create. Keys are stable identities: key off *what* you're tracking, not *when* you saw it — never embed dates, timestamps, or run ids (that mints a new row every run and defeats dedupe). For run state, use one fixed key and keep the timestamp in `content`. Write `content` as Markdown — humans read these entries directly, so structured Markdown (headings, bullets, inline code for ids) is far easier to skim than a wall of prose. Optionally pass `run_id` to record which run wrote it.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Remember a scratchpad entry",
+        "title": "Remember a scratchpad entry",
+        "required_scopes": ["signal_scout_internal:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scout-scratchpad-search": {
+        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the oldest entry from the prior page to walk past the cap. Pass `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 500.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Search the scout scratchpad",
+        "title": "Search the scout scratchpad",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "session-recording-bulk-delete": {
         "description": "Delete a batch of session recordings by session ID, up to 100 per call. Deletion is permanent and cannot be undone — confirm with the user before deleting. Prefer this over `session-recording-delete` whenever more than one recording needs deleting: find the target IDs with `query-session-recordings-list`, then delete in batches. Pass `date_from` (e.g. '-30d') when the recordings' age is known — it makes the lookup much faster. IDs with no matching recording are skipped, so a `deleted_count` below `total_requested` is normal when some recordings were already deleted or never existed.",
         "category": "Session replays",
@@ -7095,11 +7391,11 @@
         }
     },
     "signals-scout-config-create": {
-        "description": "Register the config for a freshly authored `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 30–43200), `enabled`, and `emit` (false = dry-run) in the same call. The skill must already exist on the project (author it via the skills store first). Upsert: if a config already exists for the skill, the provided fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.",
+        "description": "DEPRECATED: renamed to scout-config-create. This alias forwards to the same endpoint and will be removed. Call scout-config-create directly with the same arguments.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Create a scout config",
-        "title": "Create a scout config",
+        "summary": "Create a scout config (deprecated)",
+        "title": "Create a scout config (deprecated)",
         "required_scopes": ["signal_scout:write"],
         "annotations": {
             "destructiveHint": false,
@@ -7109,11 +7405,11 @@
         }
     },
     "signals-scout-config-delete": {
-        "description": "Delete one scout config by its `id`, removing the per-scout schedule/emit row outright. Use it to clean up an orphaned config whose `signals-scout-*` skill was archived or deleted — it lingers in `signals-scout-config-list` with an empty description and never runs, but can't otherwise be removed. Deletion is activity-logged. Note: if the skill still exists the coordinator re-creates a default-schedule config on its next tick — to retire a live scout, archive its skill (or set `enabled=false` via `signals-scout-config-update` to make it inert) rather than deleting the config.",
+        "description": "DEPRECATED: renamed to scout-config-delete. This alias forwards to the same endpoint and will be removed. Call scout-config-delete directly with the same arguments.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Delete a scout config",
-        "title": "Delete a scout config",
+        "summary": "Delete a scout config (deprecated)",
+        "title": "Delete a scout config (deprecated)",
         "required_scopes": ["signal_scout:write"],
         "annotations": {
             "destructiveHint": true,
@@ -7123,11 +7419,11 @@
         }
     },
     "signals-scout-config-list": {
-        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears once its config is registered — immediately via `signals-scout-config-create` (one skill) or `signals-scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
+        "description": "DEPRECATED: renamed to scout-config-list. This alias forwards to the same endpoint and will be removed. Call scout-config-list directly with the same arguments.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "List scout configs",
-        "title": "List scout configs",
+        "summary": "List scout configs (deprecated)",
+        "title": "List scout configs (deprecated)",
         "required_scopes": ["signal_scout:read"],
         "annotations": {
             "destructiveHint": false,
@@ -7137,11 +7433,11 @@
         }
     },
     "signals-scout-config-sync": {
-        "description": "Materialize the Signals scout fleet for this project (idempotent): seeds the canonical `signals-scout-*` skills and creates a default-schedule config for any scout lacking one, then returns all scout configs. The Temporal coordinator does the same on its next tick; call this when a setup flow needs a tunable fleet immediately instead of waiting for the tick. Pair with `signals-scout-config-update` to tune the returned configs.",
+        "description": "DEPRECATED: renamed to scout-config-sync. This alias forwards to the same endpoint and will be removed. Call scout-config-sync directly with the same arguments.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Sync scout configs",
-        "title": "Sync scout configs",
+        "summary": "Sync scout configs (deprecated)",
+        "title": "Sync scout configs (deprecated)",
         "required_scopes": ["signal_scout:write"],
         "annotations": {
             "destructiveHint": false,
@@ -7151,11 +7447,11 @@
         }
     },
     "signals-scout-config-update": {
-        "description": "Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 30–43200), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed. Enabling records who flipped it on and is activity-logged, since running a scout drives spend.",
+        "description": "DEPRECATED: renamed to scout-config-update. This alias forwards to the same endpoint and will be removed. Call scout-config-update directly with the same arguments.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Update a scout config",
-        "title": "Update a scout config",
+        "summary": "Update a scout config (deprecated)",
+        "title": "Update a scout config (deprecated)",
         "required_scopes": ["signal_scout:write"],
         "annotations": {
             "destructiveHint": false,
@@ -7165,11 +7461,11 @@
         }
     },
     "signals-scout-edit-report": {
-        "description": "The report channel's edit half: rewrite a report's `title`/`summary`, append a note, and/or set its `suggested_reviewers`. Can target ANY of the project's inbox reports, not just scout-authored ones — the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Each reviewer is a `github_login` and/or a PostHog `user_uuid` (resolved server-side to the linked GitHub login). Prefer `append_note` over rewriting a report you didn't author (additive and audit-friendly); title/summary edits are best-effort, since the pipeline may later re-research and overwrite them. NOT idempotent — a retried `append_note` appends a second note. Opt-in: only available to scouts that list `edit_report` in their skill's `allowed_tools`.",
+        "description": "DEPRECATED: renamed to scout-edit-report. This alias forwards to the same endpoint and will be removed. Call scout-edit-report directly with the same arguments.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Edit an existing report for a run",
-        "title": "Edit an existing report for a run",
+        "summary": "Edit an existing report for a run (deprecated)",
+        "title": "Edit an existing report for a run (deprecated)",
         "required_scopes": ["signal_scout_report:write"],
         "annotations": {
             "destructiveHint": false,
@@ -7179,11 +7475,11 @@
         }
     },
     "signals-scout-emit-report": {
-        "description": "The report channel: author a complete `SignalReport` directly instead of emitting a weak signal, when you've already done the research and want 1:1 control over the report rather than letting the pipeline cluster it. The report passes the safety judge, then surfaces at the status your `actionability` call implies (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed); an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `inbox-reports-list` to find a prior report and `signals-scout-edit-report` to update it instead. `suggested_reviewers` is the primary way a report reaches a human (each a `github_login` and/or a PostHog `user_uuid` resolved server-side); for a concrete, fixable issue, passing `repository` + `priority` + `suggested_reviewers` also opens a draft PR automatically (autostart, custom_agent parity); omit them to just surface the report. Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.",
+        "description": "DEPRECATED: renamed to scout-emit-report. This alias forwards to the same endpoint and will be removed. Call scout-emit-report directly with the same arguments.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Author a full report for a run",
-        "title": "Author a full report for a run",
+        "summary": "Author a full report for a run (deprecated)",
+        "title": "Author a full report for a run (deprecated)",
         "required_scopes": ["signal_scout_report:write"],
         "annotations": {
             "destructiveHint": false,
@@ -7193,11 +7489,11 @@
         }
     },
     "signals-scout-emit-signal": {
-        "description": "Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit. Findings should carry `tags` — see the `tags` param for the slug and taxonomy convention.",
+        "description": "DEPRECATED: renamed to scout-emit-signal. This alias forwards to the same endpoint and will be removed. Call scout-emit-signal directly with the same arguments.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Emit a finding for a run",
-        "title": "Emit a finding for a run",
+        "summary": "Emit a finding for a run (deprecated)",
+        "title": "Emit a finding for a run (deprecated)",
         "required_scopes": ["signal_scout_internal:write"],
         "annotations": {
             "destructiveHint": false,
@@ -7207,11 +7503,11 @@
         }
     },
     "signals-scout-members-list": {
-        "description": "Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `signals-scout-emit-report` / `signals-scout-edit-report` (a member with a null `github_login` can't be routed to — pick another owner). Pass `search` to narrow a large roster. Strictly team-scoped.",
+        "description": "DEPRECATED: renamed to scout-members-list. This alias forwards to the same endpoint and will be removed. Call scout-members-list directly with the same arguments.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "List project members for reviewer routing",
-        "title": "List project members for reviewer routing",
+        "summary": "List project members for reviewer routing (deprecated)",
+        "title": "List project members for reviewer routing (deprecated)",
         "required_scopes": ["signal_scout_internal:read"],
         "annotations": {
             "destructiveHint": false,
@@ -7221,11 +7517,11 @@
         }
     },
     "signals-scout-project-profile-get": {
-        "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `advanced-activity-logs-list`. Distinct from `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.",
+        "description": "DEPRECATED: renamed to scout-project-profile-get. This alias forwards to the same endpoint and will be removed. Call scout-project-profile-get directly with the same arguments.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Get the project profile",
-        "title": "Get the project profile",
+        "summary": "Get the project profile (deprecated)",
+        "title": "Get the project profile (deprecated)",
         "required_scopes": ["signal_scout:read"],
         "annotations": {
             "destructiveHint": false,
@@ -7235,11 +7531,11 @@
         }
     },
     "signals-scout-run-now": {
-        "description": "Dispatch one on-demand run of a scout by its config `id`, regardless of its schedule — useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously and inherits the scheduled path's guards: it returns 429 if the project is over its Signals credits quota or its daily scout-run budget, and 409 if a run for this scout is already in progress. A manual run counts against the same daily run budget the scheduled runs draw from, so avoid triggering repeated runs of the same scout in a short window — each one consumes the project's scout-run allowance for the day. A manual run does not change the scout's schedule, and a disabled scout can still be run this way (to test before enabling). Returns the workflow id immediately — poll `signals-scout-runs-list` for the resulting run and its findings.",
+        "description": "DEPRECATED: renamed to scout-run-now. This alias forwards to the same endpoint and will be removed. Call scout-run-now directly with the same arguments.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Run a scout now",
-        "title": "Run a scout now",
+        "summary": "Run a scout now (deprecated)",
+        "title": "Run a scout now (deprecated)",
         "required_scopes": ["signal_scout:write"],
         "annotations": {
             "destructiveHint": false,
@@ -7249,11 +7545,11 @@
         }
     },
     "signals-scout-runs-emission-reports": {
-        "description": "For a `SignalScoutRun`, return each emitted finding paired with the inbox report its signal grouped into — the reverse lookup from a scout's emission to the `SignalReport` it actually produced. One row per emission with its `finding_id`, the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`), and the linked `report` (`id`, `title`, `status`) or `null` when the finding never matched a report (or the report was deleted/suppressed). Use this to see *which* findings turned into actionable reports, not just what a run surfaced (`signals-scout-runs-emissions-list`). Requires `task:read` on top of `signal_scout:read` because it exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.",
+        "description": "DEPRECATED: renamed to scout-runs-emission-reports. This alias forwards to the same endpoint and will be removed. Call scout-runs-emission-reports directly with the same arguments.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "List the inbox reports a scout run's findings linked to",
-        "title": "List the inbox reports a scout run's findings linked to",
+        "summary": "List the inbox reports a scout run's findings linked to (deprecated)",
+        "title": "List the inbox reports a scout run's findings linked to (deprecated)",
         "required_scopes": ["signal_scout:read", "task:read"],
         "annotations": {
             "destructiveHint": false,
@@ -7263,11 +7559,11 @@
         }
     },
     "signals-scout-runs-emissions-list": {
-        "description": "Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal. Use this to see *what* a run actually surfaced, not just how many (`emitted_count`) or which ids (`emitted_finding_ids`). Strictly team-scoped — a run UUID belonging to another team returns 404.",
+        "description": "DEPRECATED: renamed to scout-runs-emissions-list. This alias forwards to the same endpoint and will be removed. Call scout-runs-emissions-list directly with the same arguments.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "List a scout run's emitted findings",
-        "title": "List a scout run's emitted findings",
+        "summary": "List a scout run's emitted findings (deprecated)",
+        "title": "List a scout run's emitted findings (deprecated)",
         "required_scopes": ["signal_scout:read"],
         "annotations": {
             "destructiveHint": false,
@@ -7277,11 +7573,11 @@
         }
     },
     "signals-scout-runs-list": {
-        "description": "Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. Each row carries `emitted_count` (how many findings the run surfaced to the inbox) and `emitted_finding_ids`; `emitted_report_ids` (reports the run authored directly via `emit_report`) and `edited_report_ids` (reports the run mutated via `edit_report`) for the report channel; and — for runs that didn't complete cleanly — `error` (full TaskRun error) plus `failure_reason` (a concise derived one-liner). Pass `skill_name` (optionally with `skill_version`) to scope the dump to a single scout instead of every scout on the team — the primary scoping path when a specialist dedupes against its own past runs. Pass `emitted=true` to return only runs that emitted at least one finding (or `emitted=false` for runs that surfaced nothing). Pass `text` for a case-insensitive substring match on the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results capped at 100.",
+        "description": "DEPRECATED: renamed to scout-runs-list. This alias forwards to the same endpoint and will be removed. Call scout-runs-list directly with the same arguments.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "List recent scout runs",
-        "title": "List recent scout runs",
+        "summary": "List recent scout runs (deprecated)",
+        "title": "List recent scout runs (deprecated)",
         "required_scopes": ["signal_scout:read"],
         "annotations": {
             "destructiveHint": false,
@@ -7291,11 +7587,11 @@
         }
     },
     "signals-scout-runs-recent-emissions": {
-        "description": "Return the team's recently emitted scout findings across *every* `SignalScoutRun`, newest first — the cross-run counterpart to `signals-scout-runs-emissions-list` (which is scoped to one run). Each row carries its `run_id`, `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`). Use this to answer \"what has the fleet surfaced lately?\" in one call instead of listing runs and fanning out an emissions request per run. Pass `skill_name` to scope to a single scout, and `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to walk back past the cap. Capped at 200 rows (default 50). Strictly team-scoped.",
+        "description": "DEPRECATED: renamed to scout-runs-recent-emissions. This alias forwards to the same endpoint and will be removed. Call scout-runs-recent-emissions directly with the same arguments.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "List recent emitted findings across all scout runs",
-        "title": "List recent emitted findings across all scout runs",
+        "summary": "List recent emitted findings across all scout runs (deprecated)",
+        "title": "List recent emitted findings across all scout runs (deprecated)",
         "required_scopes": ["signal_scout:read"],
         "annotations": {
             "destructiveHint": false,
@@ -7305,11 +7601,11 @@
         }
     },
     "signals-scout-runs-retrieve": {
-        "description": "Return the full `SignalScoutRun` row for the given `run_id`, including the agent's end-of-run `summary`, `emitted_count`, and `emitted_finding_ids`. Status, timestamps, `error` (full TaskRun error message), and the derived `failure_reason` flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows queryable by `source_id = run:<run_id>:finding:<finding_id>` (one per id in `emitted_finding_ids`). Strictly team-scoped — a UUID belonging to another team returns 404.",
+        "description": "DEPRECATED: renamed to scout-runs-retrieve. This alias forwards to the same endpoint and will be removed. Call scout-runs-retrieve directly with the same arguments.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Get a scout run by ID",
-        "title": "Get a scout run by ID",
+        "summary": "Get a scout run by ID (deprecated)",
+        "title": "Get a scout run by ID (deprecated)",
         "required_scopes": ["signal_scout:read"],
         "annotations": {
             "destructiveHint": false,
@@ -7319,11 +7615,11 @@
         }
     },
     "signals-scout-scratchpad-forget": {
-        "description": "Delete a scratchpad entry by key. Returns `deleted=false` if no row matched — the call is idempotent.",
+        "description": "DEPRECATED: renamed to scout-scratchpad-forget. This alias forwards to the same endpoint and will be removed. Call scout-scratchpad-forget directly with the same arguments.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Forget a scratchpad entry by key",
-        "title": "Forget a scratchpad entry by key",
+        "summary": "Forget a scratchpad entry by key (deprecated)",
+        "title": "Forget a scratchpad entry by key (deprecated)",
         "required_scopes": ["signal_scout_internal:write"],
         "annotations": {
             "destructiveHint": true,
@@ -7333,11 +7629,11 @@
         }
     },
     "signals-scout-scratchpad-remember": {
-        "description": "Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so this is an upsert rather than a strict create. Keys are stable identities: key off *what* you're tracking, not *when* you saw it — never embed dates, timestamps, or run ids (that mints a new row every run and defeats dedupe). For run state, use one fixed key and keep the timestamp in `content`. Write `content` as Markdown — humans read these entries directly, so structured Markdown (headings, bullets, inline code for ids) is far easier to skim than a wall of prose. Optionally pass `run_id` to record which run wrote it.",
+        "description": "DEPRECATED: renamed to scout-scratchpad-remember. This alias forwards to the same endpoint and will be removed. Call scout-scratchpad-remember directly with the same arguments.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Remember a scratchpad entry",
-        "title": "Remember a scratchpad entry",
+        "summary": "Remember a scratchpad entry (deprecated)",
+        "title": "Remember a scratchpad entry (deprecated)",
         "required_scopes": ["signal_scout_internal:write"],
         "annotations": {
             "destructiveHint": false,
@@ -7347,11 +7643,11 @@
         }
     },
     "signals-scout-scratchpad-search": {
-        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the oldest entry from the prior page to walk past the cap. Pass `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 500.",
+        "description": "DEPRECATED: renamed to scout-scratchpad-search. This alias forwards to the same endpoint and will be removed. Call scout-scratchpad-search directly with the same arguments.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Search the scout scratchpad",
-        "title": "Search the scout scratchpad",
+        "summary": "Search the scout scratchpad (deprecated)",
+        "title": "Search the scout scratchpad (deprecated)",
         "required_scopes": ["signal_scout:read"],
         "annotations": {
             "destructiveHint": false,
@@ -8988,7 +9284,7 @@
         "feature_flag": "engineering-analytics"
     },
     "workflows-create": {
-        "description": "Create a workflow. It is created as a draft and does NOT run until enabled: test it with workflows-test-run first, then enable (workflows-enable) only with the user's explicit approval — enabling is a one-way door, since live workflows can't be edited over MCP. Provide an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes (function/function_email/function_sms, delay, conditional_branch, wait_until_condition, ...) connected by edges. Read the building-workflows skill for node shapes before composing: a node that mismatches the per-type schema saves but breaks the visual editor. Two traps that save but break: (1) a conditional_branch condition needs a 'filters' wrapper — {filters:{properties:[...]}}, not {properties:[...]} on the condition; omitting it passes save but the editor flags it and the branch won't evaluate your condition. (2) Never hand-author bytecode anywhere; send properties/hash and the server compiles it. A 'batch' trigger broadcasts to an audience (config.filters.properties: person-property conditions and/or cohort references), one run per matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with workflows-schedule-create. Behavioral targeting ('did event X at least N times over the last M days') is unsupported; reject it and explain why.",
+        "description": "Create a workflow. It is created as a draft and does NOT run until enabled: test it with workflows-test-run first, then enable (workflows-enable) only with the user's explicit approval — from then on it runs on real people, and further content edits stage as a draft you must publish (workflows-publish) to take effect. Provide an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes (function/function_email/function_sms, delay, conditional_branch, wait_until_condition, ...) connected by edges. Read the building-workflows skill for node shapes before composing: a node that mismatches the per-type schema saves but breaks the visual editor. Two traps that save but break: (1) a conditional_branch condition needs a 'filters' wrapper — {filters:{properties:[...]}}, not {properties:[...]} on the condition; omitting it passes save but the editor flags it and the branch won't evaluate your condition. (2) Never hand-author bytecode anywhere; send properties/hash and the server compiles it. A 'batch' trigger broadcasts to an audience (config.filters.properties: person-property conditions and/or cohort references), one run per matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with workflows-schedule-create. Behavioral targeting ('did event X at least N times over the last M days') is unsupported; reject it and explain why.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Create workflow",
@@ -9015,8 +9311,22 @@
             "readOnlyHint": false
         }
     },
+    "workflows-discard-draft": {
+        "description": "Throw away a workflow's staged draft without touching the live config. Idempotent — discarding when nothing is staged is a no-op. Returns the workflow.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Discard workflow draft",
+        "title": "Discard workflow draft",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-get": {
-        "description": "Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit condition, variables, and any recurring 'schedules' (read-only here). For a batch workflow, check status=='active' plus an active entry in 'schedules' to confirm it will actually fire.",
+        "description": "Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit condition, variables, and any recurring 'schedules' (read-only here). For a batch workflow, check status=='active' plus an active entry in 'schedules' to confirm it will actually fire. On an active workflow, 'draft' holds staged content changes awaiting workflows-publish (null when nothing is staged) — the live config in actions/edges is what's running.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Get workflow",
@@ -9156,7 +9466,7 @@
         }
     },
     "workflows-patch-graph": {
-        "description": "Surgically edit a draft workflow's graph by sending a small, ordered list of operations instead of resending every action and edge. Prefer this over workflows-update for any change to an existing draft — to tweak one node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing changes. Draft only — active workflows are read-only via MCP. The full updated workflow is returned, so you don't need to re-fetch before the next edit. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper: {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with workflows-test-run after patching.",
+        "description": "Surgically edit a workflow's graph by sending a small, ordered list of operations instead of resending every action and edge. Prefer this over workflows-update for any graph change — to tweak one node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing changes. On an active workflow, patches stage a draft instead of changing what's running: the first patch copies the live graph into the draft, later patches compose onto it, and nothing reaches real people until workflows-publish. A rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet — then a live change means recreating the workflow as a new draft. The full updated workflow is returned, so you don't need to re-fetch before the next edit. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper: {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with workflows-test-run after patching.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Patch workflow graph",
@@ -9164,6 +9474,20 @@
         "required_scopes": ["hog_flow:write"],
         "annotations": {
             "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-publish": {
+        "description": "Apply a workflow's staged draft to its live config. Two-step: call without confirm first — it returns in_flight_runs (people mid-flow who will follow the new config once published) and draft_updated_at, changing nothing. Echo that impact to the user and get their go-ahead, then call again with confirm=true and that exact draft_updated_at; a 409 means the draft changed since you read it, so re-read and re-confirm. Publish revalidates the draft fully and recompiles it, so an invalid draft is rejected with the reason and the live config stays untouched. Test the draft first with workflows-test-run (use_draft=true).",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Publish workflow draft",
+        "title": "Publish workflow draft",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": true,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -9198,7 +9522,7 @@
         }
     },
     "workflows-test-run": {
-        "description": "Test-invoke a workflow one node at a time; it does NOT traverse the full graph in one call. The result includes nextActionId. To verify a path end to end, chain calls: start at the trigger (omit current_action_id), then pass the returned nextActionId as current_action_id on the next call, and repeat. To test a specific branch, set current_action_id to that node. Skip delay nodes by jumping to the action after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}). Async actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side effects. Returns the step's execution trace.",
+        "description": "Test-invoke a workflow one node at a time; it does NOT traverse the full graph in one call. The result includes nextActionId. To verify a path end to end, chain calls: start at the trigger (omit current_action_id), then pass the returned nextActionId as current_action_id on the next call, and repeat. To test a specific branch, set current_action_id to that node. Skip delay nodes by jumping to the action after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}). Async actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side effects. Returns the step's execution trace. Set use_draft=true to test a workflow's staged draft instead of its live config — always do this before workflows-publish.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Test-run workflow",
@@ -9212,7 +9536,7 @@
         }
     },
     "workflows-update": {
-        "description": "Fallback editor. Prefer workflows-patch-graph for graph changes: it sends only the delta, is structurally validated, and returns the full updated graph. Reach for workflows-update for top-level metadata a patch can't express (name, description, exit_condition), or as an escape hatch to replace the whole workflow when you can't get workflows-patch-graph to land a change. Draft only: active workflows are read-only via MCP (editing risks breaking already-scheduled runs), so create a new draft to change a live one. Status changes go through workflows-enable / workflows-archive.",
+        "description": "Fallback editor. Prefer workflows-patch-graph for graph changes: it sends only the delta, is structurally validated, and returns the full updated graph. Reach for workflows-update for top-level metadata a patch can't express (name, description, exit_condition), or as an escape hatch to replace the whole workflow when you can't get workflows-patch-graph to land a change. On an active workflow, content fields stage a draft (published with workflows-publish) while name/description apply immediately; a rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet — then a live change means recreating the workflow as a new draft. Status changes go through workflows-enable / workflows-archive.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",

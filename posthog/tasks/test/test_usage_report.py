@@ -207,11 +207,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
         # make sure we don't collapse duplicate rows
         sync_execute("SYSTEM STOP MERGES")
 
-        # Clear existing data
-        sync_execute("TRUNCATE TABLE events")
-        sync_execute("TRUNCATE TABLE person")
-        sync_execute("TRUNCATE TABLE person_distinct_id")
-
         materialize("events", "$exception_values")
 
         self.expected_properties: dict = {}

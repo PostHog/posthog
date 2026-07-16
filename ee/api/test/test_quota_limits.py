@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
@@ -53,6 +54,22 @@ class TestQuotaLimitsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["limited"]["ai_credits"], {"limited": False})
+        # Org holds no billing-granted Code usage feature -> reads as not paying
+        self.assertIs(data["code_usage_billing_active"], False)
+
+    def test_reports_code_usage_billing_state(self) -> None:
+        # The LLM gateway keys posthog_code per-user cap bypass and model gating
+        # on this field - dropping it (or resolving the wrong org) silently
+        # re-caps paying users.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Code usage billing"}
+        ]
+        self.organization.save()
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIs(response.json()["code_usage_billing_active"], True)
 
     def test_returns_limited_when_team_is_over_quota(self) -> None:
         self._set_ai_credits_limit(self.team.api_token, 9_999_999_999)

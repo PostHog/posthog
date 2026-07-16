@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Builds the toolbar bundle for use alongside Vite dev server.
+ * Builds the toolbar bundle for use alongside the Vite dev server.
  *
  * When using Vite for development, the main app is served via Vite's dev server with HMR.
- * However, the toolbar is loaded as a separate IIFE bundle via /static/toolbar.js,
- * which is proxied to Django. This script watches and rebuilds the toolbar when
+ * The toolbar is a separate bundle loaded via /static/toolbar.js (proxied to Django), so it
+ * isn't part of the Vite graph. This script builds and watches it, rebuilding when
  * toolbar-related files change.
  */
 import * as path from 'path'
