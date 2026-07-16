@@ -228,7 +228,7 @@ def _result_id(item: dict[str, Any]) -> str:
     """
     raw = item.get("id") or item.get("similarityId")
     if raw is None:
-        raw = hashlib.sha1(json.dumps(item, sort_keys=True, default=str).encode()).hexdigest()
+        raw = hashlib.sha256(json.dumps(item, sort_keys=True, default=str).encode()).hexdigest()
     return f"{item.get('type', 'unknown')}:{raw}"
 
 
