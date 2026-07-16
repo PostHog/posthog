@@ -3,16 +3,21 @@ import { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
-import { Popover, PopoverContent } from 'lib/ui/quill'
 
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
 import { TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
+import { TaxonomicFilterHeadless } from 'lib/components/TaxonomicFilter/headless'
+import { TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import { taxonomicMenuPreferenceLogic } from 'lib/components/TaxonomicPopover/taxonomicMenuPreferenceLogic'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Popover, PopoverContent } from 'lib/ui/quill'
 
 import { FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
 
@@ -56,6 +61,9 @@ const UniversalSearch = ({
     const { searchQuery } = useValues(issueFiltersLogic)
     const { setSearchQuery } = useActions(issueFiltersLogic)
     const { addGroupFilter } = useActions(universalFiltersLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { useNewMenu } = useValues(taxonomicMenuPreferenceLogic)
+    const useQuillTaxonomicFilter = !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD] && useNewMenu
 
     const searchInputRef = useRef<HTMLInputElement | null>(null)
     const anchorRef = useRef<HTMLDivElement | null>(null)
@@ -115,6 +123,41 @@ const UniversalSearch = ({
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [visible])
+
+    // Behind the taxonomic-filter-menu-rebuild flag (and the per-user new-menu
+    // preference), the search input + results list are the quill TaxonomicFilterMenu
+    // instead of the legacy TaxonomicFilterSearchInput + InfiniteSelectResults. It's a
+    // single-value picker, so each pick commits one filter via addGroupFilter and the
+    // selected-filter chips render beside the input rather than inside it.
+    if (useQuillTaxonomicFilter) {
+        return (
+            <div className="flex w-full min-w-0 flex-wrap items-center gap-1">
+                <FilterOperatorToggle />
+                <UniversalFilterGroup taxonomicGroupTypes={taxonomicGroupTypes} />
+                <div className="min-w-0 flex-1">
+                    <TaxonomicFilterHeadless.Root
+                        className="contents"
+                        bindRootProps={false}
+                        taxonomicGroupTypes={taxonomicGroupTypes}
+                        excludedProperties={{ [TaxonomicFilterGroupType.ErrorTrackingIssues]: ['assignee'] }}
+                        initialSearchQuery={searchQuery}
+                        onSearchQueryChange={onChange}
+                        autoSelectItem={false}
+                        onChange={(group, value, item) => {
+                            setSearchQuery('')
+                            addGroupFilter(group, value, item)
+                        }}
+                    >
+                        <TaxonomicFilterMenu
+                            triggerVariant="input"
+                            fullWidthTrigger
+                            placeholder="Add a filter or search..."
+                        />
+                    </TaxonomicFilterHeadless.Root>
+                </div>
+            </div>
+        )
+    }
 
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
