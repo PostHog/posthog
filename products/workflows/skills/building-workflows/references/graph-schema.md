@@ -138,20 +138,20 @@ Retrieve `template-native-push` with `cdp-function-templates-retrieve` for the f
   "type": "function_push",
   "config": {
     "template_id": "template-native-push",
-    "message_category_type": "marketing",
     "inputs": {
       "distinctId": { "value": "{event.distinct_id}" },
-      "channels": { "value": [123] },
-      "title": { "value": "You left something behind" },
-      "body": { "value": "Hi {person.properties.first_name}, come finish setting up." }
+      "channels": { "value": [6, 7] },
+      "title": { "value": "Notification from {event.event}" },
+      "body": { "value": "Hi {{ person.properties.first_name }}, come finish setting up.", "templating": "liquid" }
     }
   }
 }
 ```
 
-- **`channels`** is an `integration_multi` input: its `value` is an array of **integration id numbers** (e.g. `[123]`), not objects. Find the FCM/APNs integration ids with `integrations-list` (look for `kind` `firebase` / `apns`); at least one is required or the send throws "No push channel configured".
-- Only `title` is required besides `distinctId` and `channels`; `body` and everything else (`image`, `data`, `ttlSeconds`, `android_*`, `ios_*`) are optional.
-- Push has no delivered/opened/clicked signal — the provider (FCM/APNs) responds synchronously, so a successful send means "accepted for delivery", nothing more.
+- **`channels`** is an `integration_multi` input: its `value` is an array of **integration id numbers** (e.g. `[6, 7]`), not objects. Find the FCM/APNs integration ids with `integrations-list` (look for `kind` `firebase` / `apns`); at least one is required or the send throws "No push channel configured".
+- **Templating differs per input.** `body` is **liquid** — interpolate with `{{ person.x }}` / `{{ event.x }}` (double braces) and set `"templating": "liquid"`. `title` and the other string inputs are **hog** — use `{event.x}` / `{person.x}` (single braces). The wrong brace style leaves the expression as a literal.
+- Required: `distinctId`, `channels`, `title`. Optional: `body`, `image`, `data`, `ttlSeconds`, `android_*`, `ios_*` (retrieve the `inputs_schema` for the full set).
+- The server compiles `bytecode` and assigns `order` on each input — never send those. Push has no delivered/opened/clicked signal (FCM/APNs respond synchronously), so a successful send means "accepted for delivery", nothing more.
 
 ## Duration strings (`delay_duration`, `max_wait_duration`)
 
