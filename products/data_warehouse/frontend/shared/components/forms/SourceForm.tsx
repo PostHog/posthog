@@ -116,6 +116,11 @@ export const sourceFieldToElement = (
     setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void,
     oauthRedirectUrl?: string
 ): JSX.Element => {
+    // Hidden fields stay in the config tree (their stored values parse and prefill) but never render.
+    if ('hidden' in field && field.hidden) {
+        return <React.Fragment key={field.name} />
+    }
+
     // It doesn't make sense for this to show on an update to an existing connection since we likely just want to change
     // a field or two. There is also some divergence in creates vs. updates that make this a bit more complex to handle.
     if (field.type === 'text' && field.name === 'connection_string') {
@@ -283,6 +288,14 @@ export const sourceFieldToElement = (
     // contract: once the OAuth integration is picked, the text input becomes a dropdown of the
     // accounts the integration can access (one component, one logic, one endpoint shape for all).
     if (field.type === 'oauth-account-select') {
+        // A hidden sibling of the same type is a legacy single-value field this multi field
+        // superseded (e.g. GitHub `repository` -> `repositories`); its saved value seeds the
+        // picker when the multi field is still empty.
+        const legacySingleField = field.multiple
+            ? sourceConfig.fields.find(
+                  (sibling) => sibling.type === 'oauth-account-select' && sibling.hidden && sibling.name !== field.name
+              )?.name
+            : undefined
         return (
             <IntegrationAccountSelector
                 key={field.name}
@@ -293,6 +306,8 @@ export const sourceFieldToElement = (
                 sourceType={sourceConfig.name}
                 placeholder={field.placeholder}
                 caption={field.caption}
+                multiple={field.multiple}
+                legacySingleField={legacySingleField}
             />
         )
     }
