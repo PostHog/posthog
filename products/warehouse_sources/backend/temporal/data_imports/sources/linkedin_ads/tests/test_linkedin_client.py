@@ -46,6 +46,28 @@ class TestLinkedinAdsClient:
         mock_client_instance.finder.assert_called_once()
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_get_accounts_collects_every_page(self, mock_restli_client):
+        page_one = mock.MagicMock()
+        page_one.status_code = 200
+        page_one.elements = [{"id": "1", "name": "Account 1"}]
+        page_one.response.text = json.dumps({"metadata": {"nextPageToken": "token123"}})
+
+        page_two = mock.MagicMock()
+        page_two.status_code = 200
+        page_two.elements = [{"id": "2", "name": "Account 2"}]
+        page_two.response.text = json.dumps({"metadata": {}})
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.side_effect = [page_one, page_two]
+
+        client = LinkedinAdsClient(self.access_token)
+        result = client.get_accounts()
+
+        assert result == [{"id": "1", "name": "Account 1"}, {"id": "2", "name": "Account 2"}]
+        assert mock_client_instance.finder.call_count == 2
+        assert mock_client_instance.finder.call_args_list[1][1]["query_params"]["pageToken"] == "token123"
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_get_accounts_api_error(self, mock_restli_client):
         """Test accounts retrieval with API error."""
         mock_response = mock.MagicMock()

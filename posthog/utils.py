@@ -659,6 +659,8 @@ def _build_template_context(
     # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
     if "oauth_application" in context:
         posthog_app_context["oauth_application"] = context.pop("oauth_application")
+    if "oauth_mcp_consent" in context:
+        posthog_app_context["oauth_mcp_consent"] = context.pop("oauth_mcp_consent")
 
     # JSON dumps here since there may be objects like Queries
     # that are not serializable by Django's JSON serializer
@@ -1153,6 +1155,7 @@ def get_compare_period_dates(
     date_from_delta_mapping: Optional[dict[str, int]],
     date_to_delta_mapping: Optional[dict[str, int]],
     interval: str,
+    exclude_incomplete_periods: bool = False,
 ) -> tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
     new_date_from = date_from - diff
@@ -1178,6 +1181,9 @@ def get_compare_period_dates(
             and date_from_delta_mapping.get("days", None)
             and date_from_delta_mapping["days"] % 7 == 0
             and not date_to_delta_mapping
+            # With excludeIncompletePeriods the ongoing day is clipped out of the range, so -7d
+            # covers exactly 7 complete days and the extra day would misalign the previous period.
+            and not exclude_incomplete_periods
         ):
             # KLUDGE: Unfortunately common relative date ranges such as "Last 7 days" (-7d) or "Last 14 days" (-14d)
             # are wrong because they treat the current ongoing day as an _extra_ one. This means that those ranges
@@ -1710,15 +1716,24 @@ def cache_requested_by_client(request: Request) -> bool | str:
     return _request_has_key_set("use_cache", request)
 
 
-def filters_override_requested_by_client(request: Request, dashboard: Optional["Dashboard"]) -> dict:
+def filters_override_requested_by_client(
+    request: Request, dashboard: Optional["Dashboard"], is_shared: bool = False
+) -> dict:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     dashboard_filters = dashboard.filters if dashboard else {}
     raw_override = request.query_params.get("filters_override")
 
-    # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or isinstance(
-        request.successful_authenticator, (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication)
+    # Security: never honor client-supplied overrides for shared/embedded access. The
+    # successful_authenticator check catches token-authenticated refreshes; is_shared also covers
+    # the path-based /shared/<token> page load, where no authenticator runs and the check is blind.
+    if (
+        not raw_override
+        or is_shared
+        or isinstance(
+            request.successful_authenticator,
+            (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+        )
     ):
         return dashboard_filters
 
@@ -1731,7 +1746,10 @@ def filters_override_requested_by_client(request: Request, dashboard: Optional["
 
 
 def variables_override_requested_by_client(
-    request: Optional[Request], dashboard: Optional["Dashboard"], variables: list["InsightVariable"]
+    request: Optional[Request],
+    dashboard: Optional["Dashboard"],
+    variables: list["InsightVariable"],
+    is_shared: bool = False,
 ) -> Optional[dict[str, dict]]:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
@@ -1740,12 +1758,18 @@ def variables_override_requested_by_client(
     dashboard_variables = (dashboard and dashboard.variables) or {}
     raw_override = request.query_params.get("variables_override") if request else None
 
-    # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or (
-        request
-        and isinstance(
-            request.successful_authenticator,
-            (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+    # Security: never honor client-supplied overrides for shared/embedded access. The
+    # successful_authenticator check catches token-authenticated refreshes; is_shared also covers
+    # the path-based /shared/<token> page load, where no authenticator runs and the check is blind.
+    if (
+        not raw_override
+        or is_shared
+        or (
+            request
+            and isinstance(
+                request.successful_authenticator,
+                (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+            )
         )
     ):
         return map_stale_to_latest(dashboard_variables, variables)
@@ -1758,15 +1782,24 @@ def variables_override_requested_by_client(
     return map_stale_to_latest({**dashboard_variables, **request_variables}, variables)
 
 
-def tile_filters_override_requested_by_client(request: Request, tile: Optional["DashboardTile"]) -> dict:
+def tile_filters_override_requested_by_client(
+    request: Request, tile: Optional["DashboardTile"], is_shared: bool = False
+) -> dict:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     tile_filters = tile.filters_overrides if tile and tile.filters_overrides else {}
     raw_override = request.query_params.get("tile_filters_override")
 
-    # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or isinstance(
-        request.successful_authenticator, (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication)
+    # Security: never honor client-supplied overrides for shared/embedded access. The
+    # successful_authenticator check catches token-authenticated refreshes; is_shared also covers
+    # the path-based /shared/<token> page load, where no authenticator runs and the check is blind.
+    if (
+        not raw_override
+        or is_shared
+        or isinstance(
+            request.successful_authenticator,
+            (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+        )
     ):
         return tile_filters
 

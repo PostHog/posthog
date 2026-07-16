@@ -65,7 +65,6 @@ from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
-from posthog.ph_client import feature_enabled_or_false
 
 from products.cohorts.backend.models.cohort import Cohort
 
@@ -597,6 +596,8 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
                     date_from=prev_date_from.isoformat() if prev_date_from else None,
                     date_to=prev_date_to.isoformat() if prev_date_to else None,
                     explicitDate=True,
+                    # a day-of-week filter applies to the shifted range too
+                    daysOfWeek=self.query.dateRange.daysOfWeek if self.query.dateRange else None,
                 ),
                 "compareFilter": None,
             }
@@ -628,28 +629,10 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         if compare_filter is None or not compare_filter.compare:
             return False
         # Compare is supported for the STEPS, TRENDS and TIME_TO_CONVERT viz modes. FLOW is excluded.
-        if self.context.funnelsFilter.funnelVizType not in (
+        return self.context.funnelsFilter.funnelVizType in (
             FunnelVizType.STEPS,
             FunnelVizType.TRENDS,
             FunnelVizType.TIME_TO_CONVERT,
-        ):
-            return False
-        return self._team_flag_funnels_compare()
-
-    def _team_flag_funnels_compare(self) -> bool:
-        return feature_enabled_or_false(
-            "product-analytics-funnels-compare",
-            str(self.team.uuid),
-            groups={
-                "organization": str(self.team.organization_id),
-                "project": str(self.team.id),
-            },
-            group_properties={
-                "organization": {"id": str(self.team.organization_id)},
-                "project": {"id": str(self.team.id)},
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
         )
 
     @cached_property

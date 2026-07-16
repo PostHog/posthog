@@ -84,7 +84,6 @@ If your account manages multiple properties, enter the ID of the property you wa
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

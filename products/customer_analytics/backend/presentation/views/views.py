@@ -47,6 +47,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     CustomPropertySourceSerializer,
     CustomPropertySourceUpdateSerializer,
     CustomPropertyValueSerializer,
+    CustomPropertyValueSuggestionsResponseSerializer,
     CustomPropertyValueWriteSerializer,
 )
 
@@ -222,10 +223,39 @@ class CustomPropertyDefinitionViewSet(
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertyDefinitionSerializer(instance=definition).data)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="key",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Id of the custom property definition to suggest values for.",
+            ),
+            OpenApiParameter(
+                name="value",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive substring to narrow the suggestions.",
+            ),
+        ],
+        responses={200: CustomPropertyValueSuggestionsResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def values(self, request: Request, *args, **kwargs) -> Response:
+        key = request.GET.get("key")
+        if not key:
+            return Response({"results": [], "refreshing": False})
+        suggestions = api.list_custom_property_value_suggestions(self.team_id, key, request.GET.get("value"))
+        return Response({"results": [{"name": value} for value in suggestions], "refreshing": False})
+
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = CustomPropertyDefinitionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        if data.target_type == "person" and not api.person_properties_flag_enabled(self.team_id):
+            raise ValidationError({"target_type": "Person properties from warehouse data are not enabled yet."})
         try:
             definition = api.create_custom_property_definition(
                 team_id=self.team_id,
@@ -234,6 +264,7 @@ class CustomPropertyDefinitionViewSet(
                 display_type=data.display_type,
                 is_big_number=data.is_big_number,
                 options=_custom_property_option_dicts(data.options),
+                target_type=data.target_type,
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
@@ -418,6 +449,8 @@ class CustomPropertySourceViewSet(
                 definition_id=data.definition,
                 saved_query_id=data.saved_query,
                 source_column=data.source_column,
+                external_data_schema_id=data.external_data_schema,
+                column_property_map=data.column_property_map,
                 key_column=data.key_column,
                 is_enabled=data.is_enabled,
                 user=cast(User, request.user),

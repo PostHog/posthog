@@ -1,0 +1,660 @@
+import { generateKeyPairSync } from 'crypto'
+
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '~/cdp/_tests/examples'
+import { createExampleInvocation, createHogFunction } from '~/cdp/_tests/fixtures'
+import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { EncryptedFields } from '~/cdp/utils/encryption-utils'
+import { parseJSON } from '~/common/utils/json-parse'
+
+import { IntegrationManagerService } from '../managers/integration-manager.service'
+import { PushNotificationFetchUtils, PushNotificationService } from './push-notification.service'
+
+const encryptedFields = new EncryptedFields('01234567890123456789012345678901')
+
+const testEcKey = generateKeyPairSync('ec', {
+    namedCurve: 'prime256v1',
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+}).privateKey
+
+const createSendPushNotificationInvocation = (
+    personProperties?: Record<string, any>
+): CyclotronJobInvocationHogFunction => {
+    const hogFunction = createHogFunction({
+        name: 'Test FCM function',
+        ...HOG_EXAMPLES.simple_fetch,
+        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+        ...HOG_FILTERS_EXAMPLES.no_filters,
+        inputs_schema: [
+            {
+                type: 'push_subscription',
+                platform: 'android',
+                key: 'device_token',
+                label: 'Device Token',
+            },
+        ],
+    })
+
+    const invocation = createExampleInvocation(hogFunction)
+
+    invocation.queueParameters = {
+        type: 'sendPushNotification',
+        integrationIds: [1],
+        distinctId: 'test-distinct-id',
+        payload: {
+            title: 'Test notification',
+            body: 'Hello from PostHog',
+        },
+    } as any
+
+    invocation.state.vmState = { stack: [] } as any
+
+    if (personProperties) {
+        invocation.state.globals.person = {
+            ...(invocation.state.globals.person ?? { id: 'person-1', name: 'Test', url: '' }),
+            properties: personProperties,
+        }
+    }
+
+    return invocation
+}
+
+describe('PushNotificationService', () => {
+    let service: PushNotificationService
+    let integrationManager: IntegrationManagerService
+    let fetchUtils: PushNotificationFetchUtils
+    let redisStore: Map<string, string>
+    let mockRedisSet: jest.Mock
+    let mockRedis: any
+
+    const mockTrackedFetch = jest.fn()
+
+    const firebaseIntegration = {
+        id: 1,
+        team_id: 1,
+        kind: 'firebase' as const,
+        config: { project_id: 'test-project' },
+        sensitive_config: { access_token: 'test-access-token' },
+    }
+
+    beforeEach(() => {
+        integrationManager = {
+            get: jest.fn().mockResolvedValue(firebaseIntegration),
+        } as any
+
+        fetchUtils = {
+            trackedFetch: mockTrackedFetch,
+            maxFetchTimeoutMs: 10000,
+        }
+
+        redisStore = new Map<string, string>()
+        mockRedisSet = jest.fn((key: string, value: string) => {
+            redisStore.set(key, value)
+            return 'OK'
+        })
+        mockRedis = {
+            useClient: jest.fn((_opts: any, fn: any) =>
+                fn({
+                    get: (key: string) => redisStore.get(key) ?? null,
+                    set: mockRedisSet,
+                })
+            ),
+        } as any
+
+        service = new PushNotificationService(integrationManager, encryptedFields, fetchUtils, mockRedis)
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
+    describe('executeSendPushNotification', () => {
+        it('throws when queue parameters type is not sendPushNotification', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+            })
+            invocation.queueParameters = { type: 'fetch', url: 'http://example.com', method: 'POST' } as any
+
+            await expect(service.executeSendPushNotification(invocation)).rejects.toThrow('Bad invocation')
+            expect(mockTrackedFetch).not.toHaveBeenCalled()
+        })
+
+        it('calls trackedFetch with url and fetchParams', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+            })
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: {
+                    status: 200,
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            await service.executeSendPushNotification(invocation)
+
+            expect(mockTrackedFetch).toHaveBeenCalledWith({
+                url: 'https://fcm.googleapis.com/v1/projects/test-project/messages:send',
+                fetchParams: expect.objectContaining({ method: 'POST' }),
+                templateId: 'unknown',
+            })
+        })
+
+        it('returns result with metric push_sent on success', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+            })
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: {
+                    status: 200,
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.metrics).toContainEqual(
+                expect.objectContaining({
+                    metric_kind: 'push',
+                    metric_name: 'push_sent',
+                    count: 1,
+                })
+            )
+            expect(result.finished).toBe(true)
+        })
+
+        it('logs warning and records push_skipped when no device token found', async () => {
+            const invocation = createSendPushNotificationInvocation({})
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.logs.map((log) => log.message)).toContainEqual(
+                expect.stringContaining('No active FCM device token found')
+            )
+            // No token means nothing was delivered — record push_skipped, not push_sent.
+            expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_skipped', count: 1 }))
+            expect(result.metrics).not.toContainEqual(expect.objectContaining({ metric_name: 'push_sent' }))
+        })
+
+        it('does not match tokens for a different app identifier', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_other-project': encryptedFields.encrypt('other-token'),
+            })
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.logs.map((log) => log.message)).toContainEqual(
+                expect.stringContaining('No active FCM device token found')
+            )
+            expect(mockTrackedFetch).not.toHaveBeenCalled()
+        })
+
+        it('sets error when push fails', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+            })
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: {
+                    status: 500,
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.error).toBeTruthy()
+        })
+
+        it('prunes an unregistered FCM token and skips the channel without erroring', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('fcm-token'),
+            })
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: {
+                    status: 404,
+                    text: () =>
+                        Promise.resolve(
+                            JSON.stringify({ error: { status: 'NOT_FOUND', details: [{ errorCode: 'UNREGISTERED' }] } })
+                        ),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            // Dead token: removed via a $unset person update, and the channel is skipped (not errored → no retry).
+            expect(result.error).toBeUndefined()
+            expect(result.capturedPostHogEvents).toContainEqual(
+                expect.objectContaining({
+                    event: '$set',
+                    distinct_id: 'test-distinct-id',
+                    properties: { $unset: ['$device_push_subscription_test-project'] },
+                })
+            )
+            expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_skipped' }))
+        })
+
+        it('puts an iOS subtitle in the APNS alert, not the FCM notification (FCM rejects notification.subtitle)', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('fcm-token'),
+            })
+            invocation.queueParameters = {
+                ...invocation.queueParameters,
+                payload: { title: 'T', body: 'B', apns: { subtitle: 'Sub' } },
+            } as any
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+                fetchDuration: 10,
+            })
+
+            await service.executeSendPushNotification(invocation)
+
+            const body = parseJSON(mockTrackedFetch.mock.calls[0][0].fetchParams.body)
+            expect(body.message.notification.subtitle).toBeUndefined()
+            expect(body.message.apns.payload.aps.alert).toEqual({ title: 'T', body: 'B', subtitle: 'Sub' })
+        })
+
+        it('returns error when integration not found', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+            })
+            ;(integrationManager.get as jest.Mock).mockResolvedValue(undefined)
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.error).toBeTruthy()
+            expect(result.logs.map((log) => log.message)).toContain('Push notification integration not found')
+        })
+
+        it('handles missing person properties gracefully', async () => {
+            const invocation = createSendPushNotificationInvocation()
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.logs.map((log) => log.message)).toContainEqual(
+                expect.stringContaining('No active FCM device token found')
+            )
+        })
+    })
+
+    describe('APNS path', () => {
+        const apnsIntegration = {
+            id: 2,
+            team_id: 1,
+            kind: 'apns' as const,
+            config: { key_id: 'KEY123', team_id: 'TEAM456', bundle_id: 'com.example.app' },
+            sensitive_config: { signing_key: testEcKey },
+        }
+
+        beforeEach(() => {
+            ;(integrationManager.get as jest.Mock).mockResolvedValue(apnsIntegration)
+        })
+
+        it('sends push notification via APNS', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+            })
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: {
+                    status: 200,
+                    text: () => Promise.resolve(''),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 15,
+            })
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_sent', count: 1 }))
+            expect(mockTrackedFetch).toHaveBeenCalledWith({
+                url: 'https://api.push.apple.com/3/device/apns-device-token',
+                fetchParams: expect.objectContaining({
+                    method: 'POST',
+                    allowH2: true,
+                    headers: expect.objectContaining({
+                        'apns-topic': 'com.example.app',
+                        'apns-push-type': 'alert',
+                    }),
+                }),
+                templateId: 'unknown',
+            })
+        })
+
+        it('reuses a cached APNS provider token across sends instead of minting one each time', async () => {
+            const send = (): Promise<any> =>
+                service.executeSendPushNotification(
+                    createSendPushNotificationInvocation({
+                        '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+                    })
+                )
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+                fetchDuration: 15,
+            })
+
+            await send()
+            await send()
+
+            // The JWT is written to Redis once and read back on the second send. Minting a new token per
+            // send is what makes Apple return 429 TooManyProviderTokenUpdates.
+            expect(mockRedisSet).toHaveBeenCalledTimes(1)
+        })
+
+        it('sets apns-priority to 5 for passive interruption level', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+            })
+            invocation.queueParameters = {
+                ...invocation.queueParameters,
+                payload: {
+                    title: 'Test',
+                    apns: { interruptionLevel: 'passive' },
+                },
+            } as any
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+                fetchDuration: 10,
+            })
+
+            await service.executeSendPushNotification(invocation)
+
+            expect(mockTrackedFetch).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    fetchParams: expect.objectContaining({
+                        headers: expect.objectContaining({ 'apns-priority': '5' }),
+                    }),
+                })
+            )
+        })
+
+        it('sets apns-priority to 10 for active interruption level', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+            })
+            invocation.queueParameters = {
+                ...invocation.queueParameters,
+                payload: {
+                    title: 'Test',
+                    apns: { interruptionLevel: 'active' },
+                },
+            } as any
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+                fetchDuration: 10,
+            })
+
+            await service.executeSendPushNotification(invocation)
+
+            expect(mockTrackedFetch).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    fetchParams: expect.objectContaining({
+                        headers: expect.objectContaining({ 'apns-priority': '10' }),
+                    }),
+                })
+            )
+        })
+
+        it('includes apns-collapse-id and apns-expiration headers when set', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+            })
+            invocation.queueParameters = {
+                ...invocation.queueParameters,
+                payload: {
+                    title: 'Test',
+                    collapseKey: 'my-collapse',
+                    ttlSeconds: 3600,
+                },
+            } as any
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+                fetchDuration: 10,
+            })
+
+            await service.executeSendPushNotification(invocation)
+
+            expect(mockTrackedFetch).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    fetchParams: expect.objectContaining({
+                        headers: expect.objectContaining({
+                            'apns-collapse-id': 'my-collapse',
+                            'apns-expiration': expect.stringMatching(/^\d+$/),
+                        }),
+                    }),
+                })
+            )
+        })
+
+        it('logs warning when no APNS device token found', async () => {
+            const invocation = createSendPushNotificationInvocation({})
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.logs.map((log) => log.message)).toContainEqual(
+                expect.stringContaining('No active APNS device token found')
+            )
+            expect(mockTrackedFetch).not.toHaveBeenCalled()
+        })
+
+        it('throws when APNS integration is missing required fields', async () => {
+            ;(integrationManager.get as jest.Mock).mockResolvedValue({
+                ...apnsIntegration,
+                config: { key_id: 'KEY123' },
+            })
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+            })
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.error).toBeTruthy()
+            expect(result.error).toContain('missing required fields')
+        })
+
+        it('generates a valid ES256 JWT with ieee-p1363 signature', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+            })
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+                fetchDuration: 10,
+            })
+
+            await service.executeSendPushNotification(invocation)
+
+            const authHeader = mockTrackedFetch.mock.calls[0][0].fetchParams.headers['Authorization']
+            const jwt = authHeader.replace('bearer ', '')
+            const [headerB64, claimsB64, signatureB64] = jwt.split('.')
+
+            const header = parseJSON(Buffer.from(headerB64, 'base64url').toString())
+            expect(header).toEqual({ alg: 'ES256', kid: 'KEY123' })
+
+            const claims = parseJSON(Buffer.from(claimsB64, 'base64url').toString())
+            expect(claims.iss).toBe('TEAM456')
+            expect(claims.iat).toBeGreaterThan(0)
+
+            // IEEE P1363 ES256 signatures are exactly 64 bytes (32 bytes r + 32 bytes s)
+            const signatureBytes = Buffer.from(signatureB64, 'base64url')
+            expect(signatureBytes.length).toBe(64)
+        })
+
+        it('sets error when APNS returns failure', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+            })
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: {
+                    status: 403,
+                    text: () => Promise.resolve(JSON.stringify({ reason: 'InvalidProviderToken' })),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.error).toBeTruthy()
+            expect(result.error).toContain('InvalidProviderToken')
+        })
+
+        it('does not let custom data overwrite the reserved aps payload', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+            })
+            // A custom data key named `aps` must not clobber the real notification payload.
+            invocation.queueParameters = {
+                ...invocation.queueParameters,
+                payload: { title: 'Real title', data: { aps: 'hijacked', custom: 'kept' } },
+            } as any
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+                fetchDuration: 15,
+            })
+
+            await service.executeSendPushNotification(invocation)
+
+            const body = parseJSON(mockTrackedFetch.mock.calls[0][0].fetchParams.body)
+            expect(body.aps.alert.title).toBe('Real title')
+            expect(body.custom).toBe('kept')
+        })
+
+        it('prunes an unregistered APNS token (410) and skips the channel', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-token'),
+            })
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: {
+                    status: 410,
+                    text: () => Promise.resolve(JSON.stringify({ reason: 'Unregistered' })),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(result.capturedPostHogEvents).toContainEqual(
+                expect.objectContaining({
+                    event: '$set',
+                    properties: { $unset: ['$device_push_subscription_com.example.app'] },
+                })
+            )
+        })
+    })
+
+    describe('multiple channels', () => {
+        const apnsIntegration = {
+            id: 2,
+            team_id: 1,
+            kind: 'apns' as const,
+            config: { key_id: 'KEY123', team_id: 'TEAM456', bundle_id: 'com.example.app' },
+            sensitive_config: { signing_key: testEcKey },
+        }
+        const ok200 = {
+            fetchError: null,
+            fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+            fetchDuration: 10,
+        }
+
+        it('delivers to every channel in the list, not just the first', async () => {
+            ;(integrationManager.get as jest.Mock).mockImplementation((id: number) =>
+                Promise.resolve(id === 1 ? firebaseIntegration : apnsIntegration)
+            )
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('fcm-token'),
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-token'),
+            })
+            invocation.queueParameters = { ...invocation.queueParameters, integrationIds: [1, 2] } as any
+            mockTrackedFetch.mockResolvedValue(ok200)
+
+            await service.executeSendPushNotification(invocation)
+
+            // The bug: a per-channel loop in hog only ran once, so only the first channel delivered.
+            expect(mockTrackedFetch).toHaveBeenCalledTimes(2)
+            const urls = mockTrackedFetch.mock.calls.map((c: any) => c[0].url)
+            expect(urls.some((u: string) => u.includes('fcm.googleapis.com'))).toBe(true)
+            expect(urls.some((u: string) => u.includes('push.apple.com'))).toBe(true)
+        })
+
+        it('deduplicates repeated channel ids so a device is not notified twice', async () => {
+            ;(integrationManager.get as jest.Mock).mockResolvedValue(firebaseIntegration)
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('fcm-token'),
+            })
+            invocation.queueParameters = { ...invocation.queueParameters, integrationIds: [1, 1, 1] } as any
+            mockTrackedFetch.mockResolvedValue(ok200)
+
+            await service.executeSendPushNotification(invocation)
+
+            // Three duplicate ids resolve to one unique channel — deliver once, not three times.
+            expect(mockTrackedFetch).toHaveBeenCalledTimes(1)
+        })
+
+        it('keeps delivering to healthy channels when one channel errors', async () => {
+            const brokenApns = { ...apnsIntegration, config: {}, sensitive_config: {} }
+            ;(integrationManager.get as jest.Mock).mockImplementation((id: number) =>
+                Promise.resolve(id === 1 ? firebaseIntegration : brokenApns)
+            )
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('fcm-token'),
+            })
+            invocation.queueParameters = { ...invocation.queueParameters, integrationIds: [1, 2] } as any
+            mockTrackedFetch.mockResolvedValue(ok200)
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            // FCM still delivers though the APNS channel throws; a partial success is not a hard error.
+            expect(mockTrackedFetch).toHaveBeenCalledTimes(1)
+            expect(mockTrackedFetch.mock.calls[0][0].url).toContain('fcm.googleapis.com')
+            expect(result.error).toBeUndefined()
+        })
+
+        it('retries when one channel is skipped and another genuinely fails', async () => {
+            ;(integrationManager.get as jest.Mock).mockImplementation((id: number) =>
+                Promise.resolve(id === 1 ? firebaseIntegration : apnsIntegration)
+            )
+            // Only the APNS token is registered: FCM is skipped (not a delivery), APNS is attempted.
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-token'),
+            })
+            invocation.queueParameters = { ...invocation.queueParameters, integrationIds: [1, 2] } as any
+            // APNS fails - nothing was delivered, so this must retry rather than silently drop the push.
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 500, text: () => Promise.resolve('{}'), dump: () => Promise.resolve() },
+                fetchDuration: 10,
+            })
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.error).toBeTruthy()
+            // The error is also surfaced to the hog template, so its failure message is not blank.
+            expect(result.invocation.state.vmState!.stack.at(-1)).toEqual({
+                success: false,
+                error: expect.any(String),
+            })
+        })
+    })
+})

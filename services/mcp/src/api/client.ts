@@ -85,10 +85,17 @@ export interface SearchResponse {
 export type Result<T, E = Error> = { success: true; data: T } | { success: false; error: E }
 
 export interface DataWarehouseSyncWarning {
+    type: 'warehouse_sync'
     table_name: string
     schema_name: string
     source_type: string
     status: string
+    message: string
+}
+
+export interface AccessControlFilterWarning {
+    type: 'access_control'
+    resources: string[]
     message: string
 }
 
@@ -97,8 +104,9 @@ export interface QueryEndpointResponse {
     columns?: unknown
     formatted_results?: string
     // null (not just absent) when the query response carries no warnings — the backend
-    // serializes the field explicitly rather than omitting it.
-    warnings?: DataWarehouseSyncWarning[] | null
+    // serializes the field explicitly rather than omitting it. Carries both warehouse-sync
+    // warnings and object-level access control warnings.
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
 }
 
 export interface ApiConfig {
@@ -682,6 +690,21 @@ export class ApiClient {
                     return { success: false, error: error as Error }
                 }
             },
+
+            updatePathCleaningFilters: async ({
+                projectId,
+                filters,
+            }: {
+                projectId: string
+                filters: Array<{ alias: string; regex: string; order: number }>
+            }): Promise<Result<Schemas.ProjectBackwardCompat>> => {
+                // path_cleaning_filters is a whole-list field on the project — the caller is
+                // responsible for having merged the desired rules into `filters` first.
+                return this.fetchJson<Schemas.ProjectBackwardCompat>(`${this.baseUrl}/api/projects/${projectId}/`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ path_cleaning_filters: filters }),
+                })
+            },
         }
     }
 
@@ -1220,8 +1243,16 @@ export class ApiClient {
                 query,
             }: {
                 query: Record<string, unknown>
-            }): Promise<{ results: unknown; formatted_results?: string }> => {
-                return this.request<{ results: unknown; formatted_results?: string }>({
+            }): Promise<{
+                results: unknown
+                formatted_results?: string
+                warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
+            }> => {
+                return this.request<{
+                    results: unknown
+                    formatted_results?: string
+                    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
+                }>({
                     method: 'POST',
                     path: `/api/environments/${projectId}/query/`,
                     body: { query: normalizeQuery(query) },

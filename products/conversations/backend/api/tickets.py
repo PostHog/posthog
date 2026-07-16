@@ -1376,6 +1376,13 @@ def assign_ticket(
                 assignment_before.delete()
             serialized_assignment_after = None
 
+        # Callers pass the assignee whenever it's present in the payload (the ticket UI always
+        # sends the full form), so skip logging and the assignment event when nothing changed —
+        # otherwise every save writes "assigned to unassigned" and fires assignment-triggered
+        # workflows.
+        if serialized_assignment_before == serialized_assignment_after:
+            return
+
         log_activity(
             organization_id=organization.id,
             team_id=team_id,

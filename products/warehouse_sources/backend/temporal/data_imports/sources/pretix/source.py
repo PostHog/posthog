@@ -57,7 +57,6 @@ class PretixSource(ResumableSource[PretixSourceConfig, PretixResumeConfig]):
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Pretix",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             keywords=["ticketing", "events", "tickets"],
             caption="""Enter your pretix API token to pull your event ticketing data into the PostHog Data warehouse.
 

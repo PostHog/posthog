@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import FuseClass from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -47,6 +47,7 @@ import {
     RecordingEventType,
 } from '~/types'
 
+import { sessionRecordingExperimentContextLogic } from '../player-meta/sessionRecordingExperimentContextLogic'
 import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
 import {
     DoctorDiagnostics,
@@ -96,6 +97,7 @@ const _itemTypes = [
     'inspector-summary',
     'app-state',
     'session-change',
+    'experiment-variant',
 ] as const
 
 export type InspectorListItemType = (typeof _itemTypes)[number]
@@ -185,6 +187,23 @@ export type InspectorListItemSummary = InspectorListItemBase & {
     errorCount: number | null
 }
 
+export type InspectorListItemExperimentVariant = InspectorListItemBase & {
+    type: 'experiment-variant'
+    data: {
+        // Synthesized client-side from the experiments session_context endpoint response
+        // (first_flag_evaluation_timestamp) — there is no backend event for this item, so it is
+        // not part of the loaded event stream. `id` keeps the same keying contract as
+        // event/comment items in the seekbar.
+        id: string
+        experimentId: number
+        experimentName: string
+        flagKey: string
+        variant: string
+        multipleVariants: boolean
+        variantsSeen: string[]
+    }
+}
+
 export type InspectorListItem =
     | InspectorListItemEvent
     | InspectorListItemConsole
@@ -199,6 +218,7 @@ export type InspectorListItem =
     | InspectorListItemAppState
     | InspectorListSessionChange
     | InspectorListItemLog
+    | InspectorListItemExperimentVariant
 
 export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
@@ -391,6 +411,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ['allPerformanceEvents'],
             featureFlagLogic,
             ['featureFlags'],
+            sessionRecordingExperimentContextLogic({ sessionRecordingId: props.sessionRecordingId }),
+            ['experimentItems'],
             playerInspectorLogsLogic(props),
             [
                 'logs',
@@ -825,6 +847,44 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             { resultEqualityCheck: equal },
         ],
 
+        experimentVariantItems: [
+            (s) => [s.experimentItems, s.windowIdForTimestamp, s.windowNumberForID, s.start],
+            (experimentItems, windowIdForTimestamp, windowNumberForID, start): InspectorListItemExperimentVariant[] => {
+                const items: InspectorListItemExperimentVariant[] = []
+                for (const item of experimentItems || []) {
+                    // Without a $feature_flag_called event there is no in-session moment to mark —
+                    // the assignment carried over from an earlier session.
+                    if (!item.first_flag_evaluation_timestamp) {
+                        continue
+                    }
+                    const { timestamp, timeInRecording } = timeRelativeToStart(
+                        { timestamp: item.first_flag_evaluation_timestamp },
+                        start
+                    )
+                    items.push({
+                        type: 'experiment-variant',
+                        timestamp,
+                        timeInRecording,
+                        search: `experiment variant ${item.experiment_name} ${item.variant}`,
+                        windowId: windowIdForTimestamp(timestamp.valueOf()),
+                        windowNumber: windowNumberForID(windowIdForTimestamp(timestamp.valueOf())),
+                        data: {
+                            id: `experiment-variant-${item.experiment_id}`,
+                            experimentId: item.experiment_id,
+                            experimentName: item.experiment_name,
+                            flagKey: item.flag_key,
+                            variant: item.variant,
+                            multipleVariants: item.multiple_variants,
+                            variantsSeen: item.variants_seen,
+                        },
+                        key: `experiment-variant-${item.experiment_id}`,
+                    })
+                }
+                return items
+            },
+            { resultEqualityCheck: equal },
+        ],
+
         runtimeDoctorEvents: [
             (s) => [s.start, s.doctorDiagnostics],
             (start: Dayjs | null, doctorDiagnostics: DoctorDiagnostics | null): InspectorListItemDoctor[] => {
@@ -875,8 +935,17 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.sessionPlayerMetaData,
                 s.segments,
                 s.runtimeDoctorEvents,
+                s.experimentVariantItems,
             ],
-            (start, processedSnapshotData, windowNumberForID, sessionPlayerMetaData, segments, runtimeDoctorEvents) => {
+            (
+                start,
+                processedSnapshotData,
+                windowNumberForID,
+                sessionPlayerMetaData,
+                segments,
+                runtimeDoctorEvents,
+                experimentVariantItems
+            ) => {
                 const items: InspectorListItem[] = []
 
                 segments
@@ -908,6 +977,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 // Add runtime doctor events (asset errors, rrweb warnings)
                 for (const item of runtimeDoctorEvents) {
+                    items.push(item)
+                }
+
+                // Add experiment variant-assignment markers (flag-evaluation moments)
+                for (const item of experimentVariantItems) {
                     items.push(item)
                 }
 
@@ -1223,13 +1297,17 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 allowMatchingEventsFilter,
                 trackedWindow,
                 hasEventsToDisplay
-            ): (InspectorListItemEvent | InspectorListItemComment)[] => {
-                // Pre-filter to only events and comments, avoiding the full filterInspectorListItems call
-                const eventAndCommentItems: (InspectorListItemEvent | InspectorListItemComment)[] = []
+            ): (InspectorListItemEvent | InspectorListItemComment | InspectorListItemExperimentVariant)[] => {
+                // Pre-filter to only events, comments and experiment variant markers, avoiding the full filterInspectorListItems call
+                const eventAndCommentItems: (
+                    | InspectorListItemEvent
+                    | InspectorListItemComment
+                    | InspectorListItemExperimentVariant
+                )[] = []
 
                 for (const item of allItemsData.items) {
-                    // Only process events and comments
-                    if (item.type !== 'events' && item.type !== 'comment') {
+                    // Only process events, comments and experiment variant markers
+                    if (item.type !== 'events' && item.type !== 'comment' && item.type !== 'experiment-variant') {
                         continue
                     }
 
@@ -1244,7 +1322,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
 
                     // Type assertion since we've already checked the type
-                    const typedItem = item as InspectorListItemEvent | InspectorListItemComment
+                    const typedItem = item as
+                        | InspectorListItemEvent
+                        | InspectorListItemComment
+                        | InspectorListItemExperimentVariant
 
                     // Apply event-specific filters
                     if (item.type === 'events') {
@@ -1277,7 +1358,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         const isPrimary = item.highlightColor === 'primary'
                         const isPageView = item.type === 'events' && item.data.event === '$pageview'
                         const isComment = item.type === 'comment'
-                        return isPrimary || isPageView || isComment
+                        const isExperimentVariant = item.type === 'experiment-variant'
+                        return isPrimary || isPageView || isComment || isExperimentVariant
                     })
 
                     // If still too many, sample them

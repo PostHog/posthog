@@ -67,7 +67,11 @@ def load_realtime_cohorts(team_id: int) -> QuerySet[Cohort]:
 
 
 def load_old_membership(team_id: int, cohort_id: int, *, page_size: int = 500_000) -> set[str]:
-    """Converged entered-set of one cohort from ClickHouse cohort_membership (offline host)."""
+    """Converged entered-set of one cohort from ClickHouse cohort_membership (offline host).
+
+    The full converged snapshot is read (not IN-filtered to the observed universe) because
+    the classifier needs `old - O` to compute the missed-emission probe.
+    """
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
     members: set[str] = set()
     cursor: str | None = None
@@ -90,7 +94,7 @@ def load_old_membership(team_id: int, cohort_id: int, *, page_size: int = 500_00
 
 
 def make_activity_probe(team_id: int) -> Callable[[Sequence[str], datetime], set[str]]:
-    """R-WARMUP probe: which of `person_ids` had any event at/after `cutoff`."""
+    """Missed-emission probe: which of `person_ids` had any event at/after `cutoff`."""
 
     def probe(person_ids: Sequence[str], cutoff: datetime) -> set[str]:
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)

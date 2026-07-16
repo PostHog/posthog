@@ -263,7 +263,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         # fragment. argmax_select wraps the chain in an ``ast.Field``, keeping the key parameterized.
         assert select_fields == {"prop_0": ["properties", malicious_property]}
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_activity_parameterizes_property_keys_in_clickhouse_query(self):
         from asgiref.sync import sync_to_async
@@ -360,7 +360,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         prop_chains = _collect_field_chains(property_aliases[0])
         assert any(chain[-2:] == ["properties", malicious_property] for chain in prop_chains)
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_activity_falls_back_to_full_properties_for_percent_keys(self):
         from asgiref.sync import sync_to_async

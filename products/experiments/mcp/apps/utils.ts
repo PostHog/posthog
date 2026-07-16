@@ -2,7 +2,6 @@ export interface ExperimentVariant {
     key: string
     name?: string
     rollout_percentage?: number
-    split_percent?: number
 }
 
 export interface ExperimentMetric {

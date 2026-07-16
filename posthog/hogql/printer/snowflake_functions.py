@@ -180,6 +180,7 @@ SNOWFLAKE_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "toString": _make_cast_handler("VARCHAR"),
     "toInt": _make_cast_handler("BIGINT"),
     "toIntOrZero": _make_cast_handler("BIGINT"),
+    "toIntOrDefault": _make_cast_handler("BIGINT"),
     "toFloat": _make_cast_handler("DOUBLE"),
     "toFloatOrZero": _make_cast_handler("DOUBLE"),
     "toFloatOrDefault": _make_cast_handler("DOUBLE"),

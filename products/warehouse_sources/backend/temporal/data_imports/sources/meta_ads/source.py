@@ -43,6 +43,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    supported_versions = ("v25.0",)
+    default_version = "v25.0"
+    api_docs_url = "https://developers.facebook.com/docs/graph-api/changelog"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.METAADS
@@ -145,7 +149,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
             name=SchemaExternalDataSourceType.META_ADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             featured=True,
-            keywords=["facebook ads", "instagram ads"],
+            keywords=["facebook ads", "instagram ads", "facebook", "instagram", "fb"],
             label="Meta Ads",
             caption="Ensure you have granted PostHog access to your Meta Ads account, learn how to do this in the [documentation](https://posthog.com/docs/cdp/sources/meta-ads).",
             iconPath="/static/services/meta-ads.png",

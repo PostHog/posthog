@@ -87,7 +87,6 @@ You can find your **user application key** and **user API key** under **Account 
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

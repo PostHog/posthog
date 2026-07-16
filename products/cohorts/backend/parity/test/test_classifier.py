@@ -1,6 +1,9 @@
+import math
 from datetime import UTC, datetime, timedelta
 
 from django.test import SimpleTestCase
+
+from parameterized import parameterized
 
 from products.cohorts.backend.parity.classifier import (
     VERDICT_FAIL,
@@ -25,6 +28,10 @@ def _screened(eligibility: str = SINGLE_LEAF, window: float | None = None) -> Sc
 
 def _entered(persons: list[str], *, at: datetime) -> dict[str, MembershipRecord]:
     return {p: MembershipRecord(status="entered", last_updated=at) for p in persons}
+
+
+def _state(records: dict[str, tuple[str, datetime]]) -> dict[str, MembershipRecord]:
+    return {p: MembershipRecord(status=status, last_updated=at) for p, (status, at) in records.items()}
 
 
 def _config(**overrides) -> ClassifierConfig:
@@ -75,101 +82,123 @@ class TestClassifier(SimpleTestCase):
         self.assertEqual(row.fresh, 2)
         self.assertEqual(row.verdict, VERDICT_PASS)
 
-    def test_cohort_level_warmup_when_window_exceeds_pipeline_age(self) -> None:
-        probe_calls: list[list[str]] = []
+    def test_old_only_person_outside_O_is_excluded_and_dormant(self) -> None:
+        # Old says entered, new never decided (person absent from O): the person leaves the
+        # diff (only_old excludes them) and, being inactive, is dormant — no FAIL.
+        row = classify_cohort(
+            screened=_screened(window=None),
+            name="x",
+            old_members={"a", "b", "c"},
+            new_state={},
+            last_realtime_calculation_at=LAST_CALC,
+            config=_config(activity_probe=lambda persons, cutoff: set()),
+        )
+        self.assertEqual((row.observed, row.only_old), (0, 0))
+        self.assertEqual((row.unobserved, row.dormant, row.suspect_missing), (3, 3, 0))
+        self.assertEqual(row.verdict, VERDICT_PASS)
 
-        def probe(persons, cutoff):
-            probe_calls.append(list(persons))
-            return set()
+    @parameterized.expand(
+        [
+            # flip newer than the old side's last recompute → R-STALE explains it → PASS
+            ("flip_after_last_calc", NOW, 1, 0, VERDICT_PASS),
+            # flip older → old has recomputed past it, so it is a genuine residual → FAIL
+            ("flip_before_last_calc", LAST_CALC - timedelta(minutes=5), 0, 1, VERDICT_FAIL),
+        ]
+    )
+    def test_r_stale_mirror(
+        self, _name: str, flip_at: datetime, expected_stale: int, expected_residual_old: int, expected_verdict: str
+    ) -> None:
+        # Person p is in O (new flipped it to `left`) but old still says entered.
+        row = classify_cohort(
+            screened=_screened(),
+            name="x",
+            old_members={"p", "a"},
+            new_state=_state({"p": ("left", flip_at), "a": ("entered", NOW)}),
+            last_realtime_calculation_at=LAST_CALC,
+            config=_config(),
+        )
+        self.assertEqual(row.only_old, 1)
+        self.assertEqual(row.stale, expected_stale)
+        self.assertEqual(row.residual_old, expected_residual_old)
+        self.assertEqual(row.verdict, expected_verdict)
 
+    def test_active_unobserved_on_sound_cohort_is_suspect_and_fails(self) -> None:
+        # Dead-processor case: empty O, populated old, all recently active. The O-bounded
+        # residual is 0, but the missed-emission probe gates FAIL on a sound cohort.
+        row = classify_cohort(
+            screened=_screened(window=None),
+            name="x",
+            old_members={"a", "b", "c"},
+            new_state={},
+            last_realtime_calculation_at=LAST_CALC,
+            config=_config(activity_probe=lambda persons, cutoff: set(persons)),
+        )
+        self.assertEqual((row.observed, row.residual_old, row.residual_new), (0, 0, 0))
+        self.assertEqual((row.suspect_missing, row.dormant), (3, 0))
+        self.assertEqual(row.verdict, VERDICT_FAIL)
+
+    def test_active_unobserved_on_long_window_cohort_is_warmup_not_gated(self) -> None:
+        # Same active-unobserved population, but the behavioral window exceeds pipeline age:
+        # the miss is unresolvable from a snapshot (pre-since qualifier), so WARMUP not FAIL.
         row = classify_cohort(
             screened=_screened(window=30),
             name="x",
             old_members={"a", "b", "c"},
             new_state={},
             last_realtime_calculation_at=LAST_CALC,
-            config=_config(activity_probe=probe),
+            config=_config(activity_probe=lambda persons, cutoff: set(persons)),
         )
+        self.assertEqual(row.suspect_missing, 3)
         self.assertEqual(row.verdict, VERDICT_WARMUP)
-        self.assertEqual(row.warmup, 3)
-        self.assertEqual(row.residual_old, 0)
-        self.assertEqual(probe_calls, [])
         self.assertFalse(row.gated)
 
-    def test_warming_cohort_still_gates_on_unexplained_only_new(self) -> None:
-        stale_over_inclusion = classify_cohort(
-            screened=_screened(window=30),
-            name="x",
-            old_members={"a"},
-            new_state=_entered(["a"], at=NOW) | _entered(["b"], at=LAST_CALC - timedelta(minutes=5)),
-            last_realtime_calculation_at=LAST_CALC,
-            config=_config(),
-        )
-        self.assertEqual(stale_over_inclusion.residual_new, 1)
-        self.assertEqual(stale_over_inclusion.verdict, VERDICT_FAIL)
-
-        fresh_only = classify_cohort(
-            screened=_screened(window=30),
-            name="x",
-            old_members={"a"},
-            new_state=_entered(["a"], at=NOW) | _entered(["b"], at=NOW),
-            last_realtime_calculation_at=LAST_CALC,
-            config=_config(),
-        )
-        self.assertEqual(fresh_only.residual_new, 0)
-        self.assertEqual(fresh_only.verdict, VERDICT_WARMUP)
-
-    def test_person_level_warmup_explains_inactive_only_old(self) -> None:
-        seen_cutoffs: list[datetime] = []
+    def test_warmup_sample_zero_skips_suspect_probe(self) -> None:
+        probe_calls: list[list[str]] = []
 
         def probe(persons, cutoff):
-            seen_cutoffs.append(cutoff)
-            return {"active"}
-
-        row = classify_cohort(
-            screened=_screened(window=None),
-            name="x",
-            old_members={"active", "dormant1", "dormant2"},
-            new_state={},
-            last_realtime_calculation_at=LAST_CALC,
-            config=_config(activity_probe=probe),
-        )
-        self.assertEqual(row.warmup, 2)
-        self.assertEqual(row.residual_old, 1)
-        self.assertEqual(seen_cutoffs, [SINCE])
-        self.assertEqual(row.verdict, VERDICT_FAIL)
-
-    def test_behavioral_window_narrows_the_warmup_cutoff(self) -> None:
-        seen_cutoffs: list[datetime] = []
-
-        def probe(persons, cutoff):
-            seen_cutoffs.append(cutoff)
+            probe_calls.append(list(persons))
             return set(persons)
 
-        classify_cohort(
-            screened=_screened(window=0.25),
-            name="x",
-            old_members={"a"},
-            new_state={},
-            last_realtime_calculation_at=LAST_CALC,
-            config=_config(activity_probe=probe),
-        )
-        self.assertEqual(seen_cutoffs, [NOW - timedelta(days=0.25)])
-
-    def test_warmup_sample_zero_degrades_to_cohort_level_only(self) -> None:
         row = classify_cohort(
             screened=_screened(window=None),
             name="x",
             old_members={"a", "b"},
             new_state={},
             last_realtime_calculation_at=LAST_CALC,
-            config=_config(warmup_sample=0, activity_probe=lambda p, c: set()),
+            config=_config(warmup_sample=0, activity_probe=probe),
         )
-        self.assertEqual(row.warmup, 0)
-        self.assertEqual(row.residual_old, 2)
-        self.assertEqual(row.verdict, VERDICT_FAIL)
+        self.assertEqual(probe_calls, [])
+        self.assertEqual((row.suspect_missing, row.dormant), (0, 2))
+        self.assertEqual(row.verdict, VERDICT_PASS)
+        self.assertTrue(any("suspect check skipped" in note for note in row.notes))
 
-    def test_warmup_extrapolates_from_sample(self) -> None:
+    @parameterized.expand(
+        [
+            ("no_window", None, SINCE),
+            ("sub_day_window", 0.25, NOW - timedelta(days=0.25)),
+            ("window_ge_pipeline_age", 30.0, SINCE),
+            ("inf_window", math.inf, SINCE),  # would overflow timedelta without the guard
+            ("zero_window", 0.0, NOW),  # minute/hour cohorts → cutoff collapses to now
+        ]
+    )
+    def test_probe_cutoff_formula(self, _name: str, window: float | None, expected_cutoff: datetime) -> None:
+        seen_cutoffs: list[datetime] = []
+
+        def probe(persons, cutoff):
+            seen_cutoffs.append(cutoff)
+            return set()
+
+        classify_cohort(
+            screened=_screened(window=window),
+            name="x",
+            old_members={"a"},
+            new_state={},
+            last_realtime_calculation_at=LAST_CALC,
+            config=_config(activity_probe=probe),
+        )
+        self.assertEqual(seen_cutoffs, [expected_cutoff])
+
+    def test_suspect_missing_extrapolates_from_sample(self) -> None:
         row = classify_cohort(
             screened=_screened(window=None),
             name="x",
@@ -178,59 +207,56 @@ class TestClassifier(SimpleTestCase):
             last_realtime_calculation_at=LAST_CALC,
             config=_config(warmup_sample=2, activity_probe=lambda persons, cutoff: {"a"}),
         )
-        self.assertEqual(row.warmup, 2)
-        self.assertEqual(row.residual_old, 2)
-        self.assertIn("warmup extrapolated from sample 2/4", row.notes)
+        self.assertEqual((row.suspect_missing, row.dormant), (2, 2))
+        self.assertIn("suspect_missing extrapolated from sample 2/4", row.notes)
+        self.assertEqual(row.verdict, VERDICT_FAIL)
 
-    def test_residual_gate_threshold(self) -> None:
+    @parameterized.expand(
+        [
+            ("loose_threshold_passes", 5.0, VERDICT_PASS),
+            ("strict_threshold_fails", 1.0, VERDICT_FAIL),
+        ]
+    )
+    def test_residual_gate_honors_threshold(self, _name: str, threshold: float, expected_verdict: str) -> None:
+        # 97 agreeing + 2 residual (new flipped `left` before last_calc) → residual_pct ~2.02%.
         old_members = {f"p{i}" for i in range(99)}
-        last_calc = NOW - timedelta(minutes=1)
-        config = _config(threshold_pct=1.0, activity_probe=lambda p, c: set(p))
-
+        new_state = _entered([f"p{i}" for i in range(97)], at=NOW - timedelta(hours=2)) | _state(
+            {"p97": ("left", NOW - timedelta(hours=2)), "p98": ("left", NOW - timedelta(hours=2))}
+        )
         row = classify_cohort(
             screened=_screened(),
             name="x",
             old_members=old_members,
-            new_state=_entered([f"p{i}" for i in range(99)], at=NOW - timedelta(hours=2)) | _entered(["q"], at=NOW),
-            last_realtime_calculation_at=last_calc,
-            config=config,
+            new_state=new_state,
+            last_realtime_calculation_at=NOW - timedelta(minutes=1),
+            config=_config(threshold_pct=threshold),
         )
-        self.assertEqual(row.residual_new, 0)
-        self.assertEqual(row.fresh, 1)
-        self.assertEqual(row.verdict, VERDICT_PASS)
+        self.assertEqual((row.residual_old, row.unobserved), (2, 0))
+        self.assertGreater(row.residual_pct, 1.0)
+        self.assertLess(row.residual_pct, 5.0)
+        self.assertEqual(row.verdict, expected_verdict)
 
-        stale = classify_cohort(
-            screened=_screened(),
-            name="x",
-            old_members=old_members,
-            new_state=_entered([f"p{i}" for i in range(97)], at=NOW - timedelta(hours=2)),
-            last_realtime_calculation_at=last_calc,
-            config=config,
-        )
-        self.assertGreater(stale.residual_pct, 1.0)
-        self.assertEqual(stale.verdict, VERDICT_FAIL)
-
-    def test_no_classify_gates_on_raw_diff(self) -> None:
+    def test_no_classify_gates_on_o_bounded_raw_diff(self) -> None:
         row = classify_cohort(
             screened=_screened(window=30),
             name="x",
             old_members={"a"},
             new_state=_entered(["b"], at=NOW),
             last_realtime_calculation_at=None,
-            config=_config(classify=False),
+            config=_config(classify=False, activity_probe=lambda p, c: set(p)),
         )
-        self.assertEqual(row.fresh, 0)
-        self.assertEqual(row.warmup, 0)
+        self.assertEqual((row.fresh, row.stale, row.suspect_missing), (0, 0, 0))
+        self.assertEqual((row.unobserved, row.dormant), (1, 1))  # "a" is outside O, excluded
         self.assertEqual(row.residual_pct, row.raw_diff_pct)
         self.assertEqual(row.verdict, VERDICT_FAIL)
 
     def test_summarize_counts_verdicts_and_buckets(self) -> None:
-        config = _config()
+        config = _config(activity_probe=lambda persons, cutoff: set(persons))
         rows = [
             classify_cohort(
                 screened=_screened(window=30),
-                name="warm",
-                old_members={"a"},
+                name="warmup",
+                old_members={"a", "b"},
                 new_state={},
                 last_realtime_calculation_at=LAST_CALC,
                 config=config,
@@ -254,5 +280,5 @@ class TestClassifier(SimpleTestCase):
         ]
         summary = summarize(rows, config=config)
         self.assertEqual((summary.passed, summary.failed, summary.warming_up, summary.skipped), (1, 0, 1, 1))
-        self.assertEqual(summary.warmup_total, 1)
-        self.assertEqual(summary.raw_diff_total, 1)
+        self.assertEqual((summary.suspect_total, summary.dormant_total, summary.stale_total), (2, 0, 0))
+        self.assertEqual(summary.raw_diff_total, 2)

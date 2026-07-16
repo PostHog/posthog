@@ -6,6 +6,7 @@ const metric = (value: number): KPIData['sessions'] => ({
     previousValue: 0,
     deltaPct: null,
     sparkline: [],
+    sparklineLabels: [],
     goodDirection: 'up',
 })
 

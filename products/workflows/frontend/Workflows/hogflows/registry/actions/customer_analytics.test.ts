@@ -3,7 +3,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { GroupType, GroupTypeIndex } from '~/types'
 
 import { getRegisteredActionNodeCategories } from './actionNodeRegistry'
-import { buildAccountExternalIdInputs } from './customer_analytics'
+import {
+    buildAccountExternalIdInputs,
+    buildAccountOutputSuggestions,
+    customPropertyResultPath,
+    slugifyName,
+} from './customer_analytics'
 
 const groupTypesMap = (...entries: [GroupTypeIndex, string][]): Map<GroupTypeIndex, GroupType> =>
     new Map(entries.map(([index, groupType]) => [index, { group_type: groupType, group_type_index: index }]))
@@ -88,6 +93,47 @@ describe('customer analytics action registry', () => {
             expect(typeof node?.getDefaultInputs).toBe('function')
         }
     )
+
+    describe('slugifyName', () => {
+        it.each([
+            ['Plan', 'plan'],
+            ['MRR (net)', 'mrr_net'],
+            ['ARR (net)', 'arr_net'],
+            ['my_property', 'my_property'],
+            ['  spaces  ', 'spaces'],
+            ['a--b', 'a_b'],
+        ])('slugifies %s → %s', (input, expected) => {
+            expect(slugifyName(input)).toBe(expected)
+        })
+    })
+
+    describe('customPropertyResultPath', () => {
+        it.each([
+            ['Plan', 'custom_properties.Plan'],
+            ['my_prop', 'custom_properties.my_prop'],
+            ['ARR123', 'custom_properties.ARR123'],
+            ['MRR (net)', 'custom_properties["MRR (net)"]'],
+            ['has space', 'custom_properties["has space"]'],
+            ['with"quote', 'custom_properties["with\\"quote"]'],
+        ])('builds result path for %s → %s', (name, expected) => {
+            expect(customPropertyResultPath(name)).toBe(expected)
+        })
+    })
+
+    describe('buildAccountOutputSuggestions', () => {
+        it('namespaces relationships and dedupes colliding keys', () => {
+            const suggestions = buildAccountOutputSuggestions(['Plan', 'MRR (net)', 'MRR net'], ['Plan', 'CSM'])
+            expect(suggestions.map((s) => s.key)).toEqual([
+                'account_plan',
+                'account_mrr_net',
+                'account_relationship_plan',
+                'account_relationship_csm',
+            ])
+            expect(suggestions.find((s) => s.key === 'account_relationship_csm')?.result_path).toBe(
+                'relationships["CSM"]'
+            )
+        })
+    })
 
     describe('buildAccountExternalIdInputs', () => {
         it('builds a name-based group key expression from the account group type index', () => {

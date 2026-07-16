@@ -119,6 +119,7 @@ describe('dashboardLogic', () => {
                     id: '123',
                     team_id: 2,
                     error_message: null,
+                    error_code: null,
                     error: false,
                 },
             },

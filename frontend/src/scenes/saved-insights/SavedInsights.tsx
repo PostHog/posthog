@@ -36,7 +36,6 @@ import { LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -84,6 +83,8 @@ import {
     QueryBasedInsightModel,
     SavedInsightsTabs,
 } from '~/types'
+
+import { Alerts } from 'products/alerts/frontend/views/Alerts'
 
 import { ReloadInsight } from './ReloadInsight'
 import { SavedInsightListItem, savedInsightsLogic } from './savedInsightsLogic'
@@ -549,6 +550,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.LogValuesQuery]: {
         name: 'LogValues',
+        icon: IconLive,
+        inMenu: false,
+    },
+    [NodeKind.MetricsQuery]: {
+        name: 'Metrics',
+        description: 'Chart a service metric over time',
         icon: IconLive,
         inMenu: false,
     },

@@ -25,6 +25,8 @@ from products.tasks.backend.temporal.observability import emit_agent_log, log_ac
 from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
     format_allowed_domains_for_log,
+    get_imported_mcp_server_configs,
+    get_relayed_mcp_server_names,
     get_sandbox_ph_mcp_configs,
     get_task_run_credential_user,
     get_user_mcp_server_configs,
@@ -164,6 +166,7 @@ class StartAgentServerOutput:
 @dataclass
 class _LaunchParams:
     mcp_configs: list[McpServerConfig]
+    relayed_mcp_servers: list[str]
     agentsh_domains: list[str] | None
     protected_base_branch: str | None
     event_ingest_token: str | None
@@ -174,6 +177,16 @@ class _LaunchParams:
 def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
     # Modal enforces egress at the edge (gVisor only), so agentsh is skipped only when it does.
     return None if (ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox) else ctx.allowed_domains
+
+
+def _include_personal_mcp_for_task(task: Task) -> bool:
+    """Whether a run may pull the task creator's *personal* MCP installations.
+
+    Internal/autonomous runs (support reply, signals) must never pull a
+    resolved member's personal creds — they get shared team connections only.
+    User-initiated Code runs get shared + the creator's personal installs.
+    """
+    return not task.internal
 
 
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _LaunchParams:
@@ -196,9 +209,16 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
     # Django ASGI short-circuit. Only meaningful once sequenced ingest is enabled. Unset means
     # the agent falls back to POSTHOG_API_URL (Django).
     event_ingest_url: str | None = settings.TASKS_AGENT_PROXY_INGEST_URL if event_stream_ingest_enabled else None
+    # Fetched once; serves both the ingest token and the imported MCP servers below.
+    task_run = TaskRun.objects.filter(id=ctx.run_id, task_id=ctx.task_id, team_id=ctx.team_id).first()
+    if task_run is None:
+        raise SandboxExecutionError(
+            "Task run not found for agent server launch",
+            {"task_id": ctx.task_id, "run_id": ctx.run_id},
+            cause=TaskRun.DoesNotExist(f"TaskRun {ctx.run_id} not found"),
+        )
     if event_stream_ingest_enabled:
         try:
-            task_run = TaskRun.objects.get(id=ctx.run_id, task_id=ctx.task_id, team_id=ctx.team_id)
             event_ingest_token = create_sandbox_event_ingest_token(task_run)
         except Exception as e:
             raise SandboxExecutionError(
@@ -214,15 +234,28 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
         interaction_origin=ctx.interaction_origin,
         task_id=str(ctx.task_id),
     )
-    if actor_user and actor_user.id:
-        user_mcp_configs = get_user_mcp_server_configs(
-            token=access_token,
-            team_id=ctx.team_id,
-            user_id=actor_user.id,
-            interaction_origin=ctx.interaction_origin,
+    include_personal = _include_personal_mcp_for_task(task)
+    user_mcp_configs = get_user_mcp_server_configs(
+        token=access_token,
+        team_id=ctx.team_id,
+        user_id=actor_user.id if actor_user else None,
+        include_personal=include_personal,
+        interaction_origin=ctx.interaction_origin,
+    )
+    if user_mcp_configs:
+        mcp_configs = mcp_configs + user_mcp_configs
+
+    imported_mcp_configs = get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs})
+    if imported_mcp_configs:
+        mcp_configs = mcp_configs + imported_mcp_configs
+
+    relayed_names = get_relayed_mcp_server_names(task_run, {config.name for config in mcp_configs})
+    if relayed_names:
+        emit_agent_log(
+            ctx.run_id,
+            "debug",
+            f"Resolved {len(relayed_names)} relayed MCP server name(s) for agent server: {', '.join(relayed_names)}",
         )
-        if user_mcp_configs:
-            mcp_configs = mcp_configs + user_mcp_configs
 
     if mcp_configs:
         emit_agent_log(
@@ -264,6 +297,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
 
     return _LaunchParams(
         mcp_configs=mcp_configs,
+        relayed_mcp_servers=relayed_names,
         agentsh_domains=agentsh_domains,
         protected_base_branch=protected_base_branch,
         event_ingest_token=event_ingest_token,
@@ -296,6 +330,7 @@ def _invoke_start_agent_server(
             reasoning_effort=ctx.reasoning_effort,
             initial_permission_mode=ctx.initial_permission_mode,
             mcp_configs=params.mcp_configs or None,
+            relayed_mcp_servers=params.relayed_mcp_servers or None,
             allowed_domains=params.agentsh_domains,
             event_ingest_token=params.event_ingest_token,
             event_ingest_url=params.event_ingest_url,

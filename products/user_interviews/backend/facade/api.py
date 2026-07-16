@@ -1,7 +1,8 @@
 """
 Facade API for user_interviews.
 
-This is the ONLY module other apps are allowed to import.
+The primary facade module for data capabilities. Other facade submodules
+(max_tools.py) expose wiring; external code must import only from backend/facade/.
 
 Responsibilities:
 - Accept primitives / contracts as input
@@ -19,11 +20,8 @@ from uuid import UUID
 from products.user_interviews.backend import logic
 from products.user_interviews.backend.classification import derive_auto_classifications
 from products.user_interviews.backend.facade.contracts import IntervieweeIdentity
-from products.user_interviews.backend.max_tools import AnalyzeUserInterviewsTool, CreateUserInterviewTopicTool
 
 __all__ = [
-    "AnalyzeUserInterviewsTool",
-    "CreateUserInterviewTopicTool",
     "IntervieweeIdentity",
     "derive_auto_classifications",
     "has_replied",

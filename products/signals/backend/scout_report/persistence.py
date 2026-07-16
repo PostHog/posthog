@@ -229,6 +229,14 @@ def create_scout_report(
     )
 
 
+def get_scout_report_title(*, team_id: int, report_id: str) -> str | None:
+    """Team-scoped title lookup, for the edit-path event telemetry: an edit that doesn't rewrite the
+    title still needs the report's effective title to classify the lifecycle event (self-improvement
+    vs finding). Returns None when the report doesn't exist for the team — telemetry is best-effort,
+    so this never raises."""
+    return SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("title", flat=True).first()
+
+
 def update_scout_report(
     *,
     team_id: int,

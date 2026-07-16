@@ -2,13 +2,13 @@ import './JSONViewer.scss'
 
 import type { ReactJsonViewProps } from '@microlink/react-json-view'
 import { useValues } from 'kea'
-import { Suspense, lazy } from 'react'
+import { Suspense } from 'react'
 
+import { themeLogic } from 'lib/logic/themeLogic'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-
-const ReactJson = lazy(() => import('@microlink/react-json-view'))
+const ReactJson = lazyWithRetry(() => import('@microlink/react-json-view'))
 
 export enum JSONViewerTheme {
     DARK = 'railscasts',
