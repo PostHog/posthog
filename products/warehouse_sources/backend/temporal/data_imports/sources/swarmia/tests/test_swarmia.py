@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import date
 
 import pytest
@@ -27,6 +28,10 @@ _TRACKED_SESSION_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.swarmia.make_tracked_session"
 )
 
+# The tenacity `@retry` decorator wraps the real function; `__wrapped__` reaches the undecorated
+# body so these tests exercise a single call without the retry loop.
+_fetch_csv_direct = _fetch_csv.__wrapped__  # type: ignore[attr-defined]
+
 PULL_REQUESTS_CSV = (
     "Start Date,End Date,Parent Team(s),Team,Cycle Time (s),Review Rate (%),Time to first review (s),"
     "PRs merged / week,Merge Time (s),PRs in progress,Contributors\n"
@@ -41,7 +46,7 @@ def _mock_response(status_code: int = 200, text: str = "") -> MagicMock:
     response.ok = status_code < 400
     response.text = text
     response.raise_for_status.side_effect = (
-        requests.HTTPError(f"{status_code} Client Error") if status_code >= 400 else None
+        requests.HTTPError(f"{status_code} Client Error", response=response) if status_code >= 400 else None
     )
     return response
 
@@ -83,7 +88,7 @@ class TestColumnHandling:
         assert _convert_value(column, value) == expected
 
     def test_unpivot_capex_employees_rows(self) -> None:
-        raw_rows = [
+        raw_rows: list[dict[str | None, str]] = [
             {"Employee ID": "E1", "Name": "Alice", "Email": "alice@example.com", "2026-01-01": "0.5", "2026-02-01": ""}
         ]
         rows = _rows_from_csv(SWARMIA_ENDPOINTS["capex_employees"], raw_rows)
@@ -163,7 +168,7 @@ class TestFetchCsv:
         session.get.return_value = _mock_response(status_code)
 
         with pytest.raises(SwarmiaRetryableError):
-            _fetch_csv.__wrapped__(session, "/reports/dora", {}, {}, MagicMock())
+            _fetch_csv_direct(session, "/reports/dora", {}, {}, MagicMock())
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
     def test_auth_errors_raise_http_error(self, _name: str, status_code: int) -> None:
@@ -171,13 +176,13 @@ class TestFetchCsv:
         session.get.return_value = _mock_response(status_code)
 
         with pytest.raises(requests.HTTPError):
-            _fetch_csv.__wrapped__(session, "/reports/dora", {}, {}, MagicMock())
+            _fetch_csv_direct(session, "/reports/dora", {}, {}, MagicMock())
 
     def test_parses_csv_rows(self) -> None:
         session = MagicMock()
         session.get.return_value = _mock_response(200, "A,B\n1,2\n")
 
-        rows = _fetch_csv.__wrapped__(session, "/reports/dora", {"startDate": "2026-06-29"}, {}, MagicMock())
+        rows = _fetch_csv_direct(session, "/reports/dora", {"startDate": "2026-06-29"}, {}, MagicMock())
 
         assert rows == [{"A": "1", "B": "2"}]
         assert "startDate=2026-06-29" in session.get.call_args[0][0]
@@ -339,6 +344,43 @@ class TestCredentialChecks:
         mock_make_session.return_value.get.side_effect = requests.ConnectionError("boom")
 
         assert check_endpoint_access("token", ["dora"]) == {"dora": None}
+
+
+class TestHttpSampleCaptureDisabled:
+    # Swarmia CSV exports carry free-text issue titles and custom fields that scrubadub can't
+    # reliably redact, so every request path must opt out of HTTP sample capture (capture=False)
+    # while still redacting the token. A regression here silently leaks customer data to the
+    # shared sample store, so assert the contract at the session boundary for each entry point.
+    @parameterized.expand(
+        [
+            (
+                "get_rows",
+                lambda: list(
+                    get_rows(
+                        api_key="token",
+                        endpoint="pull_requests",
+                        logger=MagicMock(),
+                        resumable_source_manager=_mock_manager(),
+                    )
+                ),
+            ),
+            ("check_credentials", lambda: check_credentials("token")),
+            ("check_endpoint_access", lambda: check_endpoint_access("token", ["pull_requests"])),
+        ]
+    )
+    @freeze_time("2026-07-15T12:00:00Z")
+    @patch(_TRACKED_SESSION_PATH)
+    def test_every_request_path_disables_capture_and_redacts_token(
+        self, _name: str, invoke: Callable[[], object], mock_make_session: MagicMock
+    ) -> None:
+        mock_make_session.return_value.get.return_value = _mock_response(200, PULL_REQUESTS_CSV)
+
+        invoke()
+
+        assert mock_make_session.call_count >= 1
+        for call in mock_make_session.call_args_list:
+            assert call.kwargs["capture"] is False
+            assert call.kwargs["redact_values"] == ("token",)
 
 
 class TestSwarmiaSourceResponse:

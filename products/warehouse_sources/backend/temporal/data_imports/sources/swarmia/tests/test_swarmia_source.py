@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SwarmiaSourceConfig
@@ -58,9 +58,11 @@ class TestSwarmiaSource:
     def test_source_config_has_secret_api_key_field(self) -> None:
         fields = self.source.get_source_config.fields
         assert len(fields) == 1
-        assert fields[0].name == "api_key"
-        assert fields[0].type == SourceFieldInputConfigType.PASSWORD
-        assert fields[0].required is True
+        field = fields[0]
+        assert isinstance(field, SourceFieldInputConfig)
+        assert field.name == "api_key"
+        assert field.type == SourceFieldInputConfigType.PASSWORD
+        assert field.required is True
 
     @parameterized.expand(
         [

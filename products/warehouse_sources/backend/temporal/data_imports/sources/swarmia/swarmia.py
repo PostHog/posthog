@@ -154,6 +154,14 @@ def _get_headers(api_key: str) -> dict[str, str]:
     }
 
 
+def _make_session(api_key: str) -> requests.Session:
+    # capture=False keeps requests metered and logged but excludes them from HTTP sample capture:
+    # Swarmia CSV exports carry free-text issue titles and custom fields that scrubadub can't reliably
+    # redact, so the raw bodies must never land in the shared HTTP-sample store. Requests stay metered
+    # and logged; only the sampled payload is dropped. The token is redacted everywhere it appears.
+    return make_tracked_session(redact_values=(api_key,), capture=False)
+
+
 @retry(
     retry=retry_if_exception_type(
         (
@@ -173,7 +181,7 @@ def _fetch_csv(
     params: dict[str, str],
     headers: dict[str, str],
     logger: FilteringBoundLogger,
-) -> list[dict[str, str]]:
+) -> list[dict[str | None, str]]:
     url = f"{SWARMIA_BASE_URL}{path}"
     if params:
         url = f"{url}?{urlencode(params)}"
@@ -190,7 +198,7 @@ def _fetch_csv(
     return list(csv.DictReader(io.StringIO(response.text)))
 
 
-def _rows_from_csv(config: SwarmiaEndpointConfig, raw_rows: list[dict[str, str]]) -> list[dict[str, Any]]:
+def _rows_from_csv(config: SwarmiaEndpointConfig, raw_rows: list[dict[str | None, str]]) -> list[dict[str, Any]]:
     if config.unpivot_month_columns:
         return _unpivot_month_columns(raw_rows)
 
@@ -206,7 +214,7 @@ def _rows_from_csv(config: SwarmiaEndpointConfig, raw_rows: list[dict[str, str]]
     return rows
 
 
-def _unpivot_month_columns(raw_rows: list[dict[str, str]]) -> list[dict[str, Any]]:
+def _unpivot_month_columns(raw_rows: list[dict[str | None, str]]) -> list[dict[str, Any]]:
     """Melt capex/employees rows ({Employee ID, Name, Email, <one column per month>}) into one row
     per employee per month, so the table schema doesn't change with the requested year."""
     rows: list[dict[str, Any]] = []
@@ -287,7 +295,7 @@ def _window_params(config: SwarmiaEndpointConfig, window_start: date, window_end
 def check_credentials(api_key: str) -> int | None:
     """Probe the cheapest report with the token. Returns the HTTP status, or None on network failure."""
     try:
-        response = make_tracked_session(redact_values=(api_key,)).get(
+        response = _make_session(api_key).get(
             f"{SWARMIA_BASE_URL}/reports/pullRequests?{urlencode({'timeframe': 'last_7_days'})}",
             headers=_get_headers(api_key),
             timeout=10,
@@ -300,7 +308,7 @@ def check_credentials(api_key: str) -> int | None:
 def check_endpoint_access(api_key: str, endpoints: list[str]) -> dict[str, str | None]:
     """Probe each report with a minimal window. Some reports (investment, capex, effort) map to
     plan-gated Swarmia features, so a valid token can still be denied per report."""
-    session = make_tracked_session(redact_values=(api_key,))
+    session = _make_session(api_key)
     headers = _get_headers(api_key)
     today = datetime.now(UTC).date()
     last_month_start = _month_start(_month_start(today) - timedelta(days=1))
@@ -345,7 +353,7 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[Any]:
     config = SWARMIA_ENDPOINTS[endpoint]
-    session = make_tracked_session(redact_values=(api_key,))
+    session = _make_session(api_key)
     headers = _get_headers(api_key)
     today = datetime.now(UTC).date()
 
