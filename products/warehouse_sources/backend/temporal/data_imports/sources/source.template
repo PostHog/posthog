@@ -52,6 +52,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TemplateSource(SimpleSource[Config]):  # rename this class and replace `Config` with the generated config
+    # TODO: vendor API version metadata (see the implementing-warehouse-sources skill, "Vendor API version metadata").
+    #   api_docs_url = "https://..."           # https vendor API docs/changelog page (always set this)
+    #   supported_versions = ("v3",)           # only if the vendor exposes a real version token; pin what the code calls
+    #   default_version = "v3"                 # must equal the single supported_versions entry
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SOURCE_TYPE  # replace this enum value
