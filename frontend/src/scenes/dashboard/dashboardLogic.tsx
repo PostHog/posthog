@@ -2885,6 +2885,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         resetInterval: () => {
             if (values.autoRefresh.enabled) {
+                // `forceRefresh: false` sends `refresh=blocking`: use recent cache, or recalculate synchronously if stale.
                 // Refresh right now after enabling if we haven't refreshed recently
                 if (
                     !values.itemsLoading &&
