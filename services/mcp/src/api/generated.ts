@@ -38386,6 +38386,9 @@ export namespace Schemas {
       Google: 'google',
     } as const;
 
+    /**
+     * A Replay Vision scanner: its type, targeting query, and AI configuration.
+     */
     export interface ReplayScanner {
       readonly id: string;
       /**
@@ -41606,7 +41609,7 @@ export namespace Schemas {
     }
 
     /**
-     * Mixin for serializers to add user access control fields
+     * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
      */
     export interface VisionAction {
       readonly id: string;
@@ -46769,7 +46772,7 @@ export namespace Schemas {
     }
 
     /**
-     * Mixin for serializers to add user access control fields
+     * A Replay Vision scanner: its type, targeting query, and AI configuration.
      */
     export interface PatchedReplayScanner {
       readonly id?: string;
@@ -49053,7 +49056,7 @@ export namespace Schemas {
     }
 
     /**
-     * Mixin for serializers to add user access control fields
+     * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
      */
     export interface PatchedVisionAction {
       readonly id?: string;

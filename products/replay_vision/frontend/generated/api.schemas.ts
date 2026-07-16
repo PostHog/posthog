@@ -244,7 +244,7 @@ export interface UserBasicApi {
 }
 
 /**
- * Mixin for serializers to add user access control fields
+ * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
  */
 export interface VisionActionApi {
     readonly id: string
@@ -316,7 +316,7 @@ export interface PaginatedVisionActionListApi {
 }
 
 /**
- * Mixin for serializers to add user access control fields
+ * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
  */
 export interface PatchedVisionActionApi {
     readonly id?: string
@@ -835,7 +835,7 @@ export interface PaginatedReplayScannerListApi {
 }
 
 /**
- * Mixin for serializers to add user access control fields
+ * A Replay Vision scanner: its type, targeting query, and AI configuration.
  */
 export interface PatchedReplayScannerApi {
     readonly id?: string
