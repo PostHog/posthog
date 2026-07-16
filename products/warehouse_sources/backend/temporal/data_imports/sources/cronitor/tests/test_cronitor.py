@@ -133,13 +133,14 @@ class TestMonitors:
         assert _collect(_FakeResumableManager(), "monitors") == []
 
     def test_sensitive_request_config_is_redacted(self, monkeypatch: Any) -> None:
-        # HTTP-check monitors embed the outbound request config, which can carry credentials.
-        # Those must never reach the warehouse table, but harmless request config stays.
+        # HTTP-check monitors embed the outbound request config, which can carry credentials:
+        # auth headers/cookies/body are dropped wholesale, and the check URL is stripped of its
+        # userinfo and query string (both common token vectors) while keeping host and path.
         monitor = {
             "key": "check-a",
             "created": "2026-01-01T00:00:00Z",
             "request": {
-                "url": "https://example.com/health",
+                "url": "https://user:pass@example.com:8443/health?token=secret#frag",
                 "method": "GET",
                 "headers": {"Authorization": "Bearer super-secret"},
                 "cookies": {"session": "secret-cookie"},
@@ -150,9 +151,22 @@ class TestMonitors:
         rows = _collect(_FakeResumableManager(), "monitors")
 
         assert len(rows) == 1
-        assert rows[0]["request"] == {"url": "https://example.com/health", "method": "GET"}
+        assert rows[0]["request"] == {"url": "https://example.com:8443/health", "method": "GET"}
         # The original response dict must not be mutated in place.
         assert "headers" in monitor["request"]
+        assert monitor["request"]["url"] == "https://user:pass@example.com:8443/health?token=secret#frag"
+
+    def test_monitor_without_sensitive_request_is_untouched(self, monkeypatch: Any) -> None:
+        # A credential-free monitor (no request config, or a request with a clean URL) passes
+        # through unchanged so redaction never strips useful data.
+        monitors = [
+            {"key": "job-a", "created": "2026-01-01T00:00:00Z"},
+            {"key": "check-b", "request": {"url": "https://example.com/health", "method": "HEAD"}},
+        ]
+        _patch_fetch(monkeypatch, {_monitors_url(1): {"monitors": monitors}})
+        rows = _collect(_FakeResumableManager(), "monitors")
+
+        assert rows == monitors
 
 
 class TestInvocations:

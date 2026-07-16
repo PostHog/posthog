@@ -3,7 +3,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
 import requests
 from dateutil import parser
@@ -97,16 +97,40 @@ def _fetch(session: requests.Session, url: str, api_key: str, logger: FilteringB
 
 # HTTP-check monitors carry the outbound request config Cronitor uses to probe an endpoint, and
 # that config can embed credentials (bearer tokens, API keys, session cookies, secrets in the
-# POST body). Strip those before a row is persisted so they never land in the queryable warehouse
-# table where any project member could read them back.
+# POST body). Drop those wholesale before a row is persisted so they never land in the queryable
+# warehouse table where any project member could read them back.
 _SENSITIVE_REQUEST_FIELDS = ("headers", "cookies", "body")
+
+
+def _sanitize_url(url: str) -> str:
+    """Strip credential-bearing parts of a check URL while keeping the monitored endpoint legible.
+
+    Userinfo (``user:pass@``), the query string, and the fragment can each carry a signed token or
+    API key, so drop them; keep the scheme, host/port, and path so the row still says what is being
+    monitored.
+    """
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return ""
+    if not parts.hostname:
+        # No scheme/host to anchor on (relative or malformed) — can't reliably locate userinfo, so
+        # keep only the path and drop the query/fragment where tokens usually live.
+        return urlunsplit(("", "", parts.path, "", ""))
+    netloc = parts.hostname if parts.port is None else f"{parts.hostname}:{parts.port}"
+    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
 
 
 def _redact_monitor(monitor: dict[str, Any]) -> dict[str, Any]:
     request = monitor.get("request")
-    if not isinstance(request, dict) or not any(field in request for field in _SENSITIVE_REQUEST_FIELDS):
+    if not isinstance(request, dict):
         return monitor
     redacted_request = {key: value for key, value in request.items() if key not in _SENSITIVE_REQUEST_FIELDS}
+    url = redacted_request.get("url")
+    if isinstance(url, str):
+        redacted_request["url"] = _sanitize_url(url)
+    if redacted_request == request:
+        return monitor
     return {**monitor, "request": redacted_request}
 
 
