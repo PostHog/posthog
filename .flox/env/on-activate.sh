@@ -307,13 +307,19 @@ _PHROCS_SKIP=0
 [[ -n "$_PHROCS_BAKED" && -n "$_PHROCS_CURRENT" && "$_PHROCS_BAKED" == "$_PHROCS_CURRENT" ]] && _PHROCS_SKIP=1
 
 # Sandbox the automatic installs below by default on macOS (opt out with
-# POSTHOG_DEV_SANDBOX=0). .env.local isn't loaded at flox-activate time, so check
-# it directly — but only when the live env is unset, so shell env keeps precedence.
+# POSTHOG_DEV_SANDBOX=0). Codex setup sets POSTHOG_DEV_SANDBOX_REQUIRED=1 so the
+# same operations fail closed on platforms where the sandbox is unavailable.
+# .env.local isn't loaded at flox-activate time, so check it directly, but only
+# when the live env is unset so shell env keeps precedence.
 # The build scripts that run during install (uv sdist hooks, allowlisted pnpm
 # builds, cargo build.rs) then execute inside the sandbox, like the runtime path.
 # See bin/dev-sandbox.
 _DEV_SANDBOX_INSTALLS=0
-if [[ "$(uname -s)" == "Darwin" && -x "$FLOX_ENV_PROJECT/bin/dev-sandbox" ]]; then
+_DEV_SANDBOX=("$FLOX_ENV_PROJECT/bin/dev-sandbox")
+if [[ "${POSTHOG_DEV_SANDBOX_REQUIRED:-}" == "1" ]]; then
+  _DEV_SANDBOX_INSTALLS=1
+  _DEV_SANDBOX+=(--require)
+elif [[ "$(uname -s)" == "Darwin" && -x "$FLOX_ENV_PROJECT/bin/dev-sandbox" ]]; then
   _DEV_SANDBOX_INSTALLS=1
   if [[ "${POSTHOG_DEV_SANDBOX:-}" == "0" ]]; then
     _DEV_SANDBOX_INSTALLS=0
@@ -326,7 +332,7 @@ if [[ "$_PNPM_SKIP" -eq 0 ]]; then
   _BG_PNPM_LOG=$(mktemp)
   _ACTIVATION_TMPFILES+=("$_BG_PNPM_LOG")
   if [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
-    ( "$FLOX_ENV_PROJECT/bin/dev-sandbox" "pnpm install" ) >"$_BG_PNPM_LOG" 2>&1 &
+    ( "${_DEV_SANDBOX[@]}" "pnpm install" ) >"$_BG_PNPM_LOG" 2>&1 &
   else
     ( pnpm install ) >"$_BG_PNPM_LOG" 2>&1 &
   fi
@@ -346,7 +352,7 @@ fi
 if [[ "$_UV_SKIP" -eq 1 ]]; then
   done_step "Python packages (cached)"
 elif [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
-  run_step "Python packages" "$FLOX_ENV_PROJECT/bin/dev-sandbox" "uv sync"
+  run_step "Python packages" "${_DEV_SANDBOX[@]}" "uv sync"
 else
   run_step "Python packages" uv sync
 fi
@@ -419,11 +425,15 @@ if [[ ! -f "$DOTENV_FILE" ]] && [[ -f ".env.example" ]]; then
   cp .env.example "$DOTENV_FILE"
 fi
 if [[ -f "$DOTENV_FILE" ]]; then
-  set -o allexport
-  # shellcheck disable=SC1090
-  source "$DOTENV_FILE"
-  set +o allexport
-  done_step "Environment vars"
+  if [[ "${POSTHOG_SKIP_DOTENV:-}" == "1" ]]; then
+    done_step "Environment vars (deferred)"
+  else
+    set -o allexport
+    # shellcheck disable=SC1090
+    source "$DOTENV_FILE"
+    set +o allexport
+    done_step "Environment vars"
+  fi
 else
   warn_step "Environment vars  ${C_DIM}(.env not found)${C_RESET}"
 fi

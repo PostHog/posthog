@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run a dev-stack command inside a macOS Seatbelt sandbox (see bin/dev-sandbox.sb).
 #
-# Usage: bin/dev-sandbox '<shell command>'
+# Usage: bin/dev-sandbox [--require] '<shell command>'
 #
 # The whole original shell command (operators and all) is passed as a single
 # argument and run via `bash -c`. On by default; opt out by setting
@@ -16,20 +16,38 @@
 # contents (~/.ssh, ~/.aws, ...) stay denied.
 #
 # Failure policy:
-#   - non-macOS / sandbox-exec missing / profile missing / render fails -> passthrough
-#   - sandbox-exec cannot initialize the profile -> fail OPEN, loud warning
-#     (a working sandbox that merely *denies* a path is left to surface normally)
+#   - default: unavailable or broken sandbox -> passthrough
+#   - --require: unavailable or broken sandbox -> fail closed
+# A working sandbox that merely denies an operation always surfaces that failure.
 
 set -euo pipefail
 
+require_sandbox=0
+if [[ "${1:-}" == "--require" ]]; then
+    require_sandbox=1
+    shift
+fi
 cmd="${1:?bin/dev-sandbox: expected a command string as the first argument}"
 project="$(cd "$(dirname "$0")/.." && pwd -P)" # canonical repo root (Seatbelt matches physical paths)
 base_profile="$project/bin/dev-sandbox.sb"
 
 run_unsandboxed() { exec /bin/bash -c "$cmd"; }
-
-if [[ "$(uname -s)" != "Darwin" ]] || ! command -v sandbox-exec >/dev/null 2>&1 || [[ ! -f "$base_profile" ]]; then
+require_or_run_unsandboxed() {
+    if [[ "$require_sandbox" -eq 1 ]]; then
+        echo "error: dev sandbox is required but unavailable: $1" >&2
+        exit 1
+    fi
     run_unsandboxed
+}
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    require_or_run_unsandboxed "this platform does not provide macOS Seatbelt"
+fi
+if ! command -v sandbox-exec >/dev/null 2>&1; then
+    require_or_run_unsandboxed "sandbox-exec was not found"
+fi
+if [[ ! -f "$base_profile" ]]; then
+    require_or_run_unsandboxed "the sandbox profile is missing"
 fi
 
 # When run from a git worktree, the main repo's .git lives outside $project; allow
@@ -91,7 +109,7 @@ render_profile() {
     for _a in "${ancestors[@]}" "$rendered" "$stamp" ${gitcfg_targets[@]+"${gitcfg_targets[@]}"}; do
         case "$_a" in
         *"$_dq"* | *"$_bs"*)
-            echo "⚠️  dev sandbox: path contains a quote/backslash, running WITHOUT sandbox: $_a" >&2
+            echo "warning: dev sandbox cannot represent a path containing a quote or backslash: $_a" >&2
             return 1
             ;;
         esac
@@ -141,7 +159,7 @@ render_profile() {
 # newer than the cache. The wrapper check means a render-logic change (e.g. on git
 # pull) self-invalidates every stale profile — no version token to bump.
 if [[ ! -f "$rendered" || "$base_profile" -nt "$rendered" || "$project/bin/dev-sandbox" -nt "$rendered" ]]; then
-    render_profile || run_unsandboxed
+    render_profile || require_or_run_unsandboxed "the sandbox profile could not be rendered"
 fi
 
 sandbox=(sandbox-exec -f "$rendered" -D HOME="$HOME" -D PROJECT="$project" -D MAINREPO="$mainrepo")
@@ -152,7 +170,11 @@ if [[ "$rendered" -nt "$stamp" ]]; then
     if "${sandbox[@]}" /usr/bin/true >/dev/null 2>&1; then
         touch "$stamp" 2>/dev/null || true
     else
-        echo "⚠️  dev sandbox failed to initialize — running WITHOUT sandbox. Set POSTHOG_DEV_SANDBOX=0 to silence." >&2
+        if [[ "$require_sandbox" -eq 1 ]]; then
+            echo "error: dev sandbox is required but its profile failed to initialize" >&2
+            exit 1
+        fi
+        echo "warning: dev sandbox failed to initialize; running without it. Set POSTHOG_DEV_SANDBOX=0 to silence." >&2
         run_unsandboxed
     fi
 fi

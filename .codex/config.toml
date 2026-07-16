@@ -1,12 +1,14 @@
 developer_instructions = """
 Run commands that depend on PostHog's development environment through
-`bash "$(git rev-parse --show-toplevel)/.codex/with-flox" <command> [args...]`.
-This includes hogli, Python and uv, Node.js and pnpm, Rust and Go, and local-stack
-commands. Basic filesystem, Git, and GitHub commands can run directly. Never use
-a dependency executable inherited from another checkout. If the wrapper reports
-that setup or a dependency change needs elevated execution, rerun that same
-wrapper command with elevated permissions. Dependency changes also apply the
-existing dev sandbox.
+`bash "$(git rev-parse --show-toplevel)/.codex/with-flox" run <command> [args...]`.
+This includes hogli, Python, Node.js, Rust, and Go commands. Use the `deps` mode
+for commands that install or update dependencies, including uv and pnpm add,
+install, lock, sync, and update commands. Use the `stack` mode for commands that
+need Docker or local service access, including hogli up, down, wait,
+services:ready, dev:reset, and docker:* commands. Basic filesystem, Git, and
+GitHub commands can run directly. Never use a dependency executable inherited
+from another checkout. If the wrapper reports that a mode needs elevated
+execution, rerun that exact wrapper command with elevated permissions.
 """
 
 [sandbox_workspace_write]
@@ -29,8 +31,8 @@ inherit = "core"
 set = { PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin", PYTEST_ADDOPTS = "-p no:xdist" }
 
 [mcp_servers.phrocs]
-command = ".flox/cache/venv/bin/python"
-args = ["tools/phrocs/mcp_server.py"]
+command = "bash"
+args = [".codex/with-flox", "mcp", "python", "tools/phrocs/mcp_server.py"]
 cwd = ".."
 startup_timeout_sec = 120
 
