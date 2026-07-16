@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.c
 from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.settings import (
     CHARTHOP_ENDPOINTS,
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -30,7 +31,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ChartHopSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -103,19 +107,7 @@ The organization ID (or slug) is optional — it's detected automatically when y
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=CHARTHOP_ENDPOINTS[endpoint].incremental_param is not None,
-                supports_append=CHARTHOP_ENDPOINTS[endpoint].incremental_param is not None,
-                incremental_fields=CHARTHOP_ENDPOINTS[endpoint].incremental_fields,
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: ChartHopSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -160,7 +152,8 @@ The organization ID (or slug) is optional — it's detected automatically when y
             api_key=config.api_key,
             org_id=resolve_org_id(config.api_key, config.org_id),
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
