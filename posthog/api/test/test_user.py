@@ -28,7 +28,7 @@ from posthog.api.email_verification import email_verification_token_generator
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -2182,6 +2182,17 @@ class TestToolbarAccessControl(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
+    def test_redirect_to_site_returns_404_without_crashing_when_user_has_no_team(self):
+        """`team.app_urls` must not be dereferenced before the `team is None` guard, or a
+        session-authed user with no current project crashes with an AttributeError instead of
+        getting the expected 404."""
+        new_user = User.objects.create_user(email="no-team@posthog.com", password="testpass123")
+        self.client.force_login(new_user)
+
+        response = self.client.get("/api/user/redirect_to_site/?appUrl=http%3A%2F%2F127.0.0.1%3A8010")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     @patch("posthog.api.user.get_or_create_toolbar_oauth_application")
     def test_toolbar_oauth_authorize_denied_without_toolbar_access(self, mock_get_or_create_app):
         self._deny_toolbar_access()
@@ -2212,6 +2223,43 @@ class TestToolbarAccessControl(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_get_flags.assert_not_called()
+
+    def test_toolbar_oauth_callback_denied_without_toolbar_access(self):
+        self._deny_toolbar_access()
+
+        response = self.client.get("/toolbar_oauth/callback?code=abc123&state=fake-state")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_toolbar_oauth_refresh_denied_after_access_revoked(self):
+        """A refresh token minted before access was revoked must not be usable to mint new
+        tokens afterwards - the refresh endpoint has no session auth, so it must re-check
+        the token owner's current toolbar access itself."""
+        oauth_app = OAuthApplication.objects.create(
+            name="Test Toolbar OAuth App",
+            client_id="test_toolbar_client_id",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+        refresh_token = OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="test_toolbar_refresh_token",
+        )
+        self._deny_toolbar_access()
+
+        with patch("posthog.api.user.refresh_tokens") as mock_refresh_tokens:
+            response = self.client.post(
+                "/api/user/toolbar_oauth_refresh/",
+                {"refresh_token": refresh_token.token, "client_id": oauth_app.client_id},
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_refresh_tokens.assert_not_called()
 
 
 class TestSessionAuthEndpoints(APIBaseTest):

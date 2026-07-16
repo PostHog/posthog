@@ -84,6 +84,7 @@ from posthog.middleware import (
     is_read_only_impersonation,
 )
 from posthog.models import OrganizationInvite, Team, User, UserScenePersonalisation
+from posthog.models.oauth import find_oauth_refresh_token
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -1568,6 +1569,9 @@ def toolbar_oauth_callback(request):
     if not team:
         return HttpResponse("No project found", status=400)
 
+    if not _user_can_access_toolbar(request.user, team):
+        return HttpResponse("You don't have access to the toolbar for this project.", status=403)
+
     try:
         state_payload = validate_and_consume_toolbar_oauth_state(
             signed_state=state,
@@ -1633,6 +1637,18 @@ class ToolbarOAuthRefreshView(APIView):
             return JsonResponse(
                 {"code": "invalid_request", "detail": "refresh_token and client_id are required"}, status=400
             )
+
+        # Re-check current toolbar access here: the token itself is the only credential on this
+        # AllowAny endpoint, so a user whose access was revoked after the token was issued must
+        # not be able to keep minting fresh tokens with it.
+        token_record = find_oauth_refresh_token(refresh_token)
+        if token_record and token_record.user.team:
+            if not _user_can_access_toolbar(token_record.user, token_record.user.team):
+                logger.warning("toolbar_oauth_refresh_denied", reason="access_revoked")
+                return JsonResponse(
+                    {"code": "forbidden", "detail": "You don't have access to the toolbar for this project."},
+                    status=403,
+                )
 
         try:
             token_payload = refresh_tokens(client_id=client_id, refresh_token=refresh_token)
@@ -1748,12 +1764,15 @@ def redirect_to_site(request):
     # Consider removing this in favor of building the redirect URL client-side.
     REDIRECT_TO_SITE_COUNTER.inc()
     team = request.user.team
+    if not team:
+        return HttpResponse(status=404)
+
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
 
     if not app_url:
         return HttpResponse(status=404)
 
-    if not team or not _user_can_access_toolbar(request.user, team):
+    if not _user_can_access_toolbar(request.user, team):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()
         return HttpResponse("You don't have access to the toolbar for this project.", status=403)
 
