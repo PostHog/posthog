@@ -295,3 +295,79 @@ describe('PostHogAuthProvider', () => {
         expect(await credentials.get('au-1', 'byo')).not.toBeNull()
     })
 })
+
+// Userinfo that only accepts the tokens it was told about — lets the
+// verifyBearer tests distinguish a valid per-request bearer from a bogus one.
+function bearerAwareUserinfo(validTokens: Record<string, string>): HttpFetcher {
+    return {
+        async fetch(input, init) {
+            const url = String(input)
+            if (!url.endsWith('/oauth/userinfo/')) {
+                return new Response('not found', { status: 404 })
+            }
+            const auth = ((init?.headers ?? {}) as Record<string, string>)['Authorization'] ?? ''
+            const sub = validTokens[auth.replace('Bearer ', '')]
+            if (!sub) {
+                return new Response(JSON.stringify({ error: 'invalid_token' }), { status: 401 })
+            }
+            return new Response(JSON.stringify({ sub }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            })
+        },
+    }
+}
+
+describe('verifyBearer (per-request identity proof)', () => {
+    const stores = (): { links: MemLinkStore; credentials: MemCredStore } => ({
+        links: new MemLinkStore(),
+        credentials: new MemCredStore(),
+    })
+
+    it('a bearer that userinfo accepts verifies to its subject, carrying the bearer as the credential', async () => {
+        const provider = posthogProvider(bearerAwareUserinfo({ 'live-token': 'phuser-42' }), stores())
+        const verified = await provider.verifyBearer!('live-token')
+        expect(verified).toEqual({ subject: 'phuser-42', stored: { access_token: 'live-token' }, scopes: [] })
+    })
+
+    it('a bearer that userinfo rejects verifies to null (admission then re-auths, never admits)', async () => {
+        const provider = posthogProvider(bearerAwareUserinfo({ 'live-token': 'phuser-42' }), stores())
+        expect(await provider.verifyBearer!('revoked-token')).toBeNull()
+    })
+
+    // Only the provider's judgement on the token (401/403) may read as invalid.
+    // Anything that prevented a judgement must throw — a brownout swallowed
+    // into null would demand re-auth from every holder of a valid bearer.
+    it.each<[string, HttpFetcher]>([
+        ['userinfo answers 5xx', { fetch: async () => new Response('oops', { status: 503 }) }],
+        [
+            'userinfo is unreachable',
+            {
+                fetch: async () => {
+                    throw new Error('ECONNREFUSED')
+                },
+            },
+        ],
+    ])('%s → verifyBearer throws unavailable, never reads as an invalid token', async (_label, http) => {
+        const provider = posthogProvider(http, stores())
+        await expect(provider.verifyBearer!('live-token')).rejects.toMatchObject({
+            name: 'IdentityProviderUnavailableError',
+        })
+    })
+
+    it('is absent without a userinfo endpoint — a defined stub would force re-auth over the durable binding', async () => {
+        const { links, credentials } = stores()
+        const provider = new Oauth2AuthProvider({
+            config: {
+                id: 'byo',
+                authorizeUrl: `${BASE}/oauth/authorize/`,
+                tokenUrl: `${BASE}/oauth/token/`,
+                clientId: 'byo-client',
+            },
+            links,
+            credentials,
+            http: bearerAwareUserinfo({}),
+        })
+        expect(provider.verifyBearer).toBeUndefined()
+    })
+})
