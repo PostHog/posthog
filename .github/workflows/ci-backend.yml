@@ -3488,7 +3488,9 @@ jobs:
               if: github.run_attempt == '1'
               shell: bash
               run: |
-                  if [[ -f .github/scripts/report_test_timings.py ]]; then
+                  # tools/owners is the reporter's ownership resolver, declared as a path
+                  # dependency — a base ref predating it can't resolve the script's deps at all.
+                  if [[ -f .github/scripts/report_test_timings.py && -d tools/owners ]]; then
                     echo "available=true" >> "$GITHUB_OUTPUT"
                   else
                     echo "available=false" >> "$GITHUB_OUTPUT"
