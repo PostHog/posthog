@@ -144,6 +144,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.exceptions_capture import capture_exception
+from posthog.ph_client import feature_enabled_or_false
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode, SessionTableVersion
 from posthog.scopes import APIScopeObject
 from posthog.synthetic_user import SyntheticUser
@@ -1191,7 +1192,6 @@ class Database(BaseModel):
         # Lazy imports keep the Django ORM off this module's import path.
         from posthog.models.group_type_mapping import get_group_types_for_project  # noqa: PLC0415
         from posthog.models.team.team import Team  # noqa: PLC0415
-        from posthog.ph_client import feature_enabled_or_false  # noqa: PLC0415
         from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
 
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
