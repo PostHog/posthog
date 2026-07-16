@@ -1,18 +1,9 @@
-"""OTLP log push into the PostHog Logs product (first-party log dogfooding).
+"""OTLP log push into the PostHog Logs product (the logs counterpart of `posthog/otel_metrics.py`).
 
-Ships structured logs through the same OTLP/HTTP path customers use, pointed at our own ingest
-(the `capture-logs` service, path `/i/v1/logs`), authenticated with a project token. Off unless both
-OTLP_LOGS_INGEST_ENDPOINT and OTLP_LOGS_INGEST_TOKEN are set, so nothing changes for deployments that
-don't opt in. This is the logs counterpart of `posthog/otel_metrics.py`.
-
-Attach `OtelLogHandler` to a stdlib logger (typically a product's namespace) to mirror that logger's
-records into Logs without touching any log call sites; the existing console/JSON handlers keep working
-alongside it. structlog routes through stdlib logging here, so this catches structlog output too.
-
-Initialization is lazy and per-process (keyed on PID): preforking servers (gunicorn, celery) get a
-live exporter thread in each worker instead of a dead one inherited from the parent, and no explicit
-init call is needed. Providers are also keyed by service name, since `service.name` is a resource
-attribute the Logs read side filters on, so each product's logs land under its own service.
+Attach `OtelLogHandler` to a stdlib logger (a product's namespace) to mirror its records into Logs
+without touching any call sites. A no-op unless OTLP_LOGS_INGEST_ENDPOINT and OTLP_LOGS_INGEST_TOKEN
+are set. Providers are lazy and per-process (fork-safe) and keyed by service name, which becomes the
+`service.name` the Logs read side filters on.
 """
 
 import os
@@ -50,8 +41,7 @@ def _build_provider(service_name: str) -> "LoggerProvider | None":
     if not settings.OTLP_LOGS_INGEST_ENDPOINT or not settings.OTLP_LOGS_INGEST_TOKEN:
         return None
 
-    # Deferred so the SDK + protobuf exporter stay off the django.setup() path; this only runs once
-    # per (process, service) and only in deployments that opt in.
+    # Deferred to keep the OTLP SDK off the django.setup() path.
     from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter  # noqa: PLC0415
     from opentelemetry.sdk._logs import LoggerProvider  # noqa: PLC0415
     from opentelemetry.sdk._logs.export import BatchLogRecordProcessor  # noqa: PLC0415
@@ -62,8 +52,7 @@ def _build_provider(service_name: str) -> "LoggerProvider | None":
     exporter = OTLPLogExporter(
         endpoint=settings.OTLP_LOGS_INGEST_ENDPOINT,
         headers={"authorization": f"Bearer {settings.OTLP_LOGS_INGEST_TOKEN}"},
-        # capture-logs is in-cluster (a private ClusterIP); the export must bypass the Smokescreen
-        # egress proxy or every batch silently 407s.
+        # Bypass the Smokescreen egress proxy (capture-logs is a private ClusterIP it 407s).
         session=internal_requests_session(),
     )
     provider = LoggerProvider(resource=Resource.create({"service.name": service_name}))
@@ -87,17 +76,11 @@ def _severity(levelno: int) -> "tuple[str, SeverityNumber]":
 
 
 def _body_and_attributes(record: logging.LogRecord, allowlist: frozenset[str] | None) -> tuple[str, dict[str, str]]:
-    """Extract a human message plus a stringified, scalar-only attribute map from a log record.
+    """Message and stringified, scalar-only attributes for one record (the queryable map is string-only).
 
-    The logs pipeline only indexes string-typed attributes into the queryable map, so every value
-    is stringified and non-scalars are dropped. structlog's `ProcessorFormatter` path leaves the
-    event dict on `record.msg` (the message under `event`, the rest structured fields); a plain
-    stdlib record leaves a format string there instead.
-
-    When `allowlist` is set the handler is fail-closed: only those event-dict keys are forwarded and
-    the exception contributes just its type name, so payload-derived fields (model output previews,
-    prompts, exception messages/tracebacks) never leave the emitting process. When it is None every
-    scalar field and the full traceback are forwarded.
+    structlog leaves the event dict on `record.msg` (message under `event`). With `allowlist` set the
+    handler is fail-closed: only those keys ship and an exception contributes just its type, so
+    payload-derived fields (previews, prompts, tracebacks) stay in the process. None forwards everything.
     """
     attributes: dict[str, str] = {"logger": record.name}
     msg = record.msg
@@ -114,8 +97,7 @@ def _body_and_attributes(record: logging.LogRecord, allowlist: frozenset[str] | 
         if allowlist is None:
             attributes["exception"] = logging.Formatter().formatException(record.exc_info)
         else:
-            # Restricted mode: the class name is operational, but the message and traceback can embed
-            # payload data, so ship only the type.
+            # The type is operational. The message and traceback can embed payload data.
             attributes["exception_type"] = record.exc_info[0].__name__
     return body, attributes
 
@@ -124,12 +106,9 @@ class OtelLogHandler(logging.Handler):
     """A logging handler that mirrors each record into the PostHog Logs product over OTLP.
 
     Fail-soft and a no-op until OTLP_LOGS_INGEST_* are configured, so it is safe to attach
-    unconditionally. `service_name` becomes the record's `service.name` resource — the field the Logs
-    read side filters on. `static_attributes` ride every record (stringified).
-
-    Pass `attribute_allowlist` to run fail-closed when the destination is a shared project: only those
-    event-dict keys are forwarded (plus the logger name and, for exceptions, the type), so
-    payload-derived fields never cross into it. Omit it to forward every scalar field.
+    unconditionally. `service_name` becomes the record's `service.name` resource, and
+    `static_attributes` ride every record. Pass `attribute_allowlist` to run fail-closed (only those
+    keys ship, and exceptions contribute just their type). Omit it to forward every scalar field.
     """
 
     def __init__(
@@ -147,9 +126,8 @@ class OtelLogHandler(logging.Handler):
         self._resource: Resource | None = None
 
     def emit(self, record: logging.LogRecord) -> None:
-        # Swallow everything: a telemetry throw must never break the pipeline, and logging the
-        # failure here would re-enter this handler for records under the same namespace (infinite
-        # recursion). A dropped batch is at worst missing observability.
+        # Fail-soft: never let telemetry break the pipeline, and never log here (it would recurse
+        # back through this handler).
         try:
             provider = _ensure_provider(self._service_name)
             if provider is None:
@@ -164,9 +142,8 @@ class OtelLogHandler(logging.Handler):
             body, extra = _body_and_attributes(record, self._attribute_allowlist)
             severity_text, severity_number = _severity(record.levelno)
             timestamp = int(record.created * 1_000_000_000)
-            # Pin the resource on the record: Logger.emit attaches only the scope, and a LogRecord
-            # built without resource= defaults to the pod's OTEL_SERVICE_NAME env, so the Logs read
-            # filter (service.name = <service>) would never match. (engineering_analytics lesson.)
+            # Pin the resource: a record built without it defaults to the pod's OTEL_SERVICE_NAME, so
+            # the Logs filter on service.name would miss these records.
             provider.get_logger(self._service_name, version="1").emit(
                 LogRecord(
                     timestamp=timestamp,

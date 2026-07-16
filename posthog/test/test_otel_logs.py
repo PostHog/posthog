@@ -62,10 +62,9 @@ class TestOtelLogs(SimpleTestCase):
         assert otel_logs._providers.get("replay-vision") is None
 
     def test_maps_event_dict_to_body_and_stringified_attributes(self) -> None:
-        # The core contract: `event` becomes the body, scalar fields become attributes stringified (the
-        # logs pipeline only indexes string-typed values), the logger name rides along, and the record's
-        # resource is pinned to the service — not the pod's OTEL_SERVICE_NAME, which the read filter
-        # (service.name = replay-vision) would otherwise miss.
+        # The core contract: `event` becomes the body, scalar fields become stringified attributes, the
+        # logger name rides along, and the resource is pinned to the service (not the pod's
+        # OTEL_SERVICE_NAME, which the service.name read filter would otherwise miss).
         with mock.patch.dict("os.environ", {"OTEL_SERVICE_NAME": "temporal-worker-general-purpose"}):
             records = self._emit(
                 _structlog_record(
@@ -93,13 +92,13 @@ class TestOtelLogs(SimpleTestCase):
         ]
     )
     def test_severity_mapping(self, levelno: int, expected_text: str, expected_number: SeverityNumber) -> None:
-        # The Logs UI filters and sorts on severity; a broken level map degrades triage silently.
+        # The Logs UI filters and sorts on severity. A broken level map degrades triage silently.
         records = self._emit(_structlog_record({"event": "x"}, level=levelno))
         assert records[0].severity_text == expected_text
         assert records[0].severity_number == expected_number
 
     def test_drops_non_scalar_attributes(self) -> None:
-        # OTEL attributes accept scalars only; a Mapping/list value must be dropped, not crash or
+        # OTEL attributes accept scalars only. A Mapping/list value must be dropped, not crash or
         # serialize garbage, while scalar attributes survive.
         records = self._emit(_structlog_record({"event": "x", "count": 1, "nested": {"a": 1}, "items": [1, 2]}))
         assert records[0].attributes["count"] == "1"
@@ -107,8 +106,8 @@ class TestOtelLogs(SimpleTestCase):
         assert "items" not in records[0].attributes
 
     def test_plain_stdlib_message_becomes_body(self) -> None:
-        # A third-party library logging under the namespace passes a format string, not an event dict;
-        # it must render into a real body rather than str(dict) garbage.
+        # A third-party library logging under the namespace passes a format string, not an event dict.
+        # It must render into a real body rather than str(dict) garbage.
         record = logging.LogRecord(
             name="products.replay_vision.backend.temporal.x",
             level=logging.INFO,
@@ -145,8 +144,8 @@ class TestOtelLogs(SimpleTestCase):
         assert "response_preview" not in records[0].attributes
 
     def test_restricted_mode_ships_exception_type_not_traceback(self) -> None:
-        # With an allowlist the exception contributes only its class name — the message and traceback
-        # can embed customer data, so they must not be forwarded.
+        # With an allowlist the exception contributes only its class name, not the message or
+        # traceback, which can embed customer data.
         try:
             raise ValueError("customer data in message")
         except ValueError:
@@ -157,7 +156,7 @@ class TestOtelLogs(SimpleTestCase):
         assert all("customer data" not in str(value) for value in records[0].attributes.values())
 
     def test_emit_is_fail_soft(self) -> None:
-        # A telemetry throw must never propagate out of emit — that would crash the activity it rode in on.
+        # A telemetry throw must never propagate out of emit, which would crash the activity it rode in on.
         provider = mock.MagicMock()
         provider.get_logger.side_effect = RuntimeError("exporter down")
         with mock.patch("posthog.otel_logs._build_provider", return_value=provider):

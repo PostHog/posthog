@@ -30,7 +30,7 @@ class TestVisionLogBridge(SimpleTestCase):
         bridge._installed = self._orig_installed
 
     def test_install_is_idempotent_and_attaches_one_handler(self) -> None:
-        # Double-install would ship every record twice; a wrong service name would land the logs where
+        # Double-install would ship every record twice. A wrong service name would land the logs where
         # the Logs read filter (service.name = replay-vision) can't find them.
         bridge.install_vision_log_bridge()
         bridge.install_vision_log_bridge()

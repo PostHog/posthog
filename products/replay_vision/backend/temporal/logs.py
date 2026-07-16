@@ -1,9 +1,8 @@
 """Mirror the Replay Vision Temporal pipeline's logs into the PostHog Logs product (dogfooding).
 
-The pipeline logs through structlog on the `products.replay_vision.backend.temporal` namespace.
-Attaching an `OtelLogHandler` there ships those records into Logs under `service.name = replay-vision`
-with zero new log call sites, alongside the existing console/JSON output. A no-op until
-OTLP_LOGS_INGEST_* are configured, so it is safe to install unconditionally at worker import.
+Attaching an `OtelLogHandler` to the `products.replay_vision.backend.temporal` namespace ships those
+records into Logs under `service.name = replay-vision` with no new call sites. A no-op until
+OTLP_LOGS_INGEST_* are configured, so it is safe to install at worker import.
 """
 
 import logging
@@ -12,12 +11,12 @@ from posthog.otel_logs import OtelLogHandler
 
 VISION_LOGS_SERVICE_NAME = "replay-vision"
 
-# The namespace every Replay Vision Temporal logger falls under; records propagate to a handler here.
+# Every Replay Vision Temporal logger falls under this namespace, so a handler here catches them all.
 _TEMPORAL_LOGGER_NAME = "products.replay_vision.backend.temporal"
 
-# Operational fields safe to ship to the shared internal Logs project. The bridge is fail-closed:
-# any log field not listed here (model output previews, prompts, exception messages, or other
-# payload-derived values) is dropped, so no team's session-derived content crosses into the project.
+# Fail-closed allowlist: only these operational fields ship to the shared Logs project. Anything else
+# (previews, prompts, exception messages, payload-derived values) is dropped so no team's
+# session-derived content crosses in.
 VISION_LOG_ATTRIBUTE_ALLOWLIST = frozenset(
     {
         "observation_id",
