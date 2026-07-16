@@ -22,7 +22,8 @@ import {
 } from '~/types'
 
 import { calculateFreeTier, createGaugeItems, isAddonVisible, isProductVariantPrimary } from './billing-utils'
-import { billingLogic } from './billingLogic'
+import { getBillingLimitConfig } from './billingLimitConfig'
+import { billingLogic, getBillingApiErrorMessage } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 import { paymentEntryLogic } from './paymentEntryLogic'
@@ -134,6 +135,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
         reportSurveyDismissed: (surveyID: string) => ({ surveyID }),
         setSurveyID: (surveyID: string) => ({ surveyID }),
         setBillingProductLoading: (productKey: string | null) => ({ productKey }),
+        setRemovingBillingLimitNextPeriod: (removingBillingLimitNextPeriod: boolean) => ({
+            removingBillingLimitNextPeriod,
+        }),
         initiateProductUpgrade: (
             product: BillingProductV2Type | BillingProductV2AddonType,
             plan: BillingPlanType,
@@ -239,6 +243,13 @@ export const billingProductLogic = kea<billingProductLogicType>([
             null as string | null,
             {
                 setBillingProductLoading: (_, { productKey }) => productKey,
+            },
+        ],
+        removingBillingLimitNextPeriod: [
+            false,
+            {
+                setRemovingBillingLimitNextPeriod: (_, { removingBillingLimitNextPeriod }) =>
+                    removingBillingLimitNextPeriod,
             },
         ],
         comparisonModalHighlightedFeatureKey: [
@@ -351,7 +362,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return Number(customLimit)
                 }
                 const usageKeyLimit = product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] : null
-                return usageKeyLimit ? Number(usageKeyLimit) : null
+                return usageKeyLimit === 0 || usageKeyLimit ? Number(usageKeyLimit) : null
             },
         ],
         visibleAddons: [
@@ -405,6 +416,17 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return nextPeriodLimit
                 }
                 return product.usage_key ? (billing?.next_period_custom_limits_usd?.[product.usage_key] ?? null) : null
+            },
+        ],
+        billingLimitConfig: [
+            (s, p) => [s.billing, p.product, s.customLimitUsd, s.billingLimitNextPeriod],
+            (billing, product, customLimitUsd, billingLimitNextPeriod) => {
+                return getBillingLimitConfig({
+                    billing,
+                    product,
+                    customLimitUsd,
+                    billingLimitNextPeriod,
+                })
             },
         ],
         billingGaugeItems: [
@@ -772,31 +794,44 @@ export const billingProductLogic = kea<billingProductLogicType>([
             }
         },
         removeBillingLimitNextPeriod: async ({ productType }) => {
+            actions.setRemovingBillingLimitNextPeriod(true)
             try {
                 await api.update('api/billing', { reset_limit_next_period: productType })
                 lemonToast.success('Billing limit for next period has been removed.')
-            } catch (e) {
-                console.error(e)
+            } catch (error) {
+                console.error(error)
                 lemonToast.error(
-                    'There was an error removing your billing limit for next period. Please try again or contact support.'
+                    getBillingApiErrorMessage(
+                        error,
+                        ['reset_limit_next_period'],
+                        'There was an error removing your billing limit for next period. Please try again or contact support.'
+                    )
                 )
             } finally {
+                actions.setRemovingBillingLimitNextPeriod(false)
                 actions.loadBilling()
             }
         },
     })),
-    forms(({ actions, props }) => ({
+    forms(({ actions, props, values }) => ({
         billingLimitInput: {
             errors: ({ input }) => ({
                 input:
                     input === null || Number.isInteger(input)
-                        ? input > 50000
-                            ? 'Please enter a number less than 50,000'
+                        ? input > values.billingLimitConfig.max
+                            ? values.billingLimitConfig.maxExceededError
                             : undefined
                         : 'Please enter a whole number',
             }),
             submit: async ({ input }) => {
-                if (props.product.current_amount_usd && input < props.product.current_amount_usd) {
+                const currentAmountUsd = props.product.current_amount_usd
+                    ? parseFloat(props.product.current_amount_usd)
+                    : null
+                const projectedAmountUsd = props.product.projected_amount_usd
+                    ? parseFloat(props.product.projected_amount_usd)
+                    : null
+
+                if (input !== null && currentAmountUsd !== null && input < currentAmountUsd) {
                     LemonDialog.open({
                         maxWidth: '600px',
                         title: 'Billing limit warning',
@@ -817,7 +852,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return
                 }
 
-                if (props.product.projected_amount_usd && input < props.product.projected_amount_usd) {
+                if (input !== null && projectedAmountUsd !== null && input < projectedAmountUsd) {
                     LemonDialog.open({
                         maxWidth: '600px',
                         title: 'Billing limit warning',

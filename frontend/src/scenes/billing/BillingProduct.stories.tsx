@@ -1,11 +1,14 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import { makeBillingWithPlatformAddons } from '~/mocks/fixtures/_billing_platform_addons'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { BillingProductV2Type } from '~/types'
+import { BillingProductV2Type, BillingType, StartupProgramLabel } from '~/types'
 
+import { POSTHOG_CODE_BILLING_LIMIT_MAX, POSTHOG_CODE_USAGE_PRODUCT_KEY } from './billingLimitConfig'
 import { BillingProduct } from './BillingProduct'
 
 const meta: Meta = {
@@ -30,6 +33,69 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<{}>
+
+const makePostHogCodeUsageBilling = ({
+    currentLimitUsd,
+    nextPeriodLimitUsd,
+}: {
+    currentLimitUsd: number
+    nextPeriodLimitUsd?: number
+}): { billing: BillingType; product: BillingProductV2Type } => {
+    const sourceProduct = billingJson.products.find(
+        (product) => product.type === 'feature_flags'
+    ) as BillingProductV2Type
+    const product: BillingProductV2Type = {
+        ...sourceProduct,
+        name: 'PostHog Code',
+        headline: 'AI coding agents for your PostHog workspace.',
+        description: 'AI coding agents for automating PostHog work.',
+        usage_key: POSTHOG_CODE_USAGE_PRODUCT_KEY,
+        icon_key: 'IconTerminal',
+        docs_url: 'https://posthog.com/docs/posthog-code',
+        subscribed: true,
+        type: POSTHOG_CODE_USAGE_PRODUCT_KEY,
+        current_amount_usd: currentLimitUsd > POSTHOG_CODE_BILLING_LIMIT_MAX ? '3750.00' : '25.00',
+        projected_amount_usd: currentLimitUsd > POSTHOG_CODE_BILLING_LIMIT_MAX ? '4100.00' : '75.00',
+        projected_amount_usd_with_limit: currentLimitUsd > POSTHOG_CODE_BILLING_LIMIT_MAX ? '3750.00' : '75.00',
+        plans: sourceProduct.plans.map((plan) => ({
+            ...plan,
+            initial_billing_limit: 50,
+        })),
+    }
+    const nextPeriodLimits: Record<string, number | null> =
+        nextPeriodLimitUsd === undefined ? {} : { [POSTHOG_CODE_USAGE_PRODUCT_KEY]: nextPeriodLimitUsd }
+
+    return {
+        product,
+        billing: {
+            ...billingJson,
+            startup_program_label: StartupProgramLabel.Startup,
+            products: [product],
+            custom_limits_usd: {
+                [POSTHOG_CODE_USAGE_PRODUCT_KEY]: currentLimitUsd,
+            },
+            next_period_custom_limits_usd: nextPeriodLimits,
+        },
+    }
+}
+
+const renderPostHogCodeUsageBillingProduct = ({
+    currentLimitUsd,
+    nextPeriodLimitUsd,
+}: {
+    currentLimitUsd: number
+    nextPeriodLimitUsd?: number
+}): JSX.Element => {
+    const { billing, product } = makePostHogCodeUsageBilling({ currentLimitUsd, nextPeriodLimitUsd })
+
+    useStorybookMocks({
+        get: {
+            '/api/billing/': billing,
+        },
+    })
+
+    return <BillingProduct product={product} />
+}
 
 export const BillingProductWithoutAddons: Story = {
     render: () => {
@@ -77,6 +143,32 @@ export const BillingProductWithStandalonePricingAddon: Story = {
 
         return <BillingProduct product={product as BillingProductV2Type} />
     },
+}
+
+export const BillingProductPostHogCodeLimit: Story = {
+    render: () =>
+        renderPostHogCodeUsageBillingProduct({
+            currentLimitUsd: 50,
+        }),
+}
+
+export const BillingProductPostHogCodeLimitEditing: Story = {
+    render: () =>
+        renderPostHogCodeUsageBillingProduct({
+            currentLimitUsd: 50,
+        }),
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Edit limit'))
+    },
+}
+
+export const BillingProductPostHogCodeLimitNextPeriodCapped: Story = {
+    render: () =>
+        renderPostHogCodeUsageBillingProduct({
+            currentLimitUsd: 3750,
+            nextPeriodLimitUsd: 3000,
+        }),
 }
 
 export const BillingProductTemporarilyFree: Story = {

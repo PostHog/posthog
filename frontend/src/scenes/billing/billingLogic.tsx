@@ -80,6 +80,62 @@ export type SwitchPlanPayload = {
     to_plan_key: string
 }
 
+const getBillingApiErrorData = (error: unknown): Record<string, unknown> | null => {
+    if (!error || typeof error !== 'object' || !('data' in error)) {
+        return null
+    }
+
+    const data = (error as { data?: unknown }).data
+    return data && typeof data === 'object' ? (data as Record<string, unknown>) : null
+}
+
+const getBillingApiErrorFieldValue = (value: unknown): string | null => {
+    if (typeof value === 'string') {
+        return value
+    }
+
+    if (Array.isArray(value)) {
+        const messages = value.map(getBillingApiErrorFieldValue).filter(Boolean)
+        return messages.length ? messages.join(' ') : null
+    }
+
+    if (value && typeof value === 'object') {
+        const messages = Object.values(value as Record<string, unknown>)
+            .map(getBillingApiErrorFieldValue)
+            .filter(Boolean)
+        return messages.length ? messages.join(' ') : null
+    }
+
+    return null
+}
+
+export const getBillingApiErrorMessage = (error: unknown, fieldNames: string[], fallbackMessage: string): string => {
+    const data = getBillingApiErrorData(error)
+
+    if (data) {
+        for (const fieldName of fieldNames) {
+            const fieldMessage = getBillingApiErrorFieldValue(data[fieldName])
+            if (fieldMessage) {
+                return fieldMessage
+            }
+        }
+
+        const detailMessage = getBillingApiErrorFieldValue(data.detail)
+        if (detailMessage) {
+            return detailMessage
+        }
+    }
+
+    if (error && typeof error === 'object' && 'detail' in error) {
+        const detailMessage = getBillingApiErrorFieldValue((error as { detail?: unknown }).detail)
+        if (detailMessage) {
+            return detailMessage
+        }
+    }
+
+    return fallbackMessage
+}
+
 const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
     if (data.billing_period) {
         data.billing_period = {
@@ -324,9 +380,13 @@ export const billingLogic = kea<billingLogicType>([
                         lemonToast.success('Billing limits updated')
                         actions.loadBilling()
                         return parseBillingResponse(response)
-                    } catch (error: any) {
+                    } catch (error: unknown) {
                         lemonToast.error(
-                            'There was an error updating your billing limits. Please try again or contact support.'
+                            getBillingApiErrorMessage(
+                                error,
+                                ['custom_limits_usd'],
+                                'There was an error updating your billing limits. Please try again or contact support.'
+                            )
                         )
                         throw error
                     }

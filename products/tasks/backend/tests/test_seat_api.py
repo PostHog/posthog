@@ -262,7 +262,8 @@ class TestSeatAPIRetiredProducts(BaseSeatAPITest):
         assert response.json() == {
             "error": (
                 "You can no longer create, upgrade, or reactivate PostHog Code seats. "
-                "PostHog Code with usage-based billing is launching shortly."
+                "PostHog Code with usage-based billing launched today, July 16, 2026, "
+                "and existing seats expire today."
             ),
             "code": "seat_product_retired",
         }
