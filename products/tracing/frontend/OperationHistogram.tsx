@@ -18,6 +18,8 @@ interface OperationHistogramProps {
     selection: DurationRange | null
     onSelect: (selection: DurationRange) => void
     onClear: () => void
+    /** Extra header content, right-aligned (e.g. the histogram/heatmap chart toggle). */
+    actions?: React.ReactNode
 }
 
 // Duration buckets are categorical (1ms, 2ms, 5ms, ...) — the 1-2-5 series is already
@@ -44,6 +46,7 @@ export function OperationHistogram({
     selection,
     onSelect,
     onClear,
+    actions,
 }: OperationHistogramProps): JSX.Element {
     const onSelectionChange = useCallback(
         ({ startIndex, endIndex }: { startIndex: number; endIndex: number }): void => {
@@ -89,6 +92,7 @@ export function OperationHistogram({
                 ) : (
                     <span className="text-xs text-muted italic">Drag to select a duration range</span>
                 )}
+                {actions && <div className="ml-auto">{actions}</div>}
             </div>
             <div className="relative h-32">
                 {data.data.length > 0 ? (

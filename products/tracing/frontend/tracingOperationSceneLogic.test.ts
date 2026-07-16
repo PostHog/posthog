@@ -99,4 +99,34 @@ describe('tracingOperationSceneLogic', () => {
         router.actions.push('/tracing/operation', { sample: '-1' })
         expect(logic.values.sampleIndex).toBe(0)
     })
+
+    it('a heatmap brush zooms the date range at bucket edges and applies the duration selection', () => {
+        const MS = 1_000_000
+        logic.actions.fetchLatencyHeatmapSuccess([
+            { time: '2024-01-01T00:00:00Z', bucket_ns: 1 * MS, count: 1 },
+            { time: '2024-01-01T00:10:00Z', bucket_ns: 2 * MS, count: 1 },
+            { time: '2024-01-01T00:20:00Z', bucket_ns: 5 * MS, count: 1 },
+        ])
+
+        logic.actions.applyHeatmapBrush({ x: { startIndex: 0, endIndex: 1 }, y: { startIndex: 1, endIndex: 1 } })
+        // date_to is the START of the bucket after the last selected column; the 2ms row covers [2ms, 5ms).
+        expect(logic.values.dateRange).toEqual({
+            date_from: '2024-01-01T00:00:00Z',
+            date_to: '2024-01-01T00:20:00Z',
+        })
+        expect(logic.values.durationSelection).toEqual({ minNs: 2 * MS, maxNs: 5 * MS })
+    })
+
+    it('a full-height heatmap brush is a time zoom that leaves the duration selection alone', () => {
+        const MS = 1_000_000
+        logic.actions.setDurationSelection({ minNs: 1 * MS, maxNs: 2 * MS })
+        logic.actions.fetchLatencyHeatmapSuccess([
+            { time: '2024-01-01T00:00:00Z', bucket_ns: 1 * MS, count: 1 },
+            { time: '2024-01-01T00:10:00Z', bucket_ns: 5 * MS, count: 1 },
+        ])
+
+        logic.actions.applyHeatmapBrush({ x: { startIndex: 1, endIndex: 1 }, y: { startIndex: 0, endIndex: 2 } })
+        expect(logic.values.dateRange.date_from).toBe('2024-01-01T00:10:00Z')
+        expect(logic.values.durationSelection).toEqual({ minNs: 1 * MS, maxNs: 2 * MS })
+    })
 })

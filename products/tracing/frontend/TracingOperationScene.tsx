@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
@@ -14,9 +14,15 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { formatBucketLabel } from './durationBuckets'
 import { OperationHistogram } from './OperationHistogram'
 import { formatDuration, TraceWaterfallView } from './TraceWaterfallView'
-import { tracingOperationSceneLogic, type TracingOperationSceneLogicProps } from './tracingOperationSceneLogic'
+import { TracingLatencyHeatmap } from './TracingLatencyHeatmap'
+import {
+    type OperationChartType,
+    tracingOperationSceneLogic,
+    type TracingOperationSceneLogicProps,
+} from './tracingOperationSceneLogic'
 
 export const scene: SceneExport<TracingOperationSceneLogicProps> = {
     component: TracingOperationScene,
@@ -26,6 +32,26 @@ export const scene: SceneExport<TracingOperationSceneLogicProps> = {
         spanName: String(name ?? ''),
     }),
     productKey: ProductKey.TRACING,
+}
+
+function OperationChartToggle({
+    chartType,
+    onChange,
+}: {
+    chartType: OperationChartType
+    onChange: (chartType: OperationChartType) => void
+}): JSX.Element {
+    return (
+        <LemonSegmentedButton
+            size="xsmall"
+            value={chartType}
+            onChange={(value) => onChange(value as OperationChartType)}
+            options={[
+                { value: 'histogram', label: 'Histogram' },
+                { value: 'heatmap', label: 'Heatmap' },
+            ]}
+        />
+    )
 }
 
 function StatBlock({ label, value }: { label: string; value: string }): JSX.Element {
@@ -54,8 +80,12 @@ export function TracingOperationScene(): JSX.Element {
         sampleTraceSpansLoading,
         selectedSpanId,
         operationStats,
+        chartType,
+        latencyHeatmapData,
+        rawLatencyHeatmapLoading,
     } = useValues(tracingOperationSceneLogic)
-    const { setDateRange, setDurationSelection, setSampleIndex, selectSpan } = useActions(tracingOperationSceneLogic)
+    const { setDateRange, setDurationSelection, setSampleIndex, selectSpan, setChartType, applyHeatmapBrush } =
+        useActions(tracingOperationSceneLogic)
 
     if (!spanName) {
         return (
@@ -103,13 +133,48 @@ export function TracingOperationScene(): JSX.Element {
                     <StatBlock label="p99" value={formatDuration(operationStats.p99_duration_nano)} />
                 </div>
             )}
-            <OperationHistogram
-                data={histogramData}
-                loading={rawHistogramLoading}
-                selection={durationSelection}
-                onSelect={setDurationSelection}
-                onClear={() => setDurationSelection(null)}
-            />
+            {chartType === 'heatmap' ? (
+                <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2 min-h-6">
+                        <span className="text-xs text-muted">Latency heatmap</span>
+                        {durationSelection ? (
+                            <>
+                                <span className="text-xs font-mono">
+                                    {formatBucketLabel(durationSelection.minNs)} –{' '}
+                                    {formatBucketLabel(durationSelection.maxNs)}
+                                </span>
+                                <LemonButton size="xsmall" type="tertiary" onClick={() => setDurationSelection(null)}>
+                                    Clear
+                                </LemonButton>
+                            </>
+                        ) : (
+                            <span className="text-xs text-muted italic">
+                                Drag to select a time window and duration range
+                            </span>
+                        )}
+                        <div className="ml-auto">
+                            <OperationChartToggle chartType={chartType} onChange={setChartType} />
+                        </div>
+                    </div>
+                    <div className="relative h-32">
+                        <TracingLatencyHeatmap
+                            data={latencyHeatmapData}
+                            loading={rawLatencyHeatmapLoading}
+                            displayTimezone="UTC"
+                            onBrush={applyHeatmapBrush}
+                        />
+                    </div>
+                </div>
+            ) : (
+                <OperationHistogram
+                    data={histogramData}
+                    loading={rawHistogramLoading}
+                    selection={durationSelection}
+                    onSelect={setDurationSelection}
+                    onClear={() => setDurationSelection(null)}
+                    actions={<OperationChartToggle chartType={chartType} onChange={setChartType} />}
+                />
+            )}
             <SceneDivider />
             {samples.length === 0 && samplesLoading ? (
                 <div className="relative min-h-32">
