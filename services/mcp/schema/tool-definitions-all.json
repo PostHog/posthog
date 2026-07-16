@@ -5316,7 +5316,7 @@
         }
     },
     "llma-prompt-get": {
-        "description": "Get a specific LLM prompt by name. Uses the cached endpoint for fast retrieval.\nThe response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful\nas a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,\nor `content=preview` for a short `prompt_preview` snippet instead of the full prompt.",
+        "description": "Get a specific LLM prompt by name. Uses the cached endpoint for fast retrieval.\nPass `label` (e.g. 'production') to fetch the version that label currently points to, or `version` for an\nexact version number — not both. With neither, the latest version is returned.\nThe response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful\nas a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,\nor `content=preview` for a short `prompt_preview` snippet instead of the full prompt.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get prompt",

@@ -99,12 +99,23 @@ class LLMPromptFetchQuerySerializer(serializers.Serializer):
 
 
 class LLMPromptGetByNameQuerySerializer(LLMPromptFetchQuerySerializer):
+    label = serializers.CharField(  # type: ignore[assignment]
+        required=False,
+        help_text=(
+            "Fetch the version this label currently points to, e.g. 'production'. Mutually exclusive with version."
+        ),
+    )
     content = serializers.ChoiceField(
         choices=CONTENT_MODE_CHOICES,
         required=False,
         default="full",
         help_text=CONTENT_MODE_HELP,
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("version") is not None and attrs.get("label") is not None:
+            raise serializers.ValidationError("Use either version or label, not both.")
+        return attrs
 
 
 class LLMPromptListQuerySerializer(serializers.Serializer):
@@ -415,6 +426,10 @@ class LLMPromptPublicSerializer(serializers.Serializer):
         help_text="Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents.",
     )
     version = serializers.IntegerField()
+    label = serializers.CharField(  # type: ignore[assignment]
+        required=False,
+        help_text="The label this prompt was fetched by. Only present when fetching with the label parameter.",
+    )
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
     deleted = serializers.BooleanField()

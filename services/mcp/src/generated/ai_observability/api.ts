@@ -1622,6 +1622,13 @@ export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n* `full` - full\n* `preview` - preview\n* `none` - none"
         ),
+    label: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Fetch the version this label currently points to, e.g. 'production'. Mutually exclusive with version."
+        ),
     version: zod
         .number()
         .min(1)

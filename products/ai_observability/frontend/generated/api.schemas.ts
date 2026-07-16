@@ -2213,6 +2213,8 @@ export interface LLMPromptPublicApi {
     /** Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents. */
     outline: LLMPromptOutlineEntryApi[]
     version: number
+    /** The label this prompt was fetched by. Only present when fetching with the label parameter. */
+    label?: string
     created_at: string
     updated_at: string
     deleted: boolean
@@ -2971,6 +2973,11 @@ export type LlmPromptsNameRetrieveParams = {
      * @minLength 1
      */
     content?: LlmPromptsNameRetrieveContent
+    /**
+     * Fetch the version this label currently points to, e.g. 'production'. Mutually exclusive with version.
+     * @minLength 1
+     */
+    label?: string
     /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
