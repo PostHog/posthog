@@ -183,3 +183,10 @@ At 180k docs CURRENT peak*mem was 96 MiB; at 360k it was 174 MiB — memory grow
 | Candidate-bounded                  | 88     | 210k      | **30 MiB** | **11 MiB** |
 
 ~18x fewer bytes, ~84x less memory, ~6.6x faster — far larger than the pruned-content case above, and on every axis (the extra DISTINCT scan reads only `document_id` + `metadata`, so total bytes still collapses because `content` is now read for one report's docs, not the team's). Lesson: the candidate-bound win scales with how much per-document data the post-filter throws away — biggest when the dedup buffers a wide column (`content`/`embedding`) that downstream actually needs.
+
+**Third application — the signals semantic-search neighbour query (`run_signal_semantic_search_activity`).**
+The `cosineDistance` nearest-neighbour query dedups the team's whole signal history with `argMax(embedding, inserted_at) ... GROUP BY document_id` and only applies the `report_id != ''` / `timestamp >= now() - INTERVAL 1 MONTH` / non-deleted predicates on the outer query, after the argMax over the 1536-float `embedding` has already buffered every document.
+On teams with enough history that blew the 60s ClickHouse limit (`elapsed 71214 ms`).
+Same fix: wire those three predicates in as the `candidate_document_filter` so the argMax runs over the recent, reportable, non-deleted slice — the outer WHERE stays authoritative on the latest version, so results are unchanged.
+The prefilter provably can't drop a row the outer filter keeps: a document whose latest version passes the outer WHERE has that same latest row in the candidate scan (identical predicates, and `timestamp` is stable across a document's versions).
+Because the buffered column here is `embedding` (the widest one) and the post-filter throws away the whole team's older history, this is squarely the high-win end of the scale above.

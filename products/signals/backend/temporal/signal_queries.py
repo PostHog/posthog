@@ -321,6 +321,16 @@ async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInpu
     try:
         team = await Team.objects.aget(pk=input.team_id)
 
+        # Bound the argMax dedup to documents that ever matched the outer filter, so the aggregation
+        # runs over a recent slice instead of the team's whole signal history (which grows without
+        # bound and blew the 60s ClickHouse limit). The candidate prefilter picks documents; the outer
+        # WHERE stays authoritative on the latest version, preserving "latest version wins".
+        candidate_document_filter = (
+            "JSONExtractString(metadata, 'report_id') != ''"
+            " AND timestamp >= now() - INTERVAL 1 MONTH"
+            " AND NOT JSONExtractBool(metadata, 'deleted')"
+        )
+
         query = f"""
             SELECT
                 document_id,
@@ -329,7 +339,7 @@ async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInpu
                 JSONExtractString(metadata, 'source_product') as source_product,
                 JSONExtractString(metadata, 'source_type') as source_type,
                 cosineDistance(embedding, {{embedding}}) as distance
-            FROM ({_deduped_signals_subquery(include_embedding=True)})
+            FROM ({_deduped_signals_subquery(include_embedding=True, candidate_document_filter=candidate_document_filter)})
             WHERE JSONExtractString(metadata, 'report_id') != ''
               AND timestamp >= now() - INTERVAL 1 MONTH
               AND NOT JSONExtractBool(metadata, 'deleted')
