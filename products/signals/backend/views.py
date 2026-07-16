@@ -2400,7 +2400,8 @@ class SignalReportViewSet(
                 {"error": "This report has no implementation pull request."}, status=status.HTTP_404_NOT_FOUND
             )
         user_integration = (
-            UserIntegration.objects.filter(user=request.user, kind=UserIntegration.IntegrationKind.GITHUB)
+            # request.user is authenticated here (the action requires a scope), so it's a real User.
+            UserIntegration.objects.filter(user=cast(User, request.user), kind=UserIntegration.IntegrationKind.GITHUB)
             .order_by("created_at")
             .first()
         )
