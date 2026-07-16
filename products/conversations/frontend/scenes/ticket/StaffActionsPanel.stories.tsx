@@ -50,5 +50,5 @@ export const AmbiguousRegion: Story = {
 }
 
 export const NoCustomerEmail: Story = {
-    render: () => <PanelWithContext context={null} />,
+    render: () => <PanelWithContext context={{ ticketId: 'ticket-3', email: '' }} />,
 }
