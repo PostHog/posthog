@@ -1,6 +1,7 @@
 import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
 
+import { defaultConfig } from '~/common/config/config'
 import { RedisPoolConfig, createRedisFromConfig } from '~/common/utils/db/redis'
 import { timeoutGuard } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
@@ -74,10 +75,14 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
     )
 
     const useClient: RedisV2['useClient'] = async (options, callback) => {
+        const timeoutMs = options.timeout ?? defaultConfig.TASK_TIMEOUT * 1000
         const timeout = timeoutGuard(
-            `Redis call ${options.name} delayed. Waiting over 30 seconds.`,
+            `Redis call ${options.name} delayed. Waited over ${timeoutMs / 1000}s.`,
             undefined,
-            options.timeout
+            timeoutMs,
+            true,
+            undefined,
+            `Redis timeout: ${options.name}`
         )
         const client = await pool.acquire()
 
