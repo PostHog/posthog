@@ -207,7 +207,8 @@ describe('SessionBatchRecorder', () => {
     // step always hands the recorder empty logs.
     const emptyLogs = { consoleLogCount: 0, consoleWarnCount: 0, consoleErrorCount: 0, entries: [] }
 
-    // Extracts a message through the real extract steps and records it.
+    // Extracts a message through the real extract steps, admits it, and records it the way the
+    // pipeline's record steps do; returns 0 when the message wasn't admitted.
     // Defaults to 30d and a fresh cleartext key — most tests don't vary either.
     const record = async (
         message: MessageWithTeam,
@@ -225,7 +226,12 @@ describe('SessionBatchRecorder', () => {
             throw new Error('extract steps returned a non-ok result')
         }
         const { session, data } = extracted.value
-        const { bytesWritten } = await recorder.record(session, data, extractedLogs.value.logs, message.message)
+        if (recorder.admit(session, data.eventCount) !== 'admitted') {
+            return 0
+        }
+        const bytesWritten = recorder.recordSessionData(session, data)
+        await recorder.recordSessionLogs(session, extractedLogs.value.logs)
+        recorder.recordSessionFeatures(session, message.message)
         return bytesWritten
     }
 
@@ -1942,6 +1948,26 @@ describe('SessionBatchRecorder', () => {
 
             expect(bytes1).toBeGreaterThan(0)
             expect(bytes2).toBe(0)
+        })
+    })
+
+    describe('admission contract', () => {
+        it('should throw when recording a message that was not admitted', async () => {
+            const message = createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }])
+            const extracted = await extractDataStep({
+                team: message.team,
+                parsedMessage: message.message,
+                retentionPeriod: '30d',
+                sessionKey: createMockSessionKey(),
+            })
+            if (!isOkResult(extracted)) {
+                throw new Error('extract step returned a non-ok result')
+            }
+            const { session, data } = extracted.value
+
+            expect(() => recorder.recordSessionData(session, data)).toThrow('was not admitted')
+            await expect(recorder.recordSessionLogs(session, emptyLogs)).rejects.toThrow('was not admitted')
+            expect(() => recorder.recordSessionFeatures(session, message.message)).toThrow('was not admitted')
         })
     })
 })

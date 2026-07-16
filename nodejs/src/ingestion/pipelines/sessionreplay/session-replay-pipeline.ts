@@ -22,12 +22,15 @@ import { KeyStore } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { ValueMatcher } from '~/types'
 
+import { createAdmitSessionStep } from './admit-session-step'
 import { createExtractConsoleLogsStep } from './extract-console-logs-step'
 import { createExtractSessionDataStep } from './extract-session-data-step'
 import { createLibVersionMonitorStep } from './lib-version-monitor-step'
 import { createParseMessageStep } from './parse-message-step'
 import { MessageContext } from './pipeline-types'
-import { createRecordSessionEventStep } from './record-session-event-step'
+import { createRecordSessionDataStep } from './record-session-data-step'
+import { createRecordSessionFeaturesStep } from './record-session-features-step'
+import { createRecordSessionLogsStep } from './record-session-logs-step'
 import { SessionBatchContext } from './session-batch-context'
 import { createMarkSeenStep } from './session-batch-mark-seen-step'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
@@ -210,7 +213,7 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                                     .pipe(createLibVersionMonitorStep())
                                                     // Derive the per-message record data — the
                                                     // session block chunks and the console logs —
-                                                    // here, so the record step only aggregates.
+                                                    // here, so the record steps only aggregate.
                                                     // Extraction does the per-message heavy lifting,
                                                     // so the per-session cost metrics live on these
                                                     // two steps.
@@ -238,11 +241,18 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                                             })),
                                                         ])
                                                     )
+                                                    // Admission gates the batch: rate-limited or
+                                                    // inconsistent messages drop here, so the
+                                                    // record steps below only fold admitted
+                                                    // messages and can run in any order.
                                                     .pipe(
-                                                        createRecordSessionEventStep({
+                                                        createAdmitSessionStep({
                                                             isDebugLoggingEnabled,
                                                         })
                                                     )
+                                                    .pipe(createRecordSessionDataStep())
+                                                    .pipe(createRecordSessionLogsStep())
+                                                    .pipe(createRecordSessionFeaturesStep())
                                             )
                                             .gather()
                                     )

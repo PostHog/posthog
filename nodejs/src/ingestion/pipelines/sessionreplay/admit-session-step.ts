@@ -1,37 +1,33 @@
 import { logger } from '~/common/utils/logger'
-import { ok } from '~/ingestion/framework/results'
+import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { ExtractConsoleLogsStepOutput } from '~/ingestion/pipelines/sessionreplay/extract-console-logs-step'
 import { ExtractSessionDataStepOutput } from '~/ingestion/pipelines/sessionreplay/extract-session-data-step'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
 import { ValueMatcher } from '~/types'
 
-export interface RecordSessionEventStepInput
-    extends SessionBatchContext,
-        ExtractSessionDataStepOutput,
-        ExtractConsoleLogsStepOutput {
+export interface AdmitSessionStepInput extends SessionBatchContext, ExtractSessionDataStepOutput {
     parsedMessage: ParsedMessageData
 }
 
-export interface RecordSessionEventStepConfig {
+export interface AdmitSessionStepConfig {
     isDebugLoggingEnabled: ValueMatcher<number>
 }
 
 /**
- * Creates a step that aggregates a message's precomputed record data — derived by the
- * extract-session-data and extract-console-logs steps — into the session batch. The parsed
- * message still feeds feature extraction, which is a sequential state machine across a session's
- * messages and can't be precomputed.
+ * Creates a step that asks the batch recorder to admit the message into the session batch,
+ * enforcing the per-session-per-batch rate limit and the team/key consistency checks, and creating
+ * the session's batch entry on first sight. A refused message is dropped here, so the downstream
+ * record steps only ever see admitted messages.
  */
-export function createRecordSessionEventStep<T extends RecordSessionEventStepInput>(
-    config: RecordSessionEventStepConfig
+export function createAdmitSessionStep<T extends AdmitSessionStepInput>(
+    config: AdmitSessionStepConfig
 ): ProcessingStep<T, T> {
     const { isDebugLoggingEnabled } = config
 
-    return async function recordSessionEventStep(input) {
-        const { session, data, logs, parsedMessage, sessionBatchRecorder } = input
+    return function admitSessionStep(input) {
+        const { session, data, parsedMessage, sessionBatchRecorder } = input
 
         // Reset revoked sessions counter once we're consuming
         SessionRecordingIngesterMetrics.resetSessionsRevoked()
@@ -53,9 +49,10 @@ export function createRecordSessionEventStep<T extends RecordSessionEventStepInp
 
         SessionRecordingIngesterMetrics.observeSessionInfo(parsedMessage.metadata.rawSize)
 
-        // Aggregate into the batch's recorder, carried on the element by the pipeline's beforeBatch.
-        await sessionBatchRecorder.record(session, data, logs, parsedMessage)
-
-        return ok(input)
+        const verdict = sessionBatchRecorder.admit(session, data.eventCount)
+        if (verdict !== 'admitted') {
+            return Promise.resolve(drop(verdict))
+        }
+        return Promise.resolve(ok(input))
     }
 }

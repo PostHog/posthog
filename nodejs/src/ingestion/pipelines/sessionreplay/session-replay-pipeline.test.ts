@@ -31,7 +31,10 @@ jest.mock('~/ingestion/common/steps/event-preprocessing', () => ({
 
 function createMockBatchRecorder(): jest.Mocked<SessionBatchRecorder> {
     return {
-        record: jest.fn().mockResolvedValue({ accepted: true, bytesWritten: 1 }),
+        admit: jest.fn().mockReturnValue('admitted'),
+        recordSessionData: jest.fn().mockReturnValue(1),
+        recordSessionLogs: jest.fn().mockResolvedValue(undefined),
+        recordSessionFeatures: jest.fn(),
         getRetention: jest.fn().mockReturnValue(undefined),
     } as unknown as jest.Mocked<SessionBatchRecorder>
 }
@@ -276,7 +279,7 @@ describe('session-replay-pipeline', () => {
         // The runner now returns the max offset per partition; which messages actually reached
         // recording is observed through the batch recorder mock.
         const recordedSessionIds = (): string[] =>
-            (mockBatchRecorder.record as jest.Mock).mock.calls.map((call) => call[0].sessionId)
+            (mockBatchRecorder.recordSessionData as jest.Mock).mock.calls.map((call) => call[0].sessionId)
 
         it('passes through messages when no restrictions apply', async () => {
             const pipeline = createSessionReplayPipeline({
@@ -992,18 +995,57 @@ describe('session-replay-pipeline', () => {
             const messages = [createMessage(0, 1, 'session-1')]
 
             await runSessionReplayPipeline(pipeline, messages, mockBatchRecorder, promiseScheduler)
-            expect(mockBatchRecorder.record).toHaveBeenCalledTimes(1)
-            expect(mockBatchRecorder.record).toHaveBeenCalledWith(
+            expect(mockBatchRecorder.admit).toHaveBeenCalledTimes(1)
+            expect(mockBatchRecorder.admit).toHaveBeenCalledWith(
                 expect.objectContaining({
                     teamId: defaultTeam.teamId,
                     sessionId: 'session-1',
                     retentionPeriod: '30d',
                     sessionKey: expect.objectContaining({ sessionState: 'cleartext' }),
                 }),
-                expect.objectContaining({ eventCount: expect.any(Number) }),
-                expect.objectContaining({ entries: expect.any(Array) }),
+                expect.any(Number)
+            )
+            expect(mockBatchRecorder.recordSessionData).toHaveBeenCalledWith(
+                expect.objectContaining({ sessionId: 'session-1' }),
+                expect.objectContaining({ eventCount: expect.any(Number) })
+            )
+            expect(mockBatchRecorder.recordSessionLogs).toHaveBeenCalledWith(
+                expect.objectContaining({ sessionId: 'session-1' }),
+                expect.objectContaining({ entries: expect.any(Array) })
+            )
+            expect(mockBatchRecorder.recordSessionFeatures).toHaveBeenCalledWith(
+                expect.objectContaining({ sessionId: 'session-1' }),
                 expect.objectContaining({ session_id: 'session-1' })
             )
+        })
+
+        it('does not record a message the recorder refuses to admit', async () => {
+            mockBatchRecorder.admit.mockReturnValue('session_rate_limited')
+
+            const pipeline = createSessionReplayPipeline({
+                outputs,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowMode: 'redirect',
+                promiseScheduler,
+                teamService: mockTeamService,
+                retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
+                topHog,
+                isDebugLoggingEnabled,
+            })
+
+            const messages = [createMessage(0, 1, 'session-1')]
+
+            const offsets = await runSessionReplayPipeline(pipeline, messages, mockBatchRecorder, promiseScheduler)
+
+            expect(mockBatchRecorder.recordSessionData).not.toHaveBeenCalled()
+            expect(mockBatchRecorder.recordSessionLogs).not.toHaveBeenCalled()
+            expect(mockBatchRecorder.recordSessionFeatures).not.toHaveBeenCalled()
+            // Dropped, but its offset is still tracked so the partition commits past it.
+            expect(offsets).toEqual(new Map([[0, 1]]))
         })
 
         it('records multiple messages to session batch', async () => {
@@ -1030,7 +1072,7 @@ describe('session-replay-pipeline', () => {
 
             await runSessionReplayPipeline(pipeline, messages, mockBatchRecorder, promiseScheduler)
 
-            expect(mockBatchRecorder.record).toHaveBeenCalledTimes(3)
+            expect(mockBatchRecorder.recordSessionData).toHaveBeenCalledTimes(3)
         })
 
         it('does not record dropped messages to session batch', async () => {
@@ -1056,7 +1098,7 @@ describe('session-replay-pipeline', () => {
 
             const offsets = await runSessionReplayPipeline(pipeline, messages, mockBatchRecorder, promiseScheduler)
 
-            expect(mockBatchRecorder.record).not.toHaveBeenCalled()
+            expect(mockBatchRecorder.recordSessionData).not.toHaveBeenCalled()
             // Dropped, but its offset is still tracked so the partition commits past it.
             expect(offsets).toEqual(new Map([[0, 1]]))
         })
@@ -1085,7 +1127,7 @@ describe('session-replay-pipeline', () => {
 
             const offsets = await runSessionReplayPipeline(pipeline, messages, mockBatchRecorder, promiseScheduler)
 
-            expect(mockBatchRecorder.record).not.toHaveBeenCalled()
+            expect(mockBatchRecorder.recordSessionData).not.toHaveBeenCalled()
             // Dropped, but its offset is still tracked so the partition commits past it.
             expect(offsets).toEqual(new Map([[0, 1]]))
         })
