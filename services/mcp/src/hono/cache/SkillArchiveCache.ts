@@ -17,15 +17,23 @@ export interface SkillArchiveLoadResult {
     result: SkillArchiveCacheResult
 }
 
+/**
+ * Outcome of a (possibly conditional) archive download. `not_modified` is the
+ * 304 sentinel returned when we sent `If-None-Match` and the asset is unchanged.
+ */
+export type SkillArchiveFetchResult =
+    | { status: 'downloaded'; bytes: Uint8Array; etag?: string }
+    | { status: 'not_modified' }
+
 export interface SkillArchiveCacheOptions extends SharedBlobCacheOptions {
     archiveUrl?: string
-    fetchArchive?: (url: string) => Promise<Uint8Array>
+    fetchArchive?: (url: string, etag?: string) => Promise<SkillArchiveFetchResult>
 }
 
 /** Redis-backed stale-while-revalidate cache for the published skills.zip. */
 export class SkillArchiveCache extends SharedBlobCache {
     private readonly archiveUrl: string
-    private readonly fetchArchive: (url: string) => Promise<Uint8Array>
+    private readonly fetchArchive: (url: string, etag?: string) => Promise<SkillArchiveFetchResult>
 
     constructor(redis: RedisLike, opts: SkillArchiveCacheOptions = {}) {
         const archiveUrl = opts.archiveUrl ?? DEFAULT_SKILL_ARCHIVE_URL
@@ -44,15 +52,15 @@ export class SkillArchiveCache extends SharedBlobCache {
             return { bytes: cached.bytes, result: 'fresh_hit' }
         }
         if (cached) {
-            void this.refreshInBackground()
+            void this.refreshInBackground(cached.etag)
             return { bytes: cached.bytes, result: 'stale_hit' }
         }
 
         const token = randomUUID()
         if (await this.acquireLock(token)) {
             try {
-                const bytes = await this.loadArchive()
-                await this.writeCache(bytes)
+                const { bytes, etag } = await this.downloadFull()
+                await this.writeCache(bytes, etag)
                 return { bytes, result: 'cold_refresh' }
             } finally {
                 await this.releaseLock(token)
@@ -63,17 +71,23 @@ export class SkillArchiveCache extends SharedBlobCache {
         if (waited) {
             return { bytes: waited, result: 'waited' }
         }
-        return { bytes: await this.loadArchive(), result: 'fallback' }
+        return { bytes: (await this.downloadFull()).bytes, result: 'fallback' }
     }
 
-    private async refreshInBackground(): Promise<void> {
+    private async refreshInBackground(etag?: string): Promise<void> {
         const token = randomUUID()
         if (!(await this.acquireLock(token))) {
             return
         }
         try {
-            const bytes = await this.loadArchive()
-            await this.writeCache(bytes)
+            const result = await this.fetchArchiveChecked(etag)
+            if (result.status === 'not_modified') {
+                // Archive unchanged since we cached it: bump freshness and re-extend
+                // the hard TTLs in place, skipping the re-download and re-parse.
+                await this.touchCache()
+            } else {
+                await this.writeCache(result.bytes, result.etag)
+            }
         } catch (error) {
             console.error('[SkillArchiveCache] background refresh failed:', error)
         } finally {
@@ -81,17 +95,34 @@ export class SkillArchiveCache extends SharedBlobCache {
         }
     }
 
-    private async loadArchive(): Promise<Uint8Array> {
-        const bytes = await this.fetchArchive(this.archiveUrl)
-        if (bytes.length === 0 || bytes.length > MAX_ARCHIVE_BYTES) {
-            throw new Error(`Invalid skill archive size: ${bytes.length} bytes`)
+    /** Fetch a full archive body. Callers without cached bytes never revalidate. */
+    private async downloadFull(): Promise<{ bytes: Uint8Array; etag?: string }> {
+        const result = await this.fetchArchiveChecked()
+        if (result.status === 'not_modified') {
+            // Only reachable if the server 304s without an If-None-Match request.
+            throw new Error('Skill archive server returned 304 Not Modified without a conditional request')
         }
-        return bytes
+        return { bytes: result.bytes, etag: result.etag }
+    }
+
+    private async fetchArchiveChecked(etag?: string): Promise<SkillArchiveFetchResult> {
+        const result = await this.fetchArchive(this.archiveUrl, etag)
+        if (result.status === 'downloaded' && (result.bytes.length === 0 || result.bytes.length > MAX_ARCHIVE_BYTES)) {
+            throw new Error(`Invalid skill archive size: ${result.bytes.length} bytes`)
+        }
+        return result
     }
 }
 
-async function downloadArchive(url: string): Promise<Uint8Array> {
-    const response = await fetch(url, { signal: AbortSignal.timeout(ARCHIVE_DOWNLOAD_TIMEOUT_MS) })
+async function downloadArchive(url: string, etag?: string): Promise<SkillArchiveFetchResult> {
+    const headers: Record<string, string> = {}
+    if (etag) {
+        headers['If-None-Match'] = etag
+    }
+    const response = await fetch(url, { headers, signal: AbortSignal.timeout(ARCHIVE_DOWNLOAD_TIMEOUT_MS) })
+    if (response.status === 304) {
+        return { status: 'not_modified' }
+    }
     if (!response.ok) {
         throw new Error(`Failed to download skill archive: HTTP ${response.status}`)
     }
@@ -99,5 +130,10 @@ async function downloadArchive(url: string): Promise<Uint8Array> {
     if (Number.isFinite(contentLength) && contentLength > MAX_ARCHIVE_BYTES) {
         throw new Error(`Skill archive is too large: ${contentLength} bytes`)
     }
-    return new Uint8Array(await response.arrayBuffer())
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    // `response.headers` is the final response after redirects (GitHub release
+    // assets 302 to objects.githubusercontent.com), so this is the asset's own
+    // validator. Absent → we store no etag and behave exactly as before.
+    const validator = response.headers.get('etag') ?? undefined
+    return { status: 'downloaded', bytes, etag: validator }
 }

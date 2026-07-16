@@ -32,6 +32,7 @@ export class SharedBlobCache {
     public readonly cacheKey: string
     public readonly freshKey: string
     public readonly lockKey: string
+    public readonly etagKey: string
 
     private cacheTtlSeconds: number
     private freshSeconds: number
@@ -48,6 +49,7 @@ export class SharedBlobCache {
         this.cacheKey = `${prefix}:bytes`
         this.freshKey = `${prefix}:fresh`
         this.lockKey = `${prefix}:lock`
+        this.etagKey = `${prefix}:etag`
 
         this.cacheTtlSeconds = opts.cacheTtlSeconds ?? DEFAULT_CACHE_TTL_SECONDS
         this.freshSeconds = opts.freshSeconds ?? DEFAULT_FRESH_SECONDS
@@ -56,8 +58,12 @@ export class SharedBlobCache {
         this.waitTimeoutMs = opts.waitTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS
     }
 
-    protected async readCache(): Promise<{ bytes: Uint8Array; fresh: boolean } | null> {
-        const [raw, freshUntilStr] = await Promise.all([this.redis.get(this.cacheKey), this.redis.get(this.freshKey)])
+    protected async readCache(): Promise<{ bytes: Uint8Array; fresh: boolean; etag?: string } | null> {
+        const [raw, freshUntilStr, etag] = await Promise.all([
+            this.redis.get(this.cacheKey),
+            this.redis.get(this.freshKey),
+            this.redis.get(this.etagKey),
+        ])
         if (raw === null) {
             return null
         }
@@ -65,15 +71,35 @@ export class SharedBlobCache {
         const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
         const freshUntil = freshUntilStr !== null ? Number(freshUntilStr) : 0
         const fresh = Number.isFinite(freshUntil) && Date.now() < freshUntil
-        return { bytes, fresh }
+        return { bytes, fresh, etag: etag ?? undefined }
     }
 
-    protected async writeCache(bytes: Uint8Array): Promise<void> {
+    protected async writeCache(bytes: Uint8Array, validator?: string): Promise<void> {
         const b64 = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64')
         const freshUntil = Date.now() + this.freshSeconds * 1000
         await Promise.all([
             this.redis.set(this.cacheKey, b64, 'EX', this.cacheTtlSeconds),
             this.redis.set(this.freshKey, String(freshUntil), 'EX', this.cacheTtlSeconds),
+            // Keep the validator in lockstep with the bytes: store it when present,
+            // clear any stale one otherwise so a later conditional request can't
+            // send a validator that no longer matches the cached bytes.
+            validator !== undefined
+                ? this.redis.set(this.etagKey, validator, 'EX', this.cacheTtlSeconds)
+                : this.redis.del(this.etagKey),
+        ])
+    }
+
+    /**
+     * Refresh the freshness marker and re-extend the hard TTLs without rewriting
+     * the payload. Used when a conditional refresh confirms the cached bytes are
+     * still current (HTTP 304), so the re-download and re-parse are skipped.
+     */
+    protected async touchCache(): Promise<void> {
+        const freshUntil = Date.now() + this.freshSeconds * 1000
+        await Promise.all([
+            this.redis.set(this.freshKey, String(freshUntil), 'EX', this.cacheTtlSeconds),
+            this.redis.expire(this.cacheKey, this.cacheTtlSeconds),
+            this.redis.expire(this.etagKey, this.cacheTtlSeconds),
         ])
     }
 
