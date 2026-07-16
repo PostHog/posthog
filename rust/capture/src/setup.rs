@@ -166,6 +166,63 @@ pub async fn build_components(
         None
     };
 
+    // Spawn the dynamic custom-threshold refresh loop when both the limiter and a
+    // threshold key are configured. It reads the JSON threshold blob from the same
+    // Redis as event restrictions (EVENT_RESTRICTIONS_REDIS_URL) and swaps the
+    // limiter's custom-key map on a timer, overriding the static CSV seed. Stays
+    // dormant unless the key + Redis URL are set, so the CSV path is unaffected.
+    if let (Some(limiter), Some(threshold_key), Some(redis_url)) = (
+        global_rate_limiter_token_distinctid.clone(),
+        config.global_rate_limit_custom_threshold_key.clone(),
+        config.event_restrictions_redis_url.clone(),
+    ) {
+        let refresh_interval =
+            Duration::from_secs(config.global_rate_limit_custom_threshold_refresh_secs);
+        let response_timeout = if config.redis_response_timeout_ms == 0 {
+            None
+        } else {
+            Some(Duration::from_millis(config.redis_response_timeout_ms))
+        };
+        let connection_timeout = if config.redis_connection_timeout_ms == 0 {
+            None
+        } else {
+            Some(Duration::from_millis(config.redis_connection_timeout_ms))
+        };
+        let shutdown_handle = server.clone();
+
+        tokio::spawn(async move {
+            crate::global_rate_limiter::threshold_source::start_refresh_task(
+                limiter,
+                || {
+                    let url = redis_url.clone();
+                    let key = threshold_key.clone();
+                    async move {
+                        let repo =
+                            crate::global_rate_limiter::threshold_source::RedisThresholdRepository::new(
+                                url,
+                                key,
+                                response_timeout,
+                                connection_timeout,
+                            )
+                            .await?;
+                        let result: Arc<
+                            dyn crate::global_rate_limiter::threshold_source::ThresholdRepository,
+                        > = Arc::new(repo);
+                        Ok(result)
+                    }
+                },
+                refresh_interval,
+                shutdown_handle,
+            )
+            .await;
+        });
+
+        info!(
+            refresh_interval_secs = config.global_rate_limit_custom_threshold_refresh_secs,
+            "Global rate limit dynamic custom thresholds enabled"
+        );
+    }
+
     // add new "scoped" quota limiters here as new quota tracking buckets are added
     // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
     // global billing limiter applied here to every event batch. You must supply the

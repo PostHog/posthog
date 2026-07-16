@@ -4,14 +4,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::config::Config;
+use arc_swap::ArcSwap;
 use chrono::Utc;
 use common_redis::Client;
 use limiters::global_rate_limiter::{
-    EvalResult, GlobalRateLimitResponse, GlobalRateLimiter as CommonGlobalRateLimiter,
-    GlobalRateLimiterConfig, GlobalRateLimiterImpl as CommonGlobalRateLimiterImpl,
+    CustomKeyResolver, EvalResult, GlobalRateLimitResponse,
+    GlobalRateLimiter as CommonGlobalRateLimiter, GlobalRateLimiterConfig,
+    GlobalRateLimiterImpl as CommonGlobalRateLimiterImpl,
 };
 use metrics::counter;
 use tracing::{error, info, warn};
+
+pub mod threshold_source;
 
 #[cfg(test)]
 use chrono::DateTime;
@@ -81,6 +85,7 @@ impl GlobalRateLimiter {
             config.global_rate_limit_token_distinctid_local_cache_max_entries,
             &prefix,
             &metrics_scope,
+            config.global_rate_limit_custom_threshold_key.is_some(),
         )
     }
 
@@ -100,9 +105,30 @@ impl GlobalRateLimiter {
             config.global_rate_limit_token_local_cache_max_entries,
             &prefix,
             &metrics_scope,
+            // The token-only limiter is not wired to the dynamic refresh loop;
+            // keep its resolution exact (feature-off path).
+            false,
         )
     }
 
+    /// Hierarchical custom-key resolver used when dynamic thresholds are enabled.
+    ///
+    /// A lookup key is either `token` or `token:distinct_id` (the limiter's cache
+    /// key). Resolution tries the exact key first, then falls back to the token
+    /// prefix (everything before the first `:`) so a token-level override applies
+    /// to all of that token's `token:distinct_id` keys. Keeps capture's key
+    /// structure out of the common crate.
+    fn hierarchical_resolver() -> CustomKeyResolver {
+        Arc::new(|key: &str, map: &HashMap<String, u64>| {
+            if let Some(v) = map.get(key) {
+                return Some(*v);
+            }
+            key.split_once(':')
+                .and_then(|(token, _)| map.get(token).copied())
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn build(
         config: &Config,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
@@ -111,14 +137,24 @@ impl GlobalRateLimiter {
         local_cache_max_entries: u64,
         redis_key_prefix: &str,
         metrics_scope: &str,
+        enable_dynamic_thresholds: bool,
     ) -> anyhow::Result<Self> {
+        // Seed the (swappable) custom-key map from the static CSV overrides. When
+        // dynamic thresholds are enabled, the refresh loop replaces this map from
+        // Redis; until then (and if Redis is unreachable) the CSV seed applies.
+        let seed = Self::format_custom_keys(custom_keys_csv);
         let grl_config = GlobalRateLimiterConfig {
             global_threshold: threshold,
             window_interval: Duration::from_secs(config.global_rate_limit_window_interval_secs),
             sync_interval: Duration::from_secs(config.global_rate_limit_sync_interval_secs),
             tick_interval: Duration::from_millis(config.global_rate_limit_tick_interval_ms),
             redis_key_prefix: redis_key_prefix.to_string(),
-            custom_keys: Self::format_custom_keys(custom_keys_csv),
+            custom_keys: Arc::new(ArcSwap::from_pointee(seed)),
+            custom_key_resolver: if enable_dynamic_thresholds {
+                Some(Self::hierarchical_resolver())
+            } else {
+                None
+            },
             local_cache_max_entries,
             metrics_scope: metrics_scope.to_string(),
             ..Default::default()
@@ -210,6 +246,18 @@ impl GlobalRateLimiter {
         self.limiter.shutdown();
     }
 
+    /// Atomically replace the custom-key threshold map. Called by the dynamic
+    /// threshold refresh loop with the latest map fetched from Redis.
+    pub fn replace_custom_keys(&self, custom_keys: HashMap<String, u64>) {
+        self.limiter.replace_custom_keys(custom_keys);
+    }
+
+    /// Returns true if the key resolves to a custom threshold (exact match, or
+    /// token-prefix fallback when the hierarchical resolver is enabled).
+    pub fn is_custom_key(&self, key: &str) -> bool {
+        self.limiter.is_custom_key(key)
+    }
+
     pub async fn build_redis_client(
         config: &Config,
         shared_redis: Arc<dyn Client + Send + Sync>,
@@ -262,6 +310,33 @@ impl GlobalRateLimiter {
 
     #[cfg(test)]
     pub(crate) fn new_with(limiter: impl CommonGlobalRateLimiter + 'static) -> Self {
+        Self {
+            limiter: Box::new(limiter),
+            dry_run: false,
+        }
+    }
+
+    /// Test helper: build a real limiter with the hierarchical resolver enabled
+    /// and its custom-key map seeded from `csv`, backed by a mock Redis client.
+    /// Used to exercise the dynamic-threshold refresh path end to end.
+    #[cfg(test)]
+    pub(crate) fn for_test_with_dynamic_thresholds(csv: Option<&str>) -> Self {
+        let csv_owned = csv.map(|s| s.to_string());
+        let grl_config = GlobalRateLimiterConfig {
+            global_threshold: 300_000,
+            redis_key_prefix: "test:grl".to_string(),
+            custom_keys: Arc::new(ArcSwap::from_pointee(Self::format_custom_keys(
+                csv_owned.as_ref(),
+            ))),
+            custom_key_resolver: Some(Self::hierarchical_resolver()),
+            metrics_scope: "test".to_string(),
+            ..Default::default()
+        };
+        let limiter = CommonGlobalRateLimiterImpl::new(
+            grl_config,
+            vec![Arc::new(common_redis::MockRedisClient::new())],
+        )
+        .expect("failed to build test limiter");
         Self {
             limiter: Box::new(limiter),
             dry_run: false,
@@ -323,6 +398,8 @@ impl GlobalRateLimiter {
             fn is_custom_key(&self, _key: &str) -> bool {
                 false
             }
+
+            fn replace_custom_keys(&self, _custom_keys: HashMap<String, u64>) {}
 
             fn shutdown(&mut self) {}
         }
@@ -429,6 +506,8 @@ mod tests {
             self.calls.lock().unwrap().push("is_custom_key");
             self.custom_keys.contains(key)
         }
+
+        fn replace_custom_keys(&self, _custom_keys: HashMap<String, u64>) {}
 
         fn shutdown(&mut self) {}
     }

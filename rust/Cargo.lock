@@ -1785,6 +1785,7 @@ name = "capture"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "assert-json-diff",
  "async-compression",
  "async-trait",
