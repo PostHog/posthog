@@ -97,6 +97,7 @@ class TestSubdomainValidation:
             "attacker.example/",
             "user@evil.example",
             "acme.evil.example",
+            "127.0.0.1:8443/",
             "acme/path",
             "acme?x=",
             "acme#frag",
