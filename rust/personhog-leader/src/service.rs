@@ -564,12 +564,16 @@ mod tests {
             Arc::new(InflightTracker::new()),
             1,
             Arc::new(DirtyIndex::new(16)),
-            Arc::new(ChangelogRecovery::new(RecoveryConfig {
-                kafka,
-                topic: "personhog_updates".to_string(),
-                pod_name: "test".to_string(),
-                recv_timeout: Duration::from_millis(10),
-            })),
+            Arc::new(
+                ChangelogRecovery::new(RecoveryConfig {
+                    kafka,
+                    topic: "personhog_updates".to_string(),
+                    pod_name: "test".to_string(),
+                    recv_timeout: Duration::from_millis(10),
+                    pool_size: 1,
+                })
+                .expect("build recovery pool"),
+            ),
         )
     }
 

@@ -1,14 +1,14 @@
-use std::sync::Arc;
+use std::collections::VecDeque;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use common_kafka::config::KafkaConfig;
-use dashmap::DashMap;
-use metrics::counter;
+use metrics::{counter, histogram};
 use prost::Message as ProtoMessage;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::message::Message;
 use rdkafka::{Offset, TopicPartitionList};
-use tokio::sync::Mutex;
+use tokio::sync::Semaphore;
 use tokio::time::timeout;
 
 use personhog_proto::personhog::types::v1::Person;
@@ -28,6 +28,8 @@ pub struct RecoveryConfig {
     /// Overall deadline for one recovery, including transient-failure
     /// retries.
     pub recv_timeout: Duration,
+    /// Number of pooled consumers, bounding concurrent recoveries.
+    pub pool_size: usize,
 }
 
 /// Classifies a failed fetch step for the retry loop: transient failures
@@ -52,54 +54,45 @@ enum FetchError {
 /// topic's `delete` retention keeps it, far longer than any mark should
 /// live.
 ///
-/// The consumer pool tracks partition ownership: warming registers a
-/// partition's consumer before the partition serves traffic and release
-/// drops it, so the fetch path is a read-only lookup and the fallible
-/// client construction never happens under a request. Concurrent
-/// recoveries only contend when they target the same partition. Errors
-/// never manage the pool — librdkafka clients self-heal their connections
-/// — so transient fetch failures retry on the same consumer within the
-/// recovery deadline.
+/// A fresh `assign` positions any consumer at any (partition, offset), so
+/// the consumers are fungible and pooled globally: a fixed set is built at
+/// startup — where construction failure is loud and nothing is in flight —
+/// and checked out per fetch, bounding concurrent recoveries at the pool
+/// size the way a DB connection pool bounds queries. Checkout transfers
+/// exclusive ownership through the idle deque (the semaphore only counts;
+/// a permit holder always finds a consumer), so no lock is held while a
+/// fetch waits on Kafka or backs off between retries. The pool-wait
+/// histogram is the tuning signal for the pool size. Errors never manage
+/// the pool — librdkafka clients self-heal their connections — so
+/// transient fetch failures retry on the same consumer within the
+/// recovery deadline, and the consumer returns to the pool regardless of
+/// outcome.
 pub struct ChangelogRecovery {
-    kafka: KafkaConfig,
-    group: String,
     topic: String,
     recv_timeout: Duration,
-    consumers: DashMap<u32, Arc<Mutex<StreamConsumer>>>,
+    idle: Mutex<VecDeque<StreamConsumer>>,
+    permits: Semaphore,
 }
 
 impl ChangelogRecovery {
-    pub fn new(cfg: RecoveryConfig) -> Self {
-        Self {
-            kafka: cfg.kafka,
-            group: format!("personhog-leader-recovery-{pod}", pod = cfg.pod_name),
+    pub fn new(cfg: RecoveryConfig) -> Result<Self, String> {
+        if cfg.pool_size == 0 {
+            return Err("recovery pool size must be at least 1".to_string());
+        }
+        let group = format!("personhog-leader-recovery-{pod}", pod = cfg.pod_name);
+        let mut idle = VecDeque::with_capacity(cfg.pool_size);
+        for _ in 0..cfg.pool_size {
+            idle.push_back(
+                make_consumer(&cfg.kafka, &group)
+                    .map_err(|e| format!("create recovery consumer: {e}"))?,
+            );
+        }
+        Ok(Self {
             topic: cfg.topic,
             recv_timeout: cfg.recv_timeout,
-            consumers: DashMap::new(),
-        }
-    }
-
-    /// Create the partition's recovery consumer as the pod takes
-    /// ownership. Idempotent: a re-warm without an intervening release
-    /// keeps the existing consumer.
-    pub fn add_partition(&self, partition: u32) -> Result<(), String> {
-        use dashmap::mapref::entry::Entry;
-
-        match self.consumers.entry(partition) {
-            Entry::Occupied(_) => Ok(()),
-            Entry::Vacant(entry) => {
-                let consumer = make_consumer(&self.kafka, &self.group)
-                    .map_err(|e| format!("create recovery consumer: {e}"))?;
-                entry.insert(Arc::new(Mutex::new(consumer)));
-                Ok(())
-            }
-        }
-    }
-
-    /// Drop the partition's recovery consumer on release. A recovery
-    /// already holding the slot finishes on the old consumer harmlessly.
-    pub fn remove_partition(&self, partition: u32) {
-        self.consumers.remove(&partition);
+            idle: Mutex::new(idle),
+            permits: Semaphore::new(cfg.pool_size),
+        })
     }
 
     /// Fetch a person's latest state from the changelog record the dirty
@@ -118,16 +111,20 @@ impl ChangelogRecovery {
         let partition_i32 = i32::try_from(partition)
             .map_err(|_| format!("partition {partition} exceeds i32::MAX"))?;
 
-        let Some(slot) = self
-            .consumers
-            .get(&partition)
-            .map(|entry| Arc::clone(entry.value()))
-        else {
-            return Err(format!(
-                "no recovery consumer for partition {partition}; partition not owned"
-            ));
-        };
-        let consumer = slot.lock().await;
+        let wait_start = Instant::now();
+        let _permit = self
+            .permits
+            .acquire()
+            .await
+            .map_err(|_| "recovery pool closed".to_string())?;
+        histogram!("personhog_leader_recovery_pool_wait_ms")
+            .record(wait_start.elapsed().as_secs_f64() * 1000.0);
+        let consumer = self
+            .idle
+            .lock()
+            .expect("recovery pool lock poisoned")
+            .pop_front()
+            .expect("a permit guarantees an idle consumer");
 
         // Each attempt repositions with a fresh assign: it starts fetching
         // at the target immediately (repositioning a live stream via seek
@@ -163,6 +160,10 @@ impl ChangelogRecovery {
         if let Err(e) = consumer.unassign() {
             tracing::warn!(partition, error = %e, "recovery consumer unassign failed");
         }
+        self.idle
+            .lock()
+            .expect("recovery pool lock poisoned")
+            .push_back(consumer);
         result
     }
 

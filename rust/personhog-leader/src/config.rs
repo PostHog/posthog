@@ -133,12 +133,20 @@ pub struct Config {
 
     /// Overall deadline for recovering one evicted dirty person from the
     /// changelog, including transient-failure retries. A point read that
-    /// hasn't returned in a few seconds isn't going to, and recoveries for
-    /// the same partition serialize while holding the person's per-key
-    /// lock — a long deadline amplifies a broker blip into queued
-    /// multi-second stalls.
+    /// hasn't returned in a few seconds isn't going to, and each recovery
+    /// occupies a pooled consumer for its whole duration — a long deadline
+    /// amplifies a broker blip into pool exhaustion.
     #[envconfig(default = "5")]
     pub recovery_recv_timeout_secs: u64,
+
+    /// Number of pooled changelog-recovery consumers, bounding concurrent
+    /// recoveries the way a DB connection pool bounds queries. Each is a
+    /// full Kafka client (its own connections and background threads), so
+    /// the pool stays small; raise it if the
+    /// `personhog_leader_recovery_pool_wait_ms` histogram shows recoveries
+    /// queuing behind it.
+    #[envconfig(default = "4")]
+    pub recovery_pool_size: usize,
 
     /// Soft bound on dirty index entries (~100 bytes each). The index
     /// grows one mark per unique person written since the writer's

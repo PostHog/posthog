@@ -425,7 +425,6 @@ async fn writes_fenced_after_drain_reads_still_served() {
         Arc::clone(&cache),
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
-        Arc::clone(&recovery),
         test_warming_config("fence-pod", KAFKA_BOOTSTRAP),
     );
 
@@ -533,7 +532,6 @@ async fn drain_fences_before_waiting_on_inflight() {
         Arc::clone(&cache),
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
-        Arc::clone(&recovery),
         test_warming_config("fence-race-pod", KAFKA_BOOTSTRAP),
     ));
 
@@ -1305,9 +1303,6 @@ async fn evicted_dirty_person_recovers_from_changelog() {
     );
 
     cache.create_partition(routing_partition);
-    recovery
-        .add_partition(routing_partition)
-        .expect("add recovery partition");
     let person = CachedPerson {
         id: PERSON_ID,
         ..test_cached_person()
@@ -1404,9 +1399,6 @@ async fn dirty_person_with_failed_recovery_is_unavailable_not_stale() {
     );
 
     cache.create_partition(routing_partition);
-    recovery
-        .add_partition(routing_partition)
-        .expect("add recovery partition");
     let person = CachedPerson {
         id: PERSON_ID,
         ..test_cached_person()
@@ -1602,9 +1594,6 @@ async fn recovery_fails_when_record_version_disagrees_with_the_mark() {
     );
 
     cache.create_partition(routing_partition);
-    recovery
-        .add_partition(routing_partition)
-        .expect("add recovery partition");
     let person = CachedPerson {
         id: PERSON_ID,
         ..test_cached_person()
@@ -1708,9 +1697,6 @@ async fn recovery_reuses_the_partition_consumer_across_fetches() {
     );
 
     cache.create_partition(partition);
-    recovery
-        .add_partition(partition)
-        .expect("add recovery partition");
     for person_id in [person_a, person_b] {
         seed_person(
             &cache,
