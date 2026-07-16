@@ -126,7 +126,7 @@ class CustomerProfileConfigSerializer(DataclassSerializer):
         try:
             json.dumps(value)
         except (ValueError, TypeError):
-            raise serializers.ValidationError(f"Invalid value for field '{field}'")  # noqa: B904
+            raise serializers.ValidationError(f"Invalid value for field '{field}'") from None
 
         return value
 
@@ -214,7 +214,7 @@ class AccountSerializer(DataclassSerializer):
         try:
             json.dumps(value)
         except (TypeError, ValueError):
-            raise serializers.ValidationError("properties must be JSON-serializable.")  # noqa: B904
+            raise serializers.ValidationError("properties must be JSON-serializable.") from None
         return value
 
 

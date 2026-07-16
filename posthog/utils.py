@@ -1740,7 +1740,9 @@ def filters_override_requested_by_client(
     try:
         request_filters = json.loads(raw_override)
     except Exception:
-        raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})  # noqa: B904
+        raise serializers.ValidationError(
+            {"filters_override": "Invalid JSON passed in filters_override parameter"}
+        ) from None
 
     return {**dashboard_filters, **request_filters}
 
@@ -1777,7 +1779,9 @@ def variables_override_requested_by_client(
     try:
         request_variables = json.loads(raw_override)
     except Exception:
-        raise serializers.ValidationError({"variables_override": "Invalid JSON passed in variables_override parameter"})  # noqa: B904
+        raise serializers.ValidationError(
+            {"variables_override": "Invalid JSON passed in variables_override parameter"}
+        ) from None
 
     return map_stale_to_latest({**dashboard_variables, **request_variables}, variables)
 
@@ -1806,9 +1810,9 @@ def tile_filters_override_requested_by_client(
     try:
         request_filters = json.loads(raw_override)
     except Exception:
-        raise serializers.ValidationError(  # noqa: B904
+        raise serializers.ValidationError(
             {"tile_filters_override": "Invalid JSON passed in tile_filters_override parameter"}
-        )
+        ) from None
 
     return {**tile_filters, **request_filters}
 

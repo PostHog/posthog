@@ -20,10 +20,10 @@ class DashboardTemplateCreationJSONSchemaParser(JSONParser):
             template = data["template"]
             jsonschema.validate(template, dashboard_template_schema)
         except ValueError as error:
-            raise ValidationError(detail=f"Invalid JSON: {error}")  # noqa: B904
+            raise ValidationError(detail=f"Invalid JSON: {error}") from None
         except SchemaError as error:
-            raise ValidationError(detail=str(error))  # noqa: B904
+            raise ValidationError(detail=str(error)) from None
         except jsonschema.exceptions.ValidationError as error:
-            raise ValidationError(detail=str(error))  # noqa: B904
+            raise ValidationError(detail=str(error)) from None
         else:
             return data

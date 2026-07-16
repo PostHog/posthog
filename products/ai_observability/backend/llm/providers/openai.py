@@ -190,7 +190,7 @@ class OpenAIAdapter:
                     usage=usage,
                 )
         except openai.AuthenticationError as e:
-            raise AuthenticationError(str(e))  # noqa: B904
+            raise AuthenticationError(str(e)) from None
         except openai.NotFoundError:
             raise ModelNotFoundError(request.model)  # noqa: B904
         except openai.PermissionDeniedError:

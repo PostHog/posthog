@@ -242,7 +242,7 @@ class Manifest:
         try:
             resolved.relative_to(REPO_ROOT.resolve())
         except ValueError:
-            raise ValueError(f"{key} '{raw}' resolves outside the repo root")  # noqa: B904
+            raise ValueError(f"{key} '{raw}' resolves outside the repo root") from None
         return resolved
 
     def get_category_for_command(self, command_name: str) -> str:

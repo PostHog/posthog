@@ -421,7 +421,7 @@ class EventDefinitionViewSet(
         try:
             uuid.UUID(str(self.kwargs["id"]))
         except ValueError:
-            raise Http404("Event definition not found.")  # noqa: B904
+            raise Http404("Event definition not found.") from None
         return self._get_event_definition(id=self.kwargs["id"], team__project_id=self.project_id)
 
     def _get_event_definition(self, **filters) -> EventDefinition:

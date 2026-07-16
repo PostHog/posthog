@@ -88,7 +88,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
                     or ""
                 )
             except Exception as e:
-                raise GitHubAuthenticationError(  # noqa: B904
+                raise GitHubAuthenticationError(
                     f"Failed to get GitHub token for integration {ctx.github_integration_id}",
                     {
                         "github_integration_id": ctx.github_integration_id,
@@ -97,7 +97,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
                         "error": str(e),
                     },
                     cause=e,
-                )
+                ) from None
 
         try:
             access_token = create_oauth_access_token_for_run(task, ctx.state)

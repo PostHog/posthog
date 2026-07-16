@@ -156,7 +156,7 @@ class Tagger(UUIDTModel):
             try:
                 self.tagger_config = validate_tagger_config(self.tagger_type, self.tagger_config)
             except Exception as e:
-                raise ValidationError({"tagger_config": str(e)})  # noqa: B904
+                raise ValidationError({"tagger_config": str(e)}) from None
 
         # Compile Hog source to bytecode
         if self.tagger_type == TaggerType.HOG and self.tagger_config.get("source"):
@@ -166,7 +166,7 @@ class Tagger(UUIDTModel):
                 bytecode = compile_ai_observability_hog(self.tagger_config["source"], "tagger")
                 self.tagger_config["bytecode"] = bytecode
             except Exception as e:
-                raise ValidationError({"tagger_config": f"Failed to compile Hog code: {e}"})  # noqa: B904
+                raise ValidationError({"tagger_config": f"Failed to compile Hog code: {e}"}) from None
 
         # Compile bytecode for each condition (same pattern as evaluations)
         compiled_conditions = []

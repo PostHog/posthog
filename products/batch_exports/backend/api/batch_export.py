@@ -116,7 +116,7 @@ def validate_date_input(date_input: Any, batch_export: BatchExport) -> dt.dateti
                 )
             except (TypeError, ValueError):
                 pass
-            raise ValidationError(f"Input '{date_input}' is not a valid ISO formatted date.")  # noqa: B904
+            raise ValidationError(f"Input '{date_input}' is not a valid ISO formatted date.") from None
 
         if batch_export.interval == "week":
             # Validate that the provided date is on the correct day of the week, according to the batch export's day offset
@@ -142,7 +142,7 @@ def validate_date_input(date_input: Any, batch_export: BatchExport) -> dt.dateti
         try:
             parsed = dt.datetime.fromisoformat(date_input)
         except (TypeError, ValueError):
-            raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")  # noqa: B904
+            raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.") from None
 
         if parsed.tzinfo is None:
             raise ValidationError(f"Input {date_input} is naive.")
@@ -832,7 +832,7 @@ class HogQLSelectQueryField(serializers.Field):
         try:
             parsed_query = parse_select(data)
         except Exception:
-            raise serializers.ValidationError("Failed to parse query")  # noqa: B904
+            raise serializers.ValidationError("Failed to parse query") from None
 
         try:
             prepared_select_query: ast.SelectQuery = cast(
@@ -851,7 +851,7 @@ class HogQLSelectQueryField(serializers.Field):
                 ),
             )
         except errors.ExposedHogQLError as e:
-            raise serializers.ValidationError(f"Invalid HogQL query: {e}")  # noqa: B904
+            raise serializers.ValidationError(f"Invalid HogQL query: {e}") from None
 
         return prepared_select_query
 
@@ -899,7 +899,7 @@ def is_ip_internal(ip: str) -> bool:
     try:
         addr = ipaddress.ip_address(ip)
     except ValueError:
-        raise ValueError("Could not parse IP")  # noqa: B904
+        raise ValueError("Could not parse IP") from None
 
     if any(addr in network for network in INTERNAL_NETWORKS):
         return True
@@ -1267,9 +1267,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 try:
                     kind = S3_DESTINATION_TO_INTEGRATION_KIND[destination_type]
                 except KeyError:
-                    raise serializers.ValidationError(  # noqa: B904
+                    raise serializers.ValidationError(
                         f"{destination_type} destinations do not support integration-based credentials."
-                    )
+                    ) from None
 
                 if not integration.kind == kind:
                     raise serializers.ValidationError(
@@ -1297,7 +1297,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 try:
                     resolve_and_validate_url(merged_config["endpoint_url"])
                 except ValueError:
-                    raise serializers.ValidationError(f"Invalid endpoint_url: '{merged_config['endpoint_url']}'")  # noqa: B904
+                    raise serializers.ValidationError(
+                        f"Invalid endpoint_url: '{merged_config['endpoint_url']}'"
+                    ) from None
 
         if destination_type == BatchExportDestination.Destination.DATABRICKS:
             # validate the Integration is valid (this is mandatory for Databricks batch exports)
@@ -1310,7 +1312,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             try:
                 DatabricksIntegration(integration)
             except DatabricksIntegrationError as e:
-                raise serializers.ValidationError(str(e))  # noqa: B904
+                raise serializers.ValidationError(str(e)) from None
 
         if destination_type == BatchExportDestination.Destination.POSTGRES:
             integration = destination_attrs.get("integration")
@@ -1340,7 +1342,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             try:
                 AzureBlobIntegration(integration)
             except AzureBlobIntegrationError as e:
-                raise serializers.ValidationError(str(e))  # noqa: B904
+                raise serializers.ValidationError(str(e)) from None
 
             file_format = merged_config.get("file_format", "JSONLines")
             supported_file_formats = AZURE_BLOB_SUPPORTED_COMPRESSIONS.keys()
@@ -1413,7 +1415,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 try:
                     resolve_and_validate_host(host)
                 except ValueError:
-                    raise serializers.ValidationError(f"Invalid host: '{host}'")  # noqa: B904
+                    raise serializers.ValidationError(f"Invalid host: '{host}'") from None
 
         return destination_attrs
 
@@ -1464,7 +1466,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 "hogql_query": print_prepared_ast(hogql_query, context=context, dialect="hogql"),
             }
         except errors.ExposedHogQLError:
-            raise serializers.ValidationError("Unsupported HogQL query")  # noqa: B904
+            raise serializers.ValidationError("Unsupported HogQL query") from None
 
         for field in hogql_query.select:
             if isinstance(field, ast.Alias):
@@ -1620,9 +1622,9 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         try:
             pause_batch_export(temporal, str(batch_export.id), note=note)
         except BatchExportIdError:
-            raise NotFound(f"BatchExport ID '{str(batch_export.id)}' not found.")  # noqa: B904
+            raise NotFound(f"BatchExport ID '{str(batch_export.id)}' not found.") from None
         except BatchExportServiceRPCError:
-            raise ValidationError("Invalid request to pause a BatchExport could not be carried out")  # noqa: B904
+            raise ValidationError("Invalid request to pause a BatchExport could not be carried out") from None
         except BatchExportServiceError:
             raise
 
@@ -1645,9 +1647,9 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         try:
             unpause_batch_export(temporal, str(batch_export.id), note=note, backfill=backfill)
         except BatchExportIdError:
-            raise NotFound(f"BatchExport ID '{str(batch_export.id)}' not found.")  # noqa: B904
+            raise NotFound(f"BatchExport ID '{str(batch_export.id)}' not found.") from None
         except BatchExportServiceRPCError:
-            raise ValidationError("Invalid request to unpause a BatchExport could not be carried out")  # noqa: B904
+            raise ValidationError("Invalid request to unpause a BatchExport could not be carried out") from None
         except BatchExportServiceError:
             raise
 
@@ -1908,7 +1910,7 @@ def create_backfill(
         )
         return backfill_id
     except BatchExportWithNoEndNotAllowedError:
-        raise ValidationError("Backfilling a BatchExport with no end date is not allowed")  # noqa: B904
+        raise ValidationError("Backfilling a BatchExport with no end date is not allowed") from None
 
 
 class BatchExportBackfillViewSet(
@@ -1942,7 +1944,7 @@ class BatchExportBackfillViewSet(
                 id=self.kwargs["parent_lookup_batch_export_id"], team_id=self.team_id
             )
         except BatchExport.DoesNotExist:
-            raise NotFound("BatchExport not found.")  # noqa: B904
+            raise NotFound("BatchExport not found.") from None
 
         start_at = request.data.get("start_at")
         end_at = request.data.get("end_at")

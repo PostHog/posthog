@@ -95,20 +95,20 @@ def _resolve_team(arg: str) -> Team:
         try:
             return Team.objects.get(api_token=arg)
         except Team.DoesNotExist:
-            raise CommandError(f"no team with api_token={arg!r}")  # noqa: B904
+            raise CommandError(f"no team with api_token={arg!r}") from None
     try:
         return Team.objects.get(id=team_id)
     except Team.DoesNotExist:
-        raise CommandError(f"no team with id={team_id}")  # noqa: B904
+        raise CommandError(f"no team with id={team_id}") from None
 
 
 def _parse_allowance(raw: str) -> Decimal:
     try:
         return validate_overspend_allowance_usd(Decimal(raw))
     except InvalidOperation:
-        raise CommandError(f"invalid allowance {raw!r}: not a number")  # noqa: B904
+        raise CommandError(f"invalid allowance {raw!r}: not a number") from None
     except ValueError as e:
-        raise CommandError(f"invalid allowance {raw!r}: {e}")  # noqa: B904
+        raise CommandError(f"invalid allowance {raw!r}: {e}") from None
 
 
 def _apply(team: Team, action: str, allowance: Decimal | None) -> bool:

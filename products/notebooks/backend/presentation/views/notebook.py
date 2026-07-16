@@ -336,7 +336,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
         try:
             return normalize_notebook_query_nodes(value)
         except InvalidNotebookQueryError as err:
-            raise serializers.ValidationError(str(err))  # noqa: B904
+            raise serializers.ValidationError(str(err)) from None
 
 
 class NotebookMarkdownSerializer(serializers.Serializer):
@@ -424,7 +424,7 @@ class NotebookCollabSaveSerializer(serializers.Serializer):
         try:
             return normalize_notebook_query_nodes(value)
         except InvalidNotebookQueryError as err:
-            raise serializers.ValidationError(str(err))  # noqa: B904
+            raise serializers.ValidationError(str(err)) from None
 
 
 class NotebookCollabCursorSerializer(serializers.Serializer):
@@ -1089,7 +1089,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         try:
             run = NotebookNodeRun.objects.for_team(self.team_id).filter(id=run_id, notebook=notebook).first()
         except DjangoValidationError:  # malformed run_id (not a UUID)
-            raise Http404()  # noqa: B904
+            raise Http404() from None
         if run is None:
             raise Http404()
 
@@ -1128,7 +1128,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         try:
             run = NotebookNodeRun.objects.for_team(self.team_id).filter(id=run_id, notebook=notebook).first()
         except DjangoValidationError:  # malformed run_id (not a UUID)
-            raise Http404()  # noqa: B904
+            raise Http404() from None
         if run is None:
             raise Http404()
         if run.status != NotebookNodeRun.Status.DONE:
@@ -1208,7 +1208,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         try:
             run = NotebookNodeRun.objects.for_team(self.team_id).filter(id=run_id, notebook=notebook).first()
         except DjangoValidationError:  # malformed run_id (not a UUID)
-            raise Http404()  # noqa: B904
+            raise Http404() from None
         if run is None:
             raise Http404()
         if run.status != NotebookNodeRun.Status.RUNNING:

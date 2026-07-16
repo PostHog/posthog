@@ -151,7 +151,7 @@ class VercelIntegration:
                 kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL, integration_id=installation_id
             )
         except OrganizationIntegration.DoesNotExist:
-            raise exceptions.NotFound("Installation not found")  # noqa: B904
+            raise exceptions.NotFound("Installation not found") from None
 
     @staticmethod
     def _get_resource(resource_id: str) -> Integration:
@@ -159,7 +159,7 @@ class VercelIntegration:
             # nosemgrep: idor-lookup-without-team (Vercel integration auth validates ownership)
             return Integration.objects.get(pk=resource_id, kind=Integration.IntegrationKind.VERCEL)
         except Integration.DoesNotExist:
-            raise exceptions.NotFound("Resource not found")  # noqa: B904
+            raise exceptions.NotFound("Resource not found") from None
 
     @staticmethod
     def _validate_resource_belongs_to_installation(
@@ -339,10 +339,10 @@ class VercelIntegration:
                 logger.exception(
                     "Failed to create Vercel installation", installation_id=installation_id, integration="vercel"
                 )
-                raise exceptions.ValidationError(  # noqa: B904
+                raise exceptions.ValidationError(
                     {"validation_error": "Something went wrong."},
                     code="unique",
-                )
+                ) from None
 
         license = get_cached_instance_license()
         if license:
@@ -366,7 +366,7 @@ class VercelIntegration:
                 )
                 capture_exception(e)
                 VercelIntegration._cleanup_failed_installation(organization, installation_id, user, user_created)
-                raise exceptions.APIException("Failed to initialize billing. Please try again.")  # noqa: B904
+                raise exceptions.APIException("Failed to initialize billing. Please try again.") from None
 
         if user_created:
             report_user_signed_up(
@@ -947,7 +947,7 @@ class VercelIntegration:
             return redirect_url
         except Exception as e:
             logger.exception("Vercel SSO completion failed", error=str(e), integration="vercel")
-            raise exceptions.AuthenticationFailed("SSO completion failed")  # noqa: B904
+            raise exceptions.AuthenticationFailed("SSO completion failed") from None
 
     @staticmethod
     def _determine_membership_level(
@@ -1041,7 +1041,7 @@ class VercelIntegration:
         except Exception as e:
             logger.exception("Vercel SSO authentication failed", error=str(e), integration="vercel")
             capture_exception(e)
-            raise exceptions.AuthenticationFailed("Authentication failed")  # noqa: B904
+            raise exceptions.AuthenticationFailed("Authentication failed") from None
 
     @staticmethod
     def _exchange_sso_token(code: str, client_id: str, client_secret: str, state: str | None) -> SSOTokenResponse:

@@ -324,15 +324,15 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             validation_error = ValidationError(detail, getattr(e, "code_name", None))
             if extra is not None:
                 validation_error.extra = extra  # type: ignore[attr-defined]
-            raise validation_error  # noqa: B904
+            raise validation_error from None
         except InternalCHQueryError as e:
             self.handle_column_ch_error(e)
             capture_exception(e)
-            raise APIException("ClickHouse error while executing query.")  # noqa: B904
+            raise APIException("ClickHouse error while executing query.") from None
         except UserAccessControlError as e:
-            raise ValidationError(str(e))  # noqa: B904
+            raise ValidationError(str(e)) from None
         except ResolutionError as e:
-            raise ValidationError(str(e))  # noqa: B904
+            raise ValidationError(str(e)) from None
         except ValidationError as e:
             query_type = getattr(query, "kind", "unknown")
             QUERY_VALIDATION_ERROR_TOTAL.labels(
@@ -405,7 +405,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 prompt, current_query=current_query, user=request.user, team=self.team, request=request
             )
         except PromptUnclear as e:
-            raise ValidationError({"prompt": [str(e)]}, code="unclear")  # noqa: B904
+            raise ValidationError({"prompt": [str(e)]}, code="unclear") from None
         return Response({"sql": result})
 
     @extend_schema(

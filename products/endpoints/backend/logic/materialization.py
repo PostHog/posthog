@@ -164,7 +164,7 @@ class EndpointMaterializationService:
             # A bad user query, not a system fault — surface as a 400. Pre-flight validation
             # (can_materialize) normally catches these, so reaching here is a backstop.
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="validation_error").inc()
-            raise ValidationError(f"Cannot materialize endpoint. Reason: {e}")  # noqa: B904
+            raise ValidationError(f"Cannot materialize endpoint. Reason: {e}") from None
         except Exception as e:
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="error").inc()
             # Genuine system fault (user-query limitations are handled above). Log + capture so
@@ -184,7 +184,7 @@ class EndpointMaterializationService:
                 },
             )
             # Not a request-validation problem — surface as a server error, not a 400.
-            raise APIException("Failed to enable materialization.")  # noqa: B904
+            raise APIException("Failed to enable materialization.") from None
 
     def _enable_materialization_inner(
         self,

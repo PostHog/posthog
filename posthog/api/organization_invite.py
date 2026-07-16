@@ -186,7 +186,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
                 )
         except OrganizationMembership.DoesNotExist:
             # This should not happen in normal operation, but we'll handle it just in case
-            raise exceptions.PermissionDenied("You must be a member of the organization to send invites.")  # noqa: B904
+            raise exceptions.PermissionDenied("You must be a member of the organization to send invites.") from None
 
         return level
 
@@ -227,7 +227,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             try:
                 team: Team = teams.get(id=item["id"])
             except Team.DoesNotExist:
-                raise exceptions.ValidationError(team_error)  # noqa: B904
+                raise exceptions.ValidationError(team_error) from None
 
             try:
                 # Check if the user is an org admin/owner - org admins/owners can invite with any level
@@ -530,7 +530,7 @@ class OrganizationInviteViewSet(
         try:
             membership = OrganizationMembership.objects.get(organization_id=self.organization_id, user=user)
         except OrganizationMembership.DoesNotExist:
-            raise exceptions.PermissionDenied("You must be a member of the organization to delegate setup.")  # noqa: B904
+            raise exceptions.PermissionDenied("You must be a member of the organization to delegate setup.") from None
         if membership.level < OrganizationMembership.Level.ADMIN:
             raise exceptions.PermissionDenied(
                 "Only organization admins can delegate setup, as delegation grants admin access."

@@ -478,7 +478,7 @@ class Command(BaseCommand):
                 # Use the ExperimentConfig model to parse and validate the JSON data
                 experiment_config = ExperimentConfig(**config_data)
             except ValidationError as e:
-                raise ValueError(f"Invalid configuration: {e}")  # noqa: B904
+                raise ValueError(f"Invalid configuration: {e}") from None
         else:
             experiment_config = get_default_config(experiment_type)
 

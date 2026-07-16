@@ -90,7 +90,7 @@ class Command(BaseCommand):
         try:
             team = Team.objects.select_related("organization").get(id=options["team_id"])
         except Team.DoesNotExist:
-            raise CommandError(f"Team {options['team_id']} not found")  # noqa: B904
+            raise CommandError(f"Team {options['team_id']} not found") from None
 
         signal_ids = payload.get("signal_ids") or []
         signal_count = max(len(signal_ids), len(result.effective_findings()))

@@ -154,7 +154,7 @@ def handle_sandbox_message(
                 start_workflow=True,
             )
         except ValueError:
-            raise exceptions.ValidationError("Failed to create sandbox task.")  # noqa: B904
+            raise exceptions.ValidationError("Failed to create sandbox task.") from None
 
         if created.latest_run is None:
             raise exceptions.ValidationError("Failed to create sandbox task run.")

@@ -243,7 +243,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             try:
                 linked_flag = FeatureFlag.objects.get(pk=linked_flag_id, team_id=self.context["team_id"])
             except FeatureFlag.DoesNotExist:
-                raise serializers.ValidationError("Feature Flag with this ID does not exist")  # noqa: B904
+                raise serializers.ValidationError("Feature Flag with this ID does not exist") from None
 
         # Validate linkedFlagVariant if provided in content conditions
         content = data.get("content") or {}

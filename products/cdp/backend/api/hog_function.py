@@ -382,7 +382,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                         )
                     )
                 except TranspilerError:
-                    raise serializers.ValidationError({"hog": "Error in TypeScript code"})  # noqa: B904
+                    raise serializers.ValidationError({"hog": "Error in TypeScript code"}) from None
                 attrs["bytecode"] = None
             else:
                 attrs["bytecode"] = compile_hog(attrs["hog"], hog_type)
@@ -600,14 +600,14 @@ class HogFunctionViewSet(
                     final_filter_groups.append(filter_group)
 
             except (ValueError, KeyError, TypeError):
-                raise exceptions.ValidationError({"filter_groups": "Invalid filter_groups"})  # noqa: B904
+                raise exceptions.ValidationError({"filter_groups": "Invalid filter_groups"}) from None
 
         if self.request.GET.get("filters"):
             try:
                 filters = json.loads(self.request.GET["filters"])
                 final_filter_groups.append(filters)
             except (ValueError, KeyError, TypeError):
-                raise exceptions.ValidationError({"filters": "Invalid filters"})  # noqa: B904
+                raise exceptions.ValidationError({"filters": "Invalid filters"}) from None
 
         if final_filter_groups:
             combined_q = Q()

@@ -228,13 +228,13 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
                     self.evaluation_type, self.output_type, self.evaluation_config, self.output_config
                 )
             except ValueError as e:
-                raise ValidationError(str(e))  # noqa: B904
+                raise ValidationError(str(e)) from None
 
         # Validate target config (defaults the trace window when absent, strips it for generation).
         try:
             self.target_config = validate_target_config(self.target, self.target_config)
         except ValueError as e:
-            raise ValidationError({"target_config": str(e)})  # noqa: B904
+            raise ValidationError({"target_config": str(e)}) from None
 
         # Compile Hog source to bytecode
         if self.evaluation_type == EvaluationType.HOG and self.evaluation_config.get("source"):
@@ -242,7 +242,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
                 bytecode = compile_ai_observability_hog(self.evaluation_config["source"], "destination")
                 self.evaluation_config["bytecode"] = bytecode
             except Exception as e:
-                raise ValidationError({"evaluation_config": f"Failed to compile Hog code: {e}"})  # noqa: B904
+                raise ValidationError({"evaluation_config": f"Failed to compile Hog code: {e}"}) from None
 
         # Compile bytecode for each condition
         compiled_conditions = []

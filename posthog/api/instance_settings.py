@@ -142,7 +142,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
             try:
                 new_value_parsed = cast_str_to_desired_type(validated_data["value"], target_type)
             except (ValueError, TypeError) as e:
-                raise serializers.ValidationError({"value": str(e)})  # noqa: B904
+                raise serializers.ValidationError({"value": str(e)}) from None
 
         if instance.key == "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS":
             if is_cloud():

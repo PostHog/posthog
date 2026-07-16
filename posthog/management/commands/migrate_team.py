@@ -120,9 +120,9 @@ class Command(BaseCommand):
             is_existing_export = False
             display("No existing migration was found")
         except BatchExport.MultipleObjectsReturned:
-            raise CommandError(  # noqa: B904
+            raise CommandError(
                 "More than one existing migration found! This should never happen if the management command is used, we don't know enough to proceed"
-            )
+            ) from None
 
         if not create_requested:
             # User didn't provide any arguments to create a migration, so they must have just wanted
@@ -235,7 +235,7 @@ def create_migration(
     try:
         start_at_datetime = parse_to_utc(start_at)
     except ValueError as e:
-        raise CommandError("couldn't parse start_at: {}".format(e))  # noqa: B904
+        raise CommandError("couldn't parse start_at: {}".format(e)) from None
 
     display(
         "Creating migration",
@@ -295,7 +295,7 @@ def parse_to_utc(date_str: str) -> dt.datetime:
         try:
             parsed_datetime = dt.datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
         except ValueError:
-            raise ValueError("Invalid date format. Expected 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM:SS'.")  # noqa: B904
+            raise ValueError("Invalid date format. Expected 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM:SS'.") from None
 
     utc_datetime = parsed_datetime.replace(tzinfo=dt.UTC)
     return utc_datetime

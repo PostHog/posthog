@@ -60,7 +60,7 @@ class ObjectMediaPreviewSerializer(serializers.ModelSerializer):
             try:
                 uploaded_media = UploadedMedia.objects.get(id=uploaded_media_id, team=team)
             except UploadedMedia.DoesNotExist:
-                raise ValidationError("Uploaded media not found or does not belong to this team")  # noqa: B904
+                raise ValidationError("Uploaded media not found or does not belong to this team") from None
 
         if exported_asset_id:
             from products.exports.backend.models.exported_asset import ExportedAsset
@@ -68,12 +68,12 @@ class ObjectMediaPreviewSerializer(serializers.ModelSerializer):
             try:
                 exported_asset = ExportedAsset.objects.get(id=exported_asset_id, team=team)
             except ExportedAsset.DoesNotExist:
-                raise ValidationError("Exported asset not found or does not belong to this team")  # noqa: B904
+                raise ValidationError("Exported asset not found or does not belong to this team") from None
 
         try:
             event_definition = EventDefinition.objects.get(id=event_definition_id, team=team)
         except EventDefinition.DoesNotExist:
-            raise ValidationError("Event definition not found or does not belong to this team")  # noqa: B904
+            raise ValidationError("Event definition not found or does not belong to this team") from None
 
         preview = ObjectMediaPreview.objects.create(
             team=team,

@@ -132,7 +132,7 @@ class MessageSerializer(MessageMinimalSerializer):
             except pydantic.ValidationError:
                 if settings.DEBUG:
                     raise
-                raise serializers.ValidationError("Invalid message content.")  # noqa: B904
+                raise serializers.ValidationError("Invalid message content.") from None
             data["message"] = message
         else:
             # NOTE: If content is empty, it means we're resuming streaming or continuing generation with only the contextual_tools potentially different
@@ -151,7 +151,7 @@ class MessageSerializer(MessageMinimalSerializer):
             try:
                 data["agent_mode"] = AgentMode(agent_mode)
             except ValueError:
-                raise serializers.ValidationError("Invalid agent mode.")  # noqa: B904
+                raise serializers.ValidationError("Invalid agent mode.") from None
         return data
 
 
@@ -172,7 +172,7 @@ class QueueMessageSerializer(serializers.Serializer):
                 }
             )
         except pydantic.ValidationError:
-            raise serializers.ValidationError("Invalid message content.")  # noqa: B904
+            raise serializers.ValidationError("Invalid message content.") from None
 
         billing_context = data.get("billing_context")
         if billing_context:
@@ -187,7 +187,7 @@ class QueueMessageSerializer(serializers.Serializer):
             try:
                 data["agent_mode"] = AgentMode(agent_mode).value
             except ValueError:
-                raise serializers.ValidationError("Invalid agent mode.")  # noqa: B904
+                raise serializers.ValidationError("Invalid agent mode.") from None
 
         return data
 
@@ -742,7 +742,7 @@ class ConversationViewSet(
             # Gate first-use creation on eligibility so a non-sandbox caller can't spam orphaned rows
             # by POSTing `open` with random ids — `open` would create then reject each one otherwise.
             if not has_sandbox_mode_feature_flag(self.team, user):
-                raise exceptions.ValidationError("This conversation is not on the sandbox runtime.")  # noqa: B904
+                raise exceptions.ValidationError("This conversation is not on the sandbox runtime.") from None
             conversation = Conversation.objects.create(
                 user=user,
                 team=self.team,

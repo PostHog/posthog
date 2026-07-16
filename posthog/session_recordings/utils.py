@@ -104,4 +104,4 @@ def filter_from_params_to_query(params: dict) -> RecordingsQuery:
     try:
         return RecordingsQuery.model_validate(data_dict)
     except ValidationError as pydantic_validation_error:
-        raise exceptions.ValidationError(json.dumps(pydantic_validation_error.errors()))  # noqa: B904
+        raise exceptions.ValidationError(json.dumps(pydantic_validation_error.errors())) from None

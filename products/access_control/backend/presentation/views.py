@@ -89,7 +89,7 @@ class PropertyAccessControlViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 property_definition_id=property_definition_id,
             )
         except api.PropertyDefinitionNotFoundError:
-            raise NotFound("Property definition not found.")  # noqa: B904
+            raise NotFound("Property definition not found.") from None
 
         return Response(PropertyAccessControlStateSerializer(state).data)
 
@@ -119,9 +119,9 @@ class PropertyAccessControlViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 ),
             )
         except api.PropertyDefinitionNotFoundError:
-            raise NotFound("Property definition not found.")  # noqa: B904
+            raise NotFound("Property definition not found.") from None
         except api.InvalidPropertyAccessControlTargetError as exc:
-            raise ValidationError(str(exc))  # noqa: B904
+            raise ValidationError(str(exc)) from None
 
         return Response(
             PropertyAccessControlRuleSerializer(rule).data,
@@ -174,10 +174,10 @@ class PropertyAccessControlViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 ),
             )
         except api.PropertyDefinitionNotFoundError:
-            raise NotFound("Property definition not found.")  # noqa: B904
+            raise NotFound("Property definition not found.") from None
         except api.PropertyAccessControlRuleNotFoundError:
-            raise NotFound("Property access control rule not found.")  # noqa: B904
+            raise NotFound("Property access control rule not found.") from None
         except api.InvalidPropertyAccessControlTargetError as exc:
-            raise ValidationError(str(exc))  # noqa: B904
+            raise ValidationError(str(exc)) from None
 
         return Response(status=status.HTTP_204_NO_CONTENT)

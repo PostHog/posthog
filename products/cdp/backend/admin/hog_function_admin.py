@@ -70,7 +70,7 @@ class RerunGoogleAdsFailedInvocationsForm(forms.Form):
         try:
             return [int(part.strip()) for part in raw.split(",") if part.strip()]
         except ValueError:
-            raise forms.ValidationError("Team IDs must be a comma-separated list of integers.")  # noqa: B904
+            raise forms.ValidationError("Team IDs must be a comma-separated list of integers.") from None
 
     def clean(self):
         cleaned = super().clean() or {}

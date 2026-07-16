@@ -126,7 +126,7 @@ class AIObservabilityTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
             )
         except Exception as e:
             logger.exception("translation_failed", error=str(e), target_language=target_language)
-            raise exceptions.APIException(  # noqa: B904
+            raise exceptions.APIException(
                 detail="Translation failed due to an internal error.",
                 code="translation_error",
-            )
+            ) from None

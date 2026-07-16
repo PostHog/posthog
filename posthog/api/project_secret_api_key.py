@@ -147,7 +147,9 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
             return project_secret_api_key
         except IntegrityError as e:
             if "unique_team_label" in str(e):
-                raise ValidationError(f"Project secret API key with label '{validated_data['label']}' already exists.")  # noqa: B904
+                raise ValidationError(
+                    f"Project secret API key with label '{validated_data['label']}' already exists."
+                ) from None
             raise
 
     def roll(self, project_secret_api_key: ProjectSecretAPIKey) -> ProjectSecretAPIKey:

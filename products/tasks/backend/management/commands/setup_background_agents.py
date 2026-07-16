@@ -62,7 +62,9 @@ class Command(BaseCommand):
         try:
             connection.ensure_connection()
         except Exception as e:
-            raise CommandError(f"Cannot connect to the database. Is the dev environment running? (hogli start)\n{e}")  # noqa: B904
+            raise CommandError(
+                f"Cannot connect to the database. Is the dev environment running? (hogli start)\n{e}"
+            ) from None
 
     def _ensure_env_vars(self, env_path: Path, env_example_path: Path) -> dict[str, str]:
         """Append missing AUTO_FILL_KEYS to .env. Returns the post-write contents of .env."""

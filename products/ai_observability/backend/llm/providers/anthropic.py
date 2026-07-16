@@ -185,7 +185,7 @@ class AnthropicAdapter:
                 parsed=parsed,
             )
         except anthropic.AuthenticationError as e:
-            raise AuthenticationError(str(e))  # noqa: B904
+            raise AuthenticationError(str(e)) from None
         except anthropic.BadRequestError as e:
             if _is_quota_or_billing_error(e):
                 raise QuotaExceededError(str(e)) from e

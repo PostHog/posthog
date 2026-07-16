@@ -1606,7 +1606,7 @@ def validate_slack_request(request: HttpRequest | Request, signing_secret: str) 
         if time.time() - float(slack_time) > 300:
             raise SlackIntegrationError("Expired")
     except ValueError:
-        raise SlackIntegrationError("Invalid")  # noqa: B904
+        raise SlackIntegrationError("Invalid") from None
 
     sig_basestring = f"v0:{slack_time}:{request.body.decode('utf-8')}"
 
@@ -1908,7 +1908,7 @@ class GoogleCloudIntegration:
             credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
             credentials.refresh(GoogleRequest())
         except Exception:
-            raise ValidationError(f"Failed to authenticate with provided service account key")  # noqa: B904
+            raise ValidationError(f"Failed to authenticate with provided service account key") from None
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
@@ -1963,7 +1963,7 @@ class GoogleCloudIntegration:
         except Exception:
             record_refresh_failure(self.integration)
             self.integration.save(update_fields=["config"])
-            raise ValidationError(f"Failed to authenticate with provided service account key")  # noqa: B904
+            raise ValidationError(f"Failed to authenticate with provided service account key") from None
 
         # Wholesale replacement also clears any refresh backoff state
         self.integration.config = {
@@ -2008,7 +2008,7 @@ class FirebaseIntegration:
             credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
             credentials.refresh(GoogleRequest())
         except Exception:
-            raise ValidationError("Failed to authenticate with provided Firebase service account key")  # noqa: B904
+            raise ValidationError("Failed to authenticate with provided Firebase service account key") from None
 
         project_id = key_info.get("project_id")
         if not project_id:
@@ -2063,7 +2063,7 @@ class FirebaseIntegration:
         except Exception:
             record_refresh_failure(self.integration)
             self.integration.save(update_fields=["config"])
-            raise ValidationError("Failed to authenticate with provided Firebase service account key")  # noqa: B904
+            raise ValidationError("Failed to authenticate with provided Firebase service account key") from None
 
         record_refresh_success(self.integration)
         self.integration.config["expires_in"] = credentials.expiry.timestamp() - int(time.time())
@@ -3463,26 +3463,26 @@ class AnthropicIntegration:
                 },
             )
         except AuthenticationError:
-            raise ValidationError({"api_key": "Invalid Anthropic API key"})  # noqa: B904
+            raise ValidationError({"api_key": "Invalid Anthropic API key"}) from None
         except PermissionDeniedError:
-            raise ValidationError(  # noqa: B904
+            raise ValidationError(
                 {
                     "api_key": (
                         "Anthropic API key is missing required permissions. Make sure the key has access to the "
                         "Managed Agents beta in your Anthropic console."
                     )
                 }
-            )
+            ) from None
         except APIConnectionError:
             logger.warning("anthropic_validate_key_connection_error", exc_info=True)
-            raise ValidationError(  # noqa: B904
+            raise ValidationError(
                 {"api_key": "Could not reach Anthropic to validate the API key. Check your network and try again."}
-            )
+            ) from None
         except APIStatusError as e:
             logger.warning("anthropic_validate_key_status_error", status_code=e.status_code, exc_info=True)
-            raise ValidationError(  # noqa: B904
+            raise ValidationError(
                 {"api_key": f"Anthropic returned an error validating the API key (HTTP {e.status_code})."}
-            )
+            ) from None
 
     def _managed_agents_get(self, path: str, params: dict[str, Any] | None = None) -> dict:
         return self._client.get(
@@ -3565,14 +3565,14 @@ class AnthropicIntegration:
                     errors="",
                 )
         except IntegrityError:
-            raise ValidationError(  # noqa: B904
+            raise ValidationError(
                 {
                     "config": (
                         f"An integration with id '{integration_id}' already exists for this team. Choose a different "
                         "workspace label, delete the existing integration and try again, or set 'force' to true to overwrite the existing integration."
                     )
                 }
-            )
+            ) from None
 
 
 class DatabricksIntegrationError(Exception):
@@ -3612,7 +3612,7 @@ class DatabricksIntegration:
             self.client_id = self.integration.sensitive_config["client_id"]
             self.client_secret = self.integration.sensitive_config["client_secret"]
         except KeyError as e:
-            raise DatabricksIntegrationError(f"Databricks integration is not valid: {str(e)} missing")  # noqa: B904
+            raise DatabricksIntegrationError(f"Databricks integration is not valid: {str(e)} missing") from None
 
     @classmethod
     def integration_from_config(
@@ -3693,7 +3693,9 @@ class AzureBlobIntegration:
         try:
             self.connection_string = self.integration.sensitive_config["connection_string"]
         except KeyError:
-            raise AzureBlobIntegrationError("Azure Blob integration is missing required field: 'connection_string'")  # noqa: B904
+            raise AzureBlobIntegrationError(
+                "Azure Blob integration is missing required field: 'connection_string'"
+            ) from None
 
     @classmethod
     def integration_from_config(
@@ -3753,7 +3755,7 @@ def _read_s3_credentials(integration: Integration) -> tuple[str, str]:
             integration.sensitive_config["aws_secret_access_key"],
         )
     except KeyError as e:
-        raise S3CredentialIntegrationError(f"S3 integration is not valid: {str(e)} missing")  # noqa: B904
+        raise S3CredentialIntegrationError(f"S3 integration is not valid: {str(e)} missing") from None
 
 
 def _build_s3_sensitive_config(aws_access_key_id: str, aws_secret_access_key: str) -> dict[str, str]:
@@ -3792,7 +3794,7 @@ def _create_unique_s3_integration(
                 created_by=created_by,
             )
     except IntegrityError:
-        raise S3CredentialIntegrationError(f"An integration named '{name}' already exists")  # noqa: B904
+        raise S3CredentialIntegrationError(f"An integration named '{name}' already exists") from None
 
 
 def is_unique_aws_role_by_organization_id(aws_role_arn: str, organization_id: str) -> bool:
@@ -3842,7 +3844,7 @@ class AwsS3RoleBasedIntegration:
         try:
             self.aws_role_arn = integration.config["aws_role_arn"]
         except KeyError:
-            raise S3CredentialIntegrationError("S3 integration is not valid: 'aws_role_arn' missing")  # noqa: B904
+            raise S3CredentialIntegrationError("S3 integration is not valid: 'aws_role_arn' missing") from None
 
     @classmethod
     def integration_from_config(
@@ -3927,9 +3929,9 @@ class AwsS3Integration:
             identity = client.get_caller_identity()
         except ClientError as e:
             message = e.response.get("Error", {}).get("Message") or str(e)
-            raise S3CredentialIntegrationError(f"AWS credentials are not valid: {message}")  # noqa: B904
+            raise S3CredentialIntegrationError(f"AWS credentials are not valid: {message}") from None
         except BotoCoreError as e:
-            raise S3CredentialIntegrationError(f"Could not validate AWS credentials: {e}")  # noqa: B904
+            raise S3CredentialIntegrationError(f"Could not validate AWS credentials: {e}") from None
 
         return identity["Account"]
 
@@ -3997,7 +3999,9 @@ class S3CompatibleIntegration:
         try:
             self.endpoint_url = integration.config["endpoint_url"]
         except KeyError:
-            raise S3CredentialIntegrationError("S3-compatible integration is missing required field: 'endpoint_url'")  # noqa: B904
+            raise S3CredentialIntegrationError(
+                "S3-compatible integration is missing required field: 'endpoint_url'"
+            ) from None
 
     @classmethod
     def integration_from_config(
@@ -4366,7 +4370,7 @@ class SnowflakeIntegration:
             self.user = integration.config["user"]
             self.authentication_type = integration.config["authentication_type"]
         except KeyError as e:
-            raise SnowflakeIntegrationError(f"Snowflake integration is not valid: {str(e)} missing")  # noqa: B904
+            raise SnowflakeIntegrationError(f"Snowflake integration is not valid: {str(e)} missing") from None
 
     @property
     def password(self) -> str | None:
@@ -4454,4 +4458,4 @@ class SnowflakeIntegration:
                     created_by=created_by,
                 )
         except IntegrityError:
-            raise SnowflakeIntegrationError(f"An integration named '{name}' already exists")  # noqa: B904
+            raise SnowflakeIntegrationError(f"An integration named '{name}' already exists") from None

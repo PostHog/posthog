@@ -61,7 +61,7 @@ class VercelSSOSerializer(DataclassSerializer[SSOParams]):
             raise
         except Exception:
             logger.exception("Failed to validate URL", url=value)
-            raise serializers.ValidationError("Invalid URL format")  # noqa: B904
+            raise serializers.ValidationError("Invalid URL format") from None
 
 
 def _encrypt_claims(claims: Any) -> str:

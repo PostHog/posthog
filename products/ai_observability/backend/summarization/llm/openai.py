@@ -62,4 +62,4 @@ def summarize_with_openai(
         raise
     except Exception as e:
         logger.exception("OpenAI API call failed", error=str(e), team_id=team_id, model=model)
-        raise exceptions.APIException("Failed to generate summary")  # noqa: B904
+        raise exceptions.APIException("Failed to generate summary") from None

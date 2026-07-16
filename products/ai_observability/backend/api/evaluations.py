@@ -343,7 +343,7 @@ class EvaluationSerializer(serializers.ModelSerializer):
                     evaluation_type, output_type, evaluation_config, output_config
                 )
             except ValueError as e:
-                raise serializers.ValidationError({"config": str(e)})  # noqa: B904
+                raise serializers.ValidationError({"config": str(e)}) from None
 
         # Sentiment is addressed per-message within one generation event ($ai_target_event_id +
         # message index). A trace target emits a single evaluation event for the whole trace, where
@@ -366,7 +366,7 @@ class EvaluationSerializer(serializers.ModelSerializer):
             try:
                 data["target_config"] = validate_target_config(target, config or {})
             except ValueError as e:
-                raise serializers.ValidationError({"target_config": str(e)})  # noqa: B904
+                raise serializers.ValidationError({"target_config": str(e)}) from None
 
         if data.get("enabled"):
             if self.instance is None:
@@ -515,9 +515,9 @@ class EvaluationSerializer(serializers.ModelSerializer):
             try:
                 provider_key = LLMProviderKey.objects.get(id=provider_key_id, team_id=team_id)
             except LLMProviderKey.DoesNotExist:
-                raise serializers.ValidationError(  # noqa: B904
+                raise serializers.ValidationError(
                     {"model_configuration": {"provider_key_id": "Provider key not found"}}
-                )
+                ) from None
 
         model_config = LLMModelConfiguration(
             team_id=team_id,

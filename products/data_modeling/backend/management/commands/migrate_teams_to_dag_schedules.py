@@ -59,7 +59,7 @@ class Command(BaseCommand):
             try:
                 team_ids = [int(tid) for tid in options["team_ids"].split(",")]
             except ValueError:
-                raise CommandError("team_ids must be a comma separated list of team IDs")  # noqa: B904
+                raise CommandError("team_ids must be a comma separated list of team IDs") from None
             dags = dags.filter(team_id__in=team_ids)
         if options.get("start_after_team_id") is not None:
             dags = dags.filter(team_id__gt=options["start_after_team_id"])

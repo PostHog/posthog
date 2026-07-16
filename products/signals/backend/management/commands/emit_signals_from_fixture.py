@@ -80,7 +80,7 @@ class Command(BaseCommand):
         try:
             team = Team.objects.get(id=options["team_id"])
         except Team.DoesNotExist:
-            raise CommandError(f"Team {options['team_id']} not found")  # noqa: B904
+            raise CommandError(f"Team {options['team_id']} not found") from None
 
         with open(fixture_path) as f:
             records = json.load(f)

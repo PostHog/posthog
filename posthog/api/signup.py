@@ -277,10 +277,10 @@ class SignupSerializer(serializers.Serializer):
                 is_passkey_signup=bool(passkey_credential),
                 error=str(e),
             )
-            raise exceptions.ValidationError(  # noqa: B904
+            raise exceptions.ValidationError(
                 {"email": "There is already an account with this email address."},
                 code="unique",
-            )
+            ) from None
 
         # Clear passkey signup session data
         if passkey_credential:
@@ -522,7 +522,7 @@ class InviteSignupSerializer(serializers.Serializer):
             # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (invite UUID serves as auth token)
             invite: OrganizationInvite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
         except OrganizationInvite.DoesNotExist:
-            raise serializers.ValidationError("The provided invite ID is not valid.")  # noqa: B904
+            raise serializers.ValidationError("The provided invite ID is not valid.") from None
 
         if not user and invite.target_email:
             auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
@@ -593,9 +593,9 @@ class InviteSignupSerializer(serializers.Serializer):
                         **extra_fields,
                     )
                 except IntegrityError:
-                    raise serializers.ValidationError(  # noqa: B904
+                    raise serializers.ValidationError(
                         f"There already exists an account with email address {invite.target_email}. Please log in instead."
-                    )
+                    ) from None
 
             # Capture the delegation flag BEFORE invite.use(): use() deletes the invite row,
             # so the in-memory boolean is the only safe source of truth for any post-use
@@ -606,7 +606,7 @@ class InviteSignupSerializer(serializers.Serializer):
             try:
                 invite.use(user)
             except ValueError as e:
-                raise serializers.ValidationError(str(e))  # noqa: B904
+                raise serializers.ValidationError(str(e)) from None
 
             if is_delegation:
                 self.context["delegated_onboarding"] = True
@@ -679,7 +679,7 @@ class InviteSignupViewset(generics.CreateAPIView):
             # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (invite UUID serves as auth token)
             invite: OrganizationInvite = OrganizationInvite.objects.get(id=invite_id)
         except (OrganizationInvite.DoesNotExist, ValidationError):
-            raise serializers.ValidationError("The provided invite ID is not valid.")  # noqa: B904
+            raise serializers.ValidationError("The provided invite ID is not valid.") from None
 
         user = request.user if request.user.is_authenticated else None
 
@@ -835,7 +835,7 @@ def process_social_invite_signup(
         except Exception as e:
             capture_exception(e)
             message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
-            raise ValidationError(message, code="unknown", params={"source": "social_create_user"})  # noqa: B904
+            raise ValidationError(message, code="unknown", params={"source": "social_create_user"}) from None
 
         if is_delegation:
             strategy.session_set("next", "/onboarding")
@@ -883,7 +883,9 @@ def process_social_domain_jit_provisioning_signup(
                     except Exception as e:
                         capture_exception(e)
                         message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
-                        raise ValidationError(message, code="unknown", params={"source": "social_create_user"})  # noqa: B904
+                        raise ValidationError(
+                            message, code="unknown", params={"source": "social_create_user"}
+                        ) from None
 
                     if is_delegation:
                         strategy.session_set("next", "/onboarding")

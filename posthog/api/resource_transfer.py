@@ -79,7 +79,7 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             graph = list(build_resource_duplication_graph(resource, set()))
         except (ValueError, TypeError) as e:
-            raise exceptions.ValidationError(str(e))  # noqa: B904
+            raise exceptions.ValidationError(str(e)) from None
         dag = dag_sort_duplication_graph(graph)
 
         self._check_access_controls(user, source_team, destination_team, dag)
@@ -141,7 +141,7 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             graph = list(build_resource_duplication_graph(resource, set()))
         except (ValueError, TypeError) as e:
-            raise exceptions.ValidationError(str(e))  # noqa: B904
+            raise exceptions.ValidationError(str(e)) from None
         dag = dag_sort_duplication_graph(graph)
 
         self._check_access_controls(user, source_team, destination_team, dag)
@@ -164,7 +164,7 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             duplicated = duplicate_resource_to_new_team(resource, destination_team, substitution_pairs, created_by=user)
         except (ValueError, TypeError) as e:
-            raise exceptions.ValidationError(str(e))  # noqa: B904
+            raise exceptions.ValidationError(str(e)) from None
         mutable_results = [r for r in duplicated if r is not None and not _is_immutable(r)]
 
         substituted_dest_ids = {sub["destination_resource_id"] for sub in data["substitutions"]}
@@ -263,7 +263,7 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             team = Team.objects.get(id=team_id, organization_id=self.organization_id)
         except Team.DoesNotExist:
-            raise exceptions.ValidationError(f"Team {team_id} not found in this organization")  # noqa: B904
+            raise exceptions.ValidationError(f"Team {team_id} not found in this organization") from None
 
         uac = UserAccessControl(user=cast(User, self.request.user), team=team)
         if not uac.check_access_level_for_object(team, required_level="member"):
@@ -283,7 +283,7 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             return cast(Any, model).objects.get(pk=resource_id, team=source_team)
         except ObjectDoesNotExist:
-            raise exceptions.NotFound(f"{resource_kind} with id {resource_id} not found in source team")  # noqa: B904
+            raise exceptions.NotFound(f"{resource_kind} with id {resource_id} not found in source team") from None
 
     def _check_access_controls(
         self,

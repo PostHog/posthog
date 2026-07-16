@@ -1369,7 +1369,7 @@ def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
         try:
             action = Action.objects.get(pk=action_id, team=team)
         except Action.DoesNotExist:
-            raise ValidationError(f"Action ID {entity.id} does not exist!")  # noqa: B904
+            raise ValidationError(f"Action ID {entity.id} does not exist!") from None
         event_expr = action_to_expr(action)
     elif entity.id is None:
         # all events

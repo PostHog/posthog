@@ -36,7 +36,7 @@ class InsightsToolCallSerializer(serializers.Serializer):
             )
             data["state"] = tool_call_state
         except pydantic.ValidationError:
-            raise serializers.ValidationError("Invalid state content.")  # noqa: B904
+            raise serializers.ValidationError("Invalid state content.") from None
         return data
 
 

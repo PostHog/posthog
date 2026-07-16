@@ -118,7 +118,7 @@ class Command(BaseCommand):
         try:
             return Team.objects.select_related("organization").get(id=team_id)
         except Team.DoesNotExist:
-            raise CommandError(f"Team {team_id} not found")  # noqa: B904
+            raise CommandError(f"Team {team_id} not found") from None
 
     def _resolve_user_id(self, team: Team, user_id: int | None) -> int:
         if user_id is not None:

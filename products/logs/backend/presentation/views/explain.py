@@ -254,7 +254,7 @@ async def explain_log_with_openai(log_data: dict, team_id: int) -> LogExplanatio
         raise
     except Exception as e:
         logger.exception("OpenAI API call failed for log explanation", error=str(e), team_id=team_id)
-        raise exceptions.APIException("Failed to generate log explanation")  # noqa: B904
+        raise exceptions.APIException("Failed to generate log explanation") from None
 
 
 class LogExplainViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

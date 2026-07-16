@@ -74,10 +74,10 @@ def validate_hogql_query(query: HogQLQuery, team: Team, user: User) -> None:
         raise ValidationError({"query": f"Invalid HogQL query: {e}"}) from e
     except ResolutionError as e:
         capture_exception(e)
-        raise ValidationError({"query": "Invalid HogQL query: unable to resolve table or field references."})  # noqa: B904
+        raise ValidationError({"query": "Invalid HogQL query: unable to resolve table or field references."}) from None
     except Exception as e:
         capture_exception(e)
-        raise ValidationError({"query": "Unknown error occurred parsing the query."})  # noqa: B904
+        raise ValidationError({"query": "Unknown error occurred parsing the query."}) from None
 
     validate_variable_placeholders(ast_node, query.variables or {}, team)
 
@@ -108,7 +108,7 @@ def _validate_query_access(
     except Exception as err:
         capture_exception(err)
         if not settings.DEBUG:
-            raise ValidationError({"query": f"Unexpected {err.__class__.__name__}"})  # noqa: B904
+            raise ValidationError({"query": f"Unexpected {err.__class__.__name__}"}) from None
         raise
 
 

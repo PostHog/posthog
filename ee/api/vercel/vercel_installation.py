@@ -90,7 +90,7 @@ class VercelInstallationViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin
             )
             return installation
         except OrganizationIntegration.DoesNotExist:
-            raise exceptions.NotFound("Installation not found")  # noqa: B904
+            raise exceptions.NotFound("Installation not found") from None
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """

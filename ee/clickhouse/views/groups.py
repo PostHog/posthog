@@ -190,7 +190,7 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 caller_tag="groups/create-detail-dashboard",
             )
         except GroupTypeMapping.DoesNotExist:
-            raise NotFound(detail="Group type not found")  # noqa: B904
+            raise NotFound(detail="Group type not found") from None
 
         if group_type_mapping.detail_dashboard_id:
             return response.Response(
@@ -218,7 +218,7 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 caller_tag="groups/destroy",
             )
         except GroupTypeMapping.DoesNotExist:
-            raise NotFound(detail="Group type not found")  # noqa: B904
+            raise NotFound(detail="Group type not found") from None
         delete_group_type_mapping(instance, caller_tag="groups/destroy")
         invalidate_group_types_cache(self.team.project_id)
         return response.Response(status=status.HTTP_204_NO_CONTENT)
@@ -234,7 +234,7 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 caller_tag="groups/set-default-columns",
             )
         except GroupTypeMapping.DoesNotExist:
-            raise NotFound(detail="Group type not found")  # noqa: B904
+            raise NotFound(detail="Group type not found") from None
 
         update_group_type_mapping_fields(
             group_type_mapping,
@@ -404,7 +404,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         try:
             group_type_index = int(group_type_index_str)
         except ValueError:
-            raise ValidationError({"group_type_index": ["A valid integer is required."]})  # noqa: B904
+            raise ValidationError({"group_type_index": ["A valid integer is required."]}) from None
 
         group_search = self.request.GET.get("search", "")
         group_key = self.request.GET.get("group_key", "")
@@ -465,7 +465,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             if "unique team_id/group_key/group_type_index combo" in str(
                 exc
             ) or "unique_team_group_key_group_type" in str(exc):
-                raise ValidationError({"detail": "A group with this key already exists"})  # noqa: B904
+                raise ValidationError({"detail": "A group with this key already exists"}) from None
             raise
 
         try:
@@ -638,7 +638,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             )
             return response.Response(self.get_serializer(group).data)
         except Group.DoesNotExist:
-            raise NotFound()  # noqa: B904
+            raise NotFound() from None
 
     @extend_schema(
         parameters=[
@@ -740,7 +740,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             )
             return response.Response(self.get_serializer(group).data)
         except Group.DoesNotExist:
-            raise NotFound()  # noqa: B904
+            raise NotFound() from None
 
     @extend_schema(
         parameters=[
@@ -763,7 +763,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         try:
             group = self.get_object()
         except Group.DoesNotExist:
-            raise NotFound()  # noqa: B904
+            raise NotFound() from None
 
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))

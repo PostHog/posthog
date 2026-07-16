@@ -99,7 +99,7 @@ class Command(BaseCommand):
         try:
             cloud_user_settings = self._fetch_user_settings(host, api_key)
         except (requests.RequestException, Exception) as e:
-            raise CommandError(f"Failed to fetch user settings from {host}: {e}")  # noqa: B904
+            raise CommandError(f"Failed to fetch user settings from {host}: {e}") from None
 
         # Fetch team-specific settings from cloud once
         cloud_home_settings, cloud_shortcuts = self._fetch_team_settings(host, api_key, cloud_team_id)

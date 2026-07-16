@@ -440,10 +440,10 @@ class ExperimentService:
                 safe_errors = [
                     {"loc": err.get("loc"), "type": err.get("type"), "msg": err.get("msg")} for err in e.errors()
                 ]
-                raise ValidationError(  # noqa: B904
+                raise ValidationError(
                     f"Invalid exposure_criteria.exposure_config (kind={cls._safe_repr(kind)}): "
                     f"{safe_errors}. {cls.EXPOSURE_CONFIG_HINT}"
-                )
+                ) from None
 
     # Maps the public `metric_type` literal to the pydantic class name that pydantic reports
     # in `loc[0]` when validation fails. Used to narrow union-variant errors to the variant
@@ -571,7 +571,7 @@ class ExperimentService:
                         truncated.append({"truncated": f"...{len(safe_errors) - cls._MAX_REPORTED_METRIC_ERRORS} more"})
                         safe_errors = truncated
                     suffix = f" {hint}" if hint else ""
-                    raise ValidationError(f"Invalid metric at index {i}: {safe_errors}.{suffix}")  # noqa: B904
+                    raise ValidationError(f"Invalid metric at index {i}: {safe_errors}.{suffix}") from None
 
     VALID_STATS_METHODS = {"bayesian", "frequentist"}
 
@@ -2135,10 +2135,10 @@ class ExperimentService:
             # All three are "the scan is too big for a synchronous request" — timeout, memory
             # limit, and ClickHouse's own pre-execution time estimate — and get the same
             # friendly rejection instead of surfacing as a 500.
-            raise ValidationError(  # noqa: B904
+            raise ValidationError(
                 "This experiment has too much exposure data to freeze instantly. "
                 "Freezing very large or long-running experiments isn't supported yet."
-            )
+            ) from None
 
         if len(response.results) > FREEZE_EXPOSURE_MAX_EXPOSED_USERS:
             raise ValidationError(
@@ -3478,7 +3478,7 @@ class ExperimentService:
                     try:
                         target_entity = int(target_entity)
                     except ValueError:
-                        raise ValidationError("Invalid action ID")  # noqa: B904
+                        raise ValidationError("Invalid action ID") from None
 
                 target_filters = [
                     prop.to_dict()
@@ -3650,7 +3650,7 @@ class ExperimentService:
                 try:
                     queryset = queryset.filter(feature_flag_id=int(feature_flag_id))
                 except ValueError:
-                    raise ValidationError("feature_flag_id must be an integer")  # noqa: B904
+                    raise ValidationError("feature_flag_id must be an integer") from None
 
             prompt_name = query_params.get("prompt_name")
             if prompt_name:

@@ -163,7 +163,7 @@ class BreakdownMixin(BaseParamMixin):
                 return breakdowns
 
         except (TypeError, json.decoder.JSONDecodeError):
-            raise ValidationError(detail="breakdowns must be a list of items, each with property and type")  # noqa: B904
+            raise ValidationError(detail="breakdowns must be a list of items, each with property and type") from None
 
     @cached_property
     def _breakdown_limit(self) -> Optional[int]:

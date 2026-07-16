@@ -89,15 +89,15 @@ def run_metric(
                 is_query_service=is_api_key_access_method(get_query_tag_value("access_method")),
             )
     except (ExposedHogQLError, ExposedCHQueryError) as e:
-        raise ValidationError(  # noqa: B904
+        raise ValidationError(
             {
                 "field": "definition",
                 "error": f"This metric could not run: {e}",
                 "hint": "A table or column it references may no longer exist. Check system.information_schema.tables.",
             }
-        )
+        ) from None
     except ConcurrencyLimitExceeded:
-        raise Throttled(detail=_CONCURRENCY_LIMIT_MESSAGE)  # noqa: B904
+        raise Throttled(detail=_CONCURRENCY_LIMIT_MESSAGE) from None
     except ValidationError:
         raise
     except Exception as e:

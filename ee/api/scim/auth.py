@@ -52,7 +52,7 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
             # nosemgrep: idor-lookup-without-org (SCIM bearer token auth, domain_id is tenant identifier)
             domain = OrganizationDomain.objects.select_related("identity_provider_config").get(id=domain_id)
         except OrganizationDomain.DoesNotExist:
-            raise exceptions.AuthenticationFailed("Invalid organization domain")  # noqa: B904
+            raise exceptions.AuthenticationFailed("Invalid organization domain") from None
 
         # Read the linked IdP config directly (the source of truth) rather than through the
         # empty-config fallback, so a domain with no config fails clearly here instead of falling

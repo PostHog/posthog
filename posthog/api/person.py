@@ -488,9 +488,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             try:
                 int(person_id)
             except (ValueError, TypeError):
-                raise ValidationError(  # noqa: B904
+                raise ValidationError(
                     f"The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id={person_id} instead."
-                )
+                ) from None
 
         with personhog_caller_tag(f"persons/{self.action.replace('_', '-')}"):
             return get_person_by_pk_or_uuid(
@@ -641,7 +641,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return response.Response(status=202)
 
         except Person.DoesNotExist:
-            raise NotFound(detail="Person not found.")  # noqa: B904
+            raise NotFound(detail="Person not found.") from None
 
     @extend_schema(
         request=PersonBulkDeleteRequestSerializer,
@@ -1565,7 +1565,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queue_person_recording_deletion(self.team_id, [person], actor=cast(User, request.user))
             return response.Response(status=202)
         except Person.DoesNotExist:
-            raise NotFound(detail="Person not found.")  # noqa: B904
+            raise NotFound(detail="Person not found.") from None
 
     @extend_schema(
         exclude=True,  # NOTE: We exclude as we want to push people to use the more powerful bulk_delete endpoint
@@ -1582,7 +1582,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queue_person_event_deletion(self.team_id, [person], actor=cast(User, request.user))
             return response.Response(status=202)
         except Person.DoesNotExist:
-            raise NotFound(detail="Person not found.")  # noqa: B904
+            raise NotFound(detail="Person not found.") from None
 
     @extend_schema(
         description="Reset a distinct_id for a deleted person. This allows the distinct_id to be used again.",
@@ -1648,7 +1648,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         try:
             uuids = [str(uuid.UUID(u)) for u in uuids]
         except (ValueError, AttributeError):
-            raise ValidationError("One or more UUIDs are invalid.")  # noqa: B904
+            raise ValidationError("One or more UUIDs are invalid.") from None
 
         # MinimalPersonSerializer only renders 10 distinct_ids, so bound the fetch to match.
         with personhog_caller_tag("persons/batch-by-uuids"):

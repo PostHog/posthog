@@ -71,7 +71,7 @@ class EventSchemaViewSet(
             except ValueError:
                 from rest_framework.exceptions import NotFound
 
-                raise NotFound()  # noqa: B904
+                raise NotFound() from None
         else:
             return queryset
 

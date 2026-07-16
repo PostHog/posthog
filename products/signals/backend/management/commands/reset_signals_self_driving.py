@@ -104,7 +104,7 @@ class Command(BaseCommand):
         try:
             team = Team.objects.get(id=options["team_id"])
         except Team.DoesNotExist:
-            raise CommandError(f"Team {options['team_id']} not found")  # noqa: B904
+            raise CommandError(f"Team {options['team_id']} not found") from None
 
         # Reported before the reset so it reflects what the wizard left behind.
         if options["reset_products"]:

@@ -647,7 +647,7 @@ class UserSerializer(serializers.ModelSerializer):
             try:
                 validate_password(password, instance)
             except ValidationError as e:
-                raise serializers.ValidationError({"password": e.messages})  # noqa: B904
+                raise serializers.ValidationError({"password": e.messages}) from None
 
         return password
 

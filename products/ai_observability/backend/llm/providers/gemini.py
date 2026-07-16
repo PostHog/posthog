@@ -139,7 +139,7 @@ class GeminiAdapter:
             error_message = str(e).lower()
             status_code = getattr(e, "code", None) or getattr(e, "status_code", None)
             if status_code == 401 or "authentication" in error_message or "api key" in error_message:
-                raise AuthenticationError(str(e))  # noqa: B904
+                raise AuthenticationError(str(e)) from None
             if status_code == 403 or "permission denied" in error_message:
                 raise ModelPermissionError(request.model)  # noqa: B904
             if status_code == 429 or "rate limit" in error_message or "resource exhausted" in error_message:

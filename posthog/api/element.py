@@ -183,7 +183,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 try:
                     limit = int(request.query_params.get("limit", settings.ELEMENT_STATS_DEFAULT_LIMIT))
                 except ValueError:
-                    raise ValidationError("limit must be an integer")  # noqa: B904
+                    raise ValidationError("limit must be an integer") from None
                 # keep the limit + 1 pagination probe below the printer's hard cap, so
                 # has_next can still see the extra row instead of it being clamped away
                 if not 0 < limit < MAX_SELECT_HEATMAPS_LIMIT:
@@ -192,14 +192,14 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 try:
                     offset = int(request.query_params.get("offset", 0))
                 except ValueError:
-                    raise ValidationError("offset must be an integer")  # noqa: B904
+                    raise ValidationError("offset must be an integer") from None
                 if offset < 0:
                     raise ValidationError("offset must be zero or greater")
 
                 try:
                     sampling_factor = float(request.query_params.get("sampling_factor", 1))
                 except ValueError:
-                    raise ValidationError("sampling_factor must be a float")  # noqa: B904
+                    raise ValidationError("sampling_factor must be a float") from None
                 # 0 would silently return no rows (SAMPLE 0); out-of-range values 500 in ClickHouse
                 if not 0 < sampling_factor <= 1:
                     raise ValidationError("sampling_factor must be greater than 0 and at most 1")
@@ -306,7 +306,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 try:
                     parsed = json.loads(raw)
                 except json.JSONDecodeError:
-                    raise ValidationError("include must be a valid JSON array when passed as one")  # noqa: B904
+                    raise ValidationError("include must be a valid JSON array when passed as one") from None
                 if not isinstance(parsed, list) or not all(isinstance(item, str) for item in parsed):
                     raise ValidationError("include must be a JSON array of event names")
                 events_to_include.update(parsed)

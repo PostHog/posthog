@@ -92,14 +92,14 @@ def get_trunc_func_ch(period: Optional[str]) -> str:
     try:
         return get_trunc_func(period)
     except UnsupportedIntervalError:
-        raise ValidationError(f"Period {period} is unsupported.")  # noqa: B904
+        raise ValidationError(f"Period {period} is unsupported.") from None
 
 
 def get_interval_func_ch(period: Optional[str]) -> str:
     try:
         return get_interval_func(period)
     except UnsupportedIntervalError:
-        raise ValidationError(f"Interval {period} is unsupported.")  # noqa: B904
+        raise ValidationError(f"Interval {period} is unsupported.") from None
 
 
 def get_time_in_seconds_for_period(period: Optional[str]) -> str:

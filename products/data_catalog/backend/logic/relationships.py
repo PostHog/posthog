@@ -216,10 +216,10 @@ def _probe_join(
     except ValidationError:
         raise
     except ExposedHogQLError as e:
-        raise ValidationError({"join": f"The join does not work: {e}"})  # noqa: B904
+        raise ValidationError({"join": f"The join does not work: {e}"}) from None
     except Exception as e:
         capture_exception(e)
-        raise ValidationError({"join": "The join could not be validated against the data."})  # noqa: B904
+        raise ValidationError({"join": "The join could not be validated against the data."}) from None
 
 
 def _acquire_accessor_lock(proposal: RelationshipProposal) -> None:

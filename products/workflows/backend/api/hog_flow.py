@@ -802,7 +802,7 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
                 validate_rrule(rrule_str)
             except (ValueError, TypeError) as e:
                 logger.warning("Invalid RRULE encountered during validation", rrule=rrule_str, error=str(e))
-                raise serializers.ValidationError({"rrule": "Invalid RRULE."})  # noqa: B904
+                raise serializers.ValidationError({"rrule": "Invalid RRULE."}) from None
 
         if not starts_at:
             raise serializers.ValidationError({"starts_at": "Start date is required."})
@@ -810,7 +810,7 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
         try:
             sample = compute_next_occurrences(rrule_str, starts_at, timezone_str=timezone_str, count=2)
         except (KeyError, ValueError):
-            raise serializers.ValidationError({"timezone": "Invalid or unknown timezone."})  # noqa: B904
+            raise serializers.ValidationError({"timezone": "Invalid or unknown timezone."}) from None
 
         if len(sample) == 0:
             raise serializers.ValidationError({"rrule": "Schedule produces no future occurrences."})
@@ -1445,7 +1445,7 @@ class HogFlowViewSet(
                 if trigger:
                     queryset = queryset.filter(trigger__contains=trigger)
             except (ValueError, KeyError, TypeError):
-                raise exceptions.ValidationError({"trigger": f"Invalid trigger"})  # noqa: B904
+                raise exceptions.ValidationError({"trigger": f"Invalid trigger"}) from None
 
         return queryset
 
@@ -2121,7 +2121,7 @@ class HogFlowViewSet(
         except (Http404, exceptions.NotFound):
             # A PermissionDenied from the object-level access check propagates as a 403; only a genuine
             # missing workflow becomes a friendly 404.
-            raise exceptions.NotFound(f"Workflow {kwargs.get('pk')} not found")  # noqa: B904
+            raise exceptions.NotFound(f"Workflow {kwargs.get('pk')} not found") from None
 
         if request.method == "POST":
             # A batch run sends real messages, so only fire for an enabled workflow. The scheduler applies the
@@ -2178,7 +2178,7 @@ class HogFlowViewSet(
         try:
             schedule = HogFlowSchedule.objects.get(id=schedule_id, hog_flow=hog_flow, team=self.team)
         except HogFlowSchedule.DoesNotExist:
-            raise exceptions.NotFound("Schedule not found")  # noqa: B904
+            raise exceptions.NotFound("Schedule not found") from None
 
         if request.method == "DELETE":
             schedule.delete()

@@ -363,7 +363,7 @@ class Command(BaseCommand):
         try:
             team = Team.objects.get(pk=options["team_id"])
         except Team.DoesNotExist:
-            raise CommandError(f"Team {options['team_id']} does not exist.")  # noqa: B904
+            raise CommandError(f"Team {options['team_id']} does not exist.") from None
 
         prs = self._load_fixture(options["fixture_dir"], "github_pull_requests.json")
         runs = self._load_fixture(options["fixture_dir"], "github_workflow_runs.json")

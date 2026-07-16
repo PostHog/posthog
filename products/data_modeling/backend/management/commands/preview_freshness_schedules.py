@@ -38,7 +38,7 @@ class Command(BaseCommand):
             try:
                 queryset = queryset.filter(id=uuid.UUID(options["dag_id"]))
             except ValueError:
-                raise CommandError(f"--dag-id must be a UUID, got {options['dag_id']!r}")  # noqa: B904
+                raise CommandError(f"--dag-id must be a UUID, got {options['dag_id']!r}") from None
         dags = list(queryset)
         if not dags:
             raise CommandError("No matching DAGs")

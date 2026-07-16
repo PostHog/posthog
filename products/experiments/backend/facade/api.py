@@ -42,7 +42,7 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
         try:
             holdout = ExperimentHoldout.objects.get(id=input_dto.holdout_id, team_id=team.id)
         except ExperimentHoldout.DoesNotExist:
-            raise ValidationError(f"Holdout with id {input_dto.holdout_id} does not exist for this team")  # noqa: B904
+            raise ValidationError(f"Holdout with id {input_dto.holdout_id} does not exist for this team") from None
 
     # Convert tuple to list for ordering fields (DTO uses tuple for immutability)
     primary_metrics_ordered_uuids = list(input_dto.metrics_ordering) if input_dto.metrics_ordering else None

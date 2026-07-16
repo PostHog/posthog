@@ -129,7 +129,7 @@ def link_github_installation_for_user(
             user_id=user.id,
             exc_info=True,
         )
-        raise ValidationError("Failed to verify installation access", code="installation_verify_failed")  # noqa: B904
+        raise ValidationError("Failed to verify installation access", code="installation_verify_failed") from None
     if not has_access:
         logger.warning(
             "github_integration_create: user does not have access to installation",
@@ -194,7 +194,7 @@ def authorize_link_existing_installation(
     try:
         has_access = GitHubIntegration.verify_user_installation_access(source_installation_id, user_access_token)
     except requests.RequestException:
-        raise ValidationError("Failed to verify installation access")  # noqa: B904
+        raise ValidationError("Failed to verify installation access") from None
     if not has_access:
         raise ValidationError(
             PERSONAL_GITHUB_REQUIRED_MESSAGE,
@@ -414,7 +414,7 @@ def link_existing_team_github_integration(
         try:
             source_team_id_int = int(source_team_id)
         except (TypeError, ValueError):
-            raise ValidationError("source_team_id must be an integer")  # noqa: B904
+            raise ValidationError("source_team_id must be an integer") from None
 
         if not organization.teams.filter(id=source_team_id_int).exists():
             raise ValidationError("Source team not found in your organization")

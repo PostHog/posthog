@@ -165,7 +165,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         try:
             issue = facade_api.get_issue(issue_id=issue_id, team_id=self.team.id)
         except IssueNotFoundError:
-            raise NotFound("Issue not found")  # noqa: B904
+            raise NotFound("Issue not found") from None
 
         return Response(ErrorTrackingIssueReadSerializer(issue).data)
 
@@ -189,7 +189,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 was_impersonated=is_impersonated(request),
             )
         except IssueNotFoundError:
-            raise NotFound("Issue not found")  # noqa: B904
+            raise NotFound("Issue not found") from None
         return Response(ErrorTrackingIssueReadSerializer(issue).data)
 
     @action(methods=["GET"], detail=False)
@@ -206,7 +206,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         try:
             merge_result = issues_facade.merge_issues(self.team.id, UUID(str(pk)), ids)
         except IssueNotFoundError:
-            raise NotFound("Issue not found")  # noqa: B904
+            raise NotFound("Issue not found") from None
         if merge_result == issues_facade.ErrorTrackingIssueMergeResult.STALE_ISSUES:
             raise NotFound("Issue not found")
         if merge_result == issues_facade.ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS:
@@ -223,7 +223,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         try:
             new_issue_ids = issues_facade.split_issue(self.team.id, UUID(str(pk)), fingerprints)
         except IssueNotFoundError:
-            raise NotFound("Issue not found")  # noqa: B904
+            raise NotFound("Issue not found") from None
         return Response({"success": True, "new_issue_ids": [str(i) for i in new_issue_ids]})
 
     @action(methods=["PATCH"], detail=True)
@@ -238,9 +238,9 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 was_impersonated=is_impersonated(request),
             )
         except IssueNotFoundError:
-            raise NotFound("Issue not found")  # noqa: B904
+            raise NotFound("Issue not found") from None
         except issues_facade.AssigneeValidationError as err:
-            raise ValidationError(str(err))  # noqa: B904
+            raise ValidationError(str(err)) from None
         return Response({"success": True})
 
     @action(methods=["PUT"], detail=True)
@@ -252,14 +252,14 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         try:
             issues_facade.set_issue_cohort(self.team.id, UUID(str(pk)), cohort_id)
         except IssueNotFoundError:
-            raise NotFound("Issue not found")  # noqa: B904
+            raise NotFound("Issue not found") from None
         except issues_facade.CohortNotFoundError:
-            raise NotFound("Cohort not found")  # noqa: B904
+            raise NotFound("Cohort not found") from None
         except Exception as e:
             posthoganalytics.capture_exception(
                 e, distinct_id=self.request.user.pk, properties={"issue_id": str(pk), "cohort_id": cohort_id}
             )
-            raise ValidationError("An error occurred while assigning this cohort")  # noqa: B904
+            raise ValidationError("An error occurred while assigning this cohort") from None
 
         return Response({"success": True})
 
@@ -283,9 +283,9 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 was_impersonated=is_impersonated(request),
             )
         except issues_facade.InvalidIssueStatusError:
-            raise ValidationError("Invalid status")  # noqa: B904
+            raise ValidationError("Invalid status") from None
         except issues_facade.AssigneeValidationError as err:
-            raise ValidationError(str(err))  # noqa: B904
+            raise ValidationError(str(err)) from None
         return Response({"success": True})
 
     @extend_schema(operation_id="error_tracking_issues_all_activity_retrieve")

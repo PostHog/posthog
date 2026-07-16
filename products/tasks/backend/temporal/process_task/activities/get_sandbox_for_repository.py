@@ -178,11 +178,11 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                     or ""
                 )
             except Exception as e:
-                raise GitHubAuthenticationError(  # noqa: B904
+                raise GitHubAuthenticationError(
                     f"Failed to get GitHub token for integration {github_integration_id}",
                     {"github_integration_id": github_integration_id, "task_id": ctx.task_id, "error": str(e)},
                     cause=e,
-                )
+                ) from None
 
         try:
             access_token = create_oauth_access_token_for_run(task, ctx.state)

@@ -128,14 +128,14 @@ def _publish_next_version(team: Team, *, user: User, skill_name: str, fields: di
     try:
         return publish_skill_version(team, user=user, skill_name=skill_name, base_version=latest.version, **fields)
     except LLMSkillNotFoundError:
-        raise ValidationError(f"Skill '{skill_name}' was not found in the skill store.")  # noqa: B904
+        raise ValidationError(f"Skill '{skill_name}' was not found in the skill store.") from None
     except LLMSkillVersionConflictError:
         raise SkillStoreConflict()  # noqa: B904
     except LLMSkillVersionLimitError as e:
-        raise ValidationError(  # noqa: B904
+        raise ValidationError(
             f"Skill '{skill_name}' has reached the maximum of {e.max_version} versions. "
             "Archive and recreate the skill to continue publishing."
-        )
+        ) from None
 
 
 def publish_skill_body(
@@ -169,7 +169,7 @@ def publish_skill_md_edit(team: Team, *, user: User, skill_name: str, content: s
         parsed = parse_skill_md(content)
     except SkillImportError as e:
         if content.startswith("---"):
-            raise ValidationError(f"SKILL.md frontmatter is invalid: {e}")  # noqa: B904
+            raise ValidationError(f"SKILL.md frontmatter is invalid: {e}") from None
         parsed = None
     if parsed is None:
         fields: dict[str, Any] = {"body": content}

@@ -479,5 +479,7 @@ class LLMPromptViewSet(
                 constraint_name in str(err)
                 for constraint_name in ["unique_llm_prompt_latest_per_team", "unique_llm_prompt_version_per_team"]
             ):
-                raise serializers.ValidationError({"name": "A prompt with this name already exists."}, code="unique")  # noqa: B904
+                raise serializers.ValidationError(
+                    {"name": "A prompt with this name already exists."}, code="unique"
+                ) from None
             raise

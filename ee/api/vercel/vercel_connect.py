@@ -41,7 +41,7 @@ def _load_connect_session(token: str) -> dict:
     try:
         return decrypt_payload(token, salt=CONNECT_SALT, ttl=CONNECT_SESSION_TIMEOUT)
     except InvalidToken:
-        raise signing.BadSignature("Invalid or expired token")  # noqa: B904
+        raise signing.BadSignature("Invalid or expired token") from None
 
 
 def _mark_token_used(jti: str) -> bool:
@@ -186,7 +186,9 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         try:
             cached_data = _load_connect_session(session_key)
         except signing.BadSignature:
-            raise exceptions.ValidationError("Session expired or invalid. Please try linking again from Vercel.")  # noqa: B904
+            raise exceptions.ValidationError(
+                "Session expired or invalid. Please try linking again from Vercel."
+            ) from None
 
         jti = cached_data.get("jti")
         if not jti or not _mark_token_used(jti):
@@ -198,7 +200,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                 organization_id=organization_id,
             )
         except OrganizationMembership.DoesNotExist:
-            raise exceptions.PermissionDenied("You are not a member of this organization.")  # noqa: B904
+            raise exceptions.PermissionDenied("You are not a member of this organization.") from None
 
         if membership.level < OrganizationMembership.Level.ADMIN:
             raise exceptions.PermissionDenied("You must be an admin or owner to link this organization.")
@@ -232,7 +234,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             try:
                 teams_by_id[tid] = Team.objects.get(pk=tid, organization=organization)
             except Team.DoesNotExist:
-                raise exceptions.ValidationError(f"Project {tid} does not belong to this organization.")  # noqa: B904
+                raise exceptions.ValidationError(f"Project {tid} does not belong to this organization.") from None
 
         for tid in unique_team_ids:
             if Integration.objects.filter(team_id=tid, kind=Integration.IntegrationKind.VERCEL).exists():
@@ -367,7 +369,9 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         try:
             cached_data = _load_connect_session(session_key)
         except signing.BadSignature:
-            raise exceptions.ValidationError("Session expired or invalid. Please try linking again from Vercel.")  # noqa: B904
+            raise exceptions.ValidationError(
+                "Session expired or invalid. Please try linking again from Vercel."
+            ) from None
 
         user = cast(User, request.user)
         memberships = OrganizationMembership.objects.filter(

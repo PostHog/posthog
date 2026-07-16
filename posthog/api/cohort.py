@@ -1039,7 +1039,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
         except PydanticValidationError as exc:
             # pydantic → drf error shape
-            raise ValidationError(detail=self._cohort_error_message(exc))  # noqa: B904
+            raise ValidationError(detail=self._cohort_error_message(exc)) from None
 
         self._validate_feature_flag_constraints(raw, cohort_will_be_static)  # keep your side-rules
         return raw
@@ -1742,7 +1742,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         try:
             uuid.UUID(person_id)
         except ValueError:
-            raise ValidationError("person_id must be a valid UUID")  # noqa: B904
+            raise ValidationError("person_id must be a valid UUID") from None
 
         # Check if person exists and belongs to this team. Only person.uuid is used, so skip the
         # distinct-id fetch.
@@ -1947,7 +1947,7 @@ def will_create_loops(cohort: Cohort) -> bool:
                             pk=cast(str | int, property.value), team__project_id=project_id
                         )
                     except Cohort.DoesNotExist:
-                        raise ValidationError("Invalid Cohort ID in filter")  # noqa: B904
+                        raise ValidationError("Invalid Cohort ID in filter") from None
 
                     if dfs_loop_helper(nested_cohort, seen_cohorts, cohorts_on_path):
                         return True

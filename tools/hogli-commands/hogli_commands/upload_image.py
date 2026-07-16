@@ -61,7 +61,7 @@ def _put(session: requests.Session, url: str, token: str, body: dict[str, str]) 
     try:
         return session.put(url, headers=github_headers(token), json=body, timeout=120)
     except requests.RequestException as exc:
-        raise click.ClickException(f"GitHub request failed: {exc}")  # noqa: B904
+        raise click.ClickException(f"GitHub request failed: {exc}") from None
 
 
 def _upload(path: Path, key: str, token: str, session: requests.Session) -> str:
@@ -85,7 +85,7 @@ def _upload(path: Path, key: str, token: str, session: requests.Session) -> str:
     try:
         return resp.json()["commit"]["sha"]
     except (ValueError, KeyError, TypeError) as exc:
-        raise click.ClickException(f"GitHub returned an unexpected response uploading {path.name}: {exc}")  # noqa: B904
+        raise click.ClickException(f"GitHub returned an unexpected response uploading {path.name}: {exc}") from None
 
 
 def _denied_message(path: Path) -> str:

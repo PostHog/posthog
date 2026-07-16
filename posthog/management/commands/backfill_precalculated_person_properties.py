@@ -171,7 +171,7 @@ class Command(BaseCommand):
                 try:
                     cohorts = [Cohort.objects.get(id=cohort_id, team_id=current_team_id)]
                 except Cohort.DoesNotExist:
-                    raise CommandError(f"Cohort {cohort_id} not found for team {current_team_id}")  # noqa: B904
+                    raise CommandError(f"Cohort {cohort_id} not found for team {current_team_id}") from None
             else:
                 # All realtime cohorts for team
                 cohorts = list(

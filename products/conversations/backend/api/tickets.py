@@ -554,7 +554,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             try:
                 return queryset.get(id=lookup_value)
             except Ticket.DoesNotExist:
-                raise Http404("Ticket not found")  # noqa: B904
+                raise Http404("Ticket not found") from None
         except (ValueError, AttributeError):
             # Not a UUID - try as ticket_number (integer)
             try:
@@ -562,10 +562,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 try:
                     return queryset.get(ticket_number=ticket_num)
                 except Ticket.DoesNotExist:
-                    raise Http404("Ticket not found")  # noqa: B904
+                    raise Http404("Ticket not found") from None
             except (ValueError, TypeError):
                 # Neither UUID nor integer
-                raise Http404("Ticket not found")  # noqa: B904
+                raise Http404("Ticket not found") from None
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -1322,7 +1322,7 @@ def validate_assignee(assignee) -> None:
         try:
             uuid.UUID(str(assignee["id"]))
         except (ValueError, AttributeError):
-            raise serializers.ValidationError({"assignee": "role id must be a valid UUID"})  # noqa: B904
+            raise serializers.ValidationError({"assignee": "role id must be a valid UUID"}) from None
 
 
 def validate_assignee_membership(assignee, organization) -> None:

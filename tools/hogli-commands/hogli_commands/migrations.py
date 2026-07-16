@@ -436,7 +436,7 @@ def _get_migrations_in_db() -> dict[str, set[str]]:
         import psycopg
     except ImportError:
         click.secho("psycopg not installed. Run: pip install psycopg", fg="red", err=True)
-        raise SystemExit(1)  # noqa: B904
+        raise SystemExit(1) from None
 
     try:
         db_url = _get_database_url()

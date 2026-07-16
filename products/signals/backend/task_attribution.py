@@ -36,7 +36,7 @@ def resolve_task_id_from_header(request: Request, team_id: int) -> str | None:
     try:
         task_uuid = uuid.UUID(raw.strip())
     except ValueError:
-        raise ValidationError({TASK_ID_HEADER: "must be a task UUID."})  # noqa: B904
+        raise ValidationError({TASK_ID_HEADER: "must be a task UUID."}) from None
     if not tasks_api.task_exists(task_uuid, team_id):
         raise ValidationError({TASK_ID_HEADER: "unknown task for this project."})
     return str(task_uuid)

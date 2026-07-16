@@ -1941,12 +1941,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         try:
             integration_id_int = int(integration_id)
         except ValueError:
-            raise ValidationError("integration_id must be an integer")  # noqa: B904
+            raise ValidationError("integration_id must be an integer") from None
 
         try:
             source = SourceRegistry.get_source(cast(ExternalDataSourceType, source_type))
         except ValueError:
-            raise ValidationError(f"Unknown source type: {source_type}")  # noqa: B904
+            raise ValidationError(f"Unknown source type: {source_type}") from None
 
         if not isinstance(source, OAuthMixin):
             raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
@@ -1977,12 +1977,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             accounts = source.get_oauth_accounts(integration_id_int, self.team_id, search=search)
         except NotImplementedError:
             # An OAuth source that hasn't implemented account listing yet (passes the isinstance check).
-            raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")  # noqa: B904
+            raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts") from None
         except IntegrationAccountListingError as e:
             # Actionable, customer-side failure (revoked/expired token, deleted integration, the provider
             # rejecting the credentials) — surface the message as a 400. Anything else (e.g. a bare
             # ValueError from an internal bug) stays uncaught and becomes a 500 so monitors see it.
-            raise ValidationError(str(e))  # noqa: B904
+            raise ValidationError(str(e)) from None
 
         # Belt-and-suspenders: sources that support server-side search already return matching results;
         # this filters sources that returned a full list and ignored `search`.

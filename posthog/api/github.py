@@ -98,7 +98,7 @@ def verify_github_signature(payload: str, kid: str, sig: str) -> None:
             resp.raise_for_status()
             data = resp.json()
         except Exception:
-            raise SignatureVerificationError("Failed to fetch GitHub public keys")  # noqa: B904
+            raise SignatureVerificationError("Failed to fetch GitHub public keys") from None
 
         public_keys = data.get("public_keys")
         if not isinstance(public_keys, list) or not public_keys:
@@ -168,7 +168,7 @@ class SecretAlert(APIView):
         try:
             raw_body = request._raw_body.decode("utf-8")
         except Exception:
-            raise ValidationError(detail="Unable to read request body")  # noqa: B904
+            raise ValidationError(detail="Unable to read request body") from None
 
         kid = (request.headers.get("Github-Public-Key-Identifier") or "").strip()
         sig = (request.headers.get("Github-Public-Key-Signature") or "").strip()

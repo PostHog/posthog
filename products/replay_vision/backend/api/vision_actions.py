@@ -393,14 +393,14 @@ class VisionActionSerializer(serializers.ModelSerializer):
         try:
             validate_timezone(trigger_config.get("timezone", "UTC"))
         except ValueError as e:
-            raise serializers.ValidationError({"trigger_config": {"timezone": str(e)}})  # noqa: B904
+            raise serializers.ValidationError({"trigger_config": {"timezone": str(e)}}) from None
         rrule = trigger_config.get("rrule")
         if not rrule:
             return
         try:
             validate_rrule(rrule)
         except ValueError as e:
-            raise serializers.ValidationError({"trigger_config": {"rrule": str(e)}})  # noqa: B904
+            raise serializers.ValidationError({"trigger_config": {"rrule": str(e)}}) from None
 
     def _validate_unique_name(self, attrs: dict[str, Any]) -> None:
         # Surface the (team, name) uniqueness as a 400 instead of letting the DB raise 500.
@@ -715,7 +715,7 @@ class VisionActionRunViewSet(
         try:
             action_id = uuid.UUID(self.kwargs["parent_lookup_vision_action_id"])
         except (KeyError, ValueError):
-            raise NotFound()  # noqa: B904
+            raise NotFound() from None
         action = VisionAction.objects.for_team(self.team_id).filter(id=action_id).first()
         if action is None:
             raise NotFound()

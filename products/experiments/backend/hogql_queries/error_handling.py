@@ -283,6 +283,6 @@ def experiment_error_handler(method: F) -> F:
 
             # Get error code if available
             error_code = ERROR_TYPE_TO_CODE.get(type(e))
-            raise ValidationError(user_message, code=error_code)  # noqa: B904
+            raise ValidationError(user_message, code=error_code) from None
 
     return cast(F, wrapper)

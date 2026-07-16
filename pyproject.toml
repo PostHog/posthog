@@ -364,6 +364,9 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+# Historical migrations are immutable, so baseline their existing exception behavior in config.
+"posthog/migrations/0243_unpack_plugin_source_files.py" = ["B904"]
+
 # protoletariat generates .pyi stubs with re-exports (e.g. `from . import person_pb2`)
 # that type checkers need to resolve the package structure.
 # protobuf 5.x _pb2.py files have side-effect-only imports that load dependency

@@ -78,7 +78,7 @@ class BillingUsageRequestSerializer(serializers.Serializer):
             parsed_date = relative_date_parse(date_str, ZoneInfo("UTC"))
             return parsed_date.strftime("%Y-%m-%d")
         except Exception:
-            raise serializers.ValidationError({field_name: f"Could not parse date '{date_str}'."})  # noqa: B904
+            raise serializers.ValidationError({field_name: f"Could not parse date '{date_str}'."}) from None
 
     def validate_start_date(self, value: Optional[str]) -> Optional[str]:
         """Validate and normalize the start_date, handling 'all'."""

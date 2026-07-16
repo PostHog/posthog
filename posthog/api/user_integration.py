@@ -685,7 +685,7 @@ def _resolve_team_for_github_start(user: User, request: Request):
         try:
             tid = int(raw_id)
         except (TypeError, ValueError):
-            raise exceptions.ValidationError("team_id must be an integer")  # noqa: B904
+            raise exceptions.ValidationError("team_id must be an integer") from None
         team = user.teams.filter(id=tid).first()
         if team is None:
             raise exceptions.ValidationError("Invalid or inaccessible team_id for this user.")

@@ -31,11 +31,11 @@ def clone_repository(input: CloneRepositoryInput) -> str:
         try:
             github_token = get_github_token(ctx.github_integration_id)
         except Exception as e:
-            raise GitHubAuthenticationError(  # noqa: B904
+            raise GitHubAuthenticationError(
                 f"Failed to get GitHub token for integration {ctx.github_integration_id}",
                 {"github_integration_id": ctx.github_integration_id, "error": str(e)},
                 cause=e,
-            )
+            ) from None
 
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 

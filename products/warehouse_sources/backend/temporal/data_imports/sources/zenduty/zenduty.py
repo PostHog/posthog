@@ -108,7 +108,9 @@ def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], lo
     except ValueError:
         # A 2xx that isn't JSON (e.g. a WAF interstitial). Treat as transient rather than crashing
         # the sync on a body we can't parse.
-        raise ZendutyRetryableError(f"Zenduty returned a non-JSON body: status={response.status_code}, url={url}")
+        raise ZendutyRetryableError(
+            f"Zenduty returned a non-JSON body: status={response.status_code}, url={url}"
+        ) from None
 
 
 def _with_team_id(row: dict[str, Any], team_id: str) -> dict[str, Any]:

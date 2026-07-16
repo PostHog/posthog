@@ -223,12 +223,12 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise UnsupportedMediaType(file.content_type)
         except KeyError:
-            raise ValidationError(code="no-image-provided", detail="An image file must be provided")  # noqa: B904
+            raise ValidationError(code="no-image-provided", detail="An image file must be provided") from None
         except ObjectStorageUnavailable:
-            raise ValidationError(  # noqa: B904
+            raise ValidationError(
                 code="object_storage_required",
                 detail="Object storage must be available to allow media uploads.",
-            )
+            ) from None
 
     def get_success_headers(self, location: str) -> dict:
         try:

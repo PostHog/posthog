@@ -28,7 +28,7 @@ class CanEditDashboardCollaborator(BasePermission):
                 id=view.parents_query_dict["dashboard_id"], team__project_id=view.team.project_id
             )
         except Dashboard.DoesNotExist:
-            raise exceptions.NotFound("Dashboard not found.")  # noqa: B904
+            raise exceptions.NotFound("Dashboard not found.") from None
 
         return view.user_permissions.dashboard(dashboard).can_edit
 
@@ -69,7 +69,7 @@ class DashboardCollaboratorSerializer(serializers.ModelSerializer, UserPermissio
         try:
             validated_data["user"] = User.objects.filter(is_active=True).get(uuid=user_uuid)
         except User.DoesNotExist:
-            raise serializers.ValidationError("User does not exist.")  # noqa: B904
+            raise serializers.ValidationError("User does not exist.") from None
 
         modified_user_permissions = UserPermissions(
             user=validated_data["user"],
@@ -85,7 +85,7 @@ class DashboardCollaboratorSerializer(serializers.ModelSerializer, UserPermissio
         try:
             return super().create(validated_data)
         except IntegrityError:
-            raise serializers.ValidationError("User already is a collaborator.")  # noqa: B904
+            raise serializers.ValidationError("User already is a collaborator.") from None
 
 
 @extend_schema(extensions={"x-product": "dashboards"})
@@ -111,7 +111,7 @@ class DashboardCollaboratorViewSet(
                 id=context["dashboard_id"], team__project_id=self.team.project_id
             )
         except Dashboard.DoesNotExist:
-            raise exceptions.NotFound("Dashboard not found.")  # noqa: B904
+            raise exceptions.NotFound("Dashboard not found.") from None
         return context
 
     def perform_destroy(self, instance) -> None:

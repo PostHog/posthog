@@ -122,7 +122,7 @@ class ExternalTicketUpdateSerializer(serializers.Serializer):
         try:
             ZoneInfo(tz_name)
         except ZoneInfoNotFoundError:
-            raise serializers.ValidationError(f"Invalid timezone: {tz_name}")  # noqa: B904
+            raise serializers.ValidationError(f"Invalid timezone: {tz_name}") from None
         return value
 
     def validate(self, attrs):

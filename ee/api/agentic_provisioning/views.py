@@ -1790,7 +1790,7 @@ def _resolve_or_create_project_team(
             if not _user_can_access_team(user, race_winner.team):
                 return None, scoped_teams
             return _ensure_team_in_token_scopes(access_token, scoped_teams, race_winner.team)
-        raise _ProjectIdCollisionError(project_id)  # noqa: B904
+        raise _ProjectIdCollisionError(project_id) from None
 
     return _ensure_team_in_token_scopes(access_token, scoped_teams, new_team)
 

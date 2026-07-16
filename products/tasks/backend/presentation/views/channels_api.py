@@ -121,7 +121,7 @@ class ChannelFeedMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         try:
             UUID(channel_id)
         except (ValueError, TypeError):
-            raise NotFound("Channel not found")  # noqa: B904
+            raise NotFound("Channel not found") from None
         return channel_id
 
     def _user_id(self) -> int | None:
@@ -222,7 +222,7 @@ class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             UUID(task_id)
         except (ValueError, TypeError):
-            raise NotFound("Task not found")  # noqa: B904
+            raise NotFound("Task not found") from None
         return task_id
 
     def _user_id(self) -> int | None:

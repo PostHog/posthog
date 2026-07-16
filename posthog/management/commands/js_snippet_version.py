@@ -185,7 +185,7 @@ class Command(BaseCommand):
         try:
             manifest = sync_manifest_from_s3()
         except ManifestSyncError as e:
-            raise CommandError(str(e))  # noqa: B904
+            raise CommandError(str(e)) from None
 
         self.stdout.write(f"Versions: {len(manifest['versions'])}")
         self.stdout.write(f"Pointers: {manifest['pointers']}")

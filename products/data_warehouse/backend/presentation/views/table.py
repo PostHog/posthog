@@ -159,15 +159,15 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             try:
                 table._validate_csv_double_quotes_setting()
             except Exception as err:
-                raise serializers.ValidationError(str(err))  # noqa: B904
+                raise serializers.ValidationError(str(err)) from None
         try:
             table.columns = table.get_columns()
         except Exception as err:
-            raise serializers.ValidationError(str(err))  # noqa: B904
+            raise serializers.ValidationError(str(err)) from None
         try:
             table.save()
         except Exception as err:
-            raise serializers.ValidationError(str(err))  # noqa: B904
+            raise serializers.ValidationError(str(err)) from None
 
         validate_data_warehouse_table_columns.delay(self.context["team_id"], str(table.id))
 
@@ -325,12 +325,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             try:
                 instance._validate_csv_double_quotes_setting()
             except Exception as err:
-                raise serializers.ValidationError(str(err))  # noqa: B904
+                raise serializers.ValidationError(str(err)) from None
 
         try:
             instance.save()
         except Exception as err:
-            raise serializers.ValidationError(str(err))  # noqa: B904
+            raise serializers.ValidationError(str(err)) from None
 
     @action(methods=["POST"], detail=True)
     def update_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:

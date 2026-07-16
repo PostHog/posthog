@@ -332,7 +332,7 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
             return result
         except Exception as e:
             capture_exception(e)
-            raise serializers.ValidationError("Invalid settings format")  # noqa: B904
+            raise serializers.ValidationError("Invalid settings format") from None
 
     @extend_schema_field(SharePasswordSerializer(many=True))
     def get_share_passwords(self, obj):
@@ -376,12 +376,12 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
             try:
                 context["dashboard"] = Dashboard.objects.get(id=dashboard_id, team__project_id=self.team.project_id)
             except Dashboard.DoesNotExist:
-                raise NotFound("Dashboard not found.")  # noqa: B904
+                raise NotFound("Dashboard not found.") from None
         if insight_id:
             try:
                 context["insight"] = Insight.objects.get(id=insight_id, team__project_id=self.team.project_id)
             except Insight.DoesNotExist:
-                raise NotFound("Insight not found.")  # noqa: B904
+                raise NotFound("Insight not found.") from None
         if recording_id:
             # NOTE: Recordings are a special case as we don't want to query CH just for this.
             context["recording"] = SessionRecording.get_or_build(recording_id, team=self.team)
@@ -389,7 +389,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
             try:
                 context["notebook"] = Notebook.objects.get(short_id=notebook_short_id, team=self.team)
             except Notebook.DoesNotExist:
-                raise NotFound("Notebook not found.")  # noqa: B904
+                raise NotFound("Notebook not found.") from None
 
         context["insight_variables"] = InsightVariable.objects.filter(team=self.team)
 
@@ -695,7 +695,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
             share_password.save()
             return response.Response(status=status.HTTP_204_NO_CONTENT)
         except SharePassword.DoesNotExist:
-            raise NotFound("Password not found")  # noqa: B904
+            raise NotFound("Password not found") from None
 
 
 def custom_404_response(request):
@@ -826,7 +826,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 if asset:
                     return asset
             except (ExportedAsset.DoesNotExist, jwt.InvalidTokenError):
-                raise NotFound()  # noqa: B904
+                raise NotFound() from None
 
         # Path based access (SharingConfiguration only)
         access_token = self.kwargs.get("access_token", "").split(".")[0]
@@ -845,7 +845,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     .get(access_token=access_token)
                 )
             except SharingConfiguration.DoesNotExist:
-                raise NotFound()  # noqa: B904
+                raise NotFound() from None
 
             if sharing_configuration and sharing_configuration.enabled:
                 # Additional validation: if user is JWT authenticated, ensure the JWT is for this specific share
@@ -1135,7 +1135,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 )
 
             except Exception:
-                raise NotFound("No recording found")  # noqa: B904
+                raise NotFound("No recording found") from None
         elif (
             isinstance(resource, ExportedAsset)
             and resource.export_context
@@ -1185,7 +1185,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 )
 
             except Exception:
-                raise NotFound("No heatmap found")  # noqa: B904
+                raise NotFound("No heatmap found") from None
         elif isinstance(resource, SharingConfiguration) and resource.interviewee_context:
             from products.user_interviews.backend.facade.api import has_replied, parse_interviewee_identifier
 

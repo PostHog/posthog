@@ -78,7 +78,7 @@ class Command(BaseCommand):
             try:
                 team_ids = {int(tid) for tid in team_ids_arg.split(",")}
             except ValueError:
-                raise CommandError("--team-ids must be a comma-separated list of integers")  # noqa: B904
+                raise CommandError("--team-ids must be a comma-separated list of integers") from None
 
         temporal = await async_connect()
 

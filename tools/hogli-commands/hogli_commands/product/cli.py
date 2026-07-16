@@ -137,7 +137,7 @@ def cmd_isolate_scan(name: str, as_json: bool) -> None:
     try:
         report = build_scan_report(name)
     except ValueError as e:
-        raise click.ClickException(str(e))  # noqa: B904
+        raise click.ClickException(str(e)) from None
     click.echo(json_module.dumps(report, indent=2) if as_json else render_scan_report(report))
 
 
@@ -163,7 +163,7 @@ def cmd_isolate_move(name: str, views: tuple[str, ...], dry_run: bool) -> None:
         for line in execute_move_plan(plan, dry_run=dry_run):
             click.echo(line)
     except ValueError as e:
-        raise click.ClickException(str(e))  # noqa: B904
+        raise click.ClickException(str(e)) from None
     if dry_run:
         click.echo("\n(dry run — nothing changed)")
     else:

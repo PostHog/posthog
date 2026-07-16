@@ -95,7 +95,7 @@ class Command(BaseCommand):
         try:
             return Team.objects.get(pk=team_id)
         except Team.DoesNotExist:
-            raise CommandError(f"Team {team_id} does not exist.")  # noqa: B904
+            raise CommandError(f"Team {team_id} does not exist.") from None
 
     def _read_account_groups(self, team: Team, limit: int | None) -> list[tuple[str, dict[str, Any]]]:
         query = (

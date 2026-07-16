@@ -280,9 +280,9 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         try:
             instance = serializer.save(team_id=team_id, created_by=self.request.user)
         except IntegrityError:
-            raise serializers.ValidationError(  # noqa: B904
+            raise serializers.ValidationError(
                 {"source_product": "A configuration for this source product and type already exists for this team."}
-            )
+            ) from None
 
         if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER and instance.enabled:
             self._trigger_session_analysis_setup()
@@ -339,9 +339,9 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         try:
             instance = serializer.save()
         except IntegrityError:
-            raise serializers.ValidationError(  # noqa: B904
+            raise serializers.ValidationError(
                 {"source_product": "A configuration for this source product and type already exists for this team."}
-            )
+            ) from None
 
         if instance.enabled and not was_enabled:
             if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
@@ -874,7 +874,7 @@ class SignalReportViewSet(
         try:
             reviewer_user_uuids = [str(uuid.UUID(user_uuid)) for user_uuid in reviewer_user_uuids]
         except (ValueError, AttributeError) as e:
-            raise serializers.ValidationError({"suggested_reviewers": f"Invalid user UUID: {e}"})  # noqa: B904
+            raise serializers.ValidationError({"suggested_reviewers": f"Invalid user UUID: {e}"}) from None
 
         reviewer_github_logins = list(
             get_org_member_github_logins_by_user_uuid(self.team.id, reviewer_user_uuids).values()
@@ -907,7 +907,7 @@ class SignalReportViewSet(
         try:
             task_uuid = uuid.UUID(task_filter.strip())
         except (ValueError, AttributeError) as e:
-            raise serializers.ValidationError({"task_id": f"Invalid task UUID: {e}"})  # noqa: B904
+            raise serializers.ValidationError({"task_id": f"Invalid task UUID: {e}"}) from None
         return queryset.filter(SignalReport.reports_for_task_filter(task_uuid))
 
     def _apply_signal_report_priority_filter(self, queryset):
@@ -1999,7 +1999,7 @@ class SignalReportArtefactViewSet(
         try:
             uuid.UUID(str(report_id))
         except (ValueError, TypeError):
-            raise NotFound()  # noqa: B904
+            raise NotFound() from None
         return report_id
 
     def safely_get_queryset(self, queryset):
@@ -2530,7 +2530,7 @@ class SignalUserAutonomyConfigView(APIView):
         try:
             return User.objects.get(pk=user_id)
         except User.DoesNotExist:
-            raise exceptions.NotFound()  # noqa: B904
+            raise exceptions.NotFound() from None
 
     @extend_schema(responses={200: SignalUserAutonomyConfigSerializer})
     def get(self, request, user_id, **kwargs):

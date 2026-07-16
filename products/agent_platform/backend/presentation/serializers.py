@@ -290,7 +290,7 @@ class AgentSpecField(serializers.JSONField):
             try:
                 data = json.loads(data)
             except json.JSONDecodeError:
-                raise serializers.ValidationError("spec must be a JSON object, not a string.")  # noqa: B904
+                raise serializers.ValidationError("spec must be a JSON object, not a string.") from None
             if not isinstance(data, dict):
                 raise serializers.ValidationError("spec must be a JSON object.")
         return super().to_internal_value(data)

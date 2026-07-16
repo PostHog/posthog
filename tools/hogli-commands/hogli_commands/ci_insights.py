@@ -74,7 +74,7 @@ class MendralBackend:
         try:
             insight = json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise click.ClickException(f"Could not parse the {self.name} response for {insight_id}: {exc}")  # noqa: B904
+            raise click.ClickException(f"Could not parse the {self.name} response for {insight_id}: {exc}") from None
         actions = [action for action in (insight.get("actions") or []) if isinstance(action, dict)]
         action = _recommended_action(actions)
         if action is None:

@@ -611,7 +611,7 @@ class Command(BaseCommand):
             workflows = list(WORKFLOWS_DICT[task_queue])
             activities = list(ACTIVITIES_DICT[task_queue])
         except KeyError:
-            raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')  # noqa: B904
+            raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT') from None
 
         # Data-import source modules import vendor SDKs (google-ads, etc.) at module scope, and those
         # SDKs register protobuf descriptors into a process-global pool that rejects a second

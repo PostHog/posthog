@@ -43,7 +43,7 @@ class Command(BaseCommand):
         try:
             team = Team.objects.get(id=options["team_id"])
         except Team.DoesNotExist:
-            raise CommandError(f"Team {options['team_id']} not found")  # noqa: B904
+            raise CommandError(f"Team {options['team_id']} not found") from None
 
         if not options["yes"]:
             self.stdout.write(

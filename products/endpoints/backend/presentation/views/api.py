@@ -218,14 +218,14 @@ class EndpointViewSet(
             try:
                 return int(body_version)
             except (ValueError, TypeError):
-                raise ValidationError({"version": f"Must be an integer, got: {body_version}"})  # noqa: B904
+                raise ValidationError({"version": f"Must be an integer, got: {body_version}"}) from None
 
         query_version = request.query_params.get("version")
         if query_version is not None:
             try:
                 return int(query_version)
             except (ValueError, TypeError):
-                raise ValidationError({"version": f"Must be an integer, got: {query_version}"})  # noqa: B904
+                raise ValidationError({"version": f"Must be an integer, got: {query_version}"}) from None
 
         return None
 
@@ -374,7 +374,7 @@ class EndpointViewSet(
             return Response(self._serialize(endpoint, request), status=status.HTTP_200_OK)
         except Exception as e:
             capture_exception(e, {"endpoint_name": endpoint.name, "team_id": self.team_id})
-            raise ValidationError("Failed to retrieve endpoint.")  # noqa: B904
+            raise ValidationError("Failed to retrieve endpoint.") from None
 
     @extend_schema(
         request=EndpointRequestSerializer,

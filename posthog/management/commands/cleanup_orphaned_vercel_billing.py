@@ -125,6 +125,6 @@ class Command(BaseCommand):
                         if line and not line.startswith("#"):
                             org_ids.append(line)
             except FileNotFoundError:
-                raise CommandError(f"File not found: {file_path}")  # noqa: B904
+                raise CommandError(f"File not found: {file_path}") from None
 
         return org_ids

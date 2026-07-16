@@ -75,12 +75,12 @@ class ViewLinkValidationMixin:
         try:
             database.get_table(table_name)
         except Exception:
-            raise serializers.ValidationError({"non_field_errors": [f"Invalid table: {table_name}"]})  # noqa: B904
+            raise serializers.ValidationError({"non_field_errors": [f"Invalid table: {table_name}"]}) from None
 
         try:
             parse_expr(join_key)
         except SyntaxError as e:
-            raise serializers.ValidationError({"non_field_errors": [str(e)]})  # noqa: B904
+            raise serializers.ValidationError({"non_field_errors": [str(e)]}) from None
 
         if get_join_field_chain(join_key) is None:
             raise serializers.ValidationError({"non_field_errors": [f"Join key {join_key} must be a table field"]})

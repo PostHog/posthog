@@ -107,9 +107,9 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 always_include=serializer.validated_data.get("always_include", False),
             )
         except logic.TextTooLargeError:
-            raise exceptions.ValidationError({"text": "Text exceeds the maximum allowed size."})  # noqa: B904
+            raise exceptions.ValidationError({"text": "Text exceeds the maximum allowed size."}) from None
         except logic.QuotaExceededError:
-            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")  # noqa: B904
+            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.") from None
         return Response(KnowledgeSourceSerializer(instance=source).data, status=status.HTTP_201_CREATED)
 
     def _create_url_source(self, request: Request) -> Response:
@@ -126,11 +126,11 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 always_include=serializer.validated_data.get("always_include", False),
             )
         except logic.SourceBusyError:
-            raise _ConflictError("Another source is already being processed. Please wait and try again.")  # noqa: B904
+            raise _ConflictError("Another source is already being processed. Please wait and try again.") from None
         except logic.InvalidUrlError:
-            raise exceptions.ValidationError({"url": "URL is not reachable."})  # noqa: B904
+            raise exceptions.ValidationError({"url": "URL is not reachable."}) from None
         except logic.QuotaExceededError:
-            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")  # noqa: B904
+            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.") from None
         return self._respond_claimed(source)
 
     def _create_crawl_source(self, request: Request) -> Response:
@@ -149,11 +149,11 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 always_include=serializer.validated_data.get("always_include", False),
             )
         except logic.SourceBusyError:
-            raise _ConflictError("Another source is already being processed. Please wait and try again.")  # noqa: B904
+            raise _ConflictError("Another source is already being processed. Please wait and try again.") from None
         except logic.InvalidUrlError:
-            raise exceptions.ValidationError({"url": "URL is not reachable."})  # noqa: B904
+            raise exceptions.ValidationError({"url": "URL is not reachable."}) from None
         except logic.QuotaExceededError:
-            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")  # noqa: B904
+            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.") from None
         return self._respond_claimed(source)
 
     def _respond_claimed(self, source: KnowledgeSource) -> Response:
@@ -204,9 +204,9 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 always_include=serializer.validated_data.get("always_include", False),
             )
         except FileParseError as exc:
-            raise exceptions.ValidationError({"file": str(exc) or "Unable to parse the uploaded file."})  # noqa: B904
+            raise exceptions.ValidationError({"file": str(exc) or "Unable to parse the uploaded file."}) from None
         except logic.QuotaExceededError:
-            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")  # noqa: B904
+            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.") from None
         return Response(KnowledgeSourceSerializer(instance=source).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(responses={200: KnowledgeSourceSerializer})
@@ -214,7 +214,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             source_id = UUID(pk)
         except (ValueError, DjangoValidationError):
-            raise exceptions.NotFound()  # noqa: B904
+            raise exceptions.NotFound() from None
         source = logic.get_for_team(source_id, self.team_id)
         if source is None:
             raise exceptions.NotFound()
@@ -228,12 +228,12 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             source_id = UUID(pk)
         except (ValueError, DjangoValidationError):
-            raise exceptions.NotFound()  # noqa: B904
+            raise exceptions.NotFound() from None
 
         try:
             source = KnowledgeSource.objects.get(id=source_id, team_id=self.team_id)
         except KnowledgeSource.DoesNotExist:
-            raise exceptions.NotFound()  # noqa: B904
+            raise exceptions.NotFound() from None
 
         if source.source_type == SourceType.URL.value:
             return self._update_url_source(source, request)
@@ -258,7 +258,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 always_include=serializer.validated_data.get("always_include"),
             )
         except logic.QuotaExceededError:
-            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")  # noqa: B904
+            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.") from None
         if updated is None:
             raise exceptions.NotFound()
         return Response(KnowledgeSourceSerializer(instance=updated).data)
@@ -275,9 +275,9 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 always_include=serializer.validated_data.get("always_include"),
             )
         except logic.TextTooLargeError:
-            raise exceptions.ValidationError({"text": "Text exceeds the maximum allowed size."})  # noqa: B904
+            raise exceptions.ValidationError({"text": "Text exceeds the maximum allowed size."}) from None
         except logic.QuotaExceededError:
-            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")  # noqa: B904
+            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.") from None
         if updated is None:
             raise exceptions.NotFound()
         return Response(KnowledgeSourceSerializer(instance=updated).data)
@@ -297,13 +297,13 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 always_include=serializer.validated_data.get("always_include"),
             )
         except logic.InvalidUrlError:
-            raise exceptions.ValidationError({"url": "URL is not reachable."})  # noqa: B904
+            raise exceptions.ValidationError({"url": "URL is not reachable."}) from None
         except (logic.UrlFetchFailedError, logic.EmptyContentError):
-            raise exceptions.ValidationError({"url": "Could not fetch the URL."})  # noqa: B904
+            raise exceptions.ValidationError({"url": "Could not fetch the URL."}) from None
         except logic.SourceBusyError:
-            raise _ConflictError("A refresh is already in progress for this source.")  # noqa: B904
+            raise _ConflictError("A refresh is already in progress for this source.") from None
         except logic.QuotaExceededError:
-            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")  # noqa: B904
+            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.") from None
         if updated is None:
             raise exceptions.NotFound()
         return Response(KnowledgeSourceSerializer(instance=updated).data)
@@ -314,7 +314,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             source_id = UUID(pk)
         except (ValueError, DjangoValidationError):
-            raise exceptions.NotFound()  # noqa: B904
+            raise exceptions.NotFound() from None
         content = logic.get_source_text_for_team(source_id, self.team_id)
         if content is None:
             raise exceptions.NotFound()
@@ -326,17 +326,17 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             source_id = UUID(pk)
         except (ValueError, DjangoValidationError):
-            raise exceptions.NotFound()  # noqa: B904
+            raise exceptions.NotFound() from None
         try:
             source = logic.claim_refresh_source(source_id=source_id, team_id=self.team_id)
         except KnowledgeSource.DoesNotExist:
-            raise exceptions.NotFound()  # noqa: B904
+            raise exceptions.NotFound() from None
         except logic.SourceBusyError:
-            raise _ConflictError("A refresh is already in progress for this source.")  # noqa: B904
+            raise _ConflictError("A refresh is already in progress for this source.") from None
         except logic.InvalidUrlError:
-            raise exceptions.ValidationError({"url": "Only URL sources can be refreshed."})  # noqa: B904
+            raise exceptions.ValidationError({"url": "Only URL sources can be refreshed."}) from None
         except logic.QuotaExceededError:
-            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")  # noqa: B904
+            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.") from None
         self._start_background_refresh(source)
         fresh = logic.get_for_team(source.id, self.team_id) or source
         return Response(KnowledgeSourceSerializer(instance=fresh).data)
@@ -364,7 +364,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             source_id = UUID(pk)
         except (ValueError, DjangoValidationError):
-            raise exceptions.NotFound()  # noqa: B904
+            raise exceptions.NotFound() from None
         if not logic.delete_source(source_id, self.team_id):
             raise exceptions.NotFound()
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -423,7 +423,7 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             document_id = UUID(pk)
         except (ValueError, DjangoValidationError):
-            raise exceptions.NotFound()  # noqa: B904
+            raise exceptions.NotFound() from None
 
         # 404 for unknown / cross-team docs before touching the chunk window so
         # an attacker can't probe doc existence. `.unscoped()` + explicit
@@ -503,7 +503,7 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             return int(raw)
         except (TypeError, ValueError):
-            raise exceptions.ValidationError({name: "Must be an integer."})  # noqa: B904
+            raise exceptions.ValidationError({name: "Must be an integer."}) from None
 
 
 class KnowledgeGapSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -559,7 +559,7 @@ class KnowledgeGapSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
             try:
                 UUID(ticket_id)
             except ValueError:
-                raise exceptions.ValidationError({"ticket_id": "Must be a valid UUID."})  # noqa: B904
+                raise exceptions.ValidationError({"ticket_id": "Must be a valid UUID."}) from None
             suggestions = logic.list_gap_suggestions_for_ticket(self.team_id, ticket_id)
             page = self.paginate_queryset(suggestions)
             if page is not None:

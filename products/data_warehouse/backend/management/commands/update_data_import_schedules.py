@@ -27,7 +27,7 @@ def _get_external_data_schemas(**options) -> list[ExternalDataSchema]:
         try:
             team_ids = [int(id) for id in options["team_ids"].split(",")]
         except ValueError:
-            raise CommandError("team_ids must be a comma separated list of team IDs")  # noqa: B904
+            raise CommandError("team_ids must be a comma separated list of team IDs") from None
         queryset = queryset.filter(team_id__in=team_ids)
         filters_applied = True
 
@@ -35,7 +35,7 @@ def _get_external_data_schemas(**options) -> list[ExternalDataSchema]:
         try:
             exclude_team_ids = [int(id) for id in options["exclude_team_ids"].split(",")]
         except ValueError:
-            raise CommandError("exclude_team_ids must be a comma separated list of team IDs")  # noqa: B904
+            raise CommandError("exclude_team_ids must be a comma separated list of team IDs") from None
         # Check for overlap between include and exclude team IDs
         if options.get("team_ids") is not None:
             overlap = set(team_ids).intersection(exclude_team_ids)
@@ -66,7 +66,7 @@ def _get_external_data_schemas(**options) -> list[ExternalDataSchema]:
         try:
             updated_at_gt = dt.datetime.strptime(options["updated_at_gt"], "%Y-%m-%d").replace(tzinfo=dt.UTC)
         except ValueError:
-            raise CommandError("updated_at_gt must be in the format YYYY-MM-DD")  # noqa: B904
+            raise CommandError("updated_at_gt must be in the format YYYY-MM-DD") from None
         queryset = queryset.filter(updated_at__gt=updated_at_gt)
         filters_applied = True
 
@@ -74,7 +74,7 @@ def _get_external_data_schemas(**options) -> list[ExternalDataSchema]:
         try:
             updated_at_lt = dt.datetime.strptime(options["updated_at_lt"], "%Y-%m-%d").replace(tzinfo=dt.UTC)
         except ValueError:
-            raise CommandError("updated_at_lt must be in the format YYYY-MM-DD")  # noqa: B904
+            raise CommandError("updated_at_lt must be in the format YYYY-MM-DD") from None
         queryset = queryset.filter(updated_at__lt=updated_at_lt)
         filters_applied = True
 

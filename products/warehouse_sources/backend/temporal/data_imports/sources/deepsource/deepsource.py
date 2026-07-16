@@ -95,7 +95,7 @@ def _execute(
     except (requests.ConnectionError, requests.Timeout) as e:
         # The tracked session's urllib3 retry only covers idempotent methods, so these POSTs
         # get no transport-level retry; fold transient network failures into the backoff here.
-        raise DeepsourceRetryableError(f"DeepSource: transient network error - {e}")
+        raise DeepsourceRetryableError(f"DeepSource: transient network error - {e}") from e
 
     if response.status_code >= 500:
         raise DeepsourceRetryableError(f"DeepSource: server error {response.status_code}")
