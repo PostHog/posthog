@@ -87,6 +87,11 @@ fn clickhouse_string_literal(value: &str) -> String {
             '\\' => escaped.push_str("\\\\"),
             '\'' => escaped.push_str("\\'"),
             '`' => escaped.push_str("\\`"),
+            // Client-side, not server-side: the `clickhouse` crate's template parser treats every
+            // bare `?` as a bind placeholder — even inside string literals — and fails the query
+            // with "unbound query argument". `??` collapses back to a literal `?` before the SQL
+            // reaches the server.
+            '?' => escaped.push_str("??"),
             '\0' => escaped.push_str("\\0"),
             '\u{0007}' => escaped.push_str("\\a"),
             '\u{0008}' => escaped.push_str("\\b"),
@@ -166,5 +171,28 @@ mod tests {
             scan_sql(&spec),
             "SELECT toString(e.uuid) AS uuid, e.event, e.properties, toString(e.timestamp) AS timestamp,\n       e.distinct_id,\n       toString(if(notEmpty(ov.distinct_id), ov.person_id, e.person_id)) AS person_id,\n       e.person_properties, e.elements_chain\nFROM events AS e\nLEFT JOIN (\n    SELECT distinct_id, argMax(person_id, version) AS person_id\n    FROM person_distinct_id_overrides\n    WHERE team_id = 2\n    GROUP BY distinct_id\n    HAVING argMax(is_deleted, version) = 0\n) AS ov ON e.distinct_id = ov.distinct_id\nWHERE e.team_id = 2\n  AND e.timestamp >= fromUnixTimestamp64Milli(86400000)\n  AND e.timestamp < fromUnixTimestamp64Milli(172800000)\n  AND e.event IN ('quote\\' OR 1 = 1 --', 'slash\\\\name\\nnext')\n  AND coalesce(e.inserted_at, e._timestamp) < fromUnixTimestamp64Milli(200000000)"
         );
+    }
+
+    /// A `?` in an event name is a client-side hazard, not a server-side one: the `clickhouse`
+    /// crate's template parser turns every bare `?` into a bind placeholder (and `?fields` into a
+    /// struct-fields expansion) even inside string literals, failing the whole scan with
+    /// "unbound query argument". Doubling each `?` renders the literal the server actually sees.
+    #[test]
+    fn scan_sql_doubles_question_marks_so_the_client_never_sees_a_placeholder() {
+        let spec = spec(
+            vec!["converted?".to_string(), "why?fields".to_string()],
+            BandSpec::new(0, 1).unwrap(),
+        );
+        let sql = scan_sql(&spec);
+        assert!(sql.contains("e.event IN ('converted??', 'why??fields')"));
+        let unescaped_placeholders = sql
+            .char_indices()
+            .filter(|(_, character)| *character == '?')
+            .filter(|(index, _)| {
+                sql[index + 1..].chars().next() != Some('?')
+                    && (*index == 0 || sql[..*index].chars().next_back() != Some('?'))
+            })
+            .count();
+        assert_eq!(unescaped_placeholders, 0, "a lone `?` survived escaping");
     }
 }
