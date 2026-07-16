@@ -13,7 +13,7 @@ import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType,
 import { teamLogic } from '../teamLogic'
 import { funnelCorrelationLogic } from './funnelCorrelationLogic'
 import type { funnelPropertyCorrelationLogicType } from './funnelPropertyCorrelationLogicType'
-import { appendToCorrelationConfig } from './funnelUtils'
+import { appendToCorrelationConfig, isFunnelWithEnoughSteps } from './funnelUtils'
 
 // List of events that should be excluded, if we don't have an explicit list of
 // excluded properties. Copied from
@@ -68,6 +68,12 @@ export const funnelPropertyCorrelationLogic = kea<funnelPropertyCorrelationLogic
                     }
 
                     await breakpoint(100)
+
+                    // Skip while the funnel is mid-edit and doesn't yet have enough steps to run –
+                    // the query would fail validation and surface a spurious error toast.
+                    if (!isFunnelWithEnoughSteps(values.querySource?.series)) {
+                        return { events: [] }
+                    }
 
                     try {
                         const actorsQuery: FunnelsActorsQuery = setLatestVersionsOnQuery(

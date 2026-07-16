@@ -18,7 +18,7 @@ import { FunnelCorrelation, FunnelCorrelationType, InsightLogicProps } from '~/t
 
 import type { funnelCorrelationLogicType } from './funnelCorrelationLogicType'
 import { funnelDataLogic } from './funnelDataLogic'
-import { appendToCorrelationConfig } from './funnelUtils'
+import { appendToCorrelationConfig, isFunnelWithEnoughSteps } from './funnelUtils'
 
 export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
     props({} as InsightLogicProps),
@@ -45,6 +45,12 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
             {
                 loadEventCorrelations: async (_, breakpoint) => {
                     await breakpoint(100)
+
+                    // Skip while the funnel is mid-edit and doesn't yet have enough steps to run –
+                    // the query would fail validation and surface a spurious error toast.
+                    if (!isFunnelWithEnoughSteps(values.querySource?.series)) {
+                        return { events: [] }
+                    }
 
                     try {
                         const actorsQuery: FunnelsActorsQuery = setLatestVersionsOnQuery(
@@ -84,29 +90,41 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
             {} as Record<string, FunnelCorrelation[]>,
             {
                 loadEventWithPropertyCorrelations: async (eventName: string) => {
-                    const actorsQuery: FunnelsActorsQuery = setLatestVersionsOnQuery(
-                        {
-                            kind: NodeKind.FunnelsActorsQuery,
-                            source: values.querySource!,
-                        },
-                        { recursion: false }
-                    )
-                    const query: FunnelCorrelationQuery = setLatestVersionsOnQuery(
-                        {
-                            kind: NodeKind.FunnelCorrelationQuery,
-                            source: actorsQuery,
-                            funnelCorrelationType: FunnelCorrelationResultsType.EventWithProperties,
-                            funnelCorrelationEventNames: [eventName],
-                            funnelCorrelationEventExcludePropertyNames: values.excludedEventPropertyNames,
-                        },
-                        { recursion: false }
-                    )
-                    const response = await api.query(query)
-                    return {
-                        [eventName]: response.results.events.map((result) => ({
-                            ...result,
-                            result_type: FunnelCorrelationResultsType.EventWithProperties,
-                        })) as FunnelCorrelation[],
+                    if (!isFunnelWithEnoughSteps(values.querySource?.series)) {
+                        return { [eventName]: [] }
+                    }
+
+                    try {
+                        const actorsQuery: FunnelsActorsQuery = setLatestVersionsOnQuery(
+                            {
+                                kind: NodeKind.FunnelsActorsQuery,
+                                source: values.querySource!,
+                            },
+                            { recursion: false }
+                        )
+                        const query: FunnelCorrelationQuery = setLatestVersionsOnQuery(
+                            {
+                                kind: NodeKind.FunnelCorrelationQuery,
+                                source: actorsQuery,
+                                funnelCorrelationType: FunnelCorrelationResultsType.EventWithProperties,
+                                funnelCorrelationEventNames: [eventName],
+                                funnelCorrelationEventExcludePropertyNames: values.excludedEventPropertyNames,
+                            },
+                            { recursion: false }
+                        )
+                        const response = await api.query(query)
+                        return {
+                            [eventName]: response.results.events.map((result) => ({
+                                ...result,
+                                result_type: FunnelCorrelationResultsType.EventWithProperties,
+                            })) as FunnelCorrelation[],
+                        }
+                    } catch {
+                        // Handle the failure gracefully like the other correlation loaders instead of
+                        // letting it bubble to the global kea-loaders onFailure handler, which would pop
+                        // a raw API-error toast on top of the inline empty state.
+                        lemonToast.error('Failed to load correlation results', { toastId: 'funnel-correlation-error' })
+                        return { [eventName]: [] }
                     }
                 },
             },
