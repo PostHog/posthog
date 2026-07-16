@@ -9410,14 +9410,13 @@ export type DashboardsRunInsightsRetrieveParams = {
      */
     output_format?: DashboardsRunInsightsRetrieveOutputFormat
     /**
-     * Cache behavior. By default, only cached results are served. 'false' and 'force_cache' serve only cached results. 'async' returns recent cached results and calculates missing or stale results asynchronously. 'async_except_on_cache_miss' refreshes stale results asynchronously but calculates cache misses synchronously. 'blocking' uses cache if fresh, otherwise recalculates. 'true' and 'force_blocking' always recalculate synchronously.
+     * Cache behavior. By default, only cached results are served. 'false' and 'force_cache' serve only cached results. 'async_except_on_cache_miss' refreshes stale results asynchronously but calculates cache misses synchronously. 'blocking' uses cache if fresh, otherwise recalculates. 'true' and 'force_blocking' always recalculate synchronously.
      *
      * * `false` - false
-     * * `true` - true
      * * `force_cache` - force_cache
-     * * `async` - async
      * * `async_except_on_cache_miss` - async_except_on_cache_miss
      * * `blocking` - blocking
+     * * `true` - true
      * * `force_blocking` - force_blocking
      * @minLength 1
      */
@@ -9449,11 +9448,10 @@ export type DashboardsRunInsightsRetrieveRefresh =
 
 export const DashboardsRunInsightsRetrieveRefresh = {
     False: 'false',
-    True: 'true',
     ForceCache: 'force_cache',
-    Async: 'async',
     AsyncExceptOnCacheMiss: 'async_except_on_cache_miss',
     Blocking: 'blocking',
+    True: 'true',
     ForceBlocking: 'force_blocking',
 } as const
 

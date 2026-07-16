@@ -66,7 +66,6 @@ class TestDashboardRunInsights(APIBaseTest):
             ),
             ("false", "false", ExecutionMode.CACHE_ONLY_NEVER_CALCULATE),
             ("force_cache", "force_cache", ExecutionMode.CACHE_ONLY_NEVER_CALCULATE),
-            ("async", "async", ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE),
             (
                 "async_except_on_cache_miss",
                 "async_except_on_cache_miss",
@@ -107,7 +106,7 @@ class TestDashboardRunInsights(APIBaseTest):
 
         self.assertEqual(mock_calculate.call_args.kwargs["execution_mode"], expected_execution_mode)
 
-    @parameterized.expand(["force_async", "force_cashe", "lazy_async"])
+    @parameterized.expand(["async", "force_async", "force_cashe", "lazy_async"])
     def test_rejects_unsupported_refresh_mode(self, refresh: str) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="dash")
 

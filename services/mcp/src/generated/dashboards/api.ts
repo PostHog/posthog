@@ -1052,10 +1052,10 @@ export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.obje
             "'optimized' returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.\n\n* `optimized` - optimized\n* `json` - json"
         ),
     refresh: zod
-        .enum(['false', 'true', 'force_cache', 'async', 'async_except_on_cache_miss', 'blocking', 'force_blocking'])
+        .enum(['false', 'force_cache', 'async_except_on_cache_miss', 'blocking', 'true', 'force_blocking'])
         .default(dashboardsRunInsightsRetrieveQueryRefreshDefault)
         .describe(
-            "Cache behavior. By default, only cached results are served. 'false' and 'force_cache' serve only cached results. 'async' returns recent cached results and calculates missing or stale results asynchronously. 'async_except_on_cache_miss' refreshes stale results asynchronously but calculates cache misses synchronously. 'blocking' uses cache if fresh, otherwise recalculates. 'true' and 'force_blocking' always recalculate synchronously.\n\n* `false` - false\n* `true` - true\n* `force_cache` - force_cache\n* `async` - async\n* `async_except_on_cache_miss` - async_except_on_cache_miss\n* `blocking` - blocking\n* `force_blocking` - force_blocking"
+            "Cache behavior. By default, only cached results are served. 'false' and 'force_cache' serve only cached results. 'async_except_on_cache_miss' refreshes stale results asynchronously but calculates cache misses synchronously. 'blocking' uses cache if fresh, otherwise recalculates. 'true' and 'force_blocking' always recalculate synchronously.\n\n* `false` - false\n* `force_cache` - force_cache\n* `async_except_on_cache_miss` - async_except_on_cache_miss\n* `blocking` - blocking\n* `true` - true\n* `force_blocking` - force_blocking"
         ),
     variables_override: zod
         .string()
