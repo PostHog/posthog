@@ -310,7 +310,7 @@ jobs:
                   token: ${{ github.token }}
 
             - name: Install VR CLI
-              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build && npm link
+              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
 
             - name: Create VR run
               id: create
@@ -329,7 +329,7 @@ jobs:
                   JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
               run: |
                   # shellcheck disable=SC2086
-                  RUN_ID=$(vr run create \
+                  RUN_ID=$(node vr-cli/products/visual_review/cli/dist/cli/src/index.js run create \
                     --type storybook \
                     --baseline frontend/snapshots.yml \
                     --branch "$VR_BRANCH" \
@@ -503,14 +503,14 @@ jobs:
 
             - name: Install VR CLI
               if: always() && needs.vr-setup.outputs.run_id != ''
-              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build && npm link
+              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
 
             - name: Upload snapshots to Visual Review
               if: always() && needs.vr-setup.outputs.run_id != ''
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |
-                  vr run upload \
+                  node vr-cli/products/visual_review/cli/dist/cli/src/index.js run upload \
                     --run-id "${{ needs.vr-setup.outputs.run_id }}" \
                     --dir frontend/__snapshots__/ \
                     --baseline frontend/snapshots.yml \
@@ -694,7 +694,7 @@ jobs:
                   token: ${{ github.token }}
 
             - name: Install VR CLI
-              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build && npm link
+              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
 
             - name: Complete Visual Review run
               # On master pushes the run was created with --purpose observe (tracking-only),
@@ -706,7 +706,7 @@ jobs:
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |
-                  vr run complete \
+                  node vr-cli/products/visual_review/cli/dist/cli/src/index.js run complete \
                     --run-id "${{ needs.vr-setup.outputs.run_id }}" \
                     --baseline frontend/snapshots.yml \
                     --token "$VR_TOKEN"
