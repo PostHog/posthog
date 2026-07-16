@@ -123,9 +123,9 @@ tools:
 
             Event property reference — common across all three events: `event.properties.name` (issue title),
             `event.properties.description` (truncated body), `event.distinct_id` (issue id used in the deep link),
-            `event.properties.fingerprint`, and `event.properties.exception_timestamp`.
-            `created`/`reopened` additionally expose `event.properties.status` and the originating exception's
-            properties (e.g. `$exception_types`, `$exception_issue_id`). Spiking events instead expose
+            `event.properties.fingerprint`, and `event.properties.exception_timestamp`. `created`/`reopened`
+            additionally expose `event.properties.status` and the originating exception's properties (e.g.
+            `$exception_types`, `$exception_issue_id`). Spiking events instead expose
             `event.properties.current_bucket_value` and `event.properties.computed_baseline` — no status or exception
             properties. Project context is available as `{project.url}` (already includes `/project/<team_id>`),
             `{project.name}`, and the alert's own metadata as `{source.url}` and `{source.name}`.
