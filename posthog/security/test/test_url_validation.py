@@ -1,4 +1,5 @@
 import ipaddress
+from concurrent.futures import Future
 
 import pytest
 
@@ -12,6 +13,45 @@ def force_prod(monkeypatch):
 
 
 class TestUrlValidation:
+    def test_resolve_host_ips_uses_bounded_lifetime(self, monkeypatch):
+        class Answers:
+            def addresses(self):
+                return iter(["93.184.216.34"])
+
+        class Resolver:
+            def resolve_name(self, host, *, lifetime):
+                assert host == "example.com"
+                assert lifetime == uv.DNS_RESOLUTION_LIFETIME_SECONDS
+                return Answers()
+
+        monkeypatch.setattr(uv.dns.resolver, "Resolver", Resolver)
+
+        assert uv.resolve_host_ips("example.com") == {ipaddress.ip_address("93.184.216.34")}
+
+    def test_resolve_url_hosts_ips_deduplicates_hosts(self, monkeypatch):
+        def fake_resolve_hosts_ips(hosts):
+            assert hosts == {"shared.example.com"}
+            return {"shared.example.com": {ipaddress.ip_address("93.184.216.34")}}
+
+        monkeypatch.setattr(uv, "resolve_hosts_ips", fake_resolve_hosts_ips)
+
+        assert uv.resolve_url_hosts_ips(["https://shared.example.com/first", "https://shared.example.com/second"]) == {
+            "shared.example.com": {ipaddress.ip_address("93.184.216.34")}
+        }
+
+    def test_resolve_hosts_ips_stops_at_batch_deadline(self, monkeypatch):
+        pending_future: Future[uv.ResolvedIPs] = Future()
+
+        class Executor:
+            def submit(self, _function, _host):
+                return pending_future
+
+        monkeypatch.setattr(uv, "_dns_resolution_executor", Executor())
+        monkeypatch.setattr(uv, "DNS_RESOLUTION_BATCH_TIMEOUT_SECONDS", 0)
+
+        assert uv.resolve_hosts_ips({"slow.example.com"}) == {"slow.example.com": set()}
+        assert pending_future.cancelled()
+
     def test_is_url_allowed_disallowed_scheme(self):
         ok, err = uv.is_url_allowed("javascript:alert(1)")
         assert not ok and "scheme" in (err or "")
