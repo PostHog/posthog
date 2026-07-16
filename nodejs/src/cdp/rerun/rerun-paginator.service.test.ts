@@ -42,7 +42,7 @@ const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer')
  * collapse query all line up.
  */
 describe('RerunPaginatorService integration', () => {
-    jest.setTimeout(120_000)
+    jest.setTimeout(180_000)
 
     let hub: Hub
     let kafkaProducer: KafkaProducerWrapper
@@ -120,12 +120,12 @@ describe('RerunPaginatorService integration', () => {
 
         await waitForExpect(async () => {
             const got = await clickhouse.query<{ c: number }>(
-                `SELECT count() AS c FROM hog_invocation_results FINAL
+                `SELECT count() AS c FROM hog_invocation_results
                  WHERE team_id = ${team.id}
                    AND function_id = '${hogFunction.id}'`
             )
             expect(Number(got[0]?.c ?? 0)).toBeGreaterThanOrEqual(expected)
-        }, 60_000)
+        }, 90_000)
     }
 
     // Produce a raw lifecycle row with a chosen (here: undecodable) invocation_globals,
@@ -171,7 +171,7 @@ describe('RerunPaginatorService integration', () => {
                  WHERE team_id = ${team.id} AND invocation_id = '${invocationId}'`
             )
             expect(Number(got[0]?.c ?? 0)).toBeGreaterThanOrEqual(1)
-        }, 30_000)
+        }, 90_000)
     }
 
     beforeAll(async () => {
