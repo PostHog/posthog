@@ -13,7 +13,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic, RefreshDashboardItemsAction } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -1079,7 +1079,10 @@ describe('dashboardLogic', () => {
                     .toDispatchActions([
                         // starts loading
                         'triggerDashboardRefresh',
-                        'refreshDashboardItems',
+                        logic.actionCreators.refreshDashboardItems({
+                            action: RefreshDashboardItemsAction.Refresh,
+                            forceRefresh: true,
+                        }),
                         // sets the "reloading" status
                         logic.actionCreators.setRefreshStatuses([insight1.short_id, insight2.short_id], false, true),
                     ])
@@ -1373,6 +1376,33 @@ describe('dashboardLogic', () => {
         })
 
         describe('page visibility', () => {
+            it('uses cached results for automatic refreshes', async () => {
+                let intervalCallback: TimerHandler | undefined
+                const setIntervalSpy = jest.spyOn(window, 'setInterval').mockImplementation((callback) => {
+                    intervalCallback = callback
+                    return 1
+                })
+
+                try {
+                    await expectLogic(logic, () => {
+                        logic.actions.setAutoRefresh(true, 1800)
+                    }).toDispatchActions(['setAutoRefresh', 'resetInterval'])
+
+                    expect(intervalCallback).toBeInstanceOf(Function)
+
+                    await expectLogic(logic, () => {
+                        ;(intervalCallback as () => void)()
+                    }).toDispatchActions([
+                        logic.actionCreators.refreshDashboardItems({
+                            action: RefreshDashboardItemsAction.Refresh,
+                            forceRefresh: false,
+                        }),
+                    ])
+                } finally {
+                    setIntervalSpy.mockRestore()
+                }
+            })
+
             it('pauses auto-refresh when page is hidden and resumes when visible', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.setAutoRefresh(true, 1800)

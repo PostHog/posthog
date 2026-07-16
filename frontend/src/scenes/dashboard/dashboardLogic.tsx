@@ -2893,14 +2893,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 ) {
                     actions.refreshDashboardItems({
                         action: RefreshDashboardItemsAction.Refresh,
-                        forceRefresh: true,
+                        forceRefresh: false,
                     })
                 }
                 cache.disposables.add(() => {
                     const intervalId = window.setInterval(() => {
                         actions.refreshDashboardItems({
                             action: RefreshDashboardItemsAction.Refresh,
-                            forceRefresh: true,
+                            forceRefresh: false,
                         })
                     }, values.autoRefresh.interval * 1000)
                     return () => clearInterval(intervalId)
