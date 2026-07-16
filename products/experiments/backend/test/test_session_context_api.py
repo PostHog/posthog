@@ -364,6 +364,45 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert results[0]["variant"] == "test"
         assert results[0]["first_exposure_timestamp"] is None
 
+    def test_default_and_custom_experiments_sharing_a_flag_resolve_independently(self) -> None:
+        self._create_recording()
+        default_experiment = self._create_experiment(name="Default criteria")
+        # Two experiments on one flag with different criteria — exposure evidence must stay
+        # keyed by experiment id, not flag key: each takes its exposure moment from its own path.
+        custom_experiment = Experiment.objects.create(
+            team=self.team,
+            name="Custom criteria",
+            feature_flag=default_experiment.feature_flag,
+            created_by=self.user,
+            start_date=datetime(2025, 12, 1, tzinfo=UTC),
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "checkout started",
+                    "properties": [],
+                }
+            },
+        )
+        self._create_session_event(
+            timestamp="2026-01-01T10:02:11Z",
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"},
+        )
+        self._create_session_event(
+            event="checkout started",
+            timestamp="2026-01-01T10:05:00Z",
+            properties={"$feature/checkout-cta": "test"},
+        )
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 2
+        by_id = {result["experiment_id"]: result for result in results}
+        assert by_id[default_experiment.id]["first_exposure_timestamp"] == "2026-01-01T10:02:11Z"
+        assert by_id[custom_experiment.id]["first_exposure_timestamp"] == "2026-01-01T10:05:00Z"
+        assert all(result["variant"] == "test" for result in results)
+
     def test_action_exposure_criteria_defines_exposure_timestamp(self) -> None:
         self._create_recording()
         action = Action.objects.create(team=self.team, name="Purchased", steps_json=[{"event": "purchase"}])
