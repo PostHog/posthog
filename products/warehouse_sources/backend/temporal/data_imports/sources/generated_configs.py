@@ -688,6 +688,11 @@ class CampaynSourceConfig(config.Config):
 
 
 @config.config
+class CampfireSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class CannySourceConfig(config.Config):
     api_key: str
 
@@ -922,7 +927,8 @@ class CodefreshSourceConfig(config.Config):
 
 @config.config
 class CodySourceConfig(config.Config):
-    pass
+    instance_url: str
+    access_token: str
 
 
 @config.config
@@ -1090,7 +1096,7 @@ class CustomerIOSourceConfig(config.Config):
 
 @config.config
 class CustomerlySourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -1134,7 +1140,10 @@ class Db2SourceConfig(config.Config):
 
 @config.config
 class DbtSourceConfig(config.Config):
-    pass
+    account_id: str
+    api_token: str
+    region: Literal["us", "emea", "au"] = config.value(default="us")
+    custom_base_url: str | None = None
 
 
 @config.config
@@ -1154,7 +1163,11 @@ class DeepgramSourceConfig(config.Config):
 
 @config.config
 class DeepsourceSourceConfig(config.Config):
-    pass
+    api_token: str
+    account_login: str
+    vcs_provider: Literal[
+        "GITHUB", "GITLAB", "BITBUCKET", "GITHUB_ENTERPRISE", "BITBUCKET_DATACENTER", "ADS", "GSR"
+    ] = config.value(default="GITHUB")
 
 
 @config.config
@@ -1268,6 +1281,11 @@ class DubSourceConfig(config.Config):
 
 
 @config.config
+class DubsadoSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class DwollaSourceConfig(config.Config):
     pass
 
@@ -1289,7 +1307,7 @@ class DynatraceSourceConfig(config.Config):
 
 @config.config
 class E2BSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2192,8 +2210,15 @@ class KafkaSourceConfig(config.Config):
 
 
 @config.config
-class KandjiSourceConfig(config.Config):
+class KajabiSourceConfig(config.Config):
     pass
+
+
+@config.config
+class KandjiSourceConfig(config.Config):
+    api_token: str
+    subdomain: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -2253,7 +2278,9 @@ class KnockSourceConfig(config.Config):
 
 @config.config
 class KongKonnectSourceConfig(config.Config):
-    pass
+    api_token: str
+    lookback_days: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+    region: Literal["us", "eu", "au", "me", "in", "sg"] = config.value(default="us")
 
 
 @config.config
@@ -2401,7 +2428,8 @@ class LinodeSourceConfig(config.Config):
 
 @config.config
 class LlamaCloudSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["na", "eu"] = config.value(default="na")
 
 
 @config.config
@@ -2994,7 +3022,7 @@ class PabblySubscriptionsBillingSourceConfig(config.Config):
 
 @config.config
 class PackagistSourceConfig(config.Config):
-    pass
+    packages: str
 
 
 @config.config
@@ -3253,7 +3281,9 @@ class PostmarkSourceConfig(config.Config):
 
 @config.config
 class PrefectCloudSourceConfig(config.Config):
-    pass
+    account_id: str
+    workspace_id: str
+    api_key: str
 
 
 @config.config
@@ -3373,7 +3403,8 @@ class RampSourceConfig(config.Config):
 
 @config.config
 class Rapid7InsightvmSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu", "ca", "au", "ap", "jp"] = config.value(default="us")
 
 
 @config.config
@@ -3550,7 +3581,7 @@ class RuddrSourceConfig(config.Config):
 
 @config.config
 class RunPodSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3764,6 +3795,11 @@ class ShopifySourceConfig(config.Config):
     shopify_store_id: str
     shopify_client_id: str
     shopify_client_secret: str
+
+
+@config.config
+class ShopwareSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -4558,7 +4594,9 @@ class XeroSourceConfig(config.Config):
 
 @config.config
 class XmattersSourceConfig(config.Config):
-    pass
+    subdomain: str
+    username: str
+    password: str
 
 
 @config.config
@@ -4850,6 +4888,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.CAMPAIGNMANAGER360: CampaignManager360SourceConfig,
         ExternalDataSourceType.CAMPAIGNMONITOR: CampaignMonitorSourceConfig,
         ExternalDataSourceType.CAMPAYN: CampaynSourceConfig,
+        ExternalDataSourceType.CAMPFIRE: CampfireSourceConfig,
         ExternalDataSourceType.CANNY: CannySourceConfig,
         ExternalDataSourceType.CAPSULECRM: CapsuleCRMSourceConfig,
         ExternalDataSourceType.CAPTAINDATA: CaptainDataSourceConfig,
@@ -4954,6 +4993,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.DROPBOX: DropboxSourceConfig,
         ExternalDataSourceType.DROPBOXSIGN: DropboxSignSourceConfig,
         ExternalDataSourceType.DUB: DubSourceConfig,
+        ExternalDataSourceType.DUBSADO: DubsadoSourceConfig,
         ExternalDataSourceType.DWOLLA: DwollaSourceConfig,
         ExternalDataSourceType.DYNAMICS365: Dynamics365SourceConfig,
         ExternalDataSourceType.DYNAMODB: DynamoDBSourceConfig,
@@ -5124,6 +5164,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.K6CLOUD: K6CloudSourceConfig,
         ExternalDataSourceType.KYVE: KYVESourceConfig,
         ExternalDataSourceType.KAFKA: KafkaSourceConfig,
+        ExternalDataSourceType.KAJABI: KajabiSourceConfig,
         ExternalDataSourceType.KANDJI: KandjiSourceConfig,
         ExternalDataSourceType.KAPAAI: KapaAISourceConfig,
         ExternalDataSourceType.KATANA: KatanaSourceConfig,
@@ -5417,6 +5458,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SHIPPO: ShippoSourceConfig,
         ExternalDataSourceType.SHOPWIRED: ShopWiredSourceConfig,
         ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
+        ExternalDataSourceType.SHOPWARE: ShopwareSourceConfig,
         ExternalDataSourceType.SHORTCUT: ShortcutSourceConfig,
         ExternalDataSourceType.SHORTIO: ShortioSourceConfig,
         ExternalDataSourceType.SHUTTERSTOCK: ShutterstockSourceConfig,
