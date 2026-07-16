@@ -25,6 +25,19 @@ def test_insert_with_http_client():
         sync_execute("DROP TABLE IF EXISTS _test_http_insert")
 
 
+@pytest.mark.django_db
+def test_http_client_forwards_external_tables():
+    # The HTTP transport used to silently drop external_tables, so any query
+    # referencing one failed as an unknown table. Guards that they're forwarded.
+    with get_http_client() as client:
+        result = sync_execute(
+            "SELECT id FROM _test_ext ORDER BY id",
+            sync_client=client,
+            external_tables=[{"name": "_test_ext", "structure": [("id", "Int64")], "data": [{"id": 2}, {"id": 5}]}],
+        )
+    assert result == [(2,), (5,)]
+
+
 def test_connection_pool_creation_without_offline_cluster(settings):
     settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST = None
 

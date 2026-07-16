@@ -1,4 +1,5 @@
 import os
+import json
 import logging
 from collections.abc import Mapping
 from contextlib import contextmanager
@@ -132,6 +133,29 @@ def get_clickhouse_creds(user: ClickHouseUser) -> tuple[str, str]:
     return __user_dict[user] if user in __user_dict else __user_dict[ClickHouseUser.DEFAULT]
 
 
+def _to_clickhouse_connect_external_data(external_tables):
+    """Convert the clickhouse_driver `external_tables` format into a
+    clickhouse-connect `ExternalData` so query-scoped external tables are sent
+    over the HTTP transport too. Without this the HTTP path silently drops them
+    and any `FROM <external table>` reference fails as an unknown table."""
+    if not external_tables:
+        return None
+
+    from clickhouse_connect.driver.external import ExternalData  # noqa: PLC0415
+
+    external_data = ExternalData()
+    for table in external_tables:
+        columns = [column for column, _ in table["structure"]]
+        payload = b"\n".join(json.dumps({column: row[column] for column in columns}).encode() for row in table["data"])
+        external_data.add_file(
+            file_name=table["name"],
+            data=payload,
+            fmt="JSONEachRow",
+            structure=[f"{column} {ch_type}" for column, ch_type in table["structure"]],
+        )
+    return external_data
+
+
 class ProxyClient:
     def __init__(self, client: "HttpClient"):
         self._client = client
@@ -151,7 +175,13 @@ class ProxyClient:
             if settings is None:
                 settings = {}
             settings["query_id"] = query_id
-        result = self._client.query(query=query, parameters=params, settings=settings, column_oriented=columnar)
+        result = self._client.query(
+            query=query,
+            parameters=params,
+            settings=settings,
+            column_oriented=columnar,
+            external_data=_to_clickhouse_connect_external_data(external_tables),
+        )
 
         # we must play with result summary here
         written_rows = int(result.summary.get("written_rows", 0))

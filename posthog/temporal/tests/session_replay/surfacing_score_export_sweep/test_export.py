@@ -8,8 +8,10 @@ import pytest
 import pyarrow.parquet as pq
 from parameterized import parameterized
 
+from posthog.temporal.session_replay.surfacing_score_export_sweep import sql as export_sql
 from posthog.temporal.session_replay.surfacing_score_export_sweep.activities import (
     _PARQUET_SCHEMA,
+    _opted_in_teams_external_table,
     _page_table,
     export_days,
 )
@@ -85,3 +87,19 @@ class TestPartitionParquet:
         table = pq.read_table(io.BytesIO(_write_pages([])))
         assert table.num_rows == 0
         assert table.schema.names == ["session_id", "team_id", "started_at", "surfacing_score"]
+
+
+class TestOptedInTeamFilter:
+    def test_page_sql_never_inlines_the_team_id_list(self) -> None:
+        # Regression: inlining the opted-in team ids into the SQL (twice) overran
+        # ClickHouse's 1 MiB max_query_size once enough teams opted in. The list
+        # must ride out-of-band as the __ph_opted_in_teams external table instead.
+        sql = export_sql.fetch_scored_sessions_page_sql()
+        assert "%(team_ids)s" not in sql
+        assert sql.count(f"team_id GLOBAL IN (SELECT team_id FROM {export_sql.OPTED_IN_TEAMS_EXTERNAL_TABLE})") == 2
+
+    def test_external_table_carries_team_ids_out_of_band(self) -> None:
+        table = _opted_in_teams_external_table([7, 42])
+        assert table["name"] == export_sql.OPTED_IN_TEAMS_EXTERNAL_TABLE
+        assert table["structure"] == [("team_id", "Int64")]
+        assert table["data"] == [{"team_id": 7}, {"team_id": 42}]
