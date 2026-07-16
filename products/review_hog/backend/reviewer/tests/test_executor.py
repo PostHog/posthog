@@ -57,6 +57,27 @@ class TestRunSandboxReview:
         assert call_kwargs["ai_stage"] == "split"
 
     @pytest.mark.asyncio
+    async def test_fallback_from_text_is_forwarded_to_start(self) -> None:
+        # The chunk-review salvage only fires if the callback reaches MultiTurnSession.start — dropping
+        # this forward silently reverts a dropped-field slip back to a hard chunk failure.
+        mock_start = AsyncMock(return_value=(AsyncMock(), DummyModel(result="ok")))
+        salvage = lambda text: DummyModel(result=text)  # noqa: E731
+
+        with patch(f"{_EXECUTOR_PREFIX}.MultiTurnSession.start", mock_start):
+            await run_sandbox_review(
+                team_id=1,
+                user_id=2,
+                repository="test/repo",
+                branch="test-branch",
+                prompt="user prompt",
+                system_prompt="system prompt",
+                model_to_validate=DummyModel,
+                fallback_from_text=salvage,
+            )
+
+        assert mock_start.call_args.kwargs["fallback_from_text"] is salvage
+
+    @pytest.mark.asyncio
     async def test_context_built_from_explicit_identity(self) -> None:
         # The sandbox context is assembled inline from the call's (team_id, user_id, repository) — no
         # ambient contextvar — so a team_id/user_id swap or a dropped repo would surface here. This is

@@ -60,6 +60,35 @@ class IssuesReview(BaseModel):
     issues: list[Issue] = Field(default_factory=list, description="List of issues found in the chunk")
 
 
+# The sandbox model occasionally emits well-formed issues but drops the required `priority` field,
+# which fails strict validation and discards the whole chunk. When salvaging, default such issues to
+# `should_fix`: the neutral middle tier keeps the finding visible without forcing a merge-block, and
+# the downstream validator still investigates each finding and can re-rank it.
+_SALVAGE_DEFAULT_PRIORITY = IssuePriority.SHOULD_FIX
+
+
+def salvage_issues_review(text: str) -> IssuesReview:
+    """Best-effort recovery of a chunk-review end-turn that failed strict validation.
+
+    Targets the nondeterministic LLM slip where issues are otherwise well-formed but omit (or
+    misspell) the required `priority`. Fills a sane default for any issue missing a valid priority so
+    one dropped field doesn't discard the whole chunk, then validates as normal. Raises if the text
+    isn't recoverable JSON at all — the caller then fails the run as it did before.
+    """
+    # Lazy import keeps the heavy tasks facade off this widely-imported model module's import path.
+    from products.tasks.backend.facade.agents import extract_json_from_text  # noqa: PLC0415
+
+    data = extract_json_from_text(text=text, label="chunk review salvage")
+    if isinstance(data, dict):
+        issues = data.get("issues")
+        if isinstance(issues, list):
+            valid_priorities = {priority.value for priority in IssuePriority}
+            for issue in issues:
+                if isinstance(issue, dict) and issue.get("priority") not in valid_priorities:
+                    issue["priority"] = _SALVAGE_DEFAULT_PRIORITY.value
+    return IssuesReview.model_validate(data)
+
+
 class PerspectiveType(Enum):
     """Enum for the review perspectives, each run independently and in parallel per chunk."""
 

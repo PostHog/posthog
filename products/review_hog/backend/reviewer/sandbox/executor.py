@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Callable
 from typing import TypeVar
 
 from pydantic import BaseModel
@@ -19,6 +20,7 @@ async def _run_prompt(
     branch: str | None = None,
     step_name: str = "",
     workflow_id_prefix: str | None = None,
+    fallback_from_text: Callable[[str], _ModelT] | None = None,
 ) -> _ModelT:
     """Spawn a single-turn sandbox agent and return its validated end-of-turn.
 
@@ -30,6 +32,11 @@ async def _run_prompt(
     the workflow/sandbox alive between turns, so a single-turn caller must ``end()`` it explicitly —
     otherwise it lingers until the sandbox TTL. The full agent log is already persisted by the
     runner at ``task_run.log_url`` (S3 / Tasks UI).
+
+    ``fallback_from_text`` is forwarded to ``start`` as its salvage path: when the agent produced an
+    end-turn that failed to validate against ``model`` (e.g. a well-formed issue that dropped a
+    required field), the callback rebuilds ``model`` from the raw text so a nondeterministic slip
+    doesn't discard the whole step. Left ``None``, a validation failure raises as before.
     """
     try:
         session, parsed = await MultiTurnSession.start(
@@ -39,6 +46,7 @@ async def _run_prompt(
             branch=branch or None,
             step_name=step_name,
             workflow_id_prefix=workflow_id_prefix,
+            fallback_from_text=fallback_from_text,
             # ReviewHog-attributed and internal (pipeline plumbing, not a user-facing task); the step
             # lands on $ai_generation as ai_stage for per-stage cost attribution.
             origin_product=TaskOriginProduct.REVIEW_HOG,
@@ -69,6 +77,7 @@ async def run_sandbox_review(
     model: str | None = None,
     reasoning_effort: str | None = None,
     initial_permission_mode: str | None = None,
+    fallback_from_text: Callable[[str], _ModelT] | None = None,
 ) -> _ModelT:
     """Run one review step in a sandbox and return its validated output.
 
@@ -87,6 +96,11 @@ async def run_sandbox_review(
     ``initial_permission_mode`` sets the agent's approval mode — a headless step that calls MCP tools
     under Codex must pass ``"full-access"`` or it stalls on an approval prompt (Codex ``"auto"`` does
     not auto-approve MCP tool calls).
+
+    ``fallback_from_text`` salvages an end-turn that failed to validate against ``model_to_validate``:
+    the callback rebuilds the model from the raw text (e.g. filling a sane default for a dropped
+    field) so a nondeterministic model slip doesn't hard-fail the step. Left ``None``, validation
+    failures raise as before so the Temporal activity retries.
     """
     full_prompt = f"{system_prompt}\n\n{prompt}"
     context = CustomPromptSandboxContext(
@@ -105,6 +119,7 @@ async def run_sandbox_review(
         branch=branch,
         step_name=step_name,
         workflow_id_prefix=workflow_id_prefix,
+        fallback_from_text=fallback_from_text,
     )
 
 

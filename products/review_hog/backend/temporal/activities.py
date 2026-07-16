@@ -54,7 +54,12 @@ from products.review_hog.backend.reviewer.lazy_seed import (
 from products.review_hog.backend.reviewer.models import generate_all_schemas
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
-from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview
+from products.review_hog.backend.reviewer.models.issues_review import (
+    Issue,
+    IssuePriority,
+    IssuesReview,
+    salvage_issues_review,
+)
 from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList
 from products.review_hog.backend.reviewer.persistence import (
@@ -918,6 +923,9 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
             model=REVIEW_MODEL,
             reasoning_effort=REVIEW_REASONING_EFFORT,
             initial_permission_mode=REVIEW_INITIAL_PERMISSION_MODE,
+            # A nondeterministic model slip that drops a required field (e.g. `priority`) shouldn't
+            # discard the whole chunk — salvage the raw text with sane defaults instead of hard-failing.
+            fallback_from_text=salvage_issues_review,
         )
     # Stamp each issue's perspective (the skill that ran) here, not in combine — it survives the
     # persisted result + resume, and keeps `source_perspective` = skill_name, decoupled from the enum.
