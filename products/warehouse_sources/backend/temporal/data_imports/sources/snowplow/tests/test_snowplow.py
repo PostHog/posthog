@@ -317,7 +317,7 @@ class TestFlattenFailedEventAggregates:
     def test_rows_without_key_fields_are_skipped(self) -> None:
         # errorId and window are primary key columns; null-keyed rows would collapse distinct
         # aggregates into one persisted row on merge.
-        aggregates = [
+        aggregates: list[dict[str, Any]] = [
             {"schemaKey": "s", "metrics": [{"window": "2026-07-14T00:00:00Z", "count": 1}]},
             {"errorId": "e1", "metrics": [{"count": 2}, {"window": "2026-07-15T00:00:00Z", "count": 3}]},
             {"errorId": "e2", "metrics": None},
@@ -450,8 +450,14 @@ class TestClientAuth:
         assert last_data_call.kwargs["headers"]["Authorization"] == "Bearer jwt-2"
 
     def test_persistent_401_raises(self) -> None:
+        unauthorized = requests.Response()
+        unauthorized.status_code = 401
+
         def raise_401() -> None:
-            raise requests.HTTPError("401 Client Error: Unauthorized for url: https://console.snowplowanalytics.com")
+            raise requests.HTTPError(
+                "401 Client Error: Unauthorized for url: https://console.snowplowanalytics.com",
+                response=unauthorized,
+            )
 
         expired = MagicMock(status_code=401, ok=False)
         expired.raise_for_status.side_effect = raise_401
