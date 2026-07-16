@@ -33,7 +33,7 @@ import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-ge
 
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
-import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { LLMProviderKey } from '../settings/llmProviderKeysLogic'
 import {
     getUnhealthyProviderKey,
     providerKeyStateIssueDescription,
@@ -109,25 +109,15 @@ function TagDefinitionsEditor({ id }: { id: string }): JSX.Element {
 }
 
 function TaggerModelPicker({ id }: { id: string }): JSX.Element {
-    const {
-        hasByokKeys,
-        byokModels,
-        trialModels,
-        providerModelGroups,
-        trialProviderModelGroups,
-        byokModelsLoading,
-        trialModelsLoading,
-        providerKeysLoading,
-    } = useValues(modelPickerLogic)
+    const { hasByokKeys, byokModels, providerModelGroups, byokModelsLoading, providerKeysLoading } =
+        useValues(modelPickerLogic)
     const { selectedModel, selectedPickerProviderKeyId } = useValues(llmTaggerLogic({ id }))
     const { selectModelFromPicker } = useActions(llmTaggerLogic({ id }))
-    const { requiresProviderKey } = useValues(llmProviderKeysLogic)
 
-    const showTrialModels = !hasByokKeys && !requiresProviderKey
-    const allModels = showTrialModels ? trialModels : byokModels
-    const selectedModelName = allModels.find((m) => m.id === selectedModel)?.name
-    const groups = showTrialModels ? trialProviderModelGroups : providerModelGroups
-    const loading = showTrialModels ? trialModelsLoading : byokModelsLoading || providerKeysLoading
+    // Taggers always run on the team's own provider key, so only BYOK models are offered.
+    const selectedModelName = byokModels.find((m) => m.id === selectedModel)?.name
+    const groups = providerModelGroups
+    const loading = byokModelsLoading || providerKeysLoading
 
     const footerLink = getModelPickerFooterLink(hasByokKeys)
 

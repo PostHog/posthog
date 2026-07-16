@@ -31,7 +31,7 @@ export interface ProviderModelGroup {
     disabled?: boolean
 }
 
-export function buildTrialProviderModelGroups(models: ModelOption[]): ProviderModelGroup[] {
+export function buildPlaygroundProviderModelGroups(models: ModelOption[]): ProviderModelGroup[] {
     const byProvider: Record<string, ModelOption[]> = {}
     for (const model of models) {
         const provider = model.provider || 'Unknown'
@@ -50,7 +50,7 @@ export function buildTrialProviderModelGroups(models: ModelOption[]): ProviderMo
             return [
                 {
                     provider: llmProvider,
-                    providerKeyId: `trial:${llmProvider}`,
+                    providerKeyId: `playground:${llmProvider}`,
                     label: LLM_PROVIDER_LABELS[llmProvider] ?? provider,
                     models: providerModels,
                 },
@@ -111,9 +111,9 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                 return Array.from(dedupedModels.values())
             },
         },
-        trialModels: {
+        playgroundModels: {
             __default: [] as ModelOption[],
-            loadTrialModels: async (): Promise<ModelOption[]> => {
+            loadPlaygroundModels: async (): Promise<ModelOption[]> => {
                 // nosemgrep: prefer-codegen-api
                 const rawModels = (await api.get('/api/llm_proxy/models/')) as (Omit<ModelOption, 'isRecommended'> & {
                     is_recommended?: boolean
@@ -144,7 +144,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
-        actions.loadTrialModels()
+        actions.loadPlaygroundModels()
         if (values.providerKeys.length > 0) {
             actions.loadByokModels()
         }
@@ -155,10 +155,10 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
             (s) => [s.providerKeys],
             (providerKeys: LLMProviderKey[]): boolean => providerKeys.some((k) => k.state === 'ok'),
         ],
-        trialProviderModelGroups: [
-            (s) => [s.trialModels],
-            (trialModels: ModelOption[]): ProviderModelGroup[] =>
-                buildTrialProviderModelGroups(Array.isArray(trialModels) ? trialModels : []),
+        playgroundProviderModelGroups: [
+            (s) => [s.playgroundModels],
+            (playgroundModels: ModelOption[]): ProviderModelGroup[] =>
+                buildPlaygroundProviderModelGroups(Array.isArray(playgroundModels) ? playgroundModels : []),
         ],
         providerModelGroups: [
             (s) => [s.byokModels, s.providerKeys],

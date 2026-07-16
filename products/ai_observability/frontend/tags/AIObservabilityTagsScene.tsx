@@ -29,7 +29,6 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { getUnhealthyProviderKey, providerKeyStateIssueDescription } from '../settings/providerKeyStateUtils'
-import { TrialUsageMeter } from '../settings/TrialUsageMeter'
 import { llmTaggersLogic } from './llmTaggersLogic'
 import { Tagger } from './types'
 
@@ -277,8 +276,6 @@ function AIObservabilityTagsContent(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <TrialUsageMeter showSettingsLink noun="runs" />
-
             <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
 
             <TaggerMetrics />

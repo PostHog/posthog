@@ -231,21 +231,13 @@ describe('llmEvaluationLogic', () => {
             get: {
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
                 '/api/environments/:teamId/llm_analytics/evaluation_config/': {
-                    trial_eval_limit: 100,
-                    trial_evals_used: 0,
-                    trial_evals_remaining: 100,
-                    trial_grandfathered: false,
-                    trial_deprecation_date: '2026-07-15T00:00:00Z',
                     active_provider_key: null,
                     created_at: '2024-01-01T00:00:00Z',
                     updated_at: '2024-01-01T00:00:00Z',
                 },
                 '/api/projects/:teamId/evaluations/:id/': mockEvaluation,
                 '/api/environments/:teamId/llm_analytics/models/': {
-                    models: [
-                        { id: 'gpt-5-mini', posthog_available: true },
-                        { id: 'gpt-5', posthog_available: false },
-                    ],
+                    models: [{ id: 'gpt-5-mini' }, { id: 'gpt-5' }],
                 },
             },
         })
@@ -595,15 +587,10 @@ describe('llmEvaluationLogic', () => {
     describe('async flows', () => {
         describe('loadEvaluation', () => {
             it('initializes new evaluation with default values', async () => {
-                // Pin the team to a non-terminal state before mounting so the draft's enabled
+                // Pin the team to a state with an active key before mounting so the draft's enabled
                 // default doesn't depend on config-fetch timing.
                 keysLogic.actions.loadEvaluationConfigSuccess({
-                    trial_eval_limit: 100,
-                    trial_evals_used: 50,
-                    trial_evals_remaining: 50,
-                    trial_grandfathered: true,
-                    trial_deprecation_date: '2026-07-17T00:00:00Z',
-                    active_provider_key: null,
+                    active_provider_key: mockProviderKeys[0],
                     created_at: '2024-01-01T00:00:00Z',
                     updated_at: '2024-01-01T00:00:00Z',
                 })
@@ -624,13 +611,8 @@ describe('llmEvaluationLogic', () => {
                 })
             })
 
-            it('initializes new evaluation disabled for terminal teams that require a provider key', async () => {
+            it('initializes new evaluation disabled for teams that require a provider key', async () => {
                 keysLogic.actions.loadEvaluationConfigSuccess({
-                    trial_eval_limit: 100,
-                    trial_evals_used: 100,
-                    trial_evals_remaining: 0,
-                    trial_grandfathered: false,
-                    trial_deprecation_date: '2026-07-17T00:00:00Z',
                     active_provider_key: null,
                     created_at: '2024-01-01T00:00:00Z',
                     updated_at: '2024-01-01T00:00:00Z',
@@ -650,12 +632,7 @@ describe('llmEvaluationLogic', () => {
                 // The draft's enabled default is read before the config fetch resolves — the
                 // listener must correct it when the config arrives late.
                 keysLogic.actions.loadEvaluationConfigSuccess({
-                    trial_eval_limit: 100,
-                    trial_evals_used: 50,
-                    trial_evals_remaining: 50,
-                    trial_grandfathered: true,
-                    trial_deprecation_date: '2026-07-17T00:00:00Z',
-                    active_provider_key: null,
+                    active_provider_key: mockProviderKeys[0],
                     created_at: '2024-01-01T00:00:00Z',
                     updated_at: '2024-01-01T00:00:00Z',
                 })
@@ -668,11 +645,6 @@ describe('llmEvaluationLogic', () => {
                 })
 
                 keysLogic.actions.loadEvaluationConfigSuccess({
-                    trial_eval_limit: 100,
-                    trial_evals_used: 100,
-                    trial_evals_remaining: 0,
-                    trial_grandfathered: false,
-                    trial_deprecation_date: '2026-07-17T00:00:00Z',
                     active_provider_key: null,
                     created_at: '2024-01-01T00:00:00Z',
                     updated_at: '2024-01-01T00:00:00Z',
@@ -1217,10 +1189,10 @@ describe('llmEvaluationLogic', () => {
             })
         })
 
-        it('sets model configuration from trial provider key', async () => {
+        it('sets model configuration from playground provider key', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
-            logic.actions.selectModelFromPicker('gpt-5', 'trial:openai')
+            logic.actions.selectModelFromPicker('gpt-5', 'playground:openai')
 
             await expectLogic(logic).toMatchValues({
                 selectedModel: 'gpt-5',
@@ -1417,11 +1389,6 @@ describe('llmEvaluationLogic', () => {
                 get: {
                     '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
                     '/api/environments/:teamId/llm_analytics/evaluation_config/': {
-                        trial_eval_limit: 100,
-                        trial_evals_used: 100,
-                        trial_evals_remaining: 0,
-                        trial_grandfathered: false,
-                        trial_deprecation_date: '2026-07-15T00:00:00Z',
                         active_provider_key: null,
                         created_at: '2024-01-01T00:00:00Z',
                         updated_at: '2024-01-01T00:00:00Z',
@@ -1432,7 +1399,7 @@ describe('llmEvaluationLogic', () => {
                     '/api/projects/:teamId/evaluations/:id/': () => [
                         400,
                         {
-                            enabled: ['Trial evaluation limit reached. Add a provider API key to re-enable.'],
+                            enabled: ['Add a provider API key to enable this evaluation.'],
                         },
                     ],
                 },

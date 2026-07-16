@@ -40,12 +40,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     path(['products', 'ai_observability', 'evaluations', 'llmEvaluationsLogic']),
     props({} as LLMEvaluationsLogicProps),
     connect(() => ({
-        values: [
-            featureFlagLogic,
-            ['featureFlags'],
-            llmProviderKeysLogic,
-            ['providerKeys', 'requiresProviderKey', 'isTrialGrandfathered'],
-        ],
+        values: [featureFlagLogic, ['featureFlags'], llmProviderKeysLogic, ['providerKeys', 'requiresProviderKey']],
         actions: [teamLogic, ['addProductIntent'], llmProviderKeysLogic, ['loadProviderKeys']],
     })),
 
@@ -239,10 +234,10 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             },
         ],
         canEnableEvaluation: [
-            (s) => [s.requiresProviderKey, s.isTrialGrandfathered],
-            (requiresProviderKey: boolean, isTrialGrandfathered: boolean) => {
+            (s) => [s.requiresProviderKey],
+            (requiresProviderKey: boolean) => {
                 return (evaluation: EvaluationConfig): boolean =>
-                    evaluationCanResolveModel(evaluation, requiresProviderKey, isTrialGrandfathered)
+                    evaluationCanResolveModel(evaluation, requiresProviderKey)
             },
         ],
 

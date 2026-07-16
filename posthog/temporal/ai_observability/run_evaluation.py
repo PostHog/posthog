@@ -34,14 +34,11 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EmitInternalTelemetryInputs,
     RunEvaluationInputs,
     SendEvaluationDisabledEmailInputs,
-    SendTrialUsageEmailInputs,
     disable_evaluation_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
-    increment_trial_eval_count_activity,
     send_evaluation_disabled_email_activity,
-    send_trial_usage_email_activity,
     update_key_state_activity,
 )
 from posthog.temporal.ai_observability.metrics import increment_errors
@@ -65,7 +62,6 @@ __all__ = [
     "RunEvaluationInputs",
     "RunEvaluationWorkflow",
     "SendEvaluationDisabledEmailInputs",
-    "SendTrialUsageEmailInputs",
     "WorkflowResult",
     "build_system_prompt",
     "disable_evaluation_activity",
@@ -80,11 +76,8 @@ __all__ = [
     "get_output_type_config",
     "handle_llm_judge_activity_error",
     "handle_terminal_user_error_result",
-    "increment_trial_eval_count_activity",
-    "increment_trial_usage_and_notify",
     "run_hog_eval",
     "send_evaluation_disabled_email_activity",
-    "send_trial_usage_email_activity",
     "update_key_state_activity",
 ]
 
@@ -198,28 +191,12 @@ async def handle_terminal_user_error_result(
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
-    if spec and spec.send_trial_usage_email and temporalio.workflow.patched("trial-usage-email"):
-        try:
-            await temporalio.workflow.execute_activity(
-                send_trial_usage_email_activity,
-                SendTrialUsageEmailInputs(team_id=evaluation["team_id"], threshold_pct=100),
-                activity_id=f"send-trial-usage-email-100pct-{evaluation['team_id']}",
-                schedule_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
-        except Exception:
-            temporalio.workflow.logger.exception(
-                "Failed to send trial exhausted email",
-                team_id=evaluation["team_id"],
-            )
-
     dedupe_disabled_email = temporalio.workflow.patched("eval-disabled-email-on-disable-transition")
     should_send_disabled_email = (
         spec is not None
         and spec.disables_evaluation
         and bool(status_reason)
         and (disabled_evaluation or not dedupe_disabled_email)
-        and not spec.send_trial_usage_email
         and temporalio.workflow.patched("eval-disabled-email")
     )
     if should_send_disabled_email:
@@ -256,36 +233,6 @@ async def handle_terminal_user_error_result(
         "evaluation_type": evaluation_type,
     }
     return workflow_result
-
-
-async def increment_trial_usage_and_notify(evaluation: dict[str, Any]) -> None:
-    """Increment the team's trial eval counter and send threshold emails. Must run inside a
-    workflow context. Shared by the single-event and trace-level workflows; callers gate on
-    `is_byok` / `skipped` so only PostHog-key LLM judge runs consume quota.
-    """
-    threshold_pct = await temporalio.workflow.execute_activity(
-        increment_trial_eval_count_activity,
-        evaluation["team_id"],
-        activity_id=f"increment-trial-{evaluation['id']}",
-        schedule_to_close_timeout=timedelta(seconds=10),
-        retry_policy=RetryPolicy(maximum_attempts=2),
-    )
-
-    if threshold_pct is not None and temporalio.workflow.patched("trial-usage-email"):
-        try:
-            await temporalio.workflow.execute_activity(
-                send_trial_usage_email_activity,
-                SendTrialUsageEmailInputs(team_id=evaluation["team_id"], threshold_pct=threshold_pct),
-                activity_id=f"send-trial-usage-email-{threshold_pct}pct-{evaluation['team_id']}",
-                schedule_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
-        except Exception:
-            temporalio.workflow.logger.exception(
-                "Failed to send trial usage email",
-                team_id=evaluation["team_id"],
-                threshold_pct=threshold_pct,
-            )
 
 
 @temporalio.workflow.defn(name="run-evaluation")
@@ -336,9 +283,6 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 if handled is not None:
                     return handled
                 raise
-
-            if not result.get("is_byok") and not result.get("skipped"):
-                await increment_trial_usage_and_notify(evaluation)
         else:
             raise ApplicationError(
                 f"Unsupported evaluation type: {evaluation_type}",

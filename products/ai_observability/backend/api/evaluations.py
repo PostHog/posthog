@@ -26,7 +26,7 @@ from posthog.temporal.ai_observability.model_resolution import active_key_fallba
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
 
 from ..hog import compile_ai_observability_hog
-from ..llm import DEFAULT_MODEL_BY_PROVIDER, TRIAL_MODEL_IDS
+from ..llm import DEFAULT_MODEL_BY_PROVIDER
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
@@ -424,47 +424,28 @@ class EvaluationSerializer(serializers.ModelSerializer):
         """Mirror the runtime model resolution for evals with no usable provider key (see
         `posthog/temporal/ai_observability/model_resolution.py`). A pinned key, or an explicit
         config's active-key fallback, is already handled by `_validate_can_run`; this covers what
-        is left: a null config resolves via the team's active key, else PostHog-funded trial
-        inference while the team is still grandfathered; an explicit config that reached here has
-        no active-key fallback, so it resolves via funded inference only, and only for models on
-        the trial allowlist."""
+        is left: a null config resolves via the team's active key, and anything else must add a
+        provider key of its own."""
         add_key_message = "Add a provider API key to enable this evaluation."
         team = self.context["get_team"]()
         config = EvaluationConfig.objects.filter(team=team).first()
-        is_grandfathered = config is not None and config.is_trial_grandfathered
 
         explicit_config = self._effective_model_configuration(data)
-        if explicit_config is None:
-            active_key = config.active_provider_key if config else None
-            if active_key is not None:
-                # DefaultModelSpec never falls back to funded inference when an active key exists,
-                # so an unhealthy key blocks the enable regardless of grandfathering.
-                if active_key.state != LLMProviderKey.State.OK:
-                    raise serializers.ValidationError(
-                        {"enabled": "Attach a working provider API key to enable this evaluation."}
-                    )
-                if DEFAULT_MODEL_BY_PROVIDER.get(active_key.provider) is None:
-                    raise serializers.ValidationError(
-                        {
-                            "enabled": "This evaluation's provider has no default model. Set a model on the evaluation before enabling it."
-                        }
-                    )
-                return
-            if is_grandfathered:
-                return
+        if explicit_config is not None:
             raise serializers.ValidationError({"enabled": add_key_message})
 
-        if not is_grandfathered:
+        active_key = config.active_provider_key if config else None
+        if active_key is None:
             raise serializers.ValidationError({"enabled": add_key_message})
 
-        model = explicit_config.get("model")
-        if model and model not in TRIAL_MODEL_IDS:
+        if active_key.state != LLMProviderKey.State.OK:
+            raise serializers.ValidationError(
+                {"enabled": "Attach a working provider API key to enable this evaluation."}
+            )
+        if DEFAULT_MODEL_BY_PROVIDER.get(active_key.provider) is None:
             raise serializers.ValidationError(
                 {
-                    "enabled": (
-                        f"Model '{model}' is not available on the trial plan. "
-                        "Either choose a supported trial model or add a provider API key."
-                    )
+                    "enabled": "This evaluation's provider has no default model. Set a model on the evaluation before enabling it."
                 }
             )
 

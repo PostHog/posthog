@@ -3,7 +3,7 @@ from uuid import UUID
 
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import QuerySet
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
@@ -421,117 +421,6 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                 ],
             }
         )
-
-    @action(detail=False, methods=["get"])
-    @llma_track_latency("llma_provider_keys_trial_evaluations")
-    @monitor(feature=None, endpoint="llma_provider_keys_trial_evaluations", method="GET")
-    def trial_evaluations(self, request: Request, **_kwargs) -> Response:
-        """List enabled evaluations currently using trial credits for a given provider."""
-        provider = request.query_params.get("provider")
-        if not provider:
-            return Response({"detail": "provider query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
-        if provider not in [choice[0] for choice in LLMProvider.choices]:
-            return Response({"detail": f"Unsupported provider: {provider}"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Evaluations on trial: model_configuration has matching provider but no pinned key
-        trial_filter = Q(
-            model_configuration__provider=provider,
-            model_configuration__provider_key__isnull=True,
-        )
-        # Legacy evaluations (no model_configuration) default to OpenAI
-        if provider == "openai":
-            trial_filter |= Q(model_configuration__isnull=True)
-
-        # The legacy "no model_configuration" clause above would otherwise include Hog/Sentiment evals.
-        trial_evals = (
-            Evaluation.objects.filter(trial_filter, team_id=self.team_id, deleted=False)
-            .using_provider_keys()
-            .values("id", "name", "enabled")[:50]
-        )
-
-        return Response({"evaluations": list(trial_evals)})
-
-    @action(detail=True, methods=["post"])
-    @llma_track_latency("llma_provider_keys_assign")
-    @monitor(feature=None, endpoint="llma_provider_keys_assign", method="POST")
-    def assign(self, request: Request, **_kwargs) -> Response:
-        """Assign this key to evaluations and optionally re-enable them."""
-        instance = self.get_object()
-        evaluation_ids = request.data.get("evaluation_ids", [])
-        enable = request.data.get("enable", False)
-
-        if not evaluation_ids:
-            return Response({"detail": "evaluation_ids is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        with transaction.atomic():
-            # Update model configurations to use this key
-            model_config_ids = list(
-                LLMModelConfiguration.objects.filter(
-                    evaluations__id__in=evaluation_ids,
-                    evaluations__team_id=self.team_id,
-                    evaluations__deleted=False,
-                    provider=instance.provider,
-                )
-                .distinct()
-                .values_list("id", flat=True)
-            )
-            configs_updated = LLMModelConfiguration.objects.filter(
-                id__in=model_config_ids,
-                team_id=self.team_id,
-            ).update(provider_key=instance)
-            _reload_model_config_dependents_on_commit(self.team_id, model_config_ids)
-
-            # Handle legacy evaluations (no model_configuration) — these are always
-            # OpenAI, so only create a config if the key matches. Exclude Hog/Sentiment: minting a
-            # config for them locks the eval out of all future edits.
-            if instance.provider == "openai":
-                legacy_evals = Evaluation.objects.filter(
-                    id__in=evaluation_ids,
-                    team_id=self.team_id,
-                    model_configuration__isnull=True,
-                    deleted=False,
-                ).using_provider_keys()
-                for eval_obj in legacy_evals:
-                    mc = LLMModelConfiguration.objects.create(
-                        team_id=self.team_id,
-                        provider="openai",
-                        model="gpt-5-mini",
-                        provider_key=instance,
-                    )
-                    eval_obj.model_configuration = mc
-                    eval_obj.save(update_fields=["model_configuration"])
-                    configs_updated += 1
-
-            # A key assignment resolves any `provider_key_deleted` / `model_not_allowed` error on the
-            # dependent evals — the cause no longer applies once they're attached to a live key.
-            for eval_obj in Evaluation.objects.filter(
-                id__in=evaluation_ids, team_id=self.team_id, deleted=False, status="error"
-            ).using_provider_keys():
-                eval_obj.set_status("paused")
-
-            evals_enabled = 0
-            if enable:
-                for eval_obj in Evaluation.objects.filter(
-                    id__in=evaluation_ids, team_id=self.team_id, deleted=False, enabled=False
-                ).using_provider_keys():
-                    eval_obj.set_status("active")
-                    evals_enabled += 1
-
-        report_user_action(
-            request.user,
-            "llma provider key assigned to evaluations",
-            {
-                "provider_key_id": str(instance.id),
-                "provider": instance.provider,
-                "evaluation_ids": [str(eid) for eid in evaluation_ids],
-                "configs_updated": configs_updated,
-                "evals_enabled": evals_enabled,
-            },
-            team=self.team,
-            request=self.request,
-        )
-
-        return Response({"configs_updated": configs_updated, "evals_enabled": evals_enabled})
 
     @llma_track_latency("llma_provider_keys_destroy")
     @monitor(feature=None, endpoint="llma_provider_keys_destroy", method="DELETE")

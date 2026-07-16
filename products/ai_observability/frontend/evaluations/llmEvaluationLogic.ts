@@ -17,7 +17,7 @@ import {
     evaluationsTestHogCreate,
     llmAnalyticsEvaluationSummaryCreate,
 } from '../generated/api'
-import { parseTrialProviderKeyId } from '../ModelPicker'
+import { parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { EvaluationRunsStats, queryEvaluationRuns, queryEvaluationRunsStats } from '../utils'
@@ -143,10 +143,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     ),
 
     connect(() => ({
-        values: [
-            llmProviderKeysLogic,
-            ['providerKeys', 'providerKeysLoading', 'requiresProviderKey', 'isTrialGrandfathered'],
-        ],
+        values: [llmProviderKeysLogic, ['providerKeys', 'providerKeysLoading', 'requiresProviderKey']],
         actions: [llmProviderKeysLogic, ['loadProviderKeys', 'loadEvaluationConfigSuccess']],
     })),
 
@@ -506,7 +503,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             if (
                 props.evaluationId === 'new' &&
                 values.evaluation?.enabled &&
-                !evaluationCanResolveModel(values.evaluation, values.requiresProviderKey, values.isTrialGrandfathered)
+                !evaluationCanResolveModel(values.evaluation, values.requiresProviderKey)
             ) {
                 actions.setEvaluationEnabled(false)
             }
@@ -752,10 +749,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             if (!modelId) {
                 return
             }
-            const trialProvider = parseTrialProviderKeyId(providerKeyId)
-            if (trialProvider) {
+            const playgroundProvider = parsePlaygroundProviderKeyId(providerKeyId)
+            if (playgroundProvider) {
                 actions.setModelConfiguration({
-                    provider: trialProvider,
+                    provider: playgroundProvider,
                     model: modelId,
                     provider_key_id: null,
                 })
@@ -826,16 +823,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
 
         canEnable: [
-            (s) => [s.evaluation, s.requiresProviderKey, s.isTrialGrandfathered],
-            (
-                evaluation: EvaluationConfig | null,
-                requiresProviderKey: boolean,
-                isTrialGrandfathered: boolean
-            ): boolean => {
+            (s) => [s.evaluation, s.requiresProviderKey],
+            (evaluation: EvaluationConfig | null, requiresProviderKey: boolean): boolean => {
                 if (!evaluation) {
                     return true
                 }
-                return evaluationCanResolveModel(evaluation, requiresProviderKey, isTrialGrandfathered)
+                return evaluationCanResolveModel(evaluation, requiresProviderKey)
             },
         ],
 

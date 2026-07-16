@@ -77,7 +77,6 @@ class TeamMetrics:
     ai_feedback_count: int = 0
     ai_evaluation_count: int = 0
     ai_is_error_count: int = 0
-    ai_trial_evaluation_count: int = 0
     ai_llm_judge_evaluation_count: int = 0
     ai_hog_evaluation_count: int = 0
     ai_sentiment_evaluation_count: int = 0
@@ -326,13 +325,10 @@ def _combine_all_metrics_results(results_list: list) -> dict[int, TeamMetrics]:
             # Error count (index 26)
             metrics.ai_is_error_count += row[26] or 0
 
-            # Trial evaluation count (index 27)
-            metrics.ai_trial_evaluation_count += row[27] or 0
-
-            # Evaluation runtime counts (indices 28-30)
-            metrics.ai_llm_judge_evaluation_count += row[28] or 0
-            metrics.ai_hog_evaluation_count += row[29] or 0
-            metrics.ai_sentiment_evaluation_count += row[30] or 0
+            # Evaluation runtime counts (indices 27-29)
+            metrics.ai_llm_judge_evaluation_count += row[27] or 0
+            metrics.ai_hog_evaluation_count += row[28] or 0
+            metrics.ai_sentiment_evaluation_count += row[29] or 0
 
     return team_metrics
 
@@ -389,7 +385,6 @@ def get_all_ai_metrics(
             -- Error count
             countIf(properties_group_ai['$ai_is_error'] = 'true') as ai_is_error_count,
             -- Evaluation counts
-            countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_key_type'] = 'posthog') as ai_trial_evaluation_count,
             countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_runtime'] = 'llm_judge') as ai_llm_judge_evaluation_count,
             countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_runtime'] = 'hog') as ai_hog_evaluation_count,
             countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_runtime'] = 'sentiment') as ai_sentiment_evaluation_count
@@ -769,7 +764,6 @@ def _get_all_ai_observability_reports(
                 "ai_feedback_count": 0,
                 "ai_evaluation_count": 0,
                 "ai_is_error_count": 0,
-                "ai_trial_evaluation_count": 0,
                 "ai_llm_judge_evaluation_count": 0,
                 "ai_hog_evaluation_count": 0,
                 "ai_sentiment_evaluation_count": 0,
@@ -817,7 +811,6 @@ def _get_all_ai_observability_reports(
             report["ai_feedback_count"] += metrics.ai_feedback_count
             report["ai_evaluation_count"] += metrics.ai_evaluation_count
             report["ai_is_error_count"] += metrics.ai_is_error_count
-            report["ai_trial_evaluation_count"] += metrics.ai_trial_evaluation_count
             report["ai_llm_judge_evaluation_count"] += metrics.ai_llm_judge_evaluation_count
             report["ai_hog_evaluation_count"] += metrics.ai_hog_evaluation_count
             report["ai_sentiment_evaluation_count"] += metrics.ai_sentiment_evaluation_count

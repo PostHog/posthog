@@ -43,7 +43,6 @@ import {
     providerKeyStateLabel,
     providerLabel,
 } from '../settings/providerKeyStateUtils'
-import { TrialUsageMeter } from '../settings/TrialUsageMeter'
 import {
     EvaluationMetrics,
     PASS_RATE_SUCCESS_THRESHOLD,
@@ -411,8 +410,6 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <TrialUsageMeter showSettingsLink />
-
             {unhealthyProviderKeysUsedByEvaluations.length > 0 && (
                 <LemonBanner type="warning">
                     <div className="space-y-2">

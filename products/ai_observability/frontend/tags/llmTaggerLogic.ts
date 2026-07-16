@@ -12,7 +12,7 @@ import { escapeHogQLString } from '~/queries/utils'
 import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
-import { parseTrialProviderKeyId } from '../ModelPicker'
+import { parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import type { llmTaggerLogicType } from './llmTaggerLogicType'
 import { llmTaggersLogic } from './llmTaggersLogic'
@@ -444,11 +444,11 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
             if (!modelId) {
                 return
             }
-            const trialProvider = parseTrialProviderKeyId(providerKeyId)
-            if (trialProvider) {
+            const playgroundProvider = parsePlaygroundProviderKeyId(providerKeyId)
+            if (playgroundProvider) {
                 actions.setTaggerFormValues({
                     model_configuration: {
-                        provider: trialProvider,
+                        provider: playgroundProvider,
                         model: modelId,
                         provider_key_id: null,
                     },

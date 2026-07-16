@@ -52,9 +52,9 @@ class GeminiConfig:
         "gemini-1.5-pro",
     ]
 
-    # Models available to trial users (PostHog pays). Excludes older/preview
+    # Models available in the PostHog-funded playground. Excludes older/preview
     # pro tiers while keeping the current flagship (gemini-2.5-pro).
-    TRIAL_MODELS: list[str] = [
+    PLAYGROUND_MODELS: list[str] = [
         "gemini-2.5-pro",
         "gemini-2.5-flash",
         "gemini-2.5-flash-lite",

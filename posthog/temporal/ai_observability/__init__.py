@@ -37,9 +37,7 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
-    increment_trial_eval_count_activity,
     send_evaluation_disabled_email_activity,
-    send_trial_usage_email_activity,
     update_key_state_activity,
 )
 from posthog.temporal.ai_observability.metrics import EvalsMetricsInterceptor  # noqa: F401
@@ -88,9 +86,7 @@ EVAL_WORKFLOWS = [
 
 EVAL_ACTIVITIES = [
     fetch_evaluation_activity,
-    increment_trial_eval_count_activity,
     disable_evaluation_activity,
-    send_trial_usage_email_activity,
     send_evaluation_disabled_email_activity,
     update_key_state_activity,
     execute_llm_judge_activity,
@@ -169,9 +165,7 @@ ACTIVITIES = [
     emit_evaluation_cluster_events_activity,
     # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete
     fetch_evaluation_activity,
-    increment_trial_eval_count_activity,
     disable_evaluation_activity,
-    send_trial_usage_email_activity,
     send_evaluation_disabled_email_activity,
     update_key_state_activity,
     execute_llm_judge_activity,

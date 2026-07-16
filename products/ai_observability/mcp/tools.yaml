@@ -566,9 +566,6 @@ tools:
             - edits
             - base_version
             - version_description
-    llma-provider-key-assign:
-        operation: llm_analytics_provider_keys_assign_create
-        enabled: false
     llma-provider-key-create:
         operation: llm_analytics_provider_keys_create
         enabled: false
@@ -607,9 +604,6 @@ tools:
             name, validation state, and a masked preview — never the secret itself. Call this before creating an
             llm_judge evaluation to discover which providers have a usable ('ok' state) key available. Creating,
             updating, and deleting keys are intentionally UI-only.
-    llma-provider-key-trial-evaluations-get:
-        operation: llm_analytics_provider_keys_trial_evaluations_retrieve
-        enabled: false
     llma-provider-key-update:
         operation: llm_analytics_provider_keys_partial_update
         enabled: false

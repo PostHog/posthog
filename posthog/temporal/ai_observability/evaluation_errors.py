@@ -27,7 +27,6 @@ class EvaluationErrorSpec:
     status_reason: str | None = None
     disables_evaluation: bool = False
     provider_key_state: str | None = None
-    send_trial_usage_email: bool = False
 
 
 USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
@@ -36,21 +35,6 @@ USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
         owner="user",
         safe_message="Add a provider API key to run this evaluation.",
         status_reason=EvaluationStatusReason.PROVIDER_KEY_REQUIRED,
-        disables_evaluation=True,
-    ),
-    "trial_limit_reached": EvaluationErrorSpec(
-        error_type="trial_limit_reached",
-        owner="user",
-        safe_message="Trial evaluation limit reached. Add a provider API key to continue.",
-        status_reason=EvaluationStatusReason.TRIAL_LIMIT_REACHED,
-        disables_evaluation=True,
-        send_trial_usage_email=True,
-    ),
-    "model_not_allowed": EvaluationErrorSpec(
-        error_type="model_not_allowed",
-        owner="user",
-        safe_message="The selected model is not available on the trial plan.",
-        status_reason=EvaluationStatusReason.MODEL_NOT_ALLOWED,
         disables_evaluation=True,
     ),
     "no_default_model": EvaluationErrorSpec(

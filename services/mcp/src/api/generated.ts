@@ -22901,8 +22901,6 @@ export namespace Schemas {
 
     /**
      * * `provider_key_required` - No provider API key configured
-     * * `trial_limit_reached` - Trial evaluation limit reached
-     * * `model_not_allowed` - Model not available on the trial plan
      * * `provider_key_deleted` - Provider API key was deleted
      * * `no_default_model` - No default model available for the selected provider
      * * `provider_key_invalid` - Provider API key is invalid
@@ -22917,8 +22915,6 @@ export namespace Schemas {
 
     export const StatusReasonEnum = {
       ProviderKeyRequired: 'provider_key_required',
-      TrialLimitReached: 'trial_limit_reached',
-      ModelNotAllowed: 'model_not_allowed',
       ProviderKeyDeleted: 'provider_key_deleted',
       NoDefaultModel: 'no_default_model',
       ProviderKeyInvalid: 'provider_key_invalid',
@@ -23132,16 +23128,6 @@ export namespace Schemas {
     }
 
     export interface EvaluationConfig {
-      /** Cap on trial runs — a getting-started affordance only, not for ongoing evals (use the team's own key). */
-      readonly trial_eval_limit: number;
-      /** Trial runs consumed (getting-started affordance only). */
-      readonly trial_evals_used: number;
-      /** Trial runs remaining — a getting-started affordance only; evals should use the team's own provider key. */
-      readonly trial_evals_remaining: number;
-      /** True while this team keeps PostHog-funded trial inference during the deprecation window (i.e. it is mid-trial and the cutoff has not passed). False means the team must use its own provider key. */
-      readonly trial_grandfathered: boolean;
-      /** Timestamp after which trial evaluations are fully removed and every team must use its own provider key. */
-      readonly trial_deprecation_date: string;
       /** Provider key used to run llm_judge evals; null if none configured yet. */
       readonly active_provider_key: LLMProviderKey | null;
       /** Timestamp when the evaluation config row was created. */
@@ -32628,8 +32614,6 @@ export namespace Schemas {
     export interface LLMModelInfo {
       /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
       id: string;
-      /** True if the model can run without a provider key on PostHog-funded trial credits. Only true for teams still grandfathered into the deprecating trial; every other team must use its own key. */
-      posthog_available: boolean;
     }
 
     export interface LLMModelsListResponse {

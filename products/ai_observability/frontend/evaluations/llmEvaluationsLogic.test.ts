@@ -101,11 +101,6 @@ describe('llmEvaluationsLogic', () => {
             get: {
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
                 '/api/environments/:teamId/llm_analytics/evaluation_config/': {
-                    trial_eval_limit: 100,
-                    trial_evals_used: 0,
-                    trial_evals_remaining: 100,
-                    trial_grandfathered: false,
-                    trial_deprecation_date: '2026-07-15T00:00:00Z',
                     active_provider_key: null,
                     created_at: '2024-01-01T00:00:00Z',
                     updated_at: '2024-01-01T00:00:00Z',
@@ -136,13 +131,9 @@ describe('llmEvaluationsLogic', () => {
     })
 
     describe('unhealthyProviderKeysUsedByEvaluations', () => {
-        it('allows Hog and sentiment evaluations when trial limit is reached', async () => {
+        it('allows Hog and sentiment evaluations when a provider key is required', async () => {
+            // Team with no active key → requiresProviderKey.
             keysLogic.actions.loadEvaluationConfigSuccess({
-                trial_eval_limit: 100,
-                trial_evals_used: 100,
-                trial_evals_remaining: 0,
-                trial_grandfathered: false,
-                trial_deprecation_date: '2026-07-15T00:00:00Z',
                 active_provider_key: null,
                 created_at: '2024-01-01T00:00:00Z',
                 updated_at: '2024-01-01T00:00:00Z',
@@ -153,25 +144,13 @@ describe('llmEvaluationsLogic', () => {
             expect(logic.values.canEnableEvaluation(evaluationWithKey('llm-default', null))).toBe(false)
         })
 
-        it('an active team key only unlocks null-config evaluations, never explicit keyless ones', async () => {
-            // Runtime resolution uses the active key only for null configs — explicit keyless
-            // configs never fall back to it, so they stay blocked.
+        it('an active team key unlocks keyless llm_judge evaluations', async () => {
             keysLogic.actions.loadEvaluationConfigSuccess({
-                trial_eval_limit: 100,
-                trial_evals_used: 100,
-                trial_evals_remaining: 0,
-                trial_grandfathered: false,
-                trial_deprecation_date: '2026-07-17T00:00:00Z',
                 active_provider_key: mockProviderKeys[0],
                 created_at: '2024-01-01T00:00:00Z',
                 updated_at: '2024-01-01T00:00:00Z',
             })
 
-            const explicitKeyless: LLMJudgeEvaluation = {
-                ...evaluationWithKey('llm-explicit', null),
-                model_configuration: { provider: 'openai', model: 'gpt-5-mini', provider_key_id: null },
-            }
-            expect(logic.values.canEnableEvaluation(explicitKeyless)).toBe(false)
             expect(logic.values.canEnableEvaluation(evaluationWithKey('llm-default', null))).toBe(true)
         })
 
@@ -190,7 +169,7 @@ describe('llmEvaluationsLogic', () => {
             const errored = evaluationWithKey('eval-errored', 'key-ok')
             errored.enabled = false
             errored.status = 'error'
-            errored.status_reason = 'trial_limit_reached'
+            errored.status_reason = 'provider_key_required'
             logic.actions.loadEvaluationsSuccess([errored])
 
             logic.actions.toggleEvaluationEnabledSuccess('eval-errored')
@@ -213,7 +192,7 @@ describe('llmEvaluationsLogic', () => {
                     '/api/environments/:teamId/evaluations/:id/': () => [
                         400,
                         {
-                            enabled: ['Trial evaluation limit reached. Add a provider API key to re-enable.'],
+                            enabled: ['Add a provider API key to enable this evaluation.'],
                         },
                     ],
                 },
