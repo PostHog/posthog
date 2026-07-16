@@ -61,7 +61,16 @@ COPY bin/temporal-django-worker bin/temporal-django-worker
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime \
-    POSTHOG_SENTIMENT_MODEL_CACHE=/opt/posthog-sentiment-model
+    POSTHOG_SENTIMENT_MODEL_CACHE=/opt/posthog-sentiment-model \
+    TIKTOKEN_CACHE_DIR=/python-runtime/tiktoken_cache
+
+# Pre-bake tiktoken encoding blobs so the worker never downloads them or writes to a temp dir on
+# first use. Without a populated TIKTOKEN_CACHE_DIR, tiktoken's read_file_cached() writes the
+# downloaded blob to tempfile.gettempdir(), which crashes with `FileNotFoundError: No usable
+# temporary directory found` on a host with no writable temp dir. Encodings: o200k_base (gpt-4o)
+# and cl100k_base (text-embedding-3-small) — see posthog/helpers/tiktoken_encoding.py.
+RUN mkdir -p "$TIKTOKEN_CACHE_DIR" && \
+    python -c "import tiktoken; tiktoken.encoding_for_model('gpt-4o'); tiktoken.encoding_for_model('text-embedding-3-small')"
 
 # Pre-bake the sentiment ONNX model so workers don't download from HuggingFace on startup.
 # Downloads from a pinned HuggingFace revision, exports to ONNX, verifies file integrity

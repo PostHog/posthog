@@ -174,6 +174,18 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
 
+# Pre-bake tiktoken encoding blobs into the image so the first runtime use never downloads them
+# or writes to a temp dir. tiktoken's read_file_cached() writes the downloaded blob to
+# tempfile.gettempdir() when TIKTOKEN_CACHE_DIR is unset; on a host with no writable temp dir this
+# crashes with `FileNotFoundError: No usable temporary directory found`, taking down the API import
+# cascade at startup. Caching the blobs under /python-runtime (which is COPYed wholesale into the
+# final stage) and pointing tiktoken at them removes both the missing-tempdir crash and the broader
+# network-download / hash-mismatch failure class. Encodings: o200k_base (gpt-4o) and cl100k_base
+# (text-embedding-3-small) — the two proxy models in posthog/helpers/tiktoken_encoding.py.
+ENV TIKTOKEN_CACHE_DIR=/python-runtime/tiktoken_cache
+RUN mkdir -p "$TIKTOKEN_CACHE_DIR" && \
+    python -c "import tiktoken; tiktoken.encoding_for_model('gpt-4o'); tiktoken.encoding_for_model('text-embedding-3-small')"
+
 # Add in Django deps
 COPY manage.py manage.py
 COPY common/esbuilder common/esbuilder
@@ -361,7 +373,8 @@ RUN echo $COMMIT_HASH > /code/commit.txt
 COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
 COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtime
 ENV PATH=/python-runtime/bin:$PATH \
-    PYTHONPATH=/python-runtime
+    PYTHONPATH=/python-runtime \
+    TIKTOKEN_CACHE_DIR=/python-runtime/tiktoken_cache
 
 # frontend/dist is read at runtime (Django template DIR in settings/web.py + the array.js disk
 # fallback in js_snippet_versioning.py), so this COPY is load-bearing. Sourced from posthog-build,
