@@ -358,7 +358,10 @@ def test_default_branch_steering_is_injected_into_sandbox(team, stamphog_chain: 
     "prior_head,prior_verdict,prior_dismissed,expect_dismissed",
     [
         ("sha-old", ReviewVerdict.APPROVED, False, True),
-        ("sha-new", ReviewVerdict.APPROVED, False, False),
+        # Same head is NOT spared at workflow start: a same-head re-review (label re-add, reopen)
+        # means fresh judgment is pending, and if it refuses, the earlier approval must not keep
+        # the PR mergeable. (Skip paths keep the same-head exclusion — no new verdict is coming.)
+        ("sha-new", ReviewVerdict.APPROVED, False, True),
         ("sha-old", ReviewVerdict.APPROVED, True, False),
         # A run that posted its approval to GitHub but crashed before the verdict was saved leaves an
         # orphan the sweep must still find — posted_review_id is the marker, not the saved verdict.
@@ -366,7 +369,7 @@ def test_default_branch_steering_is_injected_into_sandbox(team, stamphog_chain: 
     ],
     ids=[
         "old_head_dismissed_and_stamped",
-        "same_head_untouched",
+        "same_head_dismissed_at_run_start",
         "already_dismissed_not_redone",
         "orphan_without_saved_verdict_swept",
     ],
@@ -380,9 +383,9 @@ def test_dismiss_stale_approvals(
     prior_dismissed: bool,
     expect_dismissed: bool,
 ) -> None:
-    # A prior stamphog approval posted at an earlier head must be dismissed on GitHub and stamped when a
-    # new run at a different head runs. An approval at the same head, or one already dismissed, is left
-    # alone (GitHub never auto-dismisses, so an undismissed old-head approval would still count).
+    # Every standing stamphog approval must be dismissed and stamped when a new run starts —
+    # old-head (unreviewed commits) and same-head (a re-review whose fresh verdict might refuse)
+    # alike. Only an already-dismissed approval is left alone.
     repo_config = _repo_config(team.id)
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"

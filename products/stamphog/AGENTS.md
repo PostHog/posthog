@@ -10,8 +10,11 @@ understanding what it closes, and hold new code to all of them.
 auto-dismisses approvals, so every path that skips, supersedes, or abandons a review after a
 head-changing event must retract standing approvals itself:
 
-- The workflow runs `dismiss_stale_approvals` FIRST (fail-closed: if any later step crashes, the
-  old approval is already gone).
+- The workflow runs `dismiss_stale_approvals` FIRST, and it voids EVERY standing approval —
+  same-head included, since a re-review means fresh judgment is pending (fail-closed: if any
+  later step crashes, the prior approval is already gone). The sweep's same-head exclusion is
+  only for skip paths, where no new verdict is coming. A base retarget gets its own explicit
+  all-heads retraction — it changes the diff without moving the head.
 - Every Celery skip path that never reaches the workflow (trigger-label absent, author below
   write permission, untrusted association, disabled repo) retracts via
   `_retract_stale_approvals_on_skip`.

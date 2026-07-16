@@ -253,13 +253,14 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
 @activity.defn
 @asyncify
 def dismiss_stale_approvals(input: StamphogReviewInput) -> dict:
-    """Retract stamphog approvals posted at an earlier head so a push can't leave one standing.
+    """Retract every standing stamphog approval before this run reviews — old-head AND same-head.
 
-    GitHub never auto-dismisses an APPROVE review when new commits land, so a prior run's approval at
-    an old head keeps satisfying required reviews after a push. This runs FIRST in the workflow — before
-    context fetch, before the sandbox — on purpose: dismiss, then re-review. That ordering is fail-closed —
-    if any later step crashes (even the context fetch), the stale approval is already gone rather than
-    left standing over unreviewed commits. It needs only the run row, so nothing has to be fetched first.
+    GitHub never auto-dismisses an APPROVE review, so a prior run's approval keeps satisfying
+    required reviews after a push (old head) or across a same-head re-review whose fresh verdict
+    might refuse. This runs FIRST in the workflow — before context fetch, before the sandbox — on
+    purpose: dismiss, then re-review. That ordering is fail-closed — if any later step crashes
+    (even the context fetch), the prior approval is already gone rather than left standing over a
+    diff or verdict it no longer represents. It needs only the run row, so nothing is fetched first.
     """
     run = _load_run(input)
     if run.status == ReviewRunStatus.SUPERSEDED:
@@ -269,7 +270,18 @@ def dismiss_stale_approvals(input: StamphogReviewInput) -> dict:
     pull_request = run.pull_request
     repo_config = pull_request.repo_config
 
-    dismissed = dismiss_stale_approvals_for_head(input.team_id, pull_request, repo_config, run.head_sha)
+    # current_head_sha="" on purpose: a new run voids EVERY standing approval, same-head included.
+    # A same-head re-review (label re-add, reopen, ready-for-review) means fresh judgment is
+    # pending — if it refuses, an earlier same-head approval must not keep the PR mergeable. The
+    # sweep's same-head exclusion remains for the skip paths, where no new review will run and the
+    # current-head approval is still the delivered verdict.
+    dismissed = dismiss_stale_approvals_for_head(
+        input.team_id,
+        pull_request,
+        repo_config,
+        "",
+        message="A new stamphog review started for this PR — the fresh verdict replaces this approval.",
+    )
 
     activity.logger.info(f"Dismissed {dismissed} stale approval(s) for run {run.id} (pr #{pull_request.pr_number})")
     return {"dismissed": dismissed}
