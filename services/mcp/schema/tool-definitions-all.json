@@ -1883,6 +1883,20 @@
             "readOnlyHint": false
         }
     },
+    "conversations-views-list": {
+        "description": "List the saved ticket views in the project. Each view is a named, saved set of ticket filters — for example the per-team views named \"Team <name>\". Returns each view's short_id and name; a view opens in the app at /support/tickets?view=<short_id>.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "List saved ticket views",
+        "title": "List saved ticket views",
+        "required_scopes": ["conversation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "create-feature-flag": {
         "description": "Create a feature flag in the current project.",
         "category": "Feature flags",
