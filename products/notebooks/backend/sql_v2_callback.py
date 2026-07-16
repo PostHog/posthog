@@ -78,7 +78,9 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
     envelope = body["envelope"]
 
     try:
-        run = NotebookNodeRun.objects.for_team(team_id).get(id=run_id)
+        # select_related: the frame snapshot below scopes to the run's user, so fetch it up front
+        # rather than lazy-loading it on attribute access.
+        run = NotebookNodeRun.objects.for_team(team_id).select_related("user").get(id=run_id)
     except NotebookNodeRun.DoesNotExist:
         return JsonResponse({"error": "Run not found"}, status=404)
 
@@ -111,4 +113,4 @@ def _store_frame_snapshot(run: NotebookNodeRun, envelope: dict, team_id: int) ->
     # the live one. Team AND user because a KernelRuntime is scoped to both — kernels are per
     # user, so a notebook's collaborators each have their own, and a snapshot must never land
     # on someone else's row. Both come from the run, which was itself looked up team-scoped.
-    KernelRuntime.objects.filter(id=run.kernel_runtime_id, team_id=team_id, user_id=run.user_id).update(frames=frames)
+    KernelRuntime.objects.filter(id=run.kernel_runtime_id, team_id=team_id, user=run.user).update(frames=frames)
