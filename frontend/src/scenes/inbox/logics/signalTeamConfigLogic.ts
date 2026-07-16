@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, isBreakpoint, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -87,11 +87,17 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
-        patchTeamConfig: async ({ patch }) => {
+        patchTeamConfig: async ({ patch }, breakpoint) => {
             try {
                 const config = await api.signalTeamConfig.update(patch)
+                // A newer patch was dispatched while this one was in flight — drop the
+                // stale response so out-of-order arrivals can't overwrite the latest value.
+                breakpoint()
                 actions.loadTeamConfigSuccess(config)
             } catch (error: any) {
+                if (isBreakpoint(error)) {
+                    throw error
+                }
                 lemonToast.error(error?.detail ?? error?.message ?? 'Failed to update team self-driving settings')
                 // Resync so the optimistic value doesn't linger after a failed update.
                 actions.loadTeamConfig()
