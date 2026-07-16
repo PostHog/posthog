@@ -1214,18 +1214,26 @@ class InsightSerializer(InsightBasicSerializer):
                         }
                     ):
                         request = self.context["request"]
-                        record_dashboard_cache_outcome(
-                            dashboard,
-                            access_method,
-                            is_cached=insight_result.is_cached,
-                            persist_miss=claim_dashboard_cache_miss_persistence(
-                                request,
+                        try:
+                            record_dashboard_cache_outcome(
                                 dashboard,
                                 access_method,
-                                execution_mode,
                                 is_cached=insight_result.is_cached,
-                            ),
-                        )
+                                persist_miss=claim_dashboard_cache_miss_persistence(
+                                    request,
+                                    dashboard,
+                                    access_method,
+                                    execution_mode,
+                                    is_cached=insight_result.is_cached,
+                                ),
+                            )
+                        except Exception:
+                            logger.exception(
+                                "dashboard_cache_outcome_recording_failed",
+                                dashboard_id=dashboard.id,
+                                insight_id=insight.id,
+                                team_id=insight.team_id,
+                            )
                     return insight_result
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
                 raise ValidationError(str(e), getattr(e, "code_name", None))

@@ -570,6 +570,21 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(dashboard.most_recent_access, {})
         self.assertEqual(hit_counter._value.get(), hit_count_before + 1)
 
+    @patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome", side_effect=Exception)
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_cache_outcome_failure_does_not_replace_insight_result(
+        self, mock_calculate: mock.MagicMock, _mock_record_outcome: mock.MagicMock
+    ) -> None:
+        dashboard, insight = self._create_dashboard_insight()
+        mock_calculate.return_value = self._insight_result(is_cached=False)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/",
+            {"from_dashboard": str(dashboard.id)},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     @patch("products.dashboards.backend.access.cache.add", side_effect=[True, False])
     def test_only_cache_miss_claim_winner_persists_pressure(

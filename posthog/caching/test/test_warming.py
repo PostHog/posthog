@@ -6,7 +6,6 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.caching.warming import (
-    STALE_INSIGHT_CURSOR_TTL_SECONDS,
     _dashboard_warming_priority,
     _iter_stale_insights,
     insights_to_keep_fresh,
@@ -113,40 +112,39 @@ class TestWarming(APIBaseTest):
         assert access_method == "legacy"
 
     @patch("posthog.caching.warming.STALE_INSIGHT_SCAN_BUDGET", 2)
+    @patch("posthog.caching.warming.STALE_INSIGHT_HOT_SCAN_BUDGET", 1)
     @patch("posthog.caching.warming.redis.get_client")
-    def test_stale_insight_scan_stops_at_budget_and_saves_cursor(self, mock_get_redis_client) -> None:
+    def test_stale_insight_scan_reserves_hot_and_backlog_budget(self, mock_get_redis_client) -> None:
         current_time = datetime.now(UTC)
         redis_client = mock_get_redis_client.return_value
         redis_client.get.return_value = None
-        redis_client.zrevrangebyscore.return_value = [b"1:", b"2:"]
-        redis_client.zscore.return_value = 20.0
+        redis_client.zrevrangebyscore.side_effect = [[b"1:"], [b"2:"]]
 
         assert list(_iter_stale_insights(team_id=self.team.pk, current_time=current_time)) == ["1:", "2:"]
-        assert redis_client.zrevrangebyscore.call_args.kwargs["num"] == 2
-        redis_client.set.assert_called_once_with(
-            f"cache_warming_cursor:{self.team.pk}",
-            '{"member": "2:", "score": 20.0}',
-            ex=STALE_INSIGHT_CURSOR_TTL_SECONDS,
-        )
+        assert [call.kwargs["num"] for call in redis_client.zrevrangebyscore.call_args_list] == [1, 1]
 
-    @patch("posthog.caching.warming.STALE_INSIGHT_SCAN_BUDGET", 2)
+    @patch("posthog.caching.warming.STALE_INSIGHT_SCAN_BUDGET", 3)
+    @patch("posthog.caching.warming.STALE_INSIGHT_HOT_SCAN_BUDGET", 1)
     @patch("posthog.caching.warming.redis.get_client")
     def test_stale_insight_scan_resumes_after_cursor_member(self, mock_get_redis_client) -> None:
         current_time = datetime.now(UTC)
         redis_client = mock_get_redis_client.return_value
         redis_client.get.return_value = b'{"member": "2:", "score": 20.0}'
-        redis_client.zscore.side_effect = [20.0, 10.0]
+        redis_client.zrevrangebyscore.return_value = [b"new:"]
+        redis_client.zscore.return_value = 20.0
         redis_client.zrevrank.return_value = 1
         redis_client.zrevrange.return_value = [b"3:", b"4:"]
 
-        assert list(_iter_stale_insights(team_id=self.team.pk, current_time=current_time)) == ["3:", "4:"]
+        assert list(_iter_stale_insights(team_id=self.team.pk, current_time=current_time)) == ["new:", "3:", "4:"]
         redis_client.zrevrange.assert_called_once_with(f"cache_timestamps:{self.team.pk}", 2, 3)
 
+    @patch("posthog.caching.warming._checkpoint_stale_insight_scan")
     @patch("posthog.caching.warming._iter_stale_insights")
-    def test_insights_to_keep_fresh_no_stale_insights(self, mock_get_stale_insights):
+    def test_insights_to_keep_fresh_no_stale_insights(self, mock_get_stale_insights, mock_checkpoint):
         mock_get_stale_insights.return_value = []
         insights = list(insights_to_keep_fresh(self.team))
         self.assertEqual(insights, [])
+        mock_checkpoint.assert_called_once_with(team_id=self.team.pk, last_identifier=None)
 
     @patch("posthog.caching.warming._iter_stale_insights")
     def test_insights_to_keep_fresh_no_stale_dashboard_insights(self, mock_get_stale_insights):

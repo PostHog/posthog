@@ -73,6 +73,7 @@ CACHE_MISS_BOOST = 300.0
 CACHE_MISS_BOOST_THRESHOLD = timedelta(days=1)
 DASHBOARD_CANDIDATE_QUERY_CHUNK_SIZE = 100
 STALE_INSIGHT_SCAN_BUDGET = 2000
+STALE_INSIGHT_HOT_SCAN_BUDGET = 500
 STALE_INSIGHT_CURSOR_TTL_SECONDS = 60 * 60 * 48
 
 ACCESS_METHOD_WEIGHTS = {
@@ -213,8 +214,17 @@ def _iter_stale_insights(*, team_id: int, current_time: datetime) -> Generator[s
     redis_key = f"{QueryCacheManagerBase._redis_key_prefix()}:{team_id}"
     redis_client = redis.get_client()
     cursor_key = f"cache_warming_cursor:{team_id}"
-    page: list[bytes] | None = None
+    hot_page = redis_client.zrevrangebyscore(
+        name=redis_key,
+        max=current_time.timestamp(),
+        min="-inf",
+        start=0,
+        num=STALE_INSIGHT_HOT_SCAN_BUDGET,
+    )
+    backlog_budget = STALE_INSIGHT_SCAN_BUDGET - len(hot_page)
+    backlog_page: list[bytes] | None = None
     raw_cursor = redis_client.get(cursor_key)
+    has_valid_cursor = False
 
     if raw_cursor:
         cursor_member: bytes | None = None
@@ -226,47 +236,67 @@ def _iter_stale_insights(*, team_id: int, current_time: datetime) -> Generator[s
         except (KeyError, TypeError, ValueError, json.JSONDecodeError):
             pass
         if cursor_member is not None and cursor_score is not None:
+            has_valid_cursor = True
             if redis_client.zscore(redis_key, cursor_member) == cursor_score:
                 cursor_rank = redis_client.zrevrank(redis_key, cursor_member)
                 if cursor_rank is not None:
-                    page = redis_client.zrevrange(
+                    backlog_page = redis_client.zrevrange(
                         redis_key,
                         cursor_rank + 1,
-                        cursor_rank + STALE_INSIGHT_SCAN_BUDGET,
+                        cursor_rank + backlog_budget,
                     )
-            if page is None:
-                page = redis_client.zrevrangebyscore(
+            if backlog_page is None:
+                backlog_page = redis_client.zrevrangebyscore(
                     name=redis_key,
                     max=f"({cursor_score}",
                     min="-inf",
                     start=0,
-                    num=STALE_INSIGHT_SCAN_BUDGET,
+                    num=backlog_budget,
                 )
 
-    if page is None:
-        page = redis_client.zrevrangebyscore(
+    if backlog_page is None:
+        backlog_page = redis_client.zrevrangebyscore(
             name=redis_key,
             max=current_time.timestamp(),
             min="-inf",
-            start=0,
-            num=STALE_INSIGHT_SCAN_BUDGET,
+            start=len(hot_page),
+            num=backlog_budget,
         )
 
-    if not page:
+    if has_valid_cursor and len(backlog_page) < backlog_budget:
+        backlog_page.extend(
+            redis_client.zrevrangebyscore(
+                name=redis_key,
+                max=current_time.timestamp(),
+                min="-inf",
+                start=len(hot_page),
+                num=backlog_budget - len(backlog_page),
+            )
+        )
+
+    seen_identifiers: set[bytes] = set()
+    for raw_identifier in itertools.chain(hot_page, backlog_page):
+        if raw_identifier not in seen_identifiers:
+            seen_identifiers.add(raw_identifier)
+            yield raw_identifier.decode("utf-8")
+
+
+def _checkpoint_stale_insight_scan(*, team_id: int, last_identifier: str | None) -> None:
+    redis_client = redis.get_client()
+    redis_key = f"{QueryCacheManagerBase._redis_key_prefix()}:{team_id}"
+    cursor_key = f"cache_warming_cursor:{team_id}"
+    if last_identifier is None:
         redis_client.delete(cursor_key)
         return
-
-    last_member = page[-1]
-    last_score = redis_client.zscore(redis_key, last_member)
+    last_score = redis_client.zscore(redis_key, last_identifier)
     if last_score is not None:
         redis_client.set(
             cursor_key,
-            json.dumps({"member": last_member.decode("utf-8"), "score": last_score}),
+            json.dumps({"member": last_identifier, "score": last_score}),
             ex=STALE_INSIGHT_CURSOR_TTL_SECONDS,
         )
-
-    for raw_identifier in page:
-        yield raw_identifier.decode("utf-8")
+    else:
+        redis_client.delete(cursor_key)
 
 
 def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[tuple[int, Optional[int]]]:
@@ -357,6 +387,10 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
             )
 
     STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(len(stale_insights))
+    _checkpoint_stale_insight_scan(
+        team_id=team.pk,
+        last_identifier=stale_insights[-1] if stale_insights else None,
+    )
 
     selected_candidates = [entry[2] for entry in sorted(candidate_heap, reverse=True)]
     for candidate in selected_candidates:

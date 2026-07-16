@@ -14,7 +14,8 @@ This reference describes the current architecture. Run `scripts/refresh-referenc
 
 ## Warming priority
 
-- Candidate collection scans a fixed per-team stale-entry budget and stores a score/member continuation cursor for the next invocation.
+- Candidate collection reserves part of a fixed per-team budget for the current hot set and uses the remainder for score/member cursor backlog progress.
+- Continuation wraps within the same invocation when it reaches the end, and checkpoints only after candidate processing succeeds.
 - Standalone insights use recent `InsightViewed` activity and receive human priority.
 - Dashboard candidates use source tiers that enforce human above embedded and embedded above API before miss pressure.
 - Recency and frequency bonuses are bounded within a source tier, so high-volume API traffic cannot cross a tier by itself.
