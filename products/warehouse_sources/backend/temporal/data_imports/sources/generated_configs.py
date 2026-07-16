@@ -1037,12 +1037,14 @@ class CoupaSourceConfig(config.Config):
 
 @config.config
 class CoverallsSourceConfig(config.Config):
-    pass
+    repositories: str
+    service: Literal["github", "gitlab", "bitbucket"] = config.value(default="github")
+    api_token: str | None = None
 
 
 @config.config
 class CratesIOSourceConfig(config.Config):
-    pass
+    crates: str
 
 
 @config.config
@@ -1602,7 +1604,7 @@ class FreshserviceSourceConfig(config.Config):
 
 @config.config
 class FrillSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1678,7 +1680,8 @@ class GitguardianSourceConfig(config.Config):
 @config.config
 class GithubSourceConfig(config.Config):
     auth_method: GithubAuthMethodConfig
-    repository: str
+    repositories: list[str] | None = config.value(converter=config.str_to_optional_list, default_factory=lambda: None)
+    repository: str | None = None
 
 
 @config.config
@@ -3363,7 +3366,9 @@ class QualtricsSourceConfig(config.Config):
 
 @config.config
 class QualysVmdrSourceConfig(config.Config):
-    pass
+    api_server: str
+    username: str
+    password: str
 
 
 @config.config
