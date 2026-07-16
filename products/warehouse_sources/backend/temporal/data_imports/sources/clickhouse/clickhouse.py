@@ -112,6 +112,14 @@ _TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
     "Tunnel connection failed: 502",
     "Tunnel connection failed: 503",
     "Tunnel connection failed: 504",
+    # The upstream ClickHouse endpoint (or a gateway in front of it) answered
+    # our connect-time handshake query with a 429 Too Many Requests
+    # ("HTTPDriver for <url> returned response code 429"). This is transient
+    # rate-limiting that clears on its own, so a fresh attempt after a short
+    # pause recovers; if it persists past our attempts we re-raise and Temporal
+    # retries with longer backoff. We match only 429 — deterministic codes like
+    # 404 stay out of the retry path (that one is non-retryable in source.py).
+    "returned response code 429",
 )
 
 
