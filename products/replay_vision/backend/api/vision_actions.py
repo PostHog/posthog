@@ -3,6 +3,7 @@ from typing import Any, NoReturn, cast, get_args
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
+from django.shortcuts import get_object_or_404
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -500,13 +501,14 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ):
             raise PermissionDenied("Configuring a Replay Vision action requires session_recording read access.")
 
-    def get_object(self) -> VisionAction:
-        action = super().get_object()
+    def safely_get_object(self, queryset: QuerySet[VisionAction]) -> VisionAction:
+        action = get_object_or_404(queryset, pk=self.kwargs["pk"])
         # Per-scanner object-level grants are stored against `replay_scanner` + the scanner's id, not
-        # `vision_action` + the action's id — the default get_object() check above (against `action`
-        # itself) can only ever see the resource-level default, never a scanner-specific override. Check
-        # the scanner directly too, mirroring the `retry`/`label` pattern in observations.py, so a
-        # scanner-specific grant or restriction actually applies to its actions.
+        # `vision_action` + the action's id — the generic check_object_permissions() call the base
+        # get_object() makes against `action` itself can only ever see the resource-level default,
+        # never a scanner-specific override. Check the scanner directly too, mirroring the
+        # `retry`/`label` pattern in observations.py, so a scanner-specific grant or restriction
+        # actually applies to its actions.
         self.check_object_permissions(self.request, action.scanner)
         return action
 
