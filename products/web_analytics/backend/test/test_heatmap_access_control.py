@@ -8,11 +8,15 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.kafka_client.client import ClickhouseProducer
+from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
+from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
 
 from products.web_analytics.backend.models import SavedHeatmap
+from products.web_analytics.backend.test.test_heatmaps_api import INSERT_SINGLE_HEATMAP_EVENT
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -196,3 +200,101 @@ class TestHeatmapAccessControl(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(self._detail_url())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["user_access_level"], "editor")
+
+
+@pytest.mark.ee
+class TestHeatmapAggregateQueryAccessControl(ClickhouseTestMixin, APIBaseTest):
+    """
+    Regression coverage for a privilege-escalation reported on the access-control PR: `heatmap`
+    is the shared `scope_object` for both `SavedHeatmapViewSet` (persisted, object-bindable) and
+    `HeatmapViewSet`/`LegacyHeatmapViewSet` (ClickHouse aggregate queries with no object to bind
+    to). `AccessControlPermission`'s generic "has ANY specific-object grant for this resource
+    type" fallback doesn't know the aggregate endpoints have no real object — so a viewer granted
+    access to ONE saved heatmap could query aggregate click/event data for ANY url on the site.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        self.viewer_user = User.objects.create_and_join(self.organization, "viewer2@posthog.com", "testtest")
+
+        self.authorized_heatmap = SavedHeatmap.objects.create(
+            team=self.team,
+            name="authorized",
+            url="https://example.com/authorized",
+            data_url="https://example.com/authorized",
+            target_widths=[1024],
+            created_by=self.user,
+            status=SavedHeatmap.Status.COMPLETED,
+        )
+
+        # Resource-level default is "none" — the only access this user has is the object-level
+        # grant on `self.authorized_heatmap` below.
+        AccessControl.objects.create(
+            team=self.team, resource="heatmap", resource_id=None, access_level="none", organization_member=None
+        )
+        membership = OrganizationMembership.objects.get(user=self.viewer_user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="heatmap",
+            resource_id=str(self.authorized_heatmap.id),
+            access_level="viewer",
+            organization_member=membership,
+        )
+
+        self._insert_heatmap_click(url="https://example.com/authorized")
+        self._insert_heatmap_click(url="https://example.com/secret-unrelated-page")
+
+    def _insert_heatmap_click(self, url: str) -> None:
+        p = ClickhouseProducer()
+        p.produce(
+            topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+            sql=INSERT_SINGLE_HEATMAP_EVENT,
+            data={
+                "session_id": "session1",
+                "team_id": self.team.pk,
+                "distinct_id": "user1",
+                "timestamp": format_clickhouse_timestamp("2023-03-08T09:00:00"),
+                "x": 10,
+                "y": 20,
+                "scale_factor": 16,
+                "viewport_width": 100,
+                "viewport_height": 100,
+                "type": "click",
+                "pointer_target_fixed": True,
+                "current_url": url,
+            },
+        )
+
+    def _query_aggregate(self, url_exact: str):
+        self.client.force_login(self.viewer_user)
+        return self.client.get(
+            f"/api/environments/{self.team.pk}/heatmaps/?type=click&date_from=2023-03-01&url_exact={url_exact}"
+        )
+
+    def test_object_grant_does_not_expose_aggregate_data_for_other_urls(self):
+        response = self._query_aggregate("https://example.com/secret-unrelated-page")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+
+    def test_object_grant_still_allows_aggregate_data_for_the_authorized_url(self):
+        # Permission-level check only: confirms the fix doesn't regress the legitimate case
+        # (the point of adding object-level grants at all) by blocking the very url the user
+        # was granted access to. Row counts depend on the heatmaps ClickHouse table, which is
+        # exercised in test_heatmaps_api.py.
+        response = self._query_aggregate("https://example.com/authorized")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+    def test_events_drilldown_does_not_expose_other_urls(self):
+        self.client.force_login(self.viewer_user)
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/heatmaps/events/"
+            "?type=click&date_from=2023-03-01"
+            "&url_exact=https://example.com/secret-unrelated-page"
+            '&points=[{"x":0.1,"y":320}]'
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())

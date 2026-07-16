@@ -33,6 +33,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.permissions import AccessControlPermission, is_service_auth
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -424,10 +425,61 @@ class HeatmapEventsResponseSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(required=True)
 
 
+class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
+    """
+    `HeatmapViewSet`/`LegacyHeatmapViewSet` share `scope_object = "heatmap"` with
+    `SavedHeatmapViewSet`, whose rows can carry independent object-level access grants.
+    `list`/`events` have no bindable object of their own — they're arbitrary ClickHouse
+    aggregate queries filtered by `url_exact`/`url_pattern` request params — so without this
+    override, the base class's "has ANY specific-object grant for this resource type"
+    fallback would let a viewer of ONE saved heatmap read aggregate click/event data for ANY
+    url on the site.
+
+    Scope the fallback down: a specific-object grant only satisfies this permission when the
+    request's `url_exact`/`url_pattern` matches a `SavedHeatmap.data_url` (or `url`, its
+    default) that the user has at least the required access level on — the same value the
+    in-app heatmap overlay always queries with (see heatmapDataLogic.ts).
+    """
+
+    def has_permission(self, request, view) -> bool:
+        if is_service_auth(request):
+            return True
+
+        uac = self._get_user_access_control(request, view)
+        required_level = self._get_required_access_level(request, view)
+
+        if not required_level:
+            return True
+
+        if uac.check_access_level_for_resource("heatmap", required_level=required_level):
+            return True
+
+        try:
+            team = view.team
+        except (ValueError, KeyError):
+            return True
+
+        query_url = request.query_params.get("url_exact") or request.query_params.get("url_pattern")
+        if not query_url:
+            self.message = f"You do not have {required_level} access to this resource."
+            return False
+
+        candidates = SavedHeatmap.objects.filter(team=team, deleted=False).filter(
+            Q(data_url=query_url) | (Q(data_url__isnull=True) & Q(url=query_url))
+        )
+        for candidate in candidates:
+            if uac.check_access_level_for_object(candidate, required_level=required_level):
+                return True
+
+        self.message = f"You do not have {required_level} access to this resource."
+        return False
+
+
 class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [ExportRendererAuthentication]
     scope_object = "heatmap"
     scope_object_read_actions = ["list", "retrieve", "events"]
+    permission_classes = [HeatmapAggregateQueryScopingPermission]
 
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapsResponseSerializer
