@@ -71,7 +71,22 @@ For email, call `send_alert_email(...)` through the facade. The product must cho
 
 ## 6. Add scheduling and due selection
 
-Import shared scheduling math from `products.alerts.backend.scheduling`.
+Import the product-facing scheduling contract directly from its implementation module:
+
+```python
+from products.alerts.backend.scheduling import (
+    CalendarInterval,
+    advance_next_check_at,
+    compute_shard_offset_seconds,
+    is_utc_datetime_blocked,
+    is_weekend,
+    next_calendar_check_time,
+    parse_blocked_windows_tuples,
+    scan_next_unblocked_utc,
+    to_calendar_interval,
+    validate_and_normalize_schedule_restriction,
+)
+```
 
 For fixed-minute checks:
 
@@ -82,7 +97,7 @@ For fixed-minute checks:
 
 For calendar-aligned checks:
 
-- Convert product interval values to `CalendarInterval`, then use `next_calendar_check_time(...)` with the team's IANA timezone.
+- Convert product interval values with `to_calendar_interval(...)`, then use `next_calendar_check_time(...)` with the team's IANA timezone.
 - Validate stored quiet-hour payloads with `validate_and_normalize_schedule_restriction(...)` and parse them with `parse_blocked_windows_tuples(...)`.
 - Use `scan_next_unblocked_utc(...)`, `is_utc_datetime_blocked(...)`, and `is_weekend(...)` instead of recreating timezone or DST logic.
 - Keep model access, API error translation, bounded-retry logging, and `next_check_at` persistence in the product adapter.

@@ -4,13 +4,13 @@ Use this reference to decide where code belongs before editing it.
 
 ## Layer map
 
-| Layer                              | Location                                                     | Owns                                                                                                                                  |
-| ---------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Pure lifecycle decisions           | `common/alerting/`                                           | State transitions, policy decisions, and notification actions                                                                         |
-| Shared alert infrastructure        | `products/alerts/backend/`                                   | Scheduling math, destination configuration and persistence, internal-event delivery, email transport, insight alert models/API, and insight evaluation |
-| Product adapter                    | `products/<name>/backend/`                                   | Domain evaluation, model snapshots, the single mutator, event payloads, allowed destinations, due queries, history, and orchestration |
-| Shared alert creation UI           | `frontend/src/lib/components/Alerting/AlertWizard/`          | Reusable HogFunction destination, trigger, and configuration flow                                                                     |
-| Product UI                         | `products/<name>/frontend/` or `frontend/src/scenes/<name>/` | Alert settings, product-specific fields, entry points, detail pages, and wizard configuration                                         |
+| Layer                       | Location                                                     | Owns                                                                                                                                                   |
+| --------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Pure lifecycle decisions    | `common/alerting/`                                           | State transitions, policy decisions, and notification actions                                                                                          |
+| Shared alert infrastructure | `products/alerts/backend/`                                   | Scheduling math, destination configuration and persistence, internal-event delivery, email transport, insight alert models/API, and insight evaluation |
+| Product adapter             | `products/<name>/backend/`                                   | Domain evaluation, model snapshots, the single mutator, event payloads, allowed destinations, due queries, history, and orchestration                  |
+| Shared alert creation UI    | `frontend/src/lib/components/Alerting/AlertWizard/`          | Reusable HogFunction destination, trigger, and configuration flow                                                                                      |
+| Product UI                  | `products/<name>/frontend/` or `frontend/src/scenes/<name>/` | Alert settings, product-specific fields, entry points, detail pages, and wizard configuration                                                          |
 
 `products/logs` is the reference adopter for the shared lifecycle, fixed-cadence scheduling, HogFunction destinations, delivery rollback, and product-owned Temporal orchestration.
 
@@ -71,6 +71,7 @@ Email callers use `send_alert_email(...)` through the facade. The caller owns re
 
 - `compute_shard_offset_seconds(...)` deterministically assigns a UUID-keyed alert to scheduler ticks.
 - `advance_next_check_at(...)` advances from the prior schedule, skips missed intervals, snaps to the midnight-anchored cadence grid, and applies the shard offset.
+- `CalendarInterval` and `to_calendar_interval(...)` define the product-facing interval contract.
 - `next_calendar_check_time(...)` computes fixed-cadence or team-local daily, weekly, and monthly anchors while preserving wall-clock behavior across DST changes.
 - `validate_and_normalize_schedule_restriction(...)` and `parse_blocked_windows_tuples(...)` validate product payloads and produce the pure blocked-window contract.
 - `scan_next_unblocked_utc(...)`, `is_utc_datetime_blocked(...)`, and `is_weekend(...)` apply timezone-aware restrictions without importing Django models.
