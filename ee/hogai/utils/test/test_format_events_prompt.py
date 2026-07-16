@@ -8,6 +8,8 @@ from posthog.schema import CachedTeamTaxonomyQueryResponse, MaxEventContext, Tea
 
 from posthog.hogql_queries.query_runner import ExecutionMode
 
+from products.event_definitions.backend.models.event_definition import EventDefinition
+
 from ee.hogai.utils.helpers import format_events_xml
 
 # Mock CORE_FILTER_DEFINITIONS_BY_GROUP for consistent testing
@@ -366,6 +368,34 @@ class TestFormatEventsPrompt(BaseTest):
 
         # Should only contain "All events" since context events have no names
         self.assertEqual(set(event_names), {"All events"})
+
+    @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
+    def test_format_events_xml_includes_all_time_events_not_seen_recently(self, mock_runner_class):
+        """Events that exist in the registry but have no recent data must still be listed.
+
+        Otherwise Max sees a list without them and confidently claims they don't exist.
+        """
+        # The 30-day taxonomy scan only knows about $pageview...
+        self._setup_mock_runner(mock_runner_class, self._create_taxonomy_items([("$pageview", 100)]))
+        # ...but the team has a custom event that simply hasn't fired in the recent window.
+        EventDefinition.objects.create(team=self.team, name="stale_custom_event")
+
+        result = format_events_xml([], self.team)
+        event_names = self._get_event_names_from_xml(result)
+
+        self.assertIn("$pageview", event_names)
+        self.assertIn("stale_custom_event", event_names)
+
+    @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
+    def test_format_events_xml_all_time_events_do_not_duplicate_recent_events(self, mock_runner_class):
+        """An event present in both the recent scan and the registry must appear only once."""
+        self._setup_mock_runner(mock_runner_class, self._create_taxonomy_items([("custom_event", 100)]))
+        EventDefinition.objects.create(team=self.team, name="custom_event")
+
+        result = format_events_xml([], self.team)
+        event_names = self._get_event_names_from_xml(result)
+
+        self.assertEqual(event_names.count("custom_event"), 1)
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_format_events_xml_calls_runner_with_correct_parameters(self, mock_runner_class):

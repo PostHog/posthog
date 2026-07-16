@@ -8,6 +8,8 @@ from typing import Any, Optional, TypeVar, Union, cast
 from urllib.parse import urlparse
 from uuid import uuid4
 
+from django.db.models import F
+
 from jsonref import replace_refs
 from langchain_core.messages import (
     AIMessage,
@@ -43,6 +45,8 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
+from products.event_definitions.backend.models.event_definition import EventDefinition
+
 from ee.hogai.utils.anthropic import SUPPORTED_ANTHROPIC_BLOCKS
 from ee.hogai.utils.types.base import (
     ArtifactRefMessage,
@@ -50,6 +54,10 @@ from ee.hogai.utils.types.base import (
     AssistantMessageUnion,
     ConversationTitleAction,
 )
+
+# Cap on how many all-time events (from the EventDefinition registry) we append to the live 30-day
+# event list, so the prompt stays bounded for teams with a very large taxonomy.
+MAX_ALL_TIME_EVENTS = 500
 
 
 def sanitize_for_system_reminder(text: str) -> str:
@@ -170,6 +178,29 @@ def convert_tool_messages_to_dict(messages: Sequence[AssistantMessageUnion]) -> 
     return {message.tool_call_id: message for message in messages if isinstance(message, AssistantToolCallMessage)}
 
 
+def _all_time_event_names(team: Team, exclude: set[str], limit: int) -> list[str]:
+    """Event names ever seen for the team's project, most-recently-seen first, excluding names already present.
+
+    The taxonomy query only sees the recent data window, so events that exist but haven't fired lately are missing
+    from it. The EventDefinition registry records every event ever seen (no time cutoff), so we use it to surface
+    those events and stop the model from claiming they don't exist.
+    """
+    # Fetch a bounded number of candidates; recently-seen events (already in `exclude`) sort to the top.
+    candidates = (
+        EventDefinition.objects.filter(team__project_id=team.project_id)
+        .order_by(F("last_seen_at").desc(nulls_last=True), "name")
+        .values_list("name", flat=True)[: limit + len(exclude)]
+    )
+    names: list[str] = []
+    for name in candidates:
+        if name in exclude:
+            continue
+        names.append(name)
+        if len(names) >= limit:
+            break
+    return names
+
+
 def _process_events_data(
     events_in_context: list[MaxEventContext],
     team: Team,
@@ -205,6 +236,12 @@ def _process_events_data(
             events.append(event.name)
         if event.name and event.description:
             event_to_description[event.name] = event.description
+
+    # Augment with the team's all-time events so events that exist but have no recent data are still listed
+    # (and Max stops claiming they don't exist). Only when the whole list fits on one page, so we don't
+    # duplicate events across paginated responses for teams with a very large taxonomy.
+    if not has_more and not offset:
+        events.extend(_all_time_event_names(team, exclude=set(events), limit=MAX_ALL_TIME_EVENTS))
 
     # Create a set of event names from context for efficient lookup
     context_event_names = {event.name for event in events_in_context if event.name}

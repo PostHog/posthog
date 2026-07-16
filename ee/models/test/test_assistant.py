@@ -113,8 +113,20 @@ class TestCoreMemory(BaseTest):
         await self.core_memory.aset_core_memory(short_text)
         self.assertEqual(self.core_memory.formatted_text, short_text)
 
-        # Test formatted text with long content
+        # Memory within the hard cap is surfaced in full — no silent mid-truncation.
         long_text = "x" * 6000
         await self.core_memory.aset_core_memory(long_text)
-        self.assertEqual(len(self.core_memory.formatted_text), 5001)
-        self.assertEqual(self.core_memory.formatted_text, long_text[:2500] + "…" + long_text[-2500:])
+        self.assertEqual(self.core_memory.formatted_text, long_text)
+
+        at_cap = "y" * CORE_MEMORY_MAX_CHARACTERS
+        await self.core_memory.aset_core_memory(at_cap)
+        self.assertEqual(self.core_memory.formatted_text, at_cap)
+
+        # Legacy rows that exceed the cap are truncated explicitly with a visible notice.
+        oversized = "z" * (CORE_MEMORY_MAX_CHARACTERS + 5000)
+        await self.core_memory.aset_core_memory(oversized)
+        formatted = self.core_memory.formatted_text
+        self.assertIn("memory truncated", formatted)
+        self.assertLessEqual(len(formatted), CORE_MEMORY_MAX_CHARACTERS)
+        self.assertTrue(formatted.startswith("z"))
+        self.assertTrue(formatted.endswith("z"))

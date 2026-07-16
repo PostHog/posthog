@@ -306,17 +306,16 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
     def test_retrieve_event_properties_returns_descriptive_feedback_without_properties(self):
         toolkit = DummyToolkit(self.team, self.user)
-        self.assertEqual(
-            toolkit.retrieve_event_or_action_properties("pageview"),
-            "Properties do not exist in the taxonomy for the event pageview.",
-        )
+        result = toolkit.retrieve_event_or_action_properties("pageview")
+        self.assertIn("No properties were found for the event pageview", result)
+        # Must not assert nonexistence — absence of recent data isn't proof the event doesn't exist.
+        self.assertIn("Do not tell the user the event pageview does not exist", result)
 
     def test_empty_events(self):
         toolkit = DummyToolkit(self.team, self.user)
-        self.assertEqual(
-            toolkit.retrieve_event_or_action_properties("test"),
-            "Properties do not exist in the taxonomy for the event test.",
-        )
+        result = toolkit.retrieve_event_or_action_properties("test")
+        self.assertIn("No properties were found for the event test", result)
+        self.assertIn("Do not tell the user the event test does not exist", result)
 
         _create_person(
             distinct_ids=["person1"],
@@ -331,10 +330,8 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         )
 
         toolkit = DummyToolkit(self.team, self.user)
-        self.assertEqual(
-            toolkit.retrieve_event_or_action_properties("event1"),
-            "Properties do not exist in the taxonomy for the event event1.",
-        )
+        result = toolkit.retrieve_event_or_action_properties("event1")
+        self.assertIn("No properties were found for the event event1", result)
 
     def test_retrieve_event_or_action_properties(self):
         self._create_taxonomy()

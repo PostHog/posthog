@@ -28,6 +28,12 @@ HEAVY_COLUMN_TO_PROPERTY: dict[str, str] = {v: k for k, v in AI_PROPERTY_TO_COLU
 # Keep in sync with the SQL tuple in trace_query_runner.py _build_query().
 HEAVY_COLUMN_NAMES: tuple[str, ...] = tuple(HEAVY_COLUMN_TO_PROPERTY.keys())
 
+# How far back the AI taxonomy queries scan raw events when computing event/property popularity
+# and sample values. This governs counts and sample values (which are legitimately recency-scoped),
+# NOT existence — event existence is sourced from the all-time EventDefinition/PropertyDefinition
+# registries, so an event that hasn't fired within this window is still reported as existing.
+TAXONOMY_DATA_WINDOW_DAYS = 30
+
 
 def merge_heavy_properties(
     properties_json: str,

@@ -11,7 +11,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import to_printed_hogql
 
 from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
+from posthog.hogql_queries.ai.utils import TAXONOMY_DATA_WINDOW_DAYS, TaxonomyCacheMixin
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
@@ -86,13 +86,14 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxon
                     count() as count
                 FROM events
                 WHERE
-                    timestamp >= now () - INTERVAL 30 DAY
+                    timestamp >= now () - INTERVAL {window_days} DAY
                 GROUP BY
                     event
                 ORDER BY
                     count DESC,
                     event ASC
-            """
+            """,
+            placeholders={"window_days": ast.Constant(value=TAXONOMY_DATA_WINDOW_DAYS)},
         )
 
         if IGNORED_EVENT_NAMES:

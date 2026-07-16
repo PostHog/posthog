@@ -314,11 +314,15 @@ class CoreMemory(UUIDTModel):
 
     @property
     def formatted_text(self) -> str:
-        if len(self.text) > 5000:
-            # If memory text exceeds 5000 characters, truncate it. For the user, the most important bits are at the start
-            # (i.e. foundational /init info) and at the end (i.e. freshest memories)
-            return self.text[:2500] + "…" + self.text[-2500:]
-        return self.text
+        # Writes are capped at CORE_MEMORY_MAX_CHARACTERS (see aappend/areplace_core_memory), so under normal
+        # operation the whole memory fits and we surface it in full. We previously dropped the middle of any memory
+        # over 5000 chars, which silently hid durable facts from the model — the cause of memory "degrading" as it grew.
+        if len(self.text) <= CORE_MEMORY_MAX_CHARACTERS:
+            return self.text
+        # Legacy rows can still exceed the cap. Truncate explicitly so the omission is visible rather than silent.
+        notice = "\n…[memory truncated — exceeds maximum size; free up space in Settings → PostHog AI]…\n"
+        keep = (CORE_MEMORY_MAX_CHARACTERS - len(notice)) // 2
+        return self.text[:keep] + notice + self.text[-keep:]
 
     @property
     def answers_left(self) -> int:
