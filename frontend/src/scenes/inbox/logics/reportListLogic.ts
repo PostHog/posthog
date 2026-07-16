@@ -232,22 +232,6 @@ export interface reportListLogicMeta {
         hasMore: (reportsResponse: CountedPaginatedResponse<SignalReport> | null) => boolean
         isLoaded: (reportsResponse: CountedPaginatedResponse<SignalReport> | null) => boolean
     }
-    __keaTypeGenInternalReducerActions: {
-        'load user success (scenes.userLogic)': (
-            user: UserType | null,
-            payload?: {
-                resetOnFailure: boolean | undefined
-            }
-        ) => {
-            payload: {
-                payload?: {
-                    resetOnFailure: boolean | undefined
-                }
-                user: UserType | null
-            }
-            type: 'load user success (scenes.userLogic)'
-        }
-    }
 }
 
 export type reportListLogicType = MakeLogicType<
