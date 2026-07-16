@@ -22,7 +22,6 @@ import {
 
 import type { WebAnalyticsUserPreferencesApi } from '../../../../../products/web_analytics/frontend/generated/api.schemas'
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { PropertyFilterType } from '../../../types'
 import { deriveTrackProgress } from './achievementProgress'
 import { isWebAnalyticsAchievementsEnabled } from './gating'
 import { webAnalyticsAchievementsPreferencesLogic } from './webAnalyticsAchievementsPreferencesLogic'
@@ -138,66 +137,6 @@ export interface webAnalyticsAchievementsLogicMeta {
             progressByTrack: Record<string, AchievementProgressApi>
         ) => number
         totalStages: (definitions: AchievementDefinitionApi[]) => number
-    }
-    __keaTypeGenInternalReducerActions: {
-        'report web analytics filter applied (lib.utils.eventUsageLogic)': (props: {
-            filter_type: string
-            property_filter_category?: PropertyFilterType
-            total_filter_count: number
-        }) => {
-            payload: {
-                props: {
-                    filter_type: string
-                    property_filter_category?: PropertyFilterType | undefined
-                    total_filter_count: number
-                }
-            }
-            type: 'report web analytics filter applied (lib.utils.eventUsageLogic)'
-        }
-        'report web analytics filter removed (lib.utils.eventUsageLogic)': (props: {
-            filter_type: string
-            property_filter_category?: PropertyFilterType
-            total_filter_count: number
-        }) => {
-            payload: {
-                props: {
-                    filter_type: string
-                    property_filter_category?: PropertyFilterType | undefined
-                    total_filter_count: number
-                }
-            }
-            type: 'report web analytics filter removed (lib.utils.eventUsageLogic)'
-        }
-        'report web analytics date range changed (lib.utils.eventUsageLogic)': (props: {
-            date_from: string | null
-            date_to: string | null
-            interval: string
-        }) => {
-            payload: {
-                props: {
-                    date_from: string | null
-                    date_to: string | null
-                    interval: string
-                }
-            }
-            type: 'report web analytics date range changed (lib.utils.eventUsageLogic)'
-        }
-        'report web analytics compare toggled (lib.utils.eventUsageLogic)': (props: { enabled: boolean }) => {
-            payload: {
-                props: {
-                    enabled: boolean
-                }
-            }
-            type: 'report web analytics compare toggled (lib.utils.eventUsageLogic)'
-        }
-        'report web analytics path cleaning toggled (lib.utils.eventUsageLogic)': (props: { enabled: boolean }) => {
-            payload: {
-                props: {
-                    enabled: boolean
-                }
-            }
-            type: 'report web analytics path cleaning toggled (lib.utils.eventUsageLogic)'
-        }
     }
 }
 

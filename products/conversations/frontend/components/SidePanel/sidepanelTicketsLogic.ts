@@ -89,7 +89,7 @@ export interface sidepanelTicketsLogicActions {
     closeSupportForm: () => {
         value: true
     } // supportLogic
-    resetSendSupportRequest: (values?: SupportFormFields) => {
+    resetSendSupportRequest: (values?: SupportFormFields | undefined) => {
         values?: SupportFormFields
     } // supportLogic
     initTickets: () => {

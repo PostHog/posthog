@@ -254,7 +254,7 @@ export interface webAnalyticsLogicValues {
 export interface webAnalyticsLogicActions {
     addAuthorizedUrl: (
         url: string,
-        launch?: boolean
+        launch?: boolean | undefined
     ) => {
         launch: boolean | undefined
         url: string
