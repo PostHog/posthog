@@ -3596,7 +3596,7 @@
         }
     },
     "external-data-sources-connections-list": {
-        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source (direct-query Postgres and MySQL connections). Returns a lightweight id, prefix, and engine for each — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to discover valid connectionId values.",
+        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source: pure direct-query connections (Postgres, MySQL, Snowflake, Redshift) plus synced warehouse sources that have live queries enabled (direct_query_enabled). Returns a lightweight id, prefix, engine, source_type, access_method ('direct' for pure live-query sources, 'warehouse' for synced sources with live queries on), and supports_hogql for each; when supports_hogql is false, only raw SQL (sendRawQuery) works. Unlike external-data-sources-list, it does not include table schemas or sources that cannot be live-queried. Use this to discover valid connectionId values.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List direct-query connections",
