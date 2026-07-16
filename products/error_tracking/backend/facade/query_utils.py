@@ -316,6 +316,8 @@ def normalize_error_property(
         return normalize_exception_list(value, include_stacktrace, only_app_frames, include_code_variables)
     if name in {"$exception_releases", "$cymbal_errors"}:
         return parse_jsonish(value)
+    if name == "$exception_handled" and isinstance(value, str) and value.lower() in {"true", "false"}:
+        return value.lower() == "true"
     if name == "$exception_types":
         return normalize_string_array(value)
     if name == "$exception_values":
