@@ -1,0 +1,114 @@
+@layer components {
+    /*
+     * Reasoning stream. The row, trigger affordance, chevron, rail, collapse, and shimmer come from
+     * `lib/disclosure.css`; what's left here is the part only reasoning has — a viewport that caps
+     * the stream's height, pins it to the newest step, and softens the edge it's clipping.
+     *
+     * `quill-chat-reasoning` is the block: a column stacking `__trigger` above `__panel`, same shape
+     * as `quill-chat-marker--collapsible`. The panel wraps a `__viewport` around a `__stream` of
+     * `__step` paragraphs.
+     */
+    .quill-chat-reasoning {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        align-items: stretch;
+        width: 100%;
+    }
+
+    /*
+     * Force-open while thinking: the row is inert rather than a dead-looking disabled control, so it
+     * keeps full opacity and drops the pointer that would promise a toggle. Keyed off `aria-disabled`
+     * because that's what Base UI sets — `:disabled` would never match.
+     */
+    .quill-chat-reasoning__trigger[aria-disabled='true'] {
+        cursor: default;
+        opacity: 1;
+    }
+
+    .quill-chat-reasoning__label {
+        min-width: 0;
+        overflow-wrap: break-word;
+    }
+
+    /*
+     * Height cap + edge fades. The mask softens whichever edge has content beyond it; the fade inset
+     * collapses to 0 on an edge that's already flush, so a short stream renders with no fade at all.
+     */
+    .quill-chat-reasoning__viewport {
+        --quill-chat-reasoning-fade-top: 0px;
+        --quill-chat-reasoning-fade-bottom: 0px;
+
+        max-height: var(--quill-chat-reasoning-max-height, 11.25rem);
+        overflow-y: auto;
+        mask-image: linear-gradient(
+            to bottom,
+            transparent 0,
+            #000 var(--quill-chat-reasoning-fade-top),
+            #000 calc(100% - var(--quill-chat-reasoning-fade-bottom)),
+            transparent 100%
+        );
+    }
+
+    /* Thinking scrolls itself to the newest step — the reader doesn't drive it. */
+    .quill-chat-reasoning[data-status='thinking'] .quill-chat-reasoning__viewport {
+        overflow-y: hidden;
+    }
+
+    .quill-chat-reasoning__viewport[data-fade-top] {
+        --quill-chat-reasoning-fade-top: 1rem;
+    }
+
+    .quill-chat-reasoning__viewport[data-fade-bottom] {
+        --quill-chat-reasoning-fade-bottom: 1rem;
+    }
+
+    /*
+     * The stream slides up as it outgrows the viewport, carrying the older steps off the top edge.
+     * It's on-screen content moving rather than entering, so it eases in and out (a car pulling away
+     * and braking) instead of the ease-out an entrance would take. One step of travel, so it sits at
+     * the short end of the UI range.
+     */
+    .quill-chat-reasoning__stream {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        transition: translate 250ms cubic-bezier(0.645, 0.045, 0.355, 1);
+        translate: 0 var(--quill-chat-reasoning-offset, 0);
+        will-change: transform;
+    }
+
+    .quill-chat-reasoning__step {
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.625;
+        color: var(--muted-foreground);
+        text-wrap: pretty;
+    }
+
+    /* A step's reveal and the panel growth that admits it are one event, so they share a curve. */
+    .quill-chat-reasoning[data-status='thinking'] .quill-chat-reasoning__step {
+        animation: quill-chat-reasoning__step-in 200ms cubic-bezier(0.215, 0.61, 0.355, 1);
+    }
+
+    @keyframes quill-chat-reasoning__step-in {
+        from {
+            opacity: 0;
+            translate: 0 0.25rem;
+        }
+
+        to {
+            opacity: 1;
+            translate: 0 0;
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .quill-chat-reasoning__stream {
+            transition: none;
+        }
+
+        .quill-chat-reasoning[data-status='thinking'] .quill-chat-reasoning__step {
+            animation: none;
+        }
+    }
+}

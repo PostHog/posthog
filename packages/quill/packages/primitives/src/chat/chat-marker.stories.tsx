@@ -45,7 +45,7 @@ export const Live = {
                 <ChatMarkerIcon>
                     <Spinner />
                 </ChatMarkerIcon>
-                <ChatMarkerContent className="shimmer">Editing components/thread.tsx…</ChatMarkerContent>
+                <ChatMarkerContent className="quill-chat-shimmer">Editing components/thread.tsx…</ChatMarkerContent>
             </ChatMarker>
         </div>
     ),

@@ -1,0 +1,64 @@
+@layer components {
+    /*
+     * The status bullet every chat row walks through: a leading icon that swaps as work progresses,
+     * and the two tints that read as an outcome. Shared by `ChatSource` (a page being fetched) and
+     * `ChatTask` (a step being done) — each supplies its own icons, since only the middle of the
+     * walk differs; the ends are always "not started yet" and "settled".
+     *
+     * The tints key off `data-status` on whatever row wraps the bullet, so a component opts in by
+     * putting the attribute on its row and the class on its bullet.
+     */
+    .quill-chat-bullet {
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+    }
+
+    .quill-chat-bullet svg:not([class*='size-']) {
+        width: 0.875rem;
+        height: 0.875rem;
+    }
+
+    /* Each status mounts its own icon, so the swap is an entrance: ease-out, and quick. */
+    .quill-chat-bullet > * {
+        animation: quill-chat__bullet-in 150ms cubic-bezier(0.215, 0.61, 0.355, 1);
+    }
+
+    /*
+     * `--success`/`--destructive` are fill tokens; the ink that reads on a surface is the
+     * `-foreground` half of each pair.
+     *
+     * Each tint is matched two ways: `data-status` on an ancestor row (a source, a task) and on the
+     * bullet itself (a header that is its own status). A descendant selector alone silently skips
+     * the second case — an element is not its own descendant.
+     */
+    [data-status='done'] .quill-chat-bullet,
+    .quill-chat-bullet[data-status='done'] {
+        color: var(--success-foreground);
+    }
+
+    [data-status='failed'] .quill-chat-bullet,
+    [data-status='error'] .quill-chat-bullet,
+    .quill-chat-bullet[data-status='failed'],
+    .quill-chat-bullet[data-status='error'] {
+        color: var(--destructive-foreground);
+    }
+
+    @keyframes quill-chat__bullet-in {
+        from {
+            opacity: 0;
+            scale: 0.8;
+        }
+
+        to {
+            opacity: 1;
+            scale: 1;
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .quill-chat-bullet > * {
+            animation: none;
+        }
+    }
+}

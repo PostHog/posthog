@@ -6,6 +6,7 @@ import { ChevronRightIcon } from 'lucide-react'
 import * as React from 'react'
 
 import './chat-marker.css'
+import './lib/disclosure.css'
 import { cn } from '../lib/utils'
 
 /**
@@ -63,7 +64,7 @@ function ChatMarkerFlat({
                 'data-quill': '',
                 'data-slot': 'marker',
                 'data-variant': variant,
-                className: cn(markerVariants({ variant, className })),
+                className: cn('quill-chat-row', markerVariants({ variant, className })),
             } as Omit<React.ComponentProps<'div'>, 'ref'>,
             props
         ),
@@ -97,14 +98,20 @@ function ChatMarkerCollapsible({
             className={cn(markerVariants({ variant }), 'quill-chat-marker--collapsible')}
         >
             <CollapsiblePrimitive.Trigger
-                className={cn('quill-chat-marker__trigger', className)}
+                className={cn('quill-chat-row', 'quill-chat-row--interactive', 'quill-chat-marker__trigger', className)}
                 render={render}
                 {...(props as React.ComponentProps<typeof CollapsiblePrimitive.Trigger>)}
             >
                 {children}
-                <ChevronRightIcon aria-hidden="true" className="quill-chat-marker__chevron" />
+                <ChevronRightIcon
+                    aria-hidden="true"
+                    className={cn('quill-chat-chevron', 'quill-chat-chevron--reveal')}
+                />
             </CollapsiblePrimitive.Trigger>
-            <CollapsiblePrimitive.Panel data-slot="marker-panel" className="quill-chat-marker__panel">
+            <CollapsiblePrimitive.Panel
+                data-slot="marker-panel"
+                className={cn('quill-chat-collapse', 'quill-chat-rail', 'quill-chat-marker__panel')}
+            >
                 {body}
             </CollapsiblePrimitive.Panel>
         </CollapsiblePrimitive.Root>
@@ -112,7 +119,14 @@ function ChatMarkerCollapsible({
 }
 
 function ChatMarkerIcon({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
-    return <span data-slot="marker-icon" aria-hidden="true" className={cn('quill-chat-marker__icon', className)} {...props} />
+    return (
+        <span
+            data-slot="marker-icon"
+            aria-hidden="true"
+            className={cn('quill-chat-marker__icon', className)}
+            {...props}
+        />
+    )
 }
 
 function ChatMarkerContent({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
