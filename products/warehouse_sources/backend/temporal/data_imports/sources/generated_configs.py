@@ -1054,7 +1054,7 @@ class CriteoSourceConfig(config.Config):
 
 @config.config
 class CronitorSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

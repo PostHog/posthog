@@ -139,6 +139,7 @@ the row lists both.
 | coupa                            | HTTP                        | requests                                                        | ✅                          |
 | coveralls                        | HTTP                        | requests                                                        | ✅                          |
 | crates_io                        | HTTP                        | requests                                                        | ✅                          |
+| cronitor                         | HTTP                        | requests                                                        | ✅                          |
 | crunchbase                       | HTTP                        | requests                                                        | ✅                          |
 | culture_amp                      | HTTP                        | requests                                                        | ✅                          |
 | cursor                           | HTTP                        | requests                                                        | ✅                          |
@@ -610,7 +611,6 @@ doesn't conflict with concurrent PRs.
 - cosmosdb
 - couchbase
 - criteo
-- cronitor
 - curve
 - dagster_cloud
 - databricks
