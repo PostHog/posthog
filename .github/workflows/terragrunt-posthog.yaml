@@ -99,7 +99,7 @@ jobs:
 
             - name: Plan Terraform ${{ matrix.working_dir }}
               if: github.ref != 'refs/heads/master'
-              uses: PostHog/terragrunt-action@8ca7875a6786a8eb884dd53d7c360f0aa5947bfb # v4.3.1
+              uses: datadrivers/terragrunt-action@aa701e2420811b84e587c5c11472ffc41907f81e # v4.4.2
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               with:
@@ -120,7 +120,7 @@ jobs:
 
             - name: Apply Terraform ${{ matrix.working_dir }}
               if: github.ref == 'refs/heads/master'
-              uses: PostHog/terragrunt-action@8ca7875a6786a8eb884dd53d7c360f0aa5947bfb # v4.3.1
+              uses: datadrivers/terragrunt-action@aa701e2420811b84e587c5c11472ffc41907f81e # v4.4.2
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               with:

@@ -64,7 +64,6 @@ You can find your secret key (it starts with `sk_live_` or `sk_test_`) under **S
             iconPath="/static/services/paystack.png",
             docsUrl="https://posthog.com/docs/cdp/sources/paystack",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import {
     BindLogic,
     actions,
@@ -36,7 +36,6 @@ import {
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { DataColorTheme } from 'lib/colors'
-import { quickFiltersSectionLogic } from 'lib/components/QuickFilters'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
@@ -81,7 +80,6 @@ import {
     DataVisualizationNode,
     HogQLVariable,
     NodeKind,
-    QuickFilterContext,
     RefreshType,
 } from '~/queries/schema/schema-general'
 import {
@@ -101,6 +99,7 @@ import {
     InsightColor,
     InsightModel,
     InsightShortId,
+    IntervalType,
     ProjectTreeRef,
     QueryBasedInsightModel,
     TextModel,
@@ -113,13 +112,11 @@ import { teamLogic } from '../teamLogic'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
 import { BreakdownColorConfig } from './DashboardInsightColorsModal'
 import type { dashboardLogicType } from './dashboardLogicType'
-import { dashboardQuickFiltersLogic } from './dashboardQuickFiltersLogic'
 import {
     BREAKPOINT_COLUMN_COUNTS,
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
     IS_TEST_MODE,
     DEFAULT_AUTO_PREVIEW_TILE_LIMIT,
-    QUICK_FILTER_DEBOUNCE_MS,
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     combineDashboardFilters,
@@ -231,8 +228,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             ['variables'],
             dataThemeLogic,
             ['getTheme'],
-            dashboardQuickFiltersLogic,
-            ['quickFilterPropertyFiltersById'],
         ],
         logic: [dashboardsModel, insightsModel, eventUsageLogic],
     })),
@@ -247,13 +242,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }
         return props.id
     }),
-
-    connect(() => ({
-        actions: [
-            quickFiltersSectionLogic({ context: QuickFilterContext.Dashboards }),
-            ['quickFiltersCommitted', 'quickFiltersUrlRestoreComplete'],
-        ],
-    })),
 
     actions(() => ({
         /**
@@ -346,6 +334,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
+        setInterval: (interval: IntervalType | null) => ({ interval }),
         setExternalFilters: (filters: DashboardFilter) => ({ filters }),
         saveEditModeChanges: () => true,
         resetUrlFilters: () => true,
@@ -357,7 +346,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         applyFilters: true,
         resetUrlVariables: true,
         setInitialVariablesLoaded: (initialVariablesLoaded: boolean) => ({ initialVariablesLoaded }),
-        setInitialQuickFiltersLoaded: (initialQuickFiltersLoaded: boolean) => ({ initialQuickFiltersLoaded }),
         updateDashboardLastRefresh: (lastDashboardRefresh: Dayjs) => ({ lastDashboardRefresh }),
         overrideVariableValue: (variableId: string, value: any, isNull: boolean) => ({
             variableId,
@@ -813,6 +801,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setDates: () => false,
                 setProperties: () => false,
                 setBreakdownFilter: () => false,
+                setInterval: () => false,
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
                 applyFilters: () => true,
@@ -918,7 +907,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } as DashboardType<QueryBasedInsightModel>
                 },
                 [dashboardsModel.actionTypes.tileMovedToDashboard]: (state, { tile, dashboardId }) => {
-                    if (state?.id === dashboardId) {
+                    if (state && state.id === dashboardId) {
                         return {
                             ...state,
                             tiles: [...state.tiles, tile],
@@ -928,7 +917,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
                 [dashboardsModel.actionTypes.updateDashboardInsight]: (
                     state,
-                    { insight, extraDashboardIds, sourceDashboardId }
+                    {
+                        insight,
+                        extraDashboardIds,
+                        sourceDashboardId,
+                    }: {
+                        insight: QueryBasedInsightModel
+                        extraDashboardIds?: number[]
+                        sourceDashboardId?: number
+                    }
                 ) => {
                     if (sourceDashboardId != null && sourceDashboardId !== props.id) {
                         // Insight payload is from another dashboard's refresh; merged query/date range must not leak here.
@@ -1270,13 +1267,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setInitialVariablesLoaded: (_, { initialVariablesLoaded }) => initialVariablesLoaded,
             },
         ],
-        /** Quick filter URL restoration */
-        initialQuickFiltersLoaded: [
-            false,
-            {
-                setInitialQuickFiltersLoaded: (_, { initialQuickFiltersLoaded }) => initialQuickFiltersLoaded,
-            },
-        ],
         externalFilters: [
             {} as DashboardFilter,
             {
@@ -1291,6 +1281,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 properties: undefined,
                 breakdown_filter: undefined,
                 explicitDate: undefined,
+                interval: undefined,
             } as DashboardFilter,
             {
                 setDates: (state, { date_from, date_to, explicitDate }) => ({
@@ -1307,12 +1298,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ...state,
                     breakdown_filter,
                 }),
+                setInterval: (state, { interval }) => ({
+                    ...state,
+                    interval,
+                }),
                 resetIntermittentFilters: () => ({
                     date_from: undefined,
                     date_to: undefined,
                     properties: undefined,
                     breakdown_filter: undefined,
                     explicitDate: undefined,
+                    interval: undefined,
                 }),
             },
         ],
@@ -1457,46 +1453,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (canAutoPreview, hasIntermittentFilters) => !canAutoPreview && hasIntermittentFilters,
         ],
         urlFilters: [() => [router.selectors.searchParams], (searchParams) => parseURLFilters(searchParams)],
-        scopedQuickFiltersAsPropertyFilters: [
-            (s) => [s.dashboard, s.quickFilterPropertyFiltersById],
-            (
-                dashboard: DashboardType<QueryBasedInsightModel> | null,
-                quickFilterPropertyFiltersById: Record<string, AnyPropertyFilter>
-            ): AnyPropertyFilter[] => {
-                const allowedIds = dashboard?.quick_filter_ids
-                if (!allowedIds || allowedIds.length === 0) {
-                    return []
-                }
-                return allowedIds
-                    .filter((id) => id in quickFilterPropertyFiltersById)
-                    .map((id) => quickFilterPropertyFiltersById[id])
-            },
-        ],
         filtersOverrideForLoad: [
-            (s) => [
-                s.externalFilters,
-                s.urlFilters,
-                s.scopedQuickFiltersAsPropertyFilters,
-                s.dashboard,
-                s.quickFilterPropertyFiltersById,
-            ],
-            (externalFilters, urlFilters, scopedQuickFilters, dashboard, quickFilterPropertyFiltersById) => {
-                const combined = combineDashboardFilters(externalFilters, urlFilters)
-                // Before the dashboard loads, scopedQuickFiltersAsPropertyFilters is
-                // empty because scoping needs dashboard.quick_filter_ids. Fall back to
-                // all URL-restored quick filter properties — the URL only contains
-                // filters set on this dashboard, so unscoped is safe for initial load.
-                const quickFilters =
-                    scopedQuickFilters.length > 0
-                        ? scopedQuickFilters
-                        : !dashboard
-                          ? Object.values(quickFilterPropertyFiltersById)
-                          : []
-                if (quickFilters.length > 0) {
-                    return { ...combined, properties: [...(combined.properties || []), ...quickFilters] }
-                }
-                return combined
-            },
+            (s) => [s.externalFilters, s.urlFilters],
+            (externalFilters, urlFilters) => combineDashboardFilters(externalFilters, urlFilters),
         ],
         effectiveEditBarFilters: [
             (s) => [s.dashboard, s.externalFilters, s.urlFilters, s.intermittentFilters],
@@ -1511,22 +1470,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         effectiveRefreshFilters: [
-            (s) => [s.dashboard, s.externalFilters, s.urlFilters, s.scopedQuickFiltersAsPropertyFilters],
+            (s) => [s.dashboard, s.externalFilters, s.urlFilters],
             (
                 dashboard: DashboardType<QueryBasedInsightModel> | null,
                 externalFilters: DashboardFilter,
-                urlFilters: DashboardFilter,
-                scopedQuickFilters: AnyPropertyFilter[]
+                urlFilters: DashboardFilter
             ): DashboardFilter => {
-                const combined = combineDashboardFilters(
-                    dashboard?.persisted_filters || {},
-                    externalFilters,
-                    urlFilters
-                )
-                if (scopedQuickFilters.length > 0) {
-                    return { ...combined, properties: [...(combined.properties || []), ...scopedQuickFilters] }
-                }
-                return combined
+                return combineDashboardFilters(dashboard?.persisted_filters || {}, externalFilters, urlFilters)
             },
         ],
         effectiveDashboardVariableOverrides: [
@@ -1708,30 +1658,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         textTiles: [(s) => [s.tiles], (tiles) => tiles.filter((t) => !!t.text)],
         itemsLoading: [
-            (s) => [
-                s.dashboardLoading,
-                s.dashboardStreaming,
-                s.refreshStatus,
-                s.initialVariablesLoaded,
-                s.initialQuickFiltersLoaded,
-                s.dashboardFiltersEnabled,
-            ],
-            (
-                dashboardLoading,
-                dashboardStreaming,
-                refreshStatus,
-                initialVariablesLoaded,
-                initialQuickFiltersLoaded,
-                dashboardFiltersEnabled
-            ) => {
+            (s) => [s.dashboardLoading, s.dashboardStreaming, s.refreshStatus, s.initialVariablesLoaded],
+            (dashboardLoading, dashboardStreaming, refreshStatus, initialVariablesLoaded) => {
                 return (
                     dashboardLoading ||
                     dashboardStreaming ||
                     Object.values(refreshStatus).some((s) => s.loading || s.queued) ||
-                    (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams && !initialVariablesLoaded) ||
-                    ('quick_filters' in router.values.searchParams &&
-                        dashboardFiltersEnabled &&
-                        !initialQuickFiltersLoaded)
+                    (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams && !initialVariablesLoaded)
                 )
             },
         ],
@@ -1795,33 +1728,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     !!nextAllowedDashboardRefresh &&
                     nextAllowedDashboardRefresh?.isAfter(now())
                 )
-            },
-        ],
-        dashboardFiltersEnabled: [
-            (s) => [s.placement, s.featureFlags],
-            (placement: DashboardPlacement, featureFlags: Record<string, string | boolean>): boolean => {
-                const excludedPlacements = [
-                    DashboardPlacement.Public,
-                    DashboardPlacement.Export,
-                    DashboardPlacement.FeatureFlag,
-                    DashboardPlacement.Group,
-                    DashboardPlacement.Builtin,
-                ]
-                if (excludedPlacements.includes(placement)) {
-                    return false
-                }
-                return featureFlags[FEATURE_FLAGS.DASHBOARD_QUICK_FILTERS_EXPERIMENT] === 'test'
-            },
-        ],
-        totalAdvancedFilters: [
-            (s) => [s.effectiveEditBarFilters],
-            (effectiveEditBarFilters: DashboardFilter): number => {
-                const propertyFiltersCount = effectiveEditBarFilters.properties?.length || 0
-                const hasBreakdown = !!(
-                    effectiveEditBarFilters.breakdown_filter?.breakdown_type ||
-                    effectiveEditBarFilters.breakdown_filter?.breakdowns?.length
-                )
-                return propertyFiltersCount + (hasBreakdown ? 1 : 0)
             },
         ],
         canEditDashboard: [
@@ -1983,10 +1889,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
                     const hasVariablesInUrl = SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams
-                    const hasQuickFiltersInUrl =
-                        'quick_filters' in router.values.searchParams && values.dashboardFiltersEnabled
 
-                    if (!hasVariablesInUrl && !hasQuickFiltersInUrl) {
+                    if (!hasVariablesInUrl) {
                         if (values.shouldUseStreaming) {
                             // Streaming loading: load metadata + stream tiles
                             actions.loadDashboardStreaming({
@@ -1999,8 +1903,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             })
                         }
                     }
-                    // Deferred — quick filters wait for quickFiltersUrlRestoreComplete,
-                    // variables wait for loadVariablesSuccess. Explicitly trigger
+                    // Deferred — variables wait for loadVariablesSuccess. Explicitly trigger
                     // the variable fetch to ensure variables are loaded before
                     // the dashboard loads.
                     if (hasVariablesInUrl) {
@@ -2246,7 +2149,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.applyPendingInsertion()
             }
         },
-        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, extraDashboardIds, sourceDashboardId }) => {
+        [dashboardsModel.actionTypes.updateDashboardInsight]: ({
+            insight,
+            extraDashboardIds,
+            sourceDashboardId,
+        }: {
+            insight: QueryBasedInsightModel
+            extraDashboardIds?: number[]
+            sourceDashboardId?: number
+        }) => {
             if (sourceDashboardId != null && sourceDashboardId !== props.id) {
                 // Same rationale as the reducer: ignore refresh payloads scoped to another dashboard.
                 return
@@ -3122,6 +3033,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
+        setInterval: ({ interval }) => {
+            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'interval', {
+                interval,
+            })
+
+            if (values.canAutoPreview) {
+                actions.refreshDashboardItems({
+                    action: RefreshDashboardItemsAction.Preview,
+                    forceRefresh: false,
+                })
+            }
+        },
         setExternalFilters: () => {
             if (values.tiles.length > 0) {
                 actions.refreshDashboardItems({
@@ -3141,62 +3064,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
             if (values.dashboardMode !== DashboardMode.Edit) {
                 actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardVariableOverride)
-            }
-        },
-        quickFiltersCommitted: async (_, breakpoint) => {
-            // Only handle quick filter commits for dashboard placements — embedded placements
-            // (FeatureFlag, Group, etc.) mount dashboardLogic but don't use quick filters
-            if (values.placement !== DashboardPlacement.Dashboard) {
-                return
-            }
-
-            // Only refresh when the quick filters experiment is active for this user
-            if (!values.dashboardFiltersEnabled) {
-                return
-            }
-
-            // Cache values before breakpoint — they may change during the debounce window
-            const visibleFilterCount = values.dashboard?.quick_filter_ids?.length ?? 0
-            const tileShortIds = values.insightTiles
-                .filter((t): t is DashboardTile & { insight: QueryBasedInsightModel } => !!t.insight)
-                .map((t) => t.insight.short_id)
-
-            if (visibleFilterCount > 1) {
-                if (tileShortIds.length > 0) {
-                    actions.setRefreshStatuses(tileShortIds, false, true)
-                }
-                await breakpoint(QUICK_FILTER_DEBOUNCE_MS)
-            }
-
-            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'quick_filters', {
-                visible_filter_count: visibleFilterCount,
-            })
-
-            actions.refreshDashboardItems({
-                action: RefreshDashboardItemsAction.Preview,
-                forceRefresh: false,
-            })
-        },
-        quickFiltersUrlRestoreComplete: () => {
-            if (values.initialQuickFiltersLoaded) {
-                return
-            }
-            actions.setInitialQuickFiltersLoaded(true)
-
-            // If variables are also in the URL and haven't loaded yet, let
-            // loadVariablesSuccess trigger the load — by then filtersOverrideForLoad
-            // will already include the restored quick filter properties.
-            if (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams && !values.initialVariablesLoaded) {
-                return
-            }
-
-            // Only trigger the initial load if a prior load hasn't already started it
-            if (!values.dashboard && !values.dashboardLoading && !values.dashboardStreaming) {
-                if (values.shouldUseStreaming) {
-                    actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
-                } else {
-                    actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
-                }
             }
         },
         [variableDataLogic.actionTypes.loadVariablesSuccess]: () => {
@@ -3367,6 +3234,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
             return [
                 currentLocation.pathname,
                 { ...newSearchParams, ...encodeURLFilters(newUrlFilters) },
+                currentLocation.hashParams,
+            ]
+        },
+        setInterval: ({ interval }) => {
+            if (!values.canAutoPreview) {
+                return
+            }
+
+            const { currentLocation } = router.values
+
+            const urlFilters = parseURLFilters(currentLocation.searchParams)
+            const newUrlFilters: DashboardFilter = {
+                ...urlFilters,
+                interval,
+            }
+
+            return [
+                currentLocation.pathname,
+                { ...currentLocation.searchParams, ...encodeURLFilters(newUrlFilters) },
                 currentLocation.hashParams,
             ]
         },

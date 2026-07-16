@@ -20,6 +20,7 @@ from products.replay_vision.backend.models.replay_scanner_prompt_suggestion impo
     SuggestionStatus,
 )
 from products.replay_vision.backend.prompt_evaluation import (
+    EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
     EVALUATION_SESSION_CAP,
     EVALUATION_SESSION_DEFAULT,
     classify_outcome,
@@ -33,7 +34,6 @@ from products.replay_vision.backend.temporal.activities.evaluate_prompt_suggesti
     record_evaluation_result_activity,
     select_evaluation_sessions_activity,
 )
-from products.replay_vision.backend.temporal.constants import EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT
 from products.replay_vision.backend.temporal.evaluation_types import (
     EvaluationSession,
     FinalizeEvaluationInputs,

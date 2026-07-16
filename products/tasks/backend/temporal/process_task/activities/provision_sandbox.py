@@ -199,13 +199,24 @@ def _get_image_source_label(
     if provider == "docker":
         return "docker_base_image", "local Docker sandbox image"
 
-    if provider and provider.upper() == "MODAL_DOCKER":
+    if provider and provider.upper() in ("MODAL_DOCKER", "MODAL_EVALS"):
         return "modal_local_build", "local Modal Dockerfile build"
 
     if settings.DEBUG and not has_repo:
         return "local_debug_build", "local debug sandbox image"
 
     return "base_image", "published sandbox base image"
+
+
+def get_fresh_image_source_for_context(ctx: TaskProcessingContext) -> tuple[str, str]:
+    """Image source and label for a sandbox provisioned fresh (no snapshot) from this context."""
+    return _get_image_source_label(
+        has_repo=ctx.repository is not None,
+        provider=getattr(settings, "SANDBOX_PROVIDER", None),
+        resume_snapshot_external_id=None,
+        snapshot=None,
+        custom_image_name=ctx.custom_image_name if ctx.use_modal_vm_sandbox else None,
+    )
 
 
 def _build_environment_variables(
@@ -250,6 +261,12 @@ def _build_environment_variables(
 
     if settings.SANDBOX_LLM_GATEWAY_URL:
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
+
+    if settings.DEBUG:
+        # Local eval runs pin models per unit; the agent's overload rescue would silently switch a
+        # session to the fallback model mid-run, breaking prompt-cache sharing (model is part of
+        # the cache key) and cost attribution. Rely on Temporal retries instead.
+        environment_variables["POSTHOG_DISABLE_MODEL_FALLBACK"] = "1"
 
     if ctx.allowed_domains is not None:
         environment_variables.update(NETWORK_RESTRICTED_AGENT_ENV)
@@ -298,7 +315,8 @@ def _build_sandbox_tags(
         "task_run_id": ctx.run_id,
         "origin_product": ctx.origin_product,
         "team_id": ctx.team_id,
-        "workflow_id": TaskRun.get_workflow_id(ctx.task_id, ctx.run_id),
+        # The running workflow's real id — a re-derived default would mislabel prefixed dispatches.
+        "workflow_id": activity.info().workflow_id,
         "image_source": prepared.image_source,
         "sandbox_runtime": "vm" if use_vm_sandbox else "gvisor",
     }

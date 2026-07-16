@@ -55,6 +55,7 @@ class OrganizationUsageInfo(TypedDict):
     llm_events: OrganizationUsageResource | None
     ai_credits: OrganizationUsageResource | None
     signals_credits: OrganizationUsageResource | None
+    posthog_code_credits: OrganizationUsageResource | None
     workflow_emails: OrganizationUsageResource | None
     workflow_destinations_dispatched: OrganizationUsageResource | None
     logs_mb_ingested: OrganizationUsageResource | None

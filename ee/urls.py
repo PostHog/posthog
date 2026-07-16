@@ -347,6 +347,16 @@ urlpatterns: list[Any] = [
         name="agentic_provisioning_resource_remove",
     ),
     path(
+        "api/agentic/provisioning/resources/<str:resource_id>/github_integration",
+        csrf_exempt(agentic_provisioning_views.provisioning_github_integration),
+        name="agentic_provisioning_github_integration",
+    ),
+    path(
+        "api/agentic/provisioning/resources/<str:resource_id>/wizard_runs",
+        csrf_exempt(agentic_provisioning_views.provisioning_wizard_runs),
+        name="agentic_provisioning_wizard_runs",
+    ),
+    path(
         "api/agentic/provisioning/resources/<str:resource_id>",
         csrf_exempt(agentic_provisioning_views.provisioning_resource_detail),
         name="agentic_provisioning_resource_detail",
@@ -355,6 +365,16 @@ urlpatterns: list[Any] = [
         "api/agentic/provisioning/deep_links",
         csrf_exempt(agentic_provisioning_views.deep_links),
         name="agentic_provisioning_deep_links",
+    ),
+    path(
+        "api/agentic/provisioning/github/grants",
+        csrf_exempt(agentic_provisioning_views.github_grants_create),
+        name="agentic_provisioning_github_grants_create",
+    ),
+    path(
+        "api/agentic/provisioning/github/grants/<str:grant_id>/repositories",
+        csrf_exempt(agentic_provisioning_views.github_grant_repositories),
+        name="agentic_provisioning_github_grant_repositories",
     ),
     path(
         "agentic/login",
@@ -403,6 +423,16 @@ urlpatterns: list[Any] = [
         name="provisioning_resource_remove",
     ),
     path(
+        "api/provisioning/resources/<str:resource_id>/github_integration",
+        csrf_exempt(agentic_provisioning_views.provisioning_github_integration),
+        name="provisioning_github_integration",
+    ),
+    path(
+        "api/provisioning/resources/<str:resource_id>/wizard_runs",
+        csrf_exempt(agentic_provisioning_views.provisioning_wizard_runs),
+        name="provisioning_wizard_runs",
+    ),
+    path(
         "api/provisioning/resources/<str:resource_id>",
         csrf_exempt(agentic_provisioning_views.provisioning_resource_detail),
         name="provisioning_resource_detail",
@@ -411,6 +441,16 @@ urlpatterns: list[Any] = [
         "api/provisioning/deep_links",
         csrf_exempt(agentic_provisioning_views.deep_links),
         name="provisioning_deep_links",
+    ),
+    path(
+        "api/provisioning/github/grants",
+        csrf_exempt(agentic_provisioning_views.github_grants_create),
+        name="provisioning_github_grants_create",
+    ),
+    path(
+        "api/provisioning/github/grants/<str:grant_id>/repositories",
+        csrf_exempt(agentic_provisioning_views.github_grant_repositories),
+        name="provisioning_github_grant_repositories",
     ),
     *admin_urlpatterns,
 ]

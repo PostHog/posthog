@@ -1,7 +1,7 @@
 import json
 import logging
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
@@ -75,6 +75,8 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
+    resolve_effective_dashboard_filters,
+    resolve_filter_layers_by_priority,
 )
 from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
@@ -115,6 +117,7 @@ from posthog.rbac.user_access_control import (
     UserAccessControlSerializerMixin,
     access_level_satisfied_for_resource,
 )
+from posthog.renderers import SafeJSONRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -134,11 +137,13 @@ from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.api.insight_metadata import generate_insight_metadata
+from products.product_analytics.backend.api.insight_metadata import (
+    InsightMetadataTimeoutError,
+    generate_insight_metadata,
+)
 from products.product_analytics.backend.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
 from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
-from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 from common.hogvm.python.utils import HogVMException
@@ -449,23 +454,16 @@ class QueryFieldSerializer(serializers.Serializer):
         return data
 
 
-def _last_refresh_for_shared_gate(insight: Insight, dashboard_tile: DashboardTile | None) -> datetime | None:
-    """Throttle clock for `?refresh=force_blocking` on shared insights. On DB error, returns
-    ``now()`` so the gate fails closed."""
-    try:
-        if dashboard_tile is not None:
-            cs = next(iter(dashboard_tile.caching_states.all()), None)
-        else:
-            cs = (
-                InsightCachingState.objects.filter(insight=insight, dashboard_tile=None)
-                .only("last_refresh", "created_at")
-                .first()
-            )
-    except Exception:
-        return datetime.now(UTC)
-    if cs is None:
-        return insight.created_at
-    return cs.last_refresh or cs.created_at
+class InsightFilterOverrideContext(BaseModel):
+    dashboard: schema.DashboardFilter | None = PydanticField(
+        default=None, description="Dashboard filters that remain active after applying tile precedence."
+    )
+    tile: schema.DashboardFilter | None = PydanticField(
+        default=None, description="Tile filters applied above the dashboard filters."
+    )
+    overridden_dashboard: schema.DashboardFilter | None = PydanticField(
+        default=None, description="Dashboard filters replaced by the tile filters."
+    )
 
 
 class InsightSerializer(InsightBasicSerializer):
@@ -522,6 +520,11 @@ class InsightSerializer(InsightBasicSerializer):
     resolved_date_range = serializers.SerializerMethodField(read_only=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
+    filter_override_context = serializers.SerializerMethodField(
+        read_only=True,
+        allow_null=True,
+        help_text="Resolved dashboard and tile filter layers used to explain filter precedence in the UI.",
+    )
 
     class Meta:
         model = Insight
@@ -563,6 +566,7 @@ class InsightSerializer(InsightBasicSerializer):
             "resolved_date_range",
             "_create_in_folder",
             "alerts",
+            "filter_override_context",
             "last_viewed_at",
             "search_match_type",
         ]
@@ -958,6 +962,30 @@ class InsightSerializer(InsightBasicSerializer):
 
         return AlertSerializer(alerts, many=True, context=self.context).data
 
+    @extend_schema_field(InsightFilterOverrideContext)  # type: ignore[arg-type]
+    def get_filter_override_context(self, insight: Insight) -> dict[str, object] | None:
+        dashboard: Dashboard | None = self.context.get("dashboard")
+        request: Request | None = self.context.get("request")
+        if request is None:
+            return None
+
+        is_shared = self.context.get("is_shared", False)
+        dashboard_filters_override = filters_override_requested_by_client(request, dashboard, is_shared=is_shared)
+        dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
+        tile_filters_override = tile_filters_override_requested_by_client(request, dashboard_tile, is_shared=is_shared)
+        dashboard_filters = (
+            dashboard_filters_override
+            if dashboard_filters_override is not None
+            else dashboard.filters
+            if dashboard
+            else {}
+        )
+        if not dashboard_filters and not tile_filters_override:
+            return None
+
+        resolved_layers = resolve_filter_layers_by_priority(dashboard_filters, tile_filters_override)
+        return {key: value or None for key, value in resolved_layers.items()}
+
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):
             return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
@@ -993,17 +1021,22 @@ class InsightSerializer(InsightBasicSerializer):
 
         dashboard: Dashboard | None = self.context.get("dashboard")
         request: Request | None = self.context.get("request")
-        dashboard_filters_override = filters_override_requested_by_client(request, dashboard) if request else None
+        is_shared = self.context.get("is_shared", False)
+        dashboard_filters_override = (
+            filters_override_requested_by_client(request, dashboard, is_shared=is_shared) if request else None
+        )
         dashboard_variables_override = variables_override_requested_by_client(
-            request, dashboard, list(self.context["insight_variables"])
+            request, dashboard, list(self.context["insight_variables"]), is_shared=is_shared
         )
 
-        # Tile filters completely replace dashboard filters (same semantics as the compute path in
-        # calculate_results.py). Without this, the returned `query` field would reflect dashboard
-        # filters while the cached result was computed with tile filters — causing the persons modal
-        # to use a different filter set than the chart.
+        # Tile filters merge on top of dashboard filters (same semantics as the compute path in
+        # calculate_results.py). Keeping this in sync ensures the returned `query` field matches the
+        # filter set the cached result was computed with — otherwise the persons modal would use a
+        # different filter set than the chart.
         dashboard_tile = self.dashboard_tile_from_context(instance, dashboard)
-        tile_filters_override = tile_filters_override_requested_by_client(request, dashboard_tile) if request else {}
+        tile_filters_override = (
+            tile_filters_override_requested_by_client(request, dashboard_tile, is_shared=is_shared) if request else {}
+        )
 
         if instance.query is not None or instance.query_from_filters is not None:
             # Upgrade before applying dashboard filters: the stored query may predate the current
@@ -1013,17 +1046,19 @@ class InsightSerializer(InsightBasicSerializer):
                 dashboard is not None
                 or dashboard_filters_override is not None
                 or dashboard_variables_override is not None
+                or tile_filters_override
             ):
-                effective_filters = (
-                    tile_filters_override
-                    if tile_filters_override
-                    else (
-                        dashboard_filters_override
-                        if dashboard_filters_override is not None
-                        else dashboard.filters
-                        if dashboard
-                        else {}
-                    )
+                base_filters = (
+                    dashboard_filters_override
+                    if dashboard_filters_override is not None
+                    else dashboard.filters
+                    if dashboard
+                    else {}
+                )
+                # Same dashboard+tile+insight precedence the compute path applies in calculate_results.py,
+                # so the returned query matches what the cached result was actually computed with.
+                query, effective_filters = resolve_effective_dashboard_filters(
+                    query, base_filters, tile_filters_override
                 )
                 query = apply_dashboard_filters_to_dict(
                     query,
@@ -1100,24 +1135,24 @@ class InsightSerializer(InsightBasicSerializer):
 
         with upgrade_query(insight):
             try:
+                is_shared = self.context.get("is_shared", False)
                 refresh_requested = refresh_requested_by_client(self.context["request"])
                 execution_mode = execution_mode_from_refresh(refresh_requested)
-                filters_override = filters_override_requested_by_client(self.context["request"], dashboard)
+                filters_override = filters_override_requested_by_client(
+                    self.context["request"], dashboard, is_shared=is_shared
+                )
                 variables_override = variables_override_requested_by_client(
-                    self.context["request"], dashboard, list(self.context["insight_variables"])
+                    self.context["request"], dashboard, list(self.context["insight_variables"]), is_shared=is_shared
                 )
 
                 dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
                 tile_filters_override = tile_filters_override_requested_by_client(
-                    self.context["request"], dashboard_tile
+                    self.context["request"], dashboard_tile, is_shared=is_shared
                 )
 
-                is_shared = self.context.get("is_shared", False)
+                shared_cache_age_seconds: int | None = None
                 if is_shared:
-                    execution_mode = shared_insights_execution_mode(
-                        execution_mode,
-                        last_refresh=_last_refresh_for_shared_gate(insight, dashboard_tile),
-                    )
+                    execution_mode, shared_cache_age_seconds = shared_insights_execution_mode(execution_mode)
 
                 # Shared rendering bypasses the FE scene-tag flow, so set product/feature
                 # tags here. No-op overwrite for authenticated paths (same values).
@@ -1134,6 +1169,18 @@ class InsightSerializer(InsightBasicSerializer):
                 request_user_access_control = (
                     getattr(view, "user_access_control", None) if isinstance(request_user, User) else None
                 )
+                # Raw cached results (orjson.Fragment) are only valid when the response is
+                # rendered by orjson: SafeJSONRenderer directly, or a caller that declares it
+                # renders tiles with SafeJSONRenderer itself (the SSE tile stream sets
+                # raw_results_supported — SSE content negotiation alone doesn't guarantee an
+                # orjson boundary). Pretty-printed output (?indent=) would not indent inside a
+                # fragment, so keep the parsed path there.
+                accepted_renderer = getattr(self.context["request"], "accepted_renderer", None)
+                allow_raw_results = (
+                    (isinstance(accepted_renderer, SafeJSONRenderer) or bool(self.context.get("raw_results_supported")))
+                    and not self.context["request"].query_params.get("indent")
+                    and not self.context.get("require_parsed_results")
+                )
                 with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
                     return calculate_for_query_based_insight(
                         insight,
@@ -1145,7 +1192,9 @@ class InsightSerializer(InsightBasicSerializer):
                         filters_override=filters_override,
                         variables_override=variables_override,
                         tile_filters_override=tile_filters_override,
+                        cache_age_seconds=shared_cache_age_seconds,
                         analytics_props=get_request_analytics_properties(self.context["request"]),
+                        allow_raw_results=allow_raw_results,
                     )
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
                 raise ValidationError(str(e), getattr(e, "code_name", None))
@@ -1569,7 +1618,11 @@ class InsightViewSet(
                 ),
                 Prefetch(
                     "alertconfiguration_set",
-                    queryset=AlertConfiguration.objects.select_related("created_by"),
+                    # AlertSerializer emits threshold and subscribed_users per alert; without these,
+                    # every alert in the list costs two extra queries
+                    queryset=AlertConfiguration.objects.select_related("created_by", "threshold").prefetch_related(
+                        "subscribed_users"
+                    ),
                     to_attr="_prefetched_alerts",
                 ),
             )
@@ -1921,6 +1974,21 @@ When set, the specified dashboard's filters and date range override will be appl
                 .first()
             )
 
+            if dashboard_tile is not None:
+                authenticator = request.successful_authenticator
+                if isinstance(
+                    authenticator,
+                    SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+                ):
+                    can_view_dashboard = authenticator.sharing_configuration.dashboard_id == dashboard_tile.dashboard_id
+                else:
+                    can_view_dashboard = self.user_access_control.check_access_level_for_object(
+                        dashboard_tile.dashboard, "viewer"
+                    )
+
+                if not can_view_dashboard:
+                    dashboard_tile = None
+
         if dashboard_tile is not None:
             # context is used in the to_representation method to report filters used
             serializer_context.update({"dashboard": dashboard_tile.dashboard})
@@ -2071,6 +2139,9 @@ When set, the specified dashboard's filters and date range override will be appl
 
         try:
             metadata = generate_insight_metadata(validated_query, self.team)
+        except InsightMetadataTimeoutError as e:
+            capture_exception(e)
+            raise APIException("Generating a name took too long. Please try again.")
         except Exception as e:
             capture_exception(e)
             raise APIException("Failed to generate insight metadata. Please try again.")

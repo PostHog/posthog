@@ -13,6 +13,7 @@ through the shared `TableDescriptions` layer — static `FieldOrTable.descriptio
 semantic layers — fetched lazily only when these tables are queried.
 """
 
+import json
 import hashlib
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -703,6 +704,114 @@ _DATA_TYPES: list[tuple[str, str]] = [
 ]
 
 
+_METRICS_COLUMNS: list[tuple[str, str]] = [
+    ("id", _STRING),
+    ("name", _STRING),
+    ("display_name", _NULLABLE_STRING),
+    ("description", _STRING),
+    ("unit", _NULLABLE_STRING),
+    ("status", _STRING),
+    ("is_drifted", _BOOLEAN),
+    ("definition", _NULLABLE_STRING),
+    ("definition_kind", _NULLABLE_STRING),
+    ("owner", _NULLABLE_STRING),
+    ("confidence", _NULLABLE_FLOAT),
+    ("reasoning", _NULLABLE_STRING),
+    ("source_insight_short_id", _NULLABLE_STRING),
+    ("last_run_at", _NULLABLE_STRING),
+    ("created_at", _STRING),
+]
+
+
+def _references_denied_table(referenced_table_names: Optional[list[str]], denied: set[str]) -> bool:
+    """Whether any of a metric's referenced tables is in the caller's denied set.
+
+    `referenced_table_names` stores the surface identifier the author typed (bare `charges` or dotted
+    `stripe.charges`, any case), while `_denied_tables` holds a mix of bare names, lowercased
+    qualified warehouse keys, and `system.<name>`. Match case-insensitively and by leaf so a
+    qualified reference to a bare-denied table (or the reverse) still trips the denial — err toward
+    hiding rather than leaking a metric whose source the caller cannot read.
+    """
+    if not denied or not referenced_table_names:
+        return False
+    denied_norm = {name.lower() for name in denied}
+    denied_norm |= {name.rsplit(".", 1)[-1] for name in denied_norm}
+    for name in referenced_table_names:
+        normalized = name.lower()
+        if normalized in denied_norm or normalized.rsplit(".", 1)[-1] in denied_norm:
+            return True
+    return False
+
+
+def _can_read_catalog(context: "HogQLContext") -> bool:
+    """Whether the caller has data_catalog read access, mirroring the REST viewset's resource gate.
+
+    Metric rows carry governed definitions and free-text review context, so — like the metric-run and
+    proposal-accept endpoints — they need an explicit `data_catalog` resource check, not just team
+    scoping. Fails closed when there's no access-control context (service tokens / shared links),
+    matching warehouse-table denial.
+    """
+    access_control = context.database.user_access_control if context.database is not None else None
+    if access_control is None:
+        access_control = context.user_access_control
+    if access_control is None:
+        return False
+    return access_control.check_access_level_for_resource("data_catalog", "viewer")
+
+
+def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
+    """Load the team's catalog metrics as information_schema rows (fail-soft).
+
+    Returns nothing unless the caller has data_catalog read access; hides metrics whose definition
+    references a table the caller is denied, and computes drift in one bulk pass shared with the REST
+    serializer.
+    """
+    team_id = context.team_id
+    if team_id is None or not _can_read_catalog(context):
+        return []
+    # Deferred + facade-only imports: keep the product's (heavy) query-runner deps off this schema
+    # module's import path, and respect the data_catalog isolation boundary.
+    from products.data_catalog.backend.facade.api import compute_drift  # noqa: PLC0415
+    from products.data_catalog.backend.facade.models import Metric  # noqa: PLC0415
+
+    try:
+        denied = context.database._denied_tables if context.database is not None else set()
+        queryset = (
+            Metric.objects.for_team(team_id).filter(deleted=False).select_related("owner").order_by("-created_at")
+        )
+        if allowed is not None:
+            queryset = queryset.filter(name__in=allowed)
+        metrics = list(queryset)
+        drift = compute_drift(metrics)
+        rows: list[list[Any]] = []
+        for metric in metrics:
+            if _references_denied_table(metric.referenced_table_names, denied):
+                continue
+            rows.append(
+                [
+                    str(metric.id),
+                    metric.name,
+                    metric.display_name,
+                    metric.description,
+                    metric.unit,
+                    metric.status,
+                    drift.get(metric.id, False),
+                    json.dumps(metric.definition) if metric.definition else None,
+                    metric.definition_kind,
+                    metric.owner.email if metric.owner else None,
+                    metric.confidence,
+                    metric.reasoning,
+                    metric.source_insight_short_id,
+                    metric.last_run_at.isoformat() if metric.last_run_at else None,
+                    metric.created_at.isoformat(),
+                ]
+            )
+        return rows
+    except Exception:
+        logger.exception("information_schema: failed to load catalog metrics", team_id=team_id)
+        return []
+
+
 def _string_field(name: str, nullable: bool = False, description: Optional[str] = None) -> StringDatabaseField:
     return StringDatabaseField(name=name, nullable=nullable, description=description)
 
@@ -891,6 +1000,67 @@ class InformationSchemaDataTypesTable(LazyTable):
         return "system__information_schema__data_types"
 
 
+class InformationSchemaMetricsTable(LazyTable):
+    description: str = (
+        "Catalog of the project's governed business metrics (the semantic layer); one row per metric. "
+        "Consult only when the user asks for a named headline business number (MRR, activation, etc.) — "
+        "only a metric with status='approved' AND NOT is_drifted is canonical; use its definition instead "
+        "of re-deriving. Usually empty; an empty result just means no governed definition, so derive "
+        "the number normally. Filter by name (equality or IN)."
+    )
+    fields: dict[str, FieldOrTable] = {
+        "id": _string_field("id", description="Stable UUID of the metric (cross-reference for the REST API)."),
+        "name": _string_field(
+            "name", description="Identifier-safe handle uniquely naming this metric within the project."
+        ),
+        "display_name": _string_field("display_name", nullable=True, description="Human-friendly label."),
+        "description": _string_field("description", description="What the metric means and how to interpret it."),
+        "unit": _string_field("unit", nullable=True, description="Unit of the result, e.g. usd, percent, cents."),
+        "status": _string_field(
+            "status", description="'proposed' or 'approved'. Never cite a proposed metric as canonical."
+        ),
+        "is_drifted": BooleanDatabaseField(
+            name="is_drifted",
+            nullable=False,
+            description="True if the definition drifted from its source insight (or the insight is gone). Do not trust a drifted metric.",
+        ),
+        "definition": _string_field(
+            "definition",
+            nullable=True,
+            description="Machine-readable query as JSON, or NULL for a name+description-only stub.",
+        ),
+        "definition_kind": _string_field(
+            "definition_kind",
+            nullable=True,
+            description="Query kind: HogQLQuery, TrendsQuery, FunnelsQuery, or an event node.",
+        ),
+        "owner": _string_field("owner", nullable=True, description="Email of the human accountable for this metric."),
+        "confidence": FloatDatabaseField(
+            name="confidence", nullable=True, description="AI author's confidence for a proposed metric, 0-1."
+        ),
+        "reasoning": _string_field("reasoning", nullable=True, description="AI author's reasoning, review context."),
+        "source_insight_short_id": _string_field(
+            "source_insight_short_id",
+            nullable=True,
+            description="Short ID of the insight this metric was created from.",
+        ),
+        "last_run_at": _string_field(
+            "last_run_at", nullable=True, description="ISO timestamp of the last run (throttled)."
+        ),
+        "created_at": _string_field("created_at", description="ISO timestamp when the metric was created."),
+    }
+
+    def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
+        allowed = _pushdown_table_filter(node, "name")
+        return _rows_select(context, "metrics", _METRICS_COLUMNS, _catalog_metrics(context, allowed), allowed)
+
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
+        return "information_schema.metrics"
+
+    def to_printed_hogql(self) -> str:
+        return "system__information_schema__metrics"
+
+
 def information_schema_node() -> TableNode:
     """The `information_schema` namespace, mounted under `system` (see `SystemTables.children`)."""
     return TableNode(
@@ -900,5 +1070,6 @@ def information_schema_node() -> TableNode:
             "columns": TableNode(name="columns", table=InformationSchemaColumnsTable()),
             "relationships": TableNode(name="relationships", table=InformationSchemaRelationshipsTable()),
             "data_types": TableNode(name="data_types", table=InformationSchemaDataTypesTable()),
+            "metrics": TableNode(name="metrics", table=InformationSchemaMetricsTable()),
         },
     )

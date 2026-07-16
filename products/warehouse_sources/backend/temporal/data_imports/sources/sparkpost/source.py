@@ -58,7 +58,6 @@ class SparkPostSource(ResumableSource[SparkPostSourceConfig, SparkPostResumeConf
             releaseStatus=ReleaseStatus.ALPHA,
             # Kept hidden for now: the implementation follows the public SparkPost docs but its
             # end-to-end sync behaviour hasn't been exercised against a live account yet.
-            unreleasedSource=True,
             caption="""Connect your SparkPost account to sync message events, suppression lists, recipient lists, templates, sending domains, subaccounts, and webhooks into the PostHog Data warehouse.
 
 Create an API key in your [SparkPost account settings](https://app.sparkpost.com/account/api-keys) (or the EU console at app.eu.sparkpost.com). Grant the read permissions for the data you want to sync, for example:

@@ -8,7 +8,7 @@
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "scripts": {
-        "test": "SHARD_IDX=${SHARD_INDEX:-1}; SHARD_TOTAL=${SHARD_COUNT:-1}; echo $SHARD_IDX/$SHARD_TOTAL; jest --runInBand --forceExit --shard=$SHARD_IDX/$SHARD_TOTAL --testPathIgnorePatterns='postgres-parity|service-e2e|/dev/'",
+        "test": "SHARD_IDX=${SHARD_INDEX:-1}; SHARD_TOTAL=${SHARD_COUNT:-1}; echo $SHARD_IDX/$SHARD_TOTAL; jest --runInBand --forceExit --shard=$SHARD_IDX/$SHARD_TOTAL --testPathIgnorePatterns='postgres-parity|service-e2e|<rootDir>/(src|tests)(/.*)?/dev/'",
         "test:rust-ingestion-e2e": "jest --runInBand --forceExit --testPathPatterns='service-e2e/rust-ingestion-consumer.test.ts'",
         "test:postgres-parity": "jest --runInBand --forceExit --testPathPatterns='postgres-parity'",
         "start": "pnpm start:dev",
@@ -109,7 +109,7 @@
         "cors": "^2.8.5",
         "detect-browser": "^5.3.0",
         "escape-string-regexp": "^4.0.0",
-        "fast-deep-equal": "catalog:",
+        "fast-equals": "catalog:",
         "fastpriorityqueue": "^0.7.5",
         "fernet-nodejs": "^1.0.6",
         "generic-pool": "^3.7.1",

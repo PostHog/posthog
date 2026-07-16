@@ -109,6 +109,12 @@ class TestEmailChannelPermissions(BaseTest):
                 "/api/conversations/v1/email/disconnect",
                 {"config_id": "00000000-0000-0000-0000-000000000999"},
             ),
+            (
+                "set-default",
+                "post",
+                "/api/conversations/v1/email/set-default",
+                {"config_id": "00000000-0000-0000-0000-000000000999"},
+            ),
         ]
     )
     def test_member_cannot_access(self, _name, method, path, body):
@@ -891,7 +897,9 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         config1 = self._create_config("support@example.com", "aaa111")
         self._create_config("billing@example.com", "bbb222")
         ticket = self._create_ticket(config1)
-        ticket.cc_participants = ["cc1@example.com", "cc2@example.com"]
+        # Legacy tickets may carry the requester in cc_participants; they must not
+        # be delivered to twice (they're already the To recipient).
+        ticket.cc_participants = ["cc1@example.com", "customer@test.com", "cc2@example.com"]
         ticket.save(update_fields=["cc_participants"])
 
         _, outbox = self._run_reply(ticket)
@@ -902,7 +910,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         # Regression guard: must use the ticket's domain, not a shared/global one.
         assert args[0] == "example.com"
 
-        # Recipients include the customer and every CC participant.
+        # Recipients include the customer and every CC participant, minus the requester.
         assert kwargs["recipients"] == ["customer@test.com", "cc1@example.com", "cc2@example.com"]
 
         # MIME body carries the From header with the config's from_email.
@@ -1534,14 +1542,33 @@ class TestEmailInboundCcParticipants(BaseTest):
 
     @parameterized.expand(
         [
-            ("with_display_names", "Dev <dev@company.com>, pm@company.com", ["dev@company.com", "pm@company.com"]),
-            ("self_cc_filtered", "dev@company.com, team-cc00ee11ff22@mg.posthog.com", ["dev@company.com"]),
-            ("no_cc_header", None, []),
+            # (_name, to_header, cc_header, expected)
+            (
+                "cc_with_display_names",
+                None,
+                "Dev <dev@company.com>, pm@company.com",
+                ["dev@company.com", "pm@company.com"],
+            ),
+            ("self_cc_filtered", None, "dev@company.com, team-cc00ee11ff22@mg.posthog.com", ["dev@company.com"]),
+            ("no_recipients", None, None, []),
+            # Direct recipient in To, support address only CC'd — the recipient must survive.
+            (
+                "to_recipient_kept_channel_dropped",
+                "auser@example.com",
+                "support@example.com",
+                ["auser@example.com"],
+            ),
+            # Channel's own address and the sender are never participants.
+            ("channel_and_sender_excluded", "sender@test.com, support@example.com", None, []),
+            # To + Cc merge and dedupe.
+            ("to_and_cc_merged", "auser@example.com", "dev@company.com", ["auser@example.com", "dev@company.com"]),
         ]
     )
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_new_ticket_cc_participants(self, _name, cc_header, expected, _mock_sig):
+    def test_new_ticket_participants(self, _name, to_header, cc_header, expected, _mock_sig):
         data = self._base_data(f"<cc-{_name}@test.com>")
+        if to_header:
+            data["To"] = to_header
         if cc_header:
             data["Cc"] = cc_header
         response = self.client.post("/api/conversations/v1/email/inbound", data)
@@ -1562,6 +1589,18 @@ class TestEmailInboundCcParticipants(BaseTest):
         data2["In-Reply-To"] = "<cc2@test.com>"
         data2["Cc"] = "dev@company.com, new@company.com"
         self.client.post("/api/conversations/v1/email/inbound", data2)
+
+        ticket.refresh_from_db()
+        assert ticket.cc_participants == ["dev@company.com", "new@company.com"]
+
+        # A participant reply-alls: the requester lands in To but is already the
+        # reply target, so they must not be merged into cc_participants.
+        data3 = self._base_data("<cc4@test.com>")
+        data3["from"] = "dev@company.com"
+        data3["In-Reply-To"] = "<cc2@test.com>"
+        data3["To"] = "sender@test.com, support@example.com"
+        data3["Cc"] = "new@company.com"
+        self.client.post("/api/conversations/v1/email/inbound", data3)
 
         ticket.refresh_from_db()
         assert ticket.cc_participants == ["dev@company.com", "new@company.com"]
@@ -1808,3 +1847,73 @@ class TestEmailSendTestView(BaseTest):
 
         self.config.refresh_from_db()
         assert self.config.domain_verified is False
+
+
+class TestEmailDefaultChannel(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.force_login(self.user)
+
+    def _create_config(self, from_email: str, *, verified: bool = True, is_default: bool = False) -> EmailChannel:
+        return EmailChannel.objects.create(
+            team=self.team,
+            inbound_token=from_email,
+            from_email=from_email,
+            from_name="Support",
+            domain=from_email.split("@")[1],
+            domain_verified=verified,
+            is_default=is_default,
+        )
+
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_first_connected_channel_becomes_default(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock):
+        r1 = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "support@example.com", "from_name": "Support"},
+            content_type="application/json",
+        )
+        r2 = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "billing@example.com", "from_name": "Billing"},
+            content_type="application/json",
+        )
+        assert r1.json()["config"]["is_default"] is True
+        assert r2.json()["config"]["is_default"] is False
+        assert EmailChannel.objects.filter(team=self.team, is_default=True).count() == 1
+
+    def test_set_default_switches_and_unsets_previous(self):
+        first = self._create_config("support@example.com", is_default=True)
+        second = self._create_config("billing@example.com")
+
+        response = self.client.post(
+            "/api/conversations/v1/email/set-default",
+            {"config_id": str(second.id)},
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        assert first.is_default is False
+        assert second.is_default is True
+
+    @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
+    def test_disconnecting_default_promotes_a_replacement(self, _mock_delete: MagicMock):
+        default = self._create_config("support@example.com", is_default=True)
+        other = self._create_config("billing@example.com")
+
+        response = self.client.post(
+            "/api/conversations/v1/email/disconnect",
+            {"config_id": str(default.id)},
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+
+        other.refresh_from_db()
+        assert other.is_default is True
