@@ -53,9 +53,10 @@ export function SurveyWidgetCustomization(): JSX.Element {
                             <LemonSelect
                                 value={appearance.widgetType}
                                 onChange={(widgetType) => {
-                                    // NextToTrigger is only available for Selector widget type
+                                    // NextToTrigger is available for both Selector and Tab widget types
                                     const newPosition =
                                         widgetType !== SurveyWidgetType.Selector &&
+                                        widgetType !== SurveyWidgetType.Tab &&
                                         appearance?.position === SurveyPosition.NextToTrigger
                                             ? SurveyPosition.Right
                                             : appearance?.position

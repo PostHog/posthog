@@ -173,8 +173,10 @@ export function SurveyContainerAppearance({
             <LemonField.Pure
                 label="Position"
                 info={
-                    surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Selector
-                        ? 'The "next to feedback button" option requires posthog.js version 1.235.2 or higher.'
+                    surveyType === SurveyType.Widget &&
+                    (appearance.widgetType === SurveyWidgetType.Selector ||
+                        appearance.widgetType === SurveyWidgetType.Tab)
+                        ? 'The "next to button" option requires posthog.js version 1.235.2 or higher.'
                         : undefined
                 }
                 className="gap-1"
@@ -196,27 +198,31 @@ export function SurveyContainerAppearance({
                         disabledReason={disabledReason || undefined}
                     />
                 </div>
-                {surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Selector && (
-                    <div className="flex flex-col gap-1 items-start w-60">
-                        <LemonButton
-                            key={SurveyPosition.NextToTrigger}
-                            type="tertiary"
-                            size="small"
-                            fullWidth
-                            onClick={() =>
-                                onAppearanceChange({ ...appearance, position: SurveyPosition.NextToTrigger })
-                            }
-                            active={appearance.position === SurveyPosition.NextToTrigger}
-                            disabled={disabled}
-                            disabledReason={disabledReason || undefined}
-                        >
-                            {positionDisplayNames[SurveyPosition.NextToTrigger]}
-                            {appearance.position === SurveyPosition.NextToTrigger && (
-                                <IconCheck className="ml-2 size-4" />
-                            )}
-                        </LemonButton>
-                    </div>
-                )}
+                {surveyType === SurveyType.Widget &&
+                    (appearance.widgetType === SurveyWidgetType.Selector ||
+                        appearance.widgetType === SurveyWidgetType.Tab) && (
+                        <div className="flex flex-col gap-1 items-start w-60">
+                            <LemonButton
+                                key={SurveyPosition.NextToTrigger}
+                                type="tertiary"
+                                size="small"
+                                fullWidth
+                                onClick={() =>
+                                    onAppearanceChange({ ...appearance, position: SurveyPosition.NextToTrigger })
+                                }
+                                active={appearance.position === SurveyPosition.NextToTrigger}
+                                disabled={disabled}
+                                disabledReason={disabledReason || undefined}
+                            >
+                                {appearance.widgetType === SurveyWidgetType.Tab
+                                    ? 'Next to tab'
+                                    : positionDisplayNames[SurveyPosition.NextToTrigger]}
+                                {appearance.position === SurveyPosition.NextToTrigger && (
+                                    <IconCheck className="ml-2 size-4" />
+                                )}
+                            </LemonButton>
+                        </div>
+                    )}
             </LemonField.Pure>
         </div>
     )
