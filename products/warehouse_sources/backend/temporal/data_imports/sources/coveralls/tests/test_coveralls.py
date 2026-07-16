@@ -333,6 +333,16 @@ class TestGetRepositoryRows:
 
         assert headers["Authorization"] == "token tok"
 
+    def test_repos_session_disables_sample_capture(self):
+        # The /api/v1/repos response carries the repo's secret coverage-upload token, so the
+        # session must opt out of HTTP sample capture — otherwise the token lands in stored samples.
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(200, {})
+
+            list(get_repository_rows("github", ["acme/widgets"], "tok", structlog.get_logger()))
+
+        assert mock_session.call_args.kwargs.get("capture") is False
+
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(

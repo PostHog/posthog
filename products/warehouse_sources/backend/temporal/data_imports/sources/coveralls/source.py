@@ -45,6 +45,13 @@ class CoverallsSource(ResumableSource[CoverallsSourceConfig, CoverallsResumeConf
         return ExternalDataSourceType.COVERALLS
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `service` and `repositories` decide which repos the stored `api_token` is sent to query,
+        # so retargeting either must re-require the token — otherwise an editor without the token
+        # could reuse the preserved one to pull data from repositories it grants access to.
+        return ["service", "repositories"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.COVERALLS,

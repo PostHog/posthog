@@ -271,7 +271,10 @@ def get_repository_rows(
             "Add one from your Coveralls account settings, or disable this table."
         )
 
-    session = make_tracked_session()
+    # The /api/v1/repos response carries the repo's secret coverage-upload token, which the
+    # name-based sample scrubbers don't recognise — disable capture so it can't land in stored
+    # HTTP samples (requests stay metered and logged).
+    session = make_tracked_session(capture=False)
     headers = _token_headers(api_token)
 
     for repository in repositories:
@@ -328,8 +331,11 @@ def validate_credentials(
     if schema_name == "repositories":
         if not api_token:
             return False, "The repositories table requires a personal API token."
+        # The /api/v1/repos response carries the repo's secret coverage-upload token — probe it on a
+        # capture-disabled session so it can't land in stored HTTP samples.
+        token_session = make_tracked_session(capture=False)
         try:
-            token_response = session.get(
+            token_response = token_session.get(
                 _repo_config_url(service, repository),
                 headers=_token_headers(api_token),
                 timeout=REQUEST_TIMEOUT_SECONDS,

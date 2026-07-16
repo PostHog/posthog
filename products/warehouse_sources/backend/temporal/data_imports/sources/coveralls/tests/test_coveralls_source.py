@@ -76,6 +76,12 @@ class TestCoverallsSource:
         assert token_field.required is False
         assert token_field.secret is True
 
+    def test_connection_host_fields_gate_token_retargeting(self):
+        # `service` and `repositories` decide which repos the stored token queries, so the update
+        # serializer must re-require the token when either changes — dropping them here would let
+        # an editor reuse a preserved token against repos it never had token access to.
+        assert self.source.connection_host_fields == ["service", "repositories"]
+
     def test_get_schemas_lists_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
