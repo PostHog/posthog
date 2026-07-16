@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
+import { ensureAnchored, urlPatternWarning } from 'lib/components/IngestionControls/triggers/urlConfigLogic'
 import { UrlTriggerConfig } from 'lib/components/IngestionControls/types'
 import { compareVersion } from 'lib/utils/semver'
 import { sdkHealthLogic } from 'scenes/onboarding/shared/sdkHealth/sdkHealthLogic'
@@ -81,12 +82,6 @@ export function legacyConditionsAreInactive(releases: WebRelease[]): boolean {
 /** True when a meaningful share of recent web traffic is on SDKs that predate trigger-group support. */
 export function hasOutdatedWebSdk(releases: WebRelease[]): boolean {
     return outdatedWebTrafficShare(releases).share >= OUTDATED_TRAFFIC_SHARE_THRESHOLD
-}
-
-function ensureAnchored(url: string): string {
-    url = url.startsWith('^') ? url.substring(1) : url
-    url = url.endsWith('$') ? url.substring(0, url.length - 1) : url
-    return `^${url}$`
 }
 
 export const replayTriggersLogic = kea<replayTriggersLogicType>([
@@ -217,13 +212,7 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
                     if (type !== 'trigger') {
                         return _
                     }
-                    // Check if it ends with a TLD
-                    if (/\.[a-z]{2,}\/?$/i.test(url)) {
-                        const sanitizedUrl = url.endsWith('/') ? url.slice(0, -1) : url
-                        return `If you want to match all paths of a domain, you should write " ${sanitizedUrl}(/.*)? ". This would match: 
-                        ${sanitizedUrl}, ${sanitizedUrl}/, ${sanitizedUrl}/page, etc. Don't forget to include https:// at the beginning of the url.`
-                    }
-                    return null
+                    return urlPatternWarning(url)
                 },
             },
         ],
@@ -234,13 +223,7 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
                     if (type !== 'blocklist') {
                         return _
                     }
-                    // Check if it ends with a TLD
-                    if (/\.[a-z]{2,}\/?$/i.test(url)) {
-                        const sanitizedUrl = url.endsWith('/') ? url.slice(0, -1) : url
-                        return `If you want to match all paths of a domain, you should write " ${sanitizedUrl}(/.*)? ". This would match: 
-                        ${sanitizedUrl}, ${sanitizedUrl}/, ${sanitizedUrl}/page, etc. Don't forget to include https:// at the beginning of the url.`
-                    }
-                    return null
+                    return urlPatternWarning(url)
                 },
             },
         ],

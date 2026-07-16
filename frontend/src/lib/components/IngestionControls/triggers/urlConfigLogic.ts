@@ -17,6 +17,39 @@ export function ensureAnchored(url: string): string {
     return `^${url}$`
 }
 
+/**
+ * Warns when a URL pattern is unlikely to ever match. We save the pattern anchored with `^...$`
+ * (see `ensureAnchored`) and the SDK tests it against the full `window.location.href`, so the
+ * pattern has to describe the whole URL — a bare path fragment like `admin-panel` becomes
+ * `^admin-panel$` and never matches `https://site.com/admin-panel`. Returns null when the pattern
+ * looks like it can match a real URL.
+ */
+export function urlPatternWarning(rawUrl: string): string | null {
+    const url = rawUrl.trim()
+    if (!url) {
+        return null
+    }
+    // Analyse the pattern without the anchors we add on save.
+    const pattern = url.replace(/^\^/, '').replace(/\$$/, '')
+
+    // Ends in a bare domain/TLD: nudge towards a form that also matches its paths.
+    if (/\.[a-z]{2,}\/?$/i.test(pattern)) {
+        const sanitized = pattern.endsWith('/') ? pattern.slice(0, -1) : pattern
+        return `To match every path on this domain, write "${sanitized}(/.*)?". That matches ${sanitized}, ${sanitized}/, and ${sanitized}/page. Remember to start the pattern with https://.`
+    }
+
+    // A pattern that can't match from the start of a URL will never fire once we anchor it, because
+    // the SDK matches against the whole URL. Only exempt patterns that can actually match a URL
+    // prefix: a leading wildcard, a leading scheme, or a scheme separator anywhere. A grouping
+    // prefix like `(admin|billing)` is not enough — `^(admin|billing)$` still can't match a URL.
+    const canMatchFromStart = /^(\.[*+]|https?:)/i.test(pattern) || pattern.includes('://')
+    if (!canMatchFromStart) {
+        return `This is matched against the whole page URL, so "${pattern}" on its own will never match. Wrap it to match the full URL, for example ".*${pattern}.*", then use the URL tester below to confirm it matches before saving.`
+    }
+
+    return null
+}
+
 export interface UrlConfigLogicProps {
     logicKey: string
     initialUrlTriggerConfig: UrlTriggerConfig[]
@@ -85,13 +118,7 @@ export const urlConfigLogic = kea<urlConfigLogicType>([
                     if (type !== 'trigger') {
                         return _
                     }
-                    // Check if it ends with a TLD
-                    if (/\.[a-z]{2,}\/?$/i.test(url)) {
-                        const sanitizedUrl = url.endsWith('/') ? url.slice(0, -1) : url
-                        return `If you want to match all paths of a domain, you should write " ${sanitizedUrl}(/.*)? ". This would match: 
-                        ${sanitizedUrl}, ${sanitizedUrl}/, ${sanitizedUrl}/page, etc. Don't forget to include https:// at the beginning of the url.`
-                    }
-                    return null
+                    return urlPatternWarning(url)
                 },
             },
         ],
