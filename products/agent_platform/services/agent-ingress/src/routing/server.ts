@@ -16,6 +16,7 @@ import type {
     IdentityLinkStateStore,
     IdentityStore,
     SecretResolver,
+    TransportBindingStore,
 } from '@posthog/agent-shared'
 import {
     applyApprovalDecision,
@@ -36,6 +37,7 @@ const log = createLogger('ingress')
 import { SessionEventBus } from '@posthog/agent-shared'
 import type { AuthConfig } from '@posthog/agent-shared'
 
+import { buildAdmission } from '../enqueue/admission-gate'
 import { authorize, AuthProvider, principalsMatch, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
 import { chatTrigger } from '../triggers/chat'
 import { mcpTrigger } from '../triggers/mcp'
@@ -108,8 +110,8 @@ export interface BuildAppOpts {
      */
     slackSigningSecretResolver?: SecretResolver
     authProvider?: AuthProvider
-    /** Optional identity store — Slack trigger uses this to mint stable AgentUser ids. */
-    identities?: IdentityStore
+    /** Identity store — mints stable AgentUser ids for transport principals. */
+    identities: IdentityStore
     /**
      * Approval store — backs the principal-decision surfaces (the Slack
      * interactivity handler today; the `POST /approvals/:id/decide` route).
@@ -134,20 +136,20 @@ export interface BuildAppOpts {
     /**
      * Outbound HTTP for a trigger's outbound calls (the slack trigger's
      * bot-token Slack calls). Wired at the ingress entrypoint from
-     * `config.httpsProxy` so the call dispatches through smokescreen in
-     * prod. Optional — falls back to a direct HttpClient in tests.
+     * `config.httpsProxy` so the call dispatches through smokescreen in prod.
      */
-    http?: import('@posthog/agent-shared').HttpFetcher
+    http: import('@posthog/agent-shared').HttpFetcher
     /**
-     * Identity-linking stores + env decryptor. When all three are wired, the
-     * ingress serves `GET /link/:provider/callback`: it consumes the OAuth
-     * link-state row, rebuilds the provider from the app's spec + decrypted
-     * encrypted_env, and persists the credential. Optional — omitted in tests
-     * that don't exercise the callback.
+     * Identity-linking stores + env decryptor. The ingress serves
+     * `GET /link/:provider/callback`: it consumes the OAuth link-state row,
+     * rebuilds the provider from the app's spec + decrypted encrypted_env, and
+     * persists the credential.
      */
-    identityCredentials?: IdentityCredentialStore
-    identityLinks?: IdentityLinkStateStore
-    envEncryption?: EncryptedFields
+    identityCredentials: IdentityCredentialStore
+    identityLinks: IdentityLinkStateStore
+    /** Durable transport→canonical-identity bindings; backs edge admission. */
+    transportBindings: TransportBindingStore
+    envEncryption: EncryptedFields
     /** PostHog API base — the `{kind:posthog}` provider builds its OAuth
      *  endpoints from this in the link callback. Without it the callback can't
      *  rebuild the posthog provider ("Unknown provider"). */
@@ -279,10 +281,6 @@ export function buildApp(opts: BuildAppOpts): Express {
         '/link/:provider/callback',
         asyncHandler(async (req: Request, res: Response) => {
             const { identityLinks, identityCredentials, envEncryption, http } = opts
-            if (!identityLinks || !identityCredentials || !envEncryption || !http) {
-                res.status(500).send(linkResultPage('Identity linking is not configured on this ingress.'))
-                return
-            }
             const providerId = req.params.provider
             const stateId = typeof req.query.state === 'string' ? req.query.state : ''
             const code = typeof req.query.code === 'string' ? req.query.code : undefined
@@ -320,7 +318,15 @@ export function buildApp(opts: BuildAppOpts): Express {
                 return
             }
             try {
-                await provider.complete({ stateId, query: { code, error: errorParam } })
+                // Authoritative-provider callback → admission.complete (writes the
+                // canonical identity + transport binding). Any other provider is a
+                // per-asker capability link → the provider persists its own credential.
+                const admission = buildAdmission(opts, revision, application?.slug ?? '')
+                if (admission && providerId === revision.spec.authoritative_provider) {
+                    await admission.complete(providerId, stateId, { code, error: errorParam })
+                } else {
+                    await provider.complete({ stateId, query: { code, error: errorParam } })
+                }
             } catch (err) {
                 log.warn(
                     { provider: providerId, err: err instanceof Error ? err.message : String(err) },
@@ -352,6 +358,12 @@ export function buildApp(opts: BuildAppOpts): Express {
         routingMode: opts.routingMode,
         domainSuffix: opts.domainSuffix,
         publicBaseUrl: opts.publicBaseUrl,
+        // Edge admission (Slack trigger).
+        identityLinks: opts.identityLinks,
+        identityCredentials: opts.identityCredentials,
+        transportBindings: opts.transportBindings,
+        envEncryption: opts.envEncryption,
+        posthogApiBaseUrl: opts.posthogApiBaseUrl,
     } as const
     const mount = opts.routingMode === 'path' ? `${opts.pathPrefix ?? '/agents'}/:slug` : ''
 

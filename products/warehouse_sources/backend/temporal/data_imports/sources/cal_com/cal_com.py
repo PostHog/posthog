@@ -17,9 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 CAL_COM_BASE_URL = "https://api.cal.com/v2"
-# Bookings `limit` and webhooks `take` are documented with a 250 maximum; the largest page
-# minimizes round trips against the 120 req/min default rate limit.
-PAGE_LIMIT = 250
 REQUEST_TIMEOUT_SECONDS = 60
 # Cheap single-object endpoint used to confirm an API key is genuine. The key is account-wide, so
 # one probe validates access to every list endpoint.
@@ -152,7 +149,7 @@ def _get_cursor_rows(
         logger.debug(f"Cal.com: resuming {config.name} from cursor {cursor}")
 
     while True:
-        params = {**base_params, "limit": PAGE_LIMIT}
+        params = {**base_params, "limit": config.page_size}
         if cursor is not None:
             params["cursor"] = cursor
 
@@ -186,17 +183,17 @@ def _get_offset_rows(
         logger.debug(f"Cal.com: resuming {config.name} from offset {skip}")
 
     while True:
-        params = {**base_params, "take": PAGE_LIMIT, "skip": skip}
+        params = {**base_params, "take": config.page_size, "skip": skip}
         body = _fetch_page(session, url, params, logger)
         items = _rows_from_body(body, config, url)
         if items:
             yield items
 
         # These endpoints return no pagination metadata; a short (or empty) page means we're done.
-        if len(items) < PAGE_LIMIT:
+        if len(items) < config.page_size:
             break
 
-        skip += PAGE_LIMIT
+        skip += config.page_size
         resumable_source_manager.save_state(CalComResumeConfig(skip=skip))
 
 

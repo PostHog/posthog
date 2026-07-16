@@ -70,6 +70,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_global_shutdown_timeout(Duration::from_secs(30))
         .build();
 
+    // Shutdown order is the inverse of the leader's: the gRPC server
+    // drains first (phase 0) while the routing table, coordinator, and
+    // discovery stay alive to serve its in-flight requests and keep
+    // acking freezes; they stop in phase 1, at which point the
+    // coordinator exits cleanly and revokes the election lease so another
+    // router takes over coordination immediately.
     let grpc_handle = manager.register(
         "grpc-server",
         ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
@@ -83,11 +89,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (routing_table_handle, coordinator_handle) = if config.router_mode == RouterMode::Leader {
         let rt = manager.register(
             "routing-table",
-            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+            ComponentOptions::new()
+                .with_graceful_shutdown(Duration::from_secs(5))
+                .with_shutdown_phase(1),
         );
         let coord = manager.register(
             "coordinator",
-            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+            ComponentOptions::new()
+                .with_graceful_shutdown(Duration::from_secs(5))
+                .with_shutdown_phase(1),
         );
         (Some(rt), Some(coord))
     } else {
@@ -96,10 +106,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Register discovery handle before monitor_background() consumes the manager
     let discovery_handle = if config.replica_discovery_mode == ReplicaDiscoveryMode::K8s {
-        Some(manager.register(
-            "replica-discovery",
-            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
-        ))
+        Some(
+            manager.register(
+                "replica-discovery",
+                ComponentOptions::new()
+                    .with_graceful_shutdown(Duration::from_secs(5))
+                    .with_shutdown_phase(1),
+            ),
+        )
     } else {
         None
     };
@@ -256,9 +270,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let shared_table = coordination_routing_table.table_handle();
         let leader_port = config.leader_port;
+        // Pods may register with an explicit `host:port` name (local
+        // multi-leader setups, where a single fleet-wide port cannot hold);
+        // those resolve as-is. Bare pod names resolve via DNS on the
+        // fleet-wide leader port.
         let leader_backend = Arc::new(LeaderBackend::new(
             shared_table,
-            Arc::new(move |pod_name: &str| Some(format!("http://{}:{}", pod_name, leader_port))),
+            Arc::new(move |pod_name: &str| {
+                if pod_name.contains(':') {
+                    Some(format!("http://{pod_name}"))
+                } else {
+                    Some(format!("http://{pod_name}:{leader_port}"))
+                }
+            }),
             LeaderBackendConfig {
                 num_partitions,
                 timeout: config.backend_timeout(),

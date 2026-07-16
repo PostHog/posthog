@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 
 import { ApiError } from 'lib/api'
 import { getEventNamesForAction } from 'lib/utils/events'

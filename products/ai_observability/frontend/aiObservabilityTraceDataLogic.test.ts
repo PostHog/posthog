@@ -5,6 +5,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import {
     TraceTreeNode,
     getEffectiveEventId,
+    getHighlightedEventId,
     getInitialFocusEventId,
     getSingleTraceLoadTiming,
     reportTraceNormalizationFailures,
@@ -338,6 +339,29 @@ describe('resolveTraceEventById', () => {
 
     it('returns null when no event matches', () => {
         expect(resolveTraceEventById(showableEvents, 'missing')).toBeNull()
+    })
+})
+
+describe('getHighlightedEventId', () => {
+    const llmTraceEvent: LLMTraceEvent = {
+        id: 'internal-uuid',
+        event: '$ai_generation',
+        properties: { $ai_span_id: 'my-span' },
+        createdAt: '2024-01-01T00:00:00Z',
+    }
+    const llmTrace: LLMTrace = {
+        id: 'trace-id',
+        distinctId: 'user-1',
+        events: [],
+        createdAt: '2024-01-01T00:00:00Z',
+    }
+
+    it.each<[string, LLMTrace | LLMTraceEvent | null, string | null]>([
+        ['LLMTraceEvent', llmTraceEvent, 'internal-uuid'],
+        ['LLMTrace', llmTrace, null],
+        ['null', null, null],
+    ])('returns correct id for %s', (_label, event, expected) => {
+        expect(getHighlightedEventId(event)).toBe(expected)
     })
 })
 

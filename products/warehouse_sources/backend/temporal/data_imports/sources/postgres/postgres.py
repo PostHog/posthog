@@ -219,6 +219,16 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # ("password authentication failed", "SASL authentication failed"), and exclude the volatile
     # millisecond value.
     "authentication did not complete within",
+    # pgcat (a Rust Postgres pooler) refuses to hand out a backend when every server in the pool is
+    # currently banned/down — a failed health check bans a server and pgcat auto-unbans it after
+    # `ban_time` — reporting it as SQLSTATE 58000 ("could not get connection from the pool -
+    # AllServersDown"), which psycopg maps to OperationalError. It's transient by construction (a
+    # banned server rejoins once it passes a health check, or the ban expires), the pgcat analog of
+    # Supavisor's ECHECKOUT* pool-checkout failures above, so a fresh reconnect recovers. It can land
+    # on the first discovery query (`SELECT version()` in `_is_duckdb_connection`), so the discovery
+    # retry must catch it. Match the stable prefix + reason and leave pgcat's non-transient reasons
+    # (e.g. BadConfig) to surface.
+    "could not get connection from the pool - allserversdown",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
@@ -349,24 +359,54 @@ def _is_connection_limit_error(error: BaseException) -> bool:
     return any(substring in message for substring in _CONNECTION_LIMIT_ERROR_SUBSTRINGS)
 
 
+# Connect-time "server not ready" refusals: PostgreSQL rejects a *new* connection with SQLSTATE
+# 57P03 (cannot_connect_now) while it is still coming up — a primary or standby booting ("the
+# database system is starting up"), a server replaying WAL after a crash ("the database system is
+# in recovery mode"), or a hot standby that has accepted the connection attempt but not yet reached
+# a consistent recovery point ("the database system is not yet accepting connections", DETAIL
+# "Consistent recovery state has not been yet reached"). All are transient: the server begins
+# accepting connections within seconds once startup/recovery completes, so a fresh connect after a
+# short backoff succeeds. libpq surfaces these as a bare OperationalError at connect time (no
+# SQLSTATE-mapped subclass), so match on the stable message. Deliberately NOT the permanent
+# hot-standby-disabled refusal — that reads "the database system is not accepting connections"
+# (no "yet") with DETAIL "Hot standby mode is disabled" and stays non-retryable (see source.py's
+# `get_non_retryable_errors`); none of the substrings below appear in it.
+_SERVER_STARTING_UP_ERROR_SUBSTRINGS = (
+    "the database system is starting up",
+    "the database system is not yet accepting connections",
+    "the database system is in recovery mode",
+)
+
+
+def _is_server_starting_up_error(error: BaseException) -> bool:
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    message = " ".join(str(arg) for arg in error.args).lower()
+    return any(substring in message for substring in _SERVER_STARTING_UP_ERROR_SUBSTRINGS)
+
+
 def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
     """Transient connect-path failures the import/read reconnect recovers from in process.
 
-    A mid-stream drop (`_is_connection_dropped_error`), a connect-time timeout, or a connect-time
-    connection-limit refusal (`_is_connection_limit_error`). psycopg raises `ConnectionTimeout`
-    ("connection timeout expired") only while *establishing* a connection, never mid-query, so on the
-    import/read path it's transient: the source was reachable moments earlier in the same sync, and
-    the reconnect just needs retrying. Connection-limit refusals ("sorry, too many clients already",
-    etc.) are likewise transient — a slot frees the moment another connection closes. Used by the
-    read/sync connect retry (`_connect_with_dropped_retry`) and the `offset_chunking` reconnect. The
-    schema-discovery path retries drops and connection-limit refusals too (via
-    `_is_dropped_or_connection_limit`) but deliberately keeps failing fast on connect-time *timeouts*,
-    where a timeout usually means an unreachable host / unconfigured firewall (see `PostgresErrors`
-    and `get_non_retryable_errors`).
+    A mid-stream drop (`_is_connection_dropped_error`), a connect-time timeout, a connect-time
+    connection-limit refusal (`_is_connection_limit_error`), or a connect-time "server not ready"
+    refusal while the source is still starting up / recovering (`_is_server_starting_up_error`).
+    psycopg raises `ConnectionTimeout` ("connection timeout expired") only while *establishing* a
+    connection, never mid-query, so on the import/read path it's transient: the source was reachable
+    moments earlier in the same sync, and the reconnect just needs retrying. Connection-limit
+    refusals ("sorry, too many clients already", etc.) and server-still-starting-up refusals ("the
+    database system is not yet accepting connections", etc.) are likewise transient — a slot frees
+    the moment another connection closes, and the server begins accepting connections once
+    startup/recovery finishes. Used by the read/sync connect retry (`_connect_with_dropped_retry`)
+    and the `offset_chunking` reconnect. The schema-discovery path retries drops, connection-limit
+    refusals and server-startup refusals too (via `_is_dropped_or_connection_limit`) but deliberately
+    keeps failing fast on connect-time *timeouts*, where a timeout usually means an unreachable host /
+    unconfigured firewall (see `PostgresErrors` and `get_non_retryable_errors`).
     """
     return (
         _is_connection_dropped_error(error)
         or _is_connection_limit_error(error)
+        or _is_server_starting_up_error(error)
         or isinstance(error, psycopg.errors.ConnectionTimeout)
     )
 
@@ -374,15 +414,19 @@ def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
 def _is_dropped_or_connection_limit(error: BaseException) -> bool:
     """Transient conditions the background schema-discovery retry recovers from in process.
 
-    A mid-stream drop (`_is_connection_dropped_error`) or a connection-limit refusal
-    (`_is_connection_limit_error`). Both are transient — a slot frees as connections close, and a
-    pooler-cached login failure clears once the upstream has capacity — so discovery retries them on
+    A mid-stream drop (`_is_connection_dropped_error`), a connection-limit refusal
+    (`_is_connection_limit_error`), or a "server not ready" refusal while the source is still
+    starting up / recovering (`_is_server_starting_up_error`). All are transient — a slot frees as
+    connections close, a pooler-cached login failure clears once the upstream has capacity, and the
+    server begins accepting connections once startup/recovery finishes — so discovery retries them on
     a fresh connection instead of failing the activity and surfacing captured error-tracking noise.
     Unlike the read/sync connect path (`_is_dropped_or_connect_timeout`), a connect-time *timeout* is
     deliberately excluded: during discovery a timeout usually means a now-unreachable host, which
     should fail fast rather than burn the retry budget.
     """
-    return _is_connection_dropped_error(error) or _is_connection_limit_error(error)
+    return (
+        _is_connection_dropped_error(error) or _is_connection_limit_error(error) or _is_server_starting_up_error(error)
+    )
 
 
 def _is_recovery_conflict_error(error: BaseException) -> bool:
@@ -410,11 +454,17 @@ def _raise_if_setup_connection_broken(connection: psycopg.Connection) -> None:
     swallow the follow-up "connection closed" errors, so discovery finishes "successfully"
     and the implicit commit in the enclosing `with connection:` raises a misleading
     `ProgrammingError: Explicit commit() forbidden within a Transaction context`, burying
-    the real cause. Detect the broken connection first and raise the actual
-    dropped-connection error (transient, so it stays retryable) — the activity then retries
-    on a fresh connection instead of failing on a self-inflicted commit error.
+    the real cause.
+
+    A hard drop flips the connection to `broken`, but a drop that lands precisely while
+    psycopg is entering or leaving the probe's `transaction()` block can leave the nesting
+    counter incremented while `broken` stays False (the connection is `INERROR`, not BAD).
+    `commit()` refuses outright whenever that counter is non-zero, so checking `broken` alone
+    misses this case. Detect either signal and raise the actual dropped-connection error
+    (transient, so it stays retryable) — the activity then retries on a fresh connection
+    instead of failing on the self-inflicted commit error.
     """
-    if connection.broken:
+    if connection.broken or getattr(connection, "_num_transactions", 0) > 0:
         raise psycopg.OperationalError("connection to server was lost during table metadata discovery")
 
 
@@ -1065,6 +1115,21 @@ def _is_unsupported_function_error(error: Exception, function_name: str) -> bool
     return any(marker in message for marker in ("does not exist", "unknown function", "not found", "no function"))
 
 
+def _is_unsupported_statement_timeout_error(error: Exception) -> bool:
+    """True when the engine rejects setting `statement_timeout` as an unsupported feature.
+
+    The best-effort `SET statement_timeout` guarding these metadata scans is a Postgres-only
+    convenience. Some Postgres-wire-compatible engines (CrateDB, Materialize, and similar
+    analytical/streaming proxies) accept the connection but expose a limited GUC set, raising
+    `FeatureNotSupported` — `setting configuration parameter "statement_timeout" not supported`.
+    That's an expected engine limitation, not a bug, so callers degrade quietly rather than
+    flooding error tracking (mirrors `_is_unsupported_function_error`). A genuine timeout
+    cancellation reads `canceling statement due to statement timeout`, so it can't match here.
+    """
+    message = str(error).lower()
+    return "statement_timeout" in message and "not supported" in message
+
+
 def _rls_active_from_conn(
     connection: psycopg.Connection,
     schema: str | None,
@@ -1083,11 +1148,19 @@ def _rls_active_from_conn(
     """
     try:
         with connection.cursor() as cursor:
-            cursor.execute(
-                sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
-                    timeout=sql.Literal(1000 * 30)  # 30 secs
+            try:
+                cursor.execute(
+                    sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                        timeout=sql.Literal(1000 * 30)  # 30 secs
+                    )
                 )
-            )
+            except psycopg.errors.FeatureNotSupported:
+                # Some Postgres-wire-compatible engines (e.g. Aurora DSQL) don't implement setting
+                # statement_timeout. This SET is only a best-effort guard against a runaway catalog
+                # scan, so its rejection is an expected incompatibility — degrade quietly instead of
+                # flooding error tracking. Scoped to this statement so an unrelated FeatureNotSupported
+                # from the catalog queries below still reaches the capture path.
+                return {}
             discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
             if not discovered_tables:
                 return {}
@@ -1139,6 +1212,7 @@ def _rls_active_from_conn(
             and not connection.broken
             and not isinstance(e, psycopg.errors.InFailedSqlTransaction)
             and not _is_unsupported_function_error(e, "row_security_active")
+            and not _is_unsupported_statement_timeout_error(e)
         ):
             capture_exception(e)
         return {}
@@ -1195,7 +1269,12 @@ def _xmin_capable_tables_from_conn(
         # Best-effort like the PK/RLS/index lookups it runs alongside: losing the `supports_xmin`
         # hint just hides the option for this listing. A non-Postgres engine may lack `relkind`
         # semantics entirely, so degrade quietly.
-        if not connection.closed and not connection.broken and not isinstance(e, psycopg.errors.InFailedSqlTransaction):
+        if (
+            not connection.closed
+            and not connection.broken
+            and not isinstance(e, psycopg.errors.InFailedSqlTransaction)
+            and not _is_unsupported_statement_timeout_error(e)
+        ):
             structlog.get_logger().warning("Failed to detect xmin-capable tables for Postgres schemas", exc_info=e)
         return set()
 
@@ -2839,11 +2918,22 @@ def postgres_source(
                         )
 
                         # Session, not LOCAL: under autocommit a LOCAL timeout has no transaction to bind to.
-                        cursor.execute(
-                            sql.SQL("SET statement_timeout = {timeout}").format(
-                                timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
+                        # Best-effort: some Postgres-compatible engines and poolers reject `SET
+                        # statement_timeout` with FeatureNotSupported, so fall back to the source's
+                        # default rather than failing the whole sync — mirroring the metadata-probe
+                        # sites in `_get_table`/`_get_columns_for_tables`. A genuine connection
+                        # drop/limit stringifies differently and re-raises so the setup retry recovers
+                        # on a fresh connection instead of silently losing the timeout guard.
+                        try:
+                            cursor.execute(
+                                sql.SQL("SET statement_timeout = {timeout}").format(
+                                    timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
+                                )
                             )
-                        )
+                        except psycopg.Error as e:
+                            if _is_connection_dropped_error(e) or _is_connection_limit_error(e):
+                                raise
+                            logger.debug(f"Source does not support setting statement_timeout; using its default: {e}")
 
                         # Capture the xmin ceiling on this row-serving connection before streaming.
                         if is_xmin:

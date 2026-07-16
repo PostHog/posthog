@@ -1,12 +1,13 @@
 import { BindLogic, useValues } from 'kea'
 
 import { IconPencil } from '@posthog/icons'
-import { LemonButton, LemonCard } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { appLogic } from 'scenes/appLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -16,6 +17,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { VisionActionApi } from '../generated/api.schemas'
+import { VisionActionModeEnumApi } from '../generated/api.schemas'
 import { humanizeCadence, parseRruleToCadence } from './cadence'
 import { VisionActionRuns } from './components/VisionActionRuns'
 import { visionActionRunsLogic } from './visionActionRunsLogic'
@@ -37,12 +39,22 @@ function ActionOverview({
     scheduleLabel: string | null
 }): JSX.Element {
     const guidance = action.synthesis_config?.prompt_guide?.trim()
+    const isAlert = action.mode === VisionActionModeEnumApi.Alert
+    const everyMatch = action.alert_config?.frequency === 'every_match'
 
     return (
         <>
             <SceneTitleSection
                 name={action.name}
-                description={scheduleLabel ? `Runs ${scheduleLabel.toLowerCase()}` : undefined}
+                description={
+                    isAlert
+                        ? everyMatch
+                            ? 'Checked every few minutes; each alert covers the new matches since the last check'
+                            : 'Checked about every hour; notifies when the threshold starts being crossed'
+                        : scheduleLabel
+                          ? `Runs ${scheduleLabel.toLowerCase()}`
+                          : undefined
+                }
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <AccessControlAction
@@ -60,17 +72,19 @@ function ActionOverview({
                     </AccessControlAction>
                 }
             />
-            <LemonCard hoverEffect={false} className="p-4">
-                <div className="text-xs font-semibold uppercase text-secondary mb-1">Summary guidance</div>
-                {guidance ? (
-                    <p className="m-0 whitespace-pre-wrap">{guidance}</p>
-                ) : (
-                    <p className="m-0 text-muted italic">
-                        No guidance set — the AI summarizes this scanner's observations freely. Edit the action to steer
-                        it.
-                    </p>
-                )}
-            </LemonCard>
+            {!isAlert && (
+                <LemonCard hoverEffect={false} className="p-4">
+                    <div className="text-xs font-semibold uppercase text-secondary mb-1">Summary guidance</div>
+                    {guidance ? (
+                        <p className="m-0 whitespace-pre-wrap">{guidance}</p>
+                    ) : (
+                        <p className="m-0 text-muted italic">
+                            No guidance set — the AI summarizes this scanner's observations freely. Edit the action to
+                            steer it.
+                        </p>
+                    )}
+                </LemonCard>
+            )}
         </>
     )
 }
@@ -97,9 +111,14 @@ function VisionActionDetail(): JSX.Element {
 
 function VisionActionSceneComponent(): JSX.Element {
     const { actionId } = useValues(visionActionSceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { featureFlagsTimedOut } = useValues(appLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION] || !featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]) {
+        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
+        if (!receivedFeatureFlags && !featureFlagsTimedOut) {
+            return <SpinnerOverlay sceneLevel />
+        }
         return <NotFound object="page" />
     }
 

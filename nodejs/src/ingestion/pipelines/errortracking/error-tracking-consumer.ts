@@ -6,7 +6,6 @@ import { Counter, Gauge } from 'prom-client'
 import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
 import { HogTransformationResult } from '~/common/hog-transformations/hog-transformer.interface'
 import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
-import { OverflowOutput } from '~/common/outputs'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
@@ -26,7 +25,6 @@ import { OverflowLaneOverflowRedirect } from '~/ingestion/common/overflow-redire
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { RedisOverflowRepository } from '~/ingestion/common/overflow-redirect/overflow-redis-repository'
 import { IngestionLane, IngestionOverflowMode } from '~/ingestion/config'
-import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { PluginEvent } from '~/plugin-scaffold'
 import { HealthCheckResult, PluginServerService } from '~/types'
@@ -34,7 +32,7 @@ import { HealthCheckResult, PluginServerService } from '~/types'
 import { CymbalClient } from './cymbal'
 import {
     ErrorTrackingOutputs,
-    ErrorTrackingPipelineOutput,
+    ErrorTrackingPipeline,
     PostCymbalRateLimiterInput,
     createErrorTrackingPipeline,
     runErrorTrackingPipeline,
@@ -126,12 +124,7 @@ const latestOffsetTimestampGauge = new Gauge({
 export class ErrorTrackingConsumer {
     protected name = 'error-tracking-consumer'
     protected kafkaConsumer: KafkaConsumerInterface
-    protected pipeline!: BatchPipelineUnwrapper<
-        { message: Message },
-        ErrorTrackingPipelineOutput,
-        { message: Message },
-        OverflowOutput
-    >
+    protected pipeline!: ErrorTrackingPipeline
     protected cymbalClient: CymbalClient
     protected promiseScheduler: PromiseScheduler
     private eventIngestionRestrictionManagerComponent: EventIngestionRestrictionManagerComponent

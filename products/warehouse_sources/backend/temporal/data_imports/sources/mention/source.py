@@ -36,6 +36,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MentionSource(ResumableSource[MentionSourceConfig, MentionResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("1.19",)
+    default_version = "1.19"
+    api_docs_url = "https://dev.mention.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -68,7 +71,6 @@ You can create an access token by registering an API application at [dev.mention
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

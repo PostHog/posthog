@@ -22,7 +22,10 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ApmAttributeBreakdownSchema = TracingSpansAttributeBreakdownCreateBody
 
-const apmAttributeBreakdown = (): ToolBase<typeof ApmAttributeBreakdownSchema, unknown> => ({
+const apmAttributeBreakdown = (): ToolBase<
+    typeof ApmAttributeBreakdownSchema,
+    Schemas._TracingAttributeBreakdownResponse
+> => ({
     name: 'apm-attribute-breakdown',
     schema: ApmAttributeBreakdownSchema,
     handler: async (context: Context, params: z.infer<typeof ApmAttributeBreakdownSchema>) => {
@@ -31,7 +34,7 @@ const apmAttributeBreakdown = (): ToolBase<typeof ApmAttributeBreakdownSchema, u
         if (params.query !== undefined) {
             body['query'] = params.query
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas._TracingAttributeBreakdownResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/attribute-breakdown/`,
             body,

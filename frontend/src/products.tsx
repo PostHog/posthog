@@ -128,6 +128,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/engineering-analytics/pull-requests': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
     '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
     '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
+    '/engineering-analytics/teams': ['EngineeringAnalytics', 'engineeringAnalyticsTeams'],
+    '/engineering-analytics/teams/:ownerTeam': ['EngineeringAnalyticsTeam', 'engineeringAnalyticsTeam'],
     '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number': [
         'EngineeringAnalyticsPullRequest',
         'engineeringAnalyticsPullRequest',
@@ -184,11 +186,15 @@ export const productRoutes: Record<string, [string, string]> = {
     '/replay-vision/:id/self-driving': ['ReplayVisionScannerEditor', 'replayVisionScannerSelfDriving'],
     '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
+    '/code_review': ['CodeReview', 'codeReview'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
     '/skills': ['Skills', 'skills'],
     '/skills/scouts': ['Skills', 'skillsScouts'],
+    '/skills/review-hog': ['Skills', 'skillsReviewHog'],
     '/skills/:name': ['Skill', 'skill'],
+    '/stamphog': ['Stamphog', 'stamphog'],
+    '/stamphog/install/callback': ['Stamphog', 'stamphogCallback'],
     '/subscriptions': ['Subscriptions', 'subscriptions'],
     '/subscriptions/new': ['Subscriptions', 'subscriptionNew'],
     '/subscriptions/:subscriptionId/edit': ['Subscriptions', 'subscriptionEdit'],
@@ -593,6 +599,13 @@ export const productConfiguration: Record<string, any> = {
         description: "One author's pull requests \u2014 a filtered view for finding work, not a ranking.",
         iconType: 'health',
     },
+    EngineeringAnalyticsTeam: {
+        projectBased: true,
+        name: 'Team CI health',
+        layout: 'app-container',
+        description: "One owning team's merge timing and the before/after signal on its owned tests.",
+        iconType: 'health',
+    },
     ErrorTracking: {
         projectBased: true,
         name: 'Error tracking',
@@ -667,13 +680,13 @@ export const productConfiguration: Record<string, any> = {
         name: 'MCP analytics',
         layout: 'app-container',
         description: 'Capture user intent and behaviour patterns to understand what AI users need from your tools.',
-        iconType: 'llm_analytics',
+        iconType: 'mcp_analytics',
     },
     MCPAnalyticsToolDetail: {
         projectBased: true,
         name: 'MCP tool',
         layout: 'app-container',
-        iconType: 'llm_analytics',
+        iconType: 'mcp_analytics',
     },
     Metrics: {
         name: 'Metrics',
@@ -741,6 +754,12 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'revenue_analytics',
         description: 'Track and analyze your revenue metrics to understand your business performance and growth.',
     },
+    CodeReview: {
+        name: 'Code review',
+        projectBased: true,
+        description: 'Automated code reviews of your pull requests, and your review agent settings.',
+        iconType: 'code_review',
+    },
     SessionGroupSummariesTable: {
         name: 'Session summaries',
         projectBased: true,
@@ -762,6 +781,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'llm_prompts',
     },
     Skill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
+    Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog' },
     Subscriptions: {
         projectBased: true,
         name: 'Subscriptions',
@@ -851,9 +871,19 @@ export const productUrls = {
             msg?: string
         }
     ): string => {
+        const encodePathSegment = (value: string): string => {
+            const encodedValue = encodeURIComponent(value).replace(
+                /[!'()*]/g,
+                (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+            )
+            return encodeURIComponent(encodedValue).replace(
+                /[!'()*]/g,
+                (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+            )
+        }
         const queryParams = new URLSearchParams(params)
         const stringifiedParams = queryParams.toString()
-        return `/ai-observability/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+        return `/ai-observability/traces/${encodePathSegment(id)}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
     aiObservabilityUsers: (): string => '/ai-observability/users',
     aiObservabilityErrors: (): string => '/ai-observability/errors',
@@ -1013,6 +1043,9 @@ export const productUrls = {
     engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pull-requests',
     engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
     engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
+    engineeringAnalyticsTeams: (): string => '/engineering-analytics/teams',
+    engineeringAnalyticsTeam: (ownerTeam: string): string =>
+        `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
     engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
         `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}`,
     engineeringAnalyticsWorkflowRun: (repoOwner: string, repoName: string, runId: number | string): string =>
@@ -1226,6 +1259,7 @@ export const productUrls = {
     replayVisionActionNew: (scannerId: string): string => `/replay-vision/${scannerId}/actions/new`,
     replayVisionActionEdit: (actionId: string): string => `/replay-vision/actions/${actionId}/edit`,
     revenueAnalytics: (): string => '/revenue_analytics',
+    codeReview: (): string => '/code_review',
     sessionSummaries: (): string => '/session-summaries',
     sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
     skills: (): string => '/skills',
@@ -1237,6 +1271,8 @@ export const productUrls = {
             version?: number
         }
     ): string => combineUrl(`/skills/${name}`, params).url,
+    stamphog: (): string => '/stamphog',
+    stamphogCallback: (): string => '/stamphog/install/callback',
     subscriptions: (): string => '/subscriptions',
     subscription: (id: string | number): string => `/subscriptions/${id}`,
     subscriptionNew: (): string => '/subscriptions/new',
@@ -1642,6 +1678,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ],
     },
     {
+        path: 'Code review',
+        intents: [ProductKey.REVIEW_HOG],
+        category: ProductItemCategory.UNRELEASED,
+        iconType: 'code_review' as FileSystemIconType,
+        href: urls.codeReview(),
+        flag: FEATURE_FLAGS.REVIEW_HOG,
+        tags: ['alpha'],
+        sceneKey: 'CodeReview',
+        sceneKeys: ['CodeReview'],
+    },
+    {
         path: 'Customer analytics',
         intents: [ProductKey.CUSTOMER_ANALYTICS],
         category: ProductItemCategory.ANALYTICS,
@@ -1751,6 +1798,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.engineeringAnalytics(),
         flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
         tags: ['alpha'],
+        pinnedByDefault: true,
         sceneKey: 'EngineeringAnalytics',
         sceneKeys: [
             'EngineeringAnalytics',
@@ -1758,6 +1806,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'EngineeringAnalyticsWorkflowRun',
             'EngineeringAnalyticsWorkflowRuns',
             'EngineeringAnalyticsAuthor',
+            'EngineeringAnalyticsTeam',
         ],
     },
     {
@@ -1919,7 +1968,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.AI_ENGINEERING,
         visualOrder: 2,
         type: 'mcp_analytics',
-        iconType: 'llm_analytics' as FileSystemIconType,
+        iconType: 'mcp_analytics' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
         href: urls.mcpAnalyticsDashboard(),
         flag: FEATURE_FLAGS.MCP_ANALYTICS,
@@ -1942,7 +1991,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Metrics',
         intents: [ProductKey.METRICS],
-        category: ProductItemCategory.UNRELEASED,
+        category: ProductItemCategory.APP_MONITORING,
         iconType: 'metrics',
         iconColor: ['var(--color-product-metrics-light)', 'var(--color-product-metrics-dark)'] as FileSystemIconColor,
         href: urls.metrics(),
@@ -2108,7 +2157,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.BEHAVIOR,
         href: urls.supportTickets(),
         type: 'conversations',
-        tags: ['beta'],
         iconType: 'conversations',
         iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
         sceneKey: 'SupportTickets',
@@ -2173,7 +2221,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-tracing-light)'] as FileSystemIconColor,
         href: urls.tracing(),
         flag: FEATURE_FLAGS.TRACING,
-        tags: ['alpha'],
+        tags: ['beta'],
         sceneKey: 'Tracing',
         sceneKeys: ['Tracing', 'TracingOperation'],
     },

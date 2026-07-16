@@ -2,7 +2,7 @@ import re
 from collections.abc import Iterable
 from datetime import date, datetime
 from difflib import get_close_matches
-from typing import Any, ClassVar, Optional, cast, get_args
+from typing import TYPE_CHECKING, Any, ClassVar, Optional, cast, get_args
 from uuid import UUID
 
 from django.conf import settings as django_settings
@@ -34,9 +34,11 @@ from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.visitor import Visitor, clone_expr
 
 from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
-from posthog.models.team.team import WeekStartDay
-from posthog.models.utils import UUIDT
 from posthog.schema_enums import PersonsOnEventsMode
+from posthog.uuidt import UUIDT
+
+if TYPE_CHECKING:
+    from posthog.models.team.team import WeekStartDay
 
 MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH = 8
 
@@ -255,15 +257,19 @@ class BasePrinter(Visitor[str]):
         inner = ", ".join(self.visit(e) for e in node.exprs)
         return f"({inner})"
 
+    def _visit_set_operand(self, node: ast.SelectQuery | ast.SelectSetQuery) -> str:
+        """Render one operand of a set query (UNION/INTERSECT/EXCEPT). Dialects whose grammar
+        needs each operand parenthesized (e.g. to carry a per-branch LIMIT) override this."""
+        query = self.visit(node)
+        if self.pretty:
+            query = query.strip()
+        return query
+
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self._indent -= 1
-        ret = self.visit(node.initial_select_query)
-        if self.pretty:
-            ret = ret.strip()
+        ret = self._visit_set_operand(node.initial_select_query)
         for expr in node.subsequent_select_queries:
-            query = self.visit(expr.select_query)
-            if self.pretty:
-                query = query.strip()
+            query = self._visit_set_operand(expr.select_query)
             if expr.set_operator is not None:
                 self._assert_set_operator_supported(expr.set_operator)
                 if self.pretty:
@@ -1521,7 +1527,9 @@ class BasePrinter(Visitor[str]):
             return "UTC"
         return self.context.database.get_timezone() if self.context.database else "UTC"
 
-    def _get_week_start_day(self) -> WeekStartDay:
+    def _get_week_start_day(self) -> "WeekStartDay":
+        from posthog.models.team.team import WeekStartDay  # noqa: PLC0415
+
         return self.context.database.get_week_start_day() if self.context.database else WeekStartDay.SUNDAY
 
     def _is_type_nullable(self, node_type: ast.Type) -> bool | None:
@@ -1641,7 +1649,7 @@ class BasePrinter(Visitor[str]):
             case "text" | "varchar" | "char" | "string":
                 return f"toString({self.visit(node.expr)})"
             case "boolean" | "bool":
-                return f"toBoolean({self.visit(node.expr)})"
+                return f"accurateCastOrNull({self.visit(node.expr)}, 'Bool')"
             case "date":
                 return f"toDate({self.visit(node.expr)})"
             case (

@@ -36,6 +36,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FloatAppSource(ResumableSource[FloatAppSourceConfig, FloatAppResumeConfig]):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://developer.float.com/api_reference.html"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -49,7 +52,6 @@ class FloatAppSource(ResumableSource[FloatAppSourceConfig, FloatAppResumeConfig]
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Float",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Float access token to automatically pull your Float resource-management data into the PostHog Data warehouse.
 
 You can create an access token in Float under **Team Settings → Integrations → API**. The token has the same access as its account owner.

@@ -135,6 +135,7 @@ export const TypedSpecSchema = z
         triggers: z.array(z.unknown()).optional(),
         mcps: z.array(z.unknown()).optional(),
         identity_providers: z.array(z.unknown()).optional(),
+        authoritative_provider: z.string().optional(),
         // The canonical secret shape: a bare key string OR a host-scoped
         // `{ name, allowed_hosts }` object. Reuse `SecretRefSchema` (the single
         // source of truth) rather than re-spelling it — the old string-only

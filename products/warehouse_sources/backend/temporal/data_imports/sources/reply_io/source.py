@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ReplyIoSource(ResumableSource[ReplyIoSourceConfig, ReplyIoResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://docs.reply.io/api-reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -68,7 +71,6 @@ You can create an API key under **Settings → API Keys** in [Reply](https://run
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

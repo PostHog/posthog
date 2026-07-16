@@ -115,6 +115,22 @@ export function getMarkdownNotebookVisualGroups(
     return groups
 }
 
+// ensureEditableNotebookDocument prepends an empty `# ` title row so editors always have a
+// title to type into. Viewers can't type, so in view mode that synthetic row would render as
+// a bare "Untitled notebook" placeholder card (e.g. profile canvases whose content starts
+// with a component) — drop it from the rendered groups instead.
+export function withoutLeadingEmptyTitleGroup(groups: MarkdownNotebookVisualGroup[]): MarkdownNotebookVisualGroup[] {
+    const firstGroup = groups[0]
+    if (!firstGroup || firstGroup.type !== 'text') {
+        return groups
+    }
+    const [firstItem, ...restItems] = firstGroup.items
+    if (!firstItem || firstItem.index !== 0 || !isTextBlockNode(firstItem.node) || nodeHasContent(firstItem.node)) {
+        return groups
+    }
+    return restItems.length ? [{ ...firstGroup, items: restItems }, ...groups.slice(1)] : groups.slice(1)
+}
+
 export function isTextBlockNode(node: NotebookBlockNode): node is NotebookTextBlockNode {
     return node.type === 'paragraph' || node.type === 'heading' || node.type === 'blockquote'
 }

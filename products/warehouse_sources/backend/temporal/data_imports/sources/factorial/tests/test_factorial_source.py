@@ -47,8 +47,6 @@ class TestFactorialSource:
 
         assert config.name.value == "Factorial"
         assert config.label == "Factorial"
-        # Shipping behind the unreleased flag while in alpha: hidden from users until verified live.
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/factorial"
 

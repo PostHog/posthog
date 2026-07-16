@@ -35,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CoinMarketCapSource(ResumableSource[CoinMarketCapSourceConfig, CoinMarketCapResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://coinmarketcap.com/api/documentation/v1/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.COINMARKETCAP
@@ -52,7 +56,6 @@ Create a key from your [CoinMarketCap developer dashboard](https://pro.coinmarke
             iconPath="/static/services/coinmarketcap.png",
             docsUrl="https://posthog.com/docs/cdp/sources/coinmarketcap",
             # Kept hidden from the new-source wizard for now; flip this off to release.
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
