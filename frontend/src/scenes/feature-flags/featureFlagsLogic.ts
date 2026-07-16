@@ -235,6 +235,47 @@ export interface featureFlagsLogicActions {
         id: number
         payload: Partial<FeatureFlagType>
     }
+    updateFeatureFlagArchived: (payload: { archived: boolean; id: number; via?: FeatureFlagArchivedSource }) => {
+        archived: boolean
+        id: number
+        via?: FeatureFlagArchivedSource | undefined
+    }
+    updateFeatureFlagArchivedFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    updateFeatureFlagArchivedSuccess: (
+        featureFlags: {
+            count: number
+            filters?: FeatureFlagsFilters | null | undefined
+            lastUpdatedFlagId: number
+            next?: string | null | undefined
+            previous?: string | null | undefined
+            results: any[]
+        },
+        payload?: {
+            archived: boolean
+            id: number
+            via?: FeatureFlagArchivedSource
+        }
+    ) => {
+        featureFlags: {
+            count: number
+            filters?: FeatureFlagsFilters | null | undefined
+            lastUpdatedFlagId: number
+            next?: string | null | undefined
+            previous?: string | null | undefined
+            results: any[]
+        }
+        payload?: {
+            archived: boolean
+            id: number
+            via?: FeatureFlagArchivedSource | undefined
+        }
+    }
     updateFeatureFlagFailure: (
         error: string,
         errorObject?: any

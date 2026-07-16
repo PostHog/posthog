@@ -139,12 +139,12 @@ export function checkFeatureFlagConfirmation(
     }
 
     if (requireStatusConfirmation && originalFlag?.active !== updatedFlag.active) {
-        const openStatusConfirmationModal = (onConfirmModal: () => void, onCancelModal?: () => void): void =>
+        const openStatusConfirmationModal = (onConfirmModal?: () => void, onCancelModal?: () => void): void =>
             openConfirmationModal({
                 featureFlag: updatedFlag,
                 type: 'flag-status',
                 activeNewValue: updatedFlag.active,
-                onConfirm: onConfirmModal,
+                onConfirm: onConfirmModal ?? onConfirm,
                 onCancel: onCancelModal,
             })
 

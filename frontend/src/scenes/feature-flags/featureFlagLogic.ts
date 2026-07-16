@@ -1539,6 +1539,7 @@ export interface featureFlagLogicActions {
         dependentFlags: DependentFlag[]
         isBeingDisabled?: boolean
         onConfirm: () => void
+        onDisableAndArchive?: () => void
         originalFlag: FeatureFlagType | null
         requireStatusConfirmation?: boolean
         updatedFlag: Partial<FeatureFlagType>
@@ -1546,6 +1547,7 @@ export interface featureFlagLogicActions {
         dependentFlags: DependentFlag[]
         isBeingDisabled?: boolean | undefined
         onConfirm: () => void
+        onDisableAndArchive?: (() => void) | undefined
         originalFlag: FeatureFlagType | null
         requireStatusConfirmation?: boolean | undefined
         updatedFlag: Partial<FeatureFlagType>
@@ -1758,7 +1760,10 @@ export interface featureFlagLogicActions {
         featureFlagActiveUpdate: FeatureFlagType
         payload?: boolean
     }
-    updateFeatureFlagArchived: (archived: boolean) => boolean
+    updateFeatureFlagArchived: (payload: { archived: boolean; via?: FeatureFlagArchivedSource }) => {
+        archived: boolean
+        via?: FeatureFlagArchivedSource | undefined
+    }
     updateFeatureFlagArchivedFailure: (
         error: string,
         errorObject?: any
@@ -1768,10 +1773,16 @@ export interface featureFlagLogicActions {
     }
     updateFeatureFlagArchivedSuccess: (
         featureFlagActiveUpdate: FeatureFlagType,
-        payload?: boolean
+        payload?: {
+            archived: boolean
+            via?: FeatureFlagArchivedSource
+        }
     ) => {
         featureFlagActiveUpdate: FeatureFlagType
-        payload?: boolean
+        payload?: {
+            archived: boolean
+            via?: FeatureFlagArchivedSource | undefined
+        }
     }
 }
 
@@ -1782,6 +1793,7 @@ export interface featureFlagLogicMeta {
         checkDependentFlagsAndConfirm: (
             payload: {
                 onConfirm: () => void
+                onDisableAndArchive?: (() => void) | undefined
                 originalFlag: FeatureFlagType | null
                 requireStatusConfirmation?: boolean | undefined
                 updatedFlag: Partial<FeatureFlagType>
@@ -1803,6 +1815,7 @@ export interface featureFlagLogicMeta {
                 dependentFlags: DependentFlag[]
                 isBeingDisabled?: boolean | undefined
                 onConfirm: () => void
+                onDisableAndArchive?: (() => void) | undefined
                 originalFlag: FeatureFlagType | null
                 requireStatusConfirmation?: boolean | undefined
                 updatedFlag: Partial<FeatureFlagType>
