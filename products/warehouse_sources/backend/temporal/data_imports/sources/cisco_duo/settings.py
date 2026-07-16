@@ -48,6 +48,9 @@ class CiscoDuoEndpointConfig:
     # Stable, immutable field to partition by (log timestamps and `created` never mutate).
     partition_key: Optional[str] = None
     partition_format: Literal["month", "week", "day", "hour"] = "week"
+    # Fields stripped from every row before it is yielded — used to keep credentials the API
+    # returns (e.g. an integration's secret_key) out of the warehouse table.
+    redact_fields: Optional[list[str]] = None
     description: Optional[str] = None
 
 
@@ -131,6 +134,9 @@ CISCO_DUO_ENDPOINTS: dict[str, CiscoDuoEndpointConfig] = {
         path="/admin/v1/integrations",
         api_style="list_v1",
         primary_keys=["integration_key"],
+        # The integrations list returns each integration's secret_key; never persist it — a
+        # project member who can read this table could otherwise sign requests as any integration.
+        redact_fields=["secret_key"],
     ),
 }
 

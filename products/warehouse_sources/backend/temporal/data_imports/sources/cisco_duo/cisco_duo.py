@@ -374,6 +374,10 @@ def _get_list_v1_rows(
         metadata = data.get("metadata") or {}
 
         if items:
+            if config.redact_fields:
+                for item in items:
+                    for field_name in config.redact_fields:
+                        item.pop(field_name, None)
             yield items
 
         raw_next_offset = metadata.get("next_offset")

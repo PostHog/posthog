@@ -381,6 +381,17 @@ class TestListV1Rows:
 
         assert _query(session.urls[0])["offset"] == "200"
 
+    def test_integrations_secret_key_is_redacted(self):
+        # The integrations endpoint returns each integration's secret_key; persisting it would
+        # leak Duo application secrets into the warehouse table, so it must be stripped.
+        session = _FakeSession(
+            [self._page([{"integration_key": "DI123", "name": "web sdk", "secret_key": "supersecret"}])]
+        )
+
+        batches = _run("integrations", session, _manager())
+
+        assert batches == [[{"integration_key": "DI123", "name": "web sdk"}]]
+
 
 class TestValidateCredentials:
     def _validate(self, response: mock.MagicMock, schema_name: str | None = None) -> tuple[bool, str | None]:
