@@ -137,6 +137,7 @@ def _fallback_content(
         summary = f"**Outcome distribution:** {distribution}{trend}, across {metrics.total_runs} runs."
 
     return EvalReportContent(
+        evaluation_target=evaluation_target,
         title=f"Automated fallback report for {evaluation_name}",
         sections=[
             ReportSection(
@@ -261,7 +262,7 @@ def run_eval_report_agent(
         "period_end": period_end,
         "previous_period_start": previous_period_start,
         "report_prompt_guidance": report_prompt_guidance,
-        "report": EvalReportContent(metrics=metrics),
+        "report": EvalReportContent(evaluation_target=evaluation_target, metrics=metrics),
     }
 
     from posthog.temporal.ai_observability.eval_reports.metrics import increment_errors, increment_report_generated
@@ -290,9 +291,12 @@ def run_eval_report_agent(
     try:
         result = agent.invoke(initial_state, config)
 
-        content: EvalReportContent = result.get("report", EvalReportContent(metrics=metrics))
+        content: EvalReportContent = result.get(
+            "report", EvalReportContent(evaluation_target=evaluation_target, metrics=metrics)
+        )
         # Always overwrite metrics with the trusted computation — the agent cannot
         # fabricate numbers by mutating state["report"].metrics.
+        content.evaluation_target = evaluation_target
         content.metrics = metrics
 
         validation_error = _validate_agent_output(content)

@@ -1,6 +1,7 @@
 """Dataclasses for evaluation report content, metrics, and citations.
 
 The v2 schema splits the report into:
+- `evaluation_target`: the evaluated unit (`generation` or `trace`)
 - `metrics`: structured numeric data computed mechanically from ClickHouse,
   the agent cannot fabricate these
 - `title`: the agent's punchline headline (required, one line)
@@ -16,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Literal, overload
 
 from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
+from posthog.temporal.ai_observability.eval_reports.targets import GENERATION_TARGET, resolve_evaluation_target
 
 # Hard cap on the number of agent-chosen sections. Prevents section sprawl and
 # keeps reports scannable. The agent is also instructed to lean lean — quality
@@ -285,13 +287,18 @@ def normalize_report_content_payload(data: dict) -> dict:
 class EvalReportContent:
     """Top-level report content. Stored in EvaluationReportRun.content JSONField."""
 
+    evaluation_target: str = GENERATION_TARGET
     title: str = ""
     sections: list[ReportSection] = field(default_factory=list)
     citations: list[Citation] = field(default_factory=list)
     metrics: EvalReportMetrics = field(default_factory=EvalReportMetrics)
 
+    def __post_init__(self) -> None:
+        self.evaluation_target = resolve_evaluation_target(self.evaluation_target)
+
     def to_dict(self) -> dict:
         return {
+            "evaluation_target": self.evaluation_target,
             "title": self.title,
             "sections": [s.to_dict() for s in self.sections],
             "citations": [c.to_dict() for c in self.citations],
@@ -301,6 +308,7 @@ class EvalReportContent:
     @staticmethod
     def from_dict(data: dict) -> "EvalReportContent":
         return EvalReportContent(
+            evaluation_target=data.get("evaluation_target", GENERATION_TARGET),
             title=data.get("title", ""),
             sections=[ReportSection.from_dict(s) for s in data.get("sections", [])],
             citations=[Citation.from_dict(c) for c in data.get("citations", [])],

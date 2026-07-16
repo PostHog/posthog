@@ -257,6 +257,8 @@ class TestTraceDetailTools(SimpleTestCase):
         self.assertEqual(len(result[0]["text"]), 3_000)
         self.assertEqual(mock_fetch.call_args.kwargs["trace_id"], trace_id)
         self.assertEqual(mock_fetch.call_args.kwargs["max_length"], 3_000)
+        self.assertEqual(mock_fetch.call_args.kwargs["window_start"], "2020-01-01T00:00:00+00:00")
+        self.assertEqual(mock_fetch.call_args.kwargs["window_end"], "2099-01-01T00:00:00+00:00")
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._fetch_and_format_trace")
     def test_deep_dive_rejects_oversized_trace_id_without_querying(self, mock_fetch):

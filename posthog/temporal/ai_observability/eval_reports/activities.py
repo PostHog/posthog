@@ -398,13 +398,11 @@ async def run_eval_report_agent_activity(
             )
 
         content, evaluation_target = await run_agent()
-
-        content_payload = content.to_dict()
-        content_payload["evaluation_target"] = evaluation_target
+        content.evaluation_target = evaluation_target
 
         return RunEvalReportAgentOutput(
             report_id=inputs.report_id,
-            content=content_payload,
+            content=content.to_dict(),
             period_start=inputs.period_start,
             period_end=inputs.period_end,
         )

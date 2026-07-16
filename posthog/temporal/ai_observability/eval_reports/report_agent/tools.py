@@ -91,8 +91,8 @@ def _ch_ts(iso_str: str) -> datetime:
     return dt.astimezone(UTC)
 
 
-_WIDENED_TS_START_SENTINEL = "2020-01-01T00:00:00+00:00"
-_WIDENED_TS_END_SENTINEL = "2099-01-01T00:00:00+00:00"
+_TARGET_LOOKUP_TS_START_SENTINEL = "2020-01-01T00:00:00+00:00"
+_TARGET_LOOKUP_TS_END_SENTINEL = "2099-01-01T00:00:00+00:00"
 
 
 def _resolve_output_type(output_type: str | None) -> tuple[str, EvaluationReportOutcomeDefinition]:
@@ -147,11 +147,11 @@ def _widened_ts_window(state: dict) -> tuple[datetime, datetime]:
     try:
         ts_start = _ch_ts((datetime.fromisoformat(state["period_start"]) - timedelta(days=7)).isoformat())
     except (ValueError, TypeError, KeyError):
-        ts_start = _ch_ts(_WIDENED_TS_START_SENTINEL)
+        ts_start = _ch_ts(_TARGET_LOOKUP_TS_START_SENTINEL)
     try:
         ts_end = _ch_ts((datetime.fromisoformat(state["period_end"]) + timedelta(days=1)).isoformat())
     except (ValueError, TypeError, KeyError):
-        ts_end = _ch_ts(_WIDENED_TS_END_SENTINEL)
+        ts_end = _ch_ts(_TARGET_LOOKUP_TS_END_SENTINEL)
     return ts_start, ts_end
 
 
@@ -884,12 +884,13 @@ def _fetch_trace_detail(state: dict, trace_id: object, max_length: int) -> dict:
     if normalized_trace_id is None:
         return {"error": "Invalid trace ID"}
 
-    ts_start, ts_end = _widened_ts_window(state)
+    # The report period locates evaluation events, not the boundaries of their target traces.
+    # Trace IDs are indexed, so fetch the complete trace instead of silently clipping long traces.
     result = _fetch_and_format_trace(
         trace_id=normalized_trace_id,
         team_id=state["team_id"],
-        window_start=ts_start.isoformat(),
-        window_end=ts_end.isoformat(),
+        window_start=_TARGET_LOOKUP_TS_START_SENTINEL,
+        window_end=_TARGET_LOOKUP_TS_END_SENTINEL,
         max_length=max_length,
     )
     if result is None:
@@ -1228,8 +1229,6 @@ def add_citation(
         return "Error: generation_id must be empty for trace-target citations"
     if evaluation_target == GENERATION_TARGET and not _UUID_RE.fullmatch(generation_id or ""):
         return f"Error: generation_id {generation_id!r} is not a canonical UUID"
-    if generation_id and not _UUID_RE.fullmatch(generation_id):
-        return f"Error: generation_id {generation_id!r} is not a canonical UUID"
     normalized_trace_id = _normalize_trace_id(trace_id)
     if normalized_trace_id is None:
         return "Error: trace_id is empty, too long, or contains control characters"
@@ -1241,11 +1240,13 @@ def add_citation(
     return f"Citation {len(state['report'].citations)} added: {cited_id[:32]} ({clean_reason!r})"
 
 
-_COMMON_QUERY_TOOLS: list[BaseTool] = [
+_COMMON_OVERVIEW_TOOLS: list[BaseTool] = [
     get_summary_metrics,
     get_result_distribution_over_time,
     list_all_eval_results,
     sample_eval_results,
+]
+_COMMON_FOLLOWUP_TOOLS: list[BaseTool] = [
     list_recent_report_runs,
     get_report_run,
     get_top_outcome_reasons,
@@ -1264,7 +1265,7 @@ def get_eval_report_tools(evaluation_target: str) -> list[BaseTool]:
     """Return the shared report tools plus only the details relevant to this target."""
     target = resolve_evaluation_target(evaluation_target)
     detail_tools = _TRACE_DETAIL_TOOLS if target == TRACE_TARGET else _GENERATION_DETAIL_TOOLS
-    return [*_COMMON_QUERY_TOOLS[:4], *detail_tools, *_COMMON_QUERY_TOOLS[4:], *_OUTPUT_TOOLS]
+    return [*_COMMON_OVERVIEW_TOOLS, *detail_tools, *_COMMON_FOLLOWUP_TOOLS, *_OUTPUT_TOOLS]
 
 
 # Preserve the original export for callers that build generation report agents directly.

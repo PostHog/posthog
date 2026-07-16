@@ -111,6 +111,7 @@ class TestFallbackContent(SimpleTestCase):
 
         self.assertIn("trace evaluation results", content.sections[0].content)
         self.assertNotIn("$ai_generation", content.sections[0].content)
+        self.assertEqual(content.evaluation_target, "trace")
 
     def test_populated_metrics_stable_trend(self):
         metrics = EvalReportMetrics(
