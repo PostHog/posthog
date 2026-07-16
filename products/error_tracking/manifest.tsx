@@ -64,6 +64,9 @@ export const manifest: ProductManifest = {
                 searchQuery?: string
                 dateRange?: DateRange
                 filterGroup?: UniversalFiltersGroup
+                utm_source?: string
+                utm_campaign?: string
+                utm_medium?: string
             } = {}
         ): string => combineUrl(`/error_tracking/${id}`, params).url,
         errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,
