@@ -10,13 +10,15 @@ def select_sentiment_label(scores: dict[str, float], neutral_margin: float = SEN
     """Pick a sentiment label, keeping low-confidence polar calls in neutral.
 
     Returns the top-scoring label, except when it is a polar label (negative/positive)
-    that fails to beat neutral by `neutral_margin` — those near-ties resolve to neutral
-    rather than being promoted to a polar label the model is barely confident about.
+    that does not beat neutral by more than `neutral_margin` — those near-ties (and exact
+    ties at the margin) resolve to neutral rather than being promoted to a polar label the
+    model is barely confident about. The gap is rounded to the 4 decimals the scores already
+    carry, so the boundary decision doesn't hinge on floating-point error.
     """
     top_label = max(scores, key=scores.get)  # type: ignore
     if top_label == "neutral":
         return "neutral"
-    if scores[top_label] - scores.get("neutral", 0.0) < neutral_margin:
+    if round(scores[top_label] - scores.get("neutral", 0.0), 4) <= neutral_margin:
         return "neutral"
     return top_label
 

@@ -21,7 +21,7 @@ ONNX_INTRA_OP_NUM_THREADS = _positive_int_env("POSTHOG_SENTIMENT_ONNX_INTRA_OP_N
 ONNX_INTER_OP_NUM_THREADS = _positive_int_env("POSTHOG_SENTIMENT_ONNX_INTER_OP_NUM_THREADS", 1)
 
 # Label selection
-# A polar label (negative/positive) must beat neutral by at least this margin to be
+# A polar label (negative/positive) must beat neutral by more than this margin to be
 # assigned; otherwise the message is treated as neutral. Short, task-focused messages
 # often split near-evenly between neutral and a polar label, and promoting those
 # coin-flips to negative/positive is the main source of false polar labels.
