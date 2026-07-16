@@ -31,7 +31,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - && \
     rm -rf /var/lib/apt/lists/*
 
 # uv comes from its pinned, registry-verified official image, same as Dockerfile.sandbox-base.
-COPY --from=ghcr.io/astral-sh/uv:0.11.14 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /usr/local/bin/
 
 WORKDIR /tmp/workspace
 
