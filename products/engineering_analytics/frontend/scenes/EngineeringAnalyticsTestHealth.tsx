@@ -391,22 +391,25 @@ function ActiveTestHealthQueue(): JSX.Element {
             sorter: (a, b) => a.failedRunCount - b.failedRunCount,
             render: (_, row) => (
                 <div className="flex flex-col gap-0.5 text-xs">
-                    <span>
-                        {pluralize(row.failedRunCount, 'failed run')} · {pluralize(row.failedPrCount, 'PR')}
-                    </span>
-                    <span className="text-secondary">
-                        {row.sameCommitRecoveryRunCount > 0
-                            ? `Failed then passed on the same commit in ${pluralize(row.sameCommitRecoveryRunCount, 'run')}`
-                            : 'No recovery recorded'}
-                    </span>
-                    {row.masterFailedRunCount > 0 && (
-                        <span className="font-semibold text-danger">
-                            {pluralize(row.masterFailedRunCount, 'master failure')}
+                    {row.failedRunCount > 0 && (
+                        <span>
+                            {pluralize(row.failedRunCount, 'failed run')} · {pluralize(row.failedPrCount, 'PR')}
                         </span>
                     )}
                     {row.quarantinedFailedRunCount > 0 && (
+                        <span>Failed in {pluralize(row.quarantinedFailedRunCount, 'quarantined run')} (xfail)</span>
+                    )}
+                    {/* An xfail row has no recovery question to answer: it is masked, not racing. */}
+                    {row.classification !== 'quarantined' && (
                         <span className="text-secondary">
-                            Still failed in {pluralize(row.quarantinedFailedRunCount, 'quarantined run')}
+                            {row.sameCommitRecoveryRunCount > 0
+                                ? `Failed then passed on the same commit in ${pluralize(row.sameCommitRecoveryRunCount, 'run')}`
+                                : 'No recovery recorded'}
+                        </span>
+                    )}
+                    {row.masterFailedRunCount > 0 && (
+                        <span className="font-semibold text-danger">
+                            {pluralize(row.masterFailedRunCount, 'master failure')}
                         </span>
                     )}
                 </div>
