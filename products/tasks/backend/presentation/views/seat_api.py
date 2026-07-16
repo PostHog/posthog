@@ -28,8 +28,8 @@ from ee.settings import BILLING_SERVICE_URL
 PRO_PLAN_PREFIXES = ("posthog-code-200", "posthog-code-pro-")
 RETIRED_SEAT_PRODUCT_MESSAGE = (
     "You can no longer create, upgrade, or reactivate PostHog Code seats. "
-    "PostHog Code with usage-based billing launched today, July 16, 2026, "
-    "and existing seats expire today."
+    "PostHog Code with usage-based billing launched on July 16, 2026, "
+    "and existing seats expire on the same date."
 )
 RETIRED_SEAT_PRODUCTS = {"posthog_code": RETIRED_SEAT_PRODUCT_MESSAGE}
 
