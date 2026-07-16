@@ -18,13 +18,6 @@ A missing `help_text` means an agent guessing at parameters.
 A bare `ListField()` means `z.unknown()` in the generated Zod schema.
 Getting the serializer right means every consumer — frontend types, MCP tools, API docs — gets correct types and descriptions automatically.
 
-## When to use
-
-- Editing or reviewing any file that defines a `Serializer` or `ViewSet`
-- Fixing OpenAPI spec warnings or generated type issues
-- Preparing an endpoint for MCP tool exposure
-- Code review of API changes
-
 ## Audit checklist
 
 ### Triage: check the generated output first
@@ -65,8 +58,8 @@ See [serializer-fields.md](references/serializer-fields.md) for patterns and exa
 12. **Error responses are typed** — use `OpenApiResponse(response=ErrorSerializer)`, not `OpenApiTypes.OBJECT`
 13. **List endpoints declare pagination** — reset with `pagination_class=None` on custom actions that don't paginate
 14. **Prefer `@validated_request`** over manual `serializer.is_valid()` + `@extend_schema` — it handles both in one decorator
-15. **ViewSets outside `products/` need `@extend_schema(extensions={"x-product": "<product>"})`** — ViewSets in `products/<name>/backend/` are auto-attributed via module path; ViewSets in `posthog/api/` or `ee/` aren't and must declare attribution explicitly via the `x-product` extension. Accepts a plain string (`"product_analytics"`) or `ProductKey.X` enum (kebab values are normalized). Don't use `tags=["<product>"]` to influence codegen routing — `tags` is for Swagger UI display only. Without `x-product`, the MCP scaffold and frontend type generator can't route the endpoint to the right product
-16. **`partial_update` `request=` override must be a superset of runtime write fields** — `extend_schema(request=CustomSerializer)` replaces drf-spectacular's inference from `serializer_class`; omitted fields disappear from OpenAPI, frontend types, and MCP tool schemas even when the runtime serializer still accepts them. After changing the override, run `hogli build:openapi` and verify generated MCP tool schemas still expose every OpenAPI body field
+15. **ViewSets outside `products/` need `@extend_schema(extensions={"x-product": "<product>"})`** — without it, the MCP scaffold and frontend type generator can't route the endpoint to the right product; `tags` doesn't influence routing (see [viewset-annotations.md](references/viewset-annotations.md#x-product-attribution))
+16. **`partial_update` `request=` override must be a superset of runtime write fields** — omitted fields silently disappear from generated types and MCP tool schemas; after changing it, run `hogli build:openapi` and verify (see [viewset-annotations.md](references/viewset-annotations.md#partial_update-request-overrides))
 
 **Streaming endpoints:** For SSE or streaming responses, use `@extend_schema(request=InputSerializer, responses={(200, "text/event-stream"): OpenApiTypes.STR})` to document the request schema even though the response can't be fully typed.
 
@@ -99,27 +92,13 @@ that has a `routes.py`. Adding a product needs no edit to core: create
 `PRODUCTS_APPS` (`posthog/settings/web.py`). Only core, non-product viewsets still
 register directly in `__init__.py`.
 
-**Why core discovers and calls the product (not the product calling core).** Core
-registers the four parents (`root` + `projects`/`environments`/`organizations`)
-first, then runs the discovery loop. Products only nest onto those parents and
-never onto each other, so discovery order is irrelevant. The registration is kept
-eager (it runs when `posthog.api` is first imported, i.e. on the first request) and
-deliberately _not_ moved into `AppConfig.ready()`: `ready()` runs inside
-`django.setup()` in every process, and registering a route imports its viewset, so
-that would pull the whole API into `setup()` everywhere — regressing the laziness
-that keeps the API out of Celery workers and management commands. See the
-`RouterRegistry` docstring and the discovery loop in `posthog/api/__init__.py` for
-the full reasoning.
-
 Do **not** register new endpoints under `environments_router`. Do **not** use the
 dual-route helper (`routers.register_legacy_dual_route`, or
 `register_legacy_dual_route_team_nested_viewset` in `__init__.py`) — it exists only
 for endpoints already exposed on both `/api/projects/` and `/api/environments/`
 before the rollback.
 
-If existing clients need `/api/environments/...` too, the OpenAPI postprocess
-hook at `posthog.api.documentation.preprocess_exclude_path_format` auto-marks
-the env-side path as `deprecated: true` whenever both routes exist.
+See [url-routing.md](references/url-routing.md) for the discovery architecture, why registration is eager rather than in `AppConfig.ready()`, and the env-alias deprecation mechanics.
 
 ### Facade products (DataclassSerializer)
 
@@ -129,36 +108,6 @@ For products using the facade pattern (e.g., `visual_review`) with `DataclassSer
 - Focus on **`help_text`** (dataclass fields don't carry it; add it on the serializer field overrides)
 - **`@validated_request`** is already the standard pattern — verify response serializers are declared
 - `@extend_schema` tags and descriptions still need to be set on viewset methods
-
-## Decision flowchart
-
-```dot
-digraph audit {
-    rankdir=TB
-    node [shape=diamond fontsize=10]
-    edge [fontsize=9]
-
-    start [label="Serializer or\nViewSet file?" shape=box]
-    is_model [label="ModelViewSet with\nserializer_class?"]
-    is_plain [label="Plain ViewSet or\ncustom @action?"]
-    is_facade [label="DataclassSerializer\n(facade product)?"]
-
-    check_fields [label="Check fields:\nhelp_text, ListField,\nJSONField, ChoiceField" shape=box]
-    add_schema [label="Add @validated_request\nor @extend_schema to\nevery method" shape=box]
-    check_help [label="Focus on help_text\nand response declarations" shape=box]
-    check_responses [label="Check response types,\npagination, error schemas" shape=box]
-
-    start -> is_model
-    is_model -> check_fields [label="yes"]
-    is_model -> is_plain [label="no"]
-    is_plain -> add_schema [label="yes"]
-    is_plain -> is_facade [label="no"]
-    is_facade -> check_help [label="yes"]
-    check_fields -> check_responses
-    add_schema -> check_fields
-    check_help -> check_responses
-}
-```
 
 ## Quick reference
 

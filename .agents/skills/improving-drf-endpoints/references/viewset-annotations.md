@@ -226,3 +226,21 @@ CI enforces zero warnings via `spectacular --fail-on-warn`.
 **Diagnostic tool:** run `python manage.py find_enum_collisions` to find unresolved
 collisions — it shows the field name, hash, enum values, hash path (ChoiceField vs
 type-hint), which components use it, and suggests the override format to add.
+
+## x-product attribution
+
+ViewSets in `products/<name>/backend/` are auto-attributed via module path; ViewSets in `posthog/api/` or `ee/` aren't and must declare attribution explicitly via the `x-product` extension:
+
+```python
+@extend_schema(extensions={"x-product": "product_analytics"})
+```
+
+Accepts a plain string (`"product_analytics"`) or `ProductKey.X` enum (kebab values are normalized).
+Don't use `tags=["<product>"]` to influence codegen routing — `tags` is for Swagger UI display only.
+Without `x-product`, the MCP scaffold and frontend type generator can't route the endpoint to the right product.
+
+## partial_update request overrides
+
+`extend_schema(request=CustomSerializer)` on `partial_update` replaces drf-spectacular's inference from `serializer_class`.
+The override must be a superset of the runtime write fields: omitted fields disappear from OpenAPI, frontend types, and MCP tool schemas even when the runtime serializer still accepts them.
+After changing the override, run `hogli build:openapi` and verify generated MCP tool schemas still expose every OpenAPI body field.
