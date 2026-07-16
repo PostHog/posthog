@@ -739,6 +739,7 @@
     '_meta',
     'created_at',
     'created_by_id',
+    'exclusion_percentage',
     'experiment_set',
     'get_next_by_created_at',
     'get_next_by_updated_at',
