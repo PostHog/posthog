@@ -3465,6 +3465,7 @@ def _approve_pending_permission_request(
     option_label = options_by_id[option_id]["label"]
     _replace_permission_prompt(
         payload,
+        "Approval recorded",
         f"Permission mode saved: `{selected_label}`. Approved `{option_label}` for the agent.",
     )
     logger.info(
