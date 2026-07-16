@@ -241,7 +241,10 @@ class AppdynamicsClient:
 
         token, expires_in = _fetch_oauth_token(self._session, self._base_url, self._auth)
         self._token = token
-        self._token_expires_at = now + timedelta(seconds=max(expires_in - TOKEN_REFRESH_MARGIN_SECONDS, 30))
+        # Refresh ahead of expiry, but never treat the token as valid past its actual TTL: for a
+        # short-lived token the margin is capped at half the TTL so the cached window can't outlast it.
+        refresh_buffer = min(TOKEN_REFRESH_MARGIN_SECONDS, expires_in // 2)
+        self._token_expires_at = now + timedelta(seconds=expires_in - refresh_buffer)
         return token
 
     def _headers(self) -> dict[str, str]:

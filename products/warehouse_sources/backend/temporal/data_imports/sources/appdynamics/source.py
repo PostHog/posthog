@@ -48,6 +48,12 @@ class AppdynamicsSource(ResumableSource[AppdynamicsSourceConfig, AppdynamicsResu
         return ExternalDataSourceType.APPDYNAMICS
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # Every credential is qualified as `<user-or-client>@{account_name}`, so retargeting
+        # `account_name` sends the preserved secret to a different account — require re-entry.
+        return ["account_name"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.APPDYNAMICS,

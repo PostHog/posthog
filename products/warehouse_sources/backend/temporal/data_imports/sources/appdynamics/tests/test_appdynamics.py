@@ -247,6 +247,20 @@ class TestAppdynamicsClient:
             assert kwargs["headers"]["Authorization"] == "Bearer tok"
             assert kwargs["auth"] is None
 
+    def test_short_lived_token_is_refreshed_before_its_ttl(self) -> None:
+        # A short TTL must not be cached past expiry: the refresh margin is capped at half the
+        # TTL, so a 10s token is re-fetched well before 10s rather than trusted for a fixed 30s.
+        session = FakeSession(post_response=FakeResponse(json_data={"access_token": "tok", "expires_in": 10}))
+        with _patch_session(session):
+            client = AppdynamicsClient(BASE_URL, OAUTH_AUTH, mock.MagicMock())
+
+        with freeze_time("2024-01-31T00:00:00Z") as frozen:
+            client.get_json("/controller/rest/applications", {})
+            assert len(session.post_calls) == 1
+            frozen.move_to("2024-01-31T00:00:06Z")  # past the 5s cache window (10 - min(60, 5))
+            client.get_json("/controller/rest/applications", {})
+            assert len(session.post_calls) == 2
+
     def test_oauth_failure_raises_non_retryable(self) -> None:
         session = FakeSession(post_response=FakeResponse(status_code=400, json_data={}))
         with _patch_session(session):

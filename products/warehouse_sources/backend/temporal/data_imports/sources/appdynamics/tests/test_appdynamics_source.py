@@ -89,6 +89,10 @@ class TestAppdynamicsSource:
         assert "403 Client Error" in errors
         assert "AppDynamics OAuth token request failed" in errors
 
+    def test_account_name_is_a_connection_host_field(self) -> None:
+        # Changing account_name retargets the preserved credential, so it must force re-entry.
+        assert self.source.connection_host_fields == ["account_name"]
+
     def test_get_schemas_incremental_flags(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(_api_client_config(), self.team_id)}
 
