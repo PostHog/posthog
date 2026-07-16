@@ -209,13 +209,17 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         dailyStats: [
             [] as DailyToolStat[],
             {
-                loadDailyStats: async (): Promise<DailyToolStat[]> => {
+                // Guarded with breakpoint: dailyChartData builds its bucket keys from the *live* interval,
+                // so a superseded response fetched at a different interval (e.g. day → hour on a fast
+                // back/forward) would otherwise land and collapse a day's rows into one hourly bucket.
+                loadDailyStats: async (_: void, breakpoint): Promise<DailyToolStat[]> => {
                     const response = (await api.query({
                         kind: NodeKind.MCPToolDailyStatsQuery,
                         toolName: props.toolName,
                         dateRange: values.dateRange,
                         interval: values.interval,
                     })) as { results?: MCPToolDailyStatItem[] }
+                    breakpoint()
                     return (response?.results ?? []).map((r) => ({
                         day: r.day,
                         calls: r.calls,
