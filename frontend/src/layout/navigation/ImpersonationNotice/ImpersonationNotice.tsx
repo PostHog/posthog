@@ -1,9 +1,9 @@
 import './ImpersonationNotice.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconChevronDown, IconCollapse, IconEllipsis, IconWarning } from '@posthog/icons'
+import { IconChevronDown, IconCollapse, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonMenu, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { DraggableWithSnapZones, DraggableWithSnapZonesRef } from 'lib/components/DraggableWithSnapZones'
@@ -68,9 +68,9 @@ function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: (
         if (pastCountdown) {
             callback?.() // oxlint-disable-line react-hooks/exhaustive-deps
         }
-    }, [pastCountdown])
+    }, [pastCountdown, callback])
 
-    return <span className="tabular-nums text-warning">{countdown}</span>
+    return <span className="tabular-nums">{countdown}</span>
 }
 
 function LoginAsContent({
@@ -149,6 +149,7 @@ function ImpersonationNoticeContent(): JSX.Element {
     const {
         closeUpgradeModal,
         upgradeImpersonation,
+        openUpgradeModal,
         setSessionExpired,
         returnToPostHog,
         changeUser,
@@ -173,7 +174,7 @@ function ImpersonationNoticeContent(): JSX.Element {
                   onClick: () => setPendingUserId(member.user.id),
               }))
 
-    const handleSessionExpired = (): void => {
+    const handleSessionExpired = useCallback((): void => {
         if (user) {
             setSessionExpired({
                 email: user.email,
@@ -182,12 +183,27 @@ function ImpersonationNoticeContent(): JSX.Element {
                 reason: user.is_impersonated_reason ?? null,
             })
         }
-    }
+    }, [user, setSessionExpired])
 
     return (
         <>
             <p className="ImpersonationNotice__message">
-                Signed in as <span className="text-warning">{user?.email}</span>
+                Signed in as{' '}
+                <LemonMenu
+                    items={changeUserItems}
+                    onVisibilityChange={(visible) => visible && ensureAllMembersLoaded()}
+                >
+                    <LemonButton
+                        size="xsmall"
+                        sideIcon={<IconChevronDown />}
+                        loading={isChangingUser}
+                        tooltip={`Currently impersonating ${user?.email} - click to switch user`}
+                        truncate
+                        className="ImpersonationNotice__inline-trigger ImpersonationNotice__user-trigger text-warning"
+                    >
+                        {user?.email}
+                    </LemonButton>
+                </LemonMenu>
                 {user?.organization?.name && (
                     <>
                         {' '}
@@ -195,35 +211,36 @@ function ImpersonationNoticeContent(): JSX.Element {
                     </>
                 )}
                 .
-                {user?.is_impersonated_until && (
-                    <>
-                        {' '}
-                        Expires in{' '}
-                        <CountDown datetime={dayjs(user.is_impersonated_until)} callback={handleSessionExpired} />.
-                    </>
-                )}
             </p>
+            {user?.is_impersonated_until && (
+                <div className="ImpersonationNotice__expiry">
+                    <span>
+                        Expires in{' '}
+                        <CountDown datetime={dayjs(user.is_impersonated_until)} callback={handleSessionExpired} />
+                    </span>
+                    <LemonButton
+                        type="secondary"
+                        size="xxsmall"
+                        icon={<IconRefresh />}
+                        onClick={() => loadUser()}
+                        loading={userLoading}
+                        tooltip="Refresh"
+                    />
+                </div>
+            )}
             <div className="flex gap-2 justify-end">
-                <LemonButton type="secondary" size="small" onClick={() => loadUser()} loading={userLoading}>
-                    Refresh
-                </LemonButton>
-                <LemonMenu
-                    items={changeUserItems}
-                    onVisibilityChange={(visible) => visible && ensureAllMembersLoaded()}
-                >
+                {isReadOnly && (
                     <LemonButton
                         type="secondary"
                         size="small"
-                        sideIcon={<IconChevronDown />}
-                        loading={isChangingUser}
-                        tooltip="Change user"
+                        onClick={() => openUpgradeModal()}
+                        tooltip="Upgrade your impersonation session to have read-write permissions"
                     >
-                        User
+                        Upgrade to read-write
                     </LemonButton>
-                </LemonMenu>
+                )}
                 <LemonButton
-                    type="secondary"
-                    status="danger"
+                    type="primary"
                     size="small"
                     onClick={() => logout()}
                     sideAction={{
@@ -283,7 +300,7 @@ export function ImpersonationNotice(): JSX.Element | null {
         ticketContext,
         adminLoginUrls,
     } = useValues(impersonationNoticeLogic)
-    const { minimize, maximize, openUpgradeModal, setPageVisible } = useActions(impersonationNoticeLogic)
+    const { minimize, maximize, setPageVisible } = useActions(impersonationNoticeLogic)
 
     const { isVisible: isPageVisible } = usePageVisibility()
 
@@ -354,18 +371,6 @@ export function ImpersonationNotice(): JSX.Element | null {
                         <div className="ImpersonationNotice__header">
                             <IconWarning className="ImpersonationNotice__warning-icon" />
                             <span className="ImpersonationNotice__title">{title}</span>
-                            {isImpersonated && isReadOnly && (
-                                <LemonMenu
-                                    items={[
-                                        {
-                                            label: 'Upgrade to read-write',
-                                            onClick: openUpgradeModal,
-                                        },
-                                    ]}
-                                >
-                                    <LemonButton size="xsmall" icon={<IconEllipsis />} />
-                                </LemonMenu>
-                            )}
                             <LemonButton size="xsmall" icon={<IconCollapse />} onClick={handleMinimize} />
                         </div>
                         <div className="ImpersonationNotice__content">

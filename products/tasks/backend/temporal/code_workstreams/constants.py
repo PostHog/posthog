@@ -5,7 +5,10 @@ HOME_TAB_FLAG = "posthog-code-home-tab"
 ACTIVITY_WINDOW = timedelta(days=30)
 
 MAX_PRS_PER_TEAM_PER_CYCLE = 50
-MAX_TASKS_PER_TEAM = 500
+# Per-user cap keeps one high-volume user from evicting other users' tasks from the Home tab;
+# the per-team cap bounds the total work each rebuild cycle does for a team.
+MAX_TASKS_PER_USER = 50
+MAX_TASKS_PER_TEAM = 3000
 MAX_TEAMS_PER_CYCLE = 2000
 
 # Caps GitHub API calls per cycle (one per unique repo+branch); separate from

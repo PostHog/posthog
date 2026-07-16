@@ -10,7 +10,7 @@
 import * as zod from 'zod'
 
 /**
- * Make a `review-hog-blind-spots-*` skill the single sweep that runs on the requesting user's PR reviews, switching the user's other blind-spots skills off in the same call. Upserts the per-user config row, so selecting a freshly authored custom skill works in one call.
+ * Make a `review-hog-blind-spots-*` skill the single sweep that runs on the requesting user's PR reviews, switching the user's other blind-spots skills off in the same call. Only skills visible to the user — the canonical plus the customs they authored — can be selected; anything else 404s. Upserts the per-user config row, so selecting a freshly authored custom skill works in one call.
  * @summary Select the active blind-spots skill
  */
 export const ReviewHogBlindSpotsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -23,7 +23,7 @@ export const ReviewHogBlindSpotsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Toggle whether a `review-hog-perspective-*` skill runs on the requesting user's PR reviews. Upserts the per-user config row, so enabling a freshly authored custom perspective works in one call. Rejected if it would leave the user with no enabled perspective.
+ * Toggle whether a `review-hog-perspective-*` skill runs on the requesting user's PR reviews. Only skills visible to the user — the canonicals plus the customs they authored — can be toggled; anything else 404s. Upserts the per-user config row, so enabling a freshly authored custom perspective works in one call. Rejected if it would leave the user with no enabled perspective.
  * @summary Enable or disable a review perspective
  */
 export const ReviewHogPerspectivesPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -55,12 +55,12 @@ export const ReviewHogSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('\* `consider` - Consider\n\* `should_fix` - Should Fix\n\* `must_fix` - Must Fix')
         .optional()
         .describe(
-            "Minimum priority a validated finding needs to be published: 'consider' publishes everything, 'should_fix' (default) drops consider-level findings, 'must_fix' publishes only blocking issues.\n\n\* `consider` - Consider\n\* `should_fix` - Should Fix\n\* `must_fix` - Must Fix"
+            "Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.\n\n\* `consider` - Consider\n\* `should_fix` - Should Fix\n\* `must_fix` - Must Fix"
         ),
 })
 
 /**
- * Make a `review-hog-validation-*` skill the single validator that runs on the requesting user's PR reviews, switching the user's other validators off in the same call. Upserts the per-user config row, so selecting a freshly authored custom validator works in one call.
+ * Make a `review-hog-validation-*` skill the single validator that runs on the requesting user's PR reviews, switching the user's other validators off in the same call. Only skills visible to the user — the canonical plus the customs they authored — can be selected; anything else 404s. Upserts the per-user config row, so selecting a freshly authored custom validator works in one call.
  * @summary Select the active review validator
  */
 export const ReviewHogValidatorsPartialUpdateBody = /* @__PURE__ */ zod.object({
