@@ -54,6 +54,13 @@ class DeepsourceSource(ResumableSource[DeepsourceSourceConfig, DeepsourceResumeC
         return ExternalDataSourceType.DEEPSOURCE
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # The PAT is sent to api.deepsource.com scoped to <account_login>/<vcs_provider>, so
+        # retargeting the account must force re-entry of the token — otherwise an editor who
+        # cannot read the PAT could point it at another account the owner can access.
+        return ["account_login", "vcs_provider"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.DEEPSOURCE,

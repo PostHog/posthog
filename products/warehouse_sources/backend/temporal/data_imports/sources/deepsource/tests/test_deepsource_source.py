@@ -26,6 +26,11 @@ class TestDeepsourceSource:
     def test_source_type(self) -> None:
         assert DeepsourceSource().source_type == ExternalDataSourceType.DEEPSOURCE
 
+    def test_connection_host_fields_force_secret_reentry_on_account_change(self) -> None:
+        # Changing account_login/vcs_provider retargets the stored PAT at another account, so
+        # both must be host fields — the update serializer then demands the PAT be re-entered.
+        assert DeepsourceSource().connection_host_fields == ["account_login", "vcs_provider"]
+
     def test_source_is_released_and_categorized(self) -> None:
         config = DeepsourceSource().get_source_config
         assert not config.unreleasedSource
