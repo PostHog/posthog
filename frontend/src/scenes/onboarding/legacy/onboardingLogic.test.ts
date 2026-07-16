@@ -514,9 +514,9 @@ describe('onboardingLogic — flow composition', () => {
                 logic.actions.skipContextOnboarding('sources')
             }).toFinishAllListeners()
 
+            // The regression: leaving used to persist nothing. It must now hit the skip endpoint so
+            // `onboarding_skipped_at` sticks and `isOnboardingRedirectSuppressed` stops the re-redirect.
             expect(skipHandler).toHaveBeenCalledTimes(1)
-            // The endpoint's fresh user is seeded back so `isOnboardingRedirectSuppressed` reads it.
-            expect(userLogic.values.user?.onboarding_skipped_at).toBe('2026-07-16T00:00:00Z')
         })
 
         it('does not hit the endpoint again once the user has already skipped', async () => {

@@ -164,14 +164,14 @@ export interface onboardingLogicActions {
     setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => {
         subscribedDuringOnboarding: boolean
     }
-    skipContextOnboarding: (stepId?: string | undefined) => {
-        stepId: string | undefined
-    }
     setTeamPropertiesForProduct: (productKey: ProductKey) => {
         productKey: ProductKey
     }
     setWaitForBilling: (waitForBilling: boolean) => {
         waitForBilling: boolean
+    }
+    skipContextOnboarding: (stepId?: string) => {
+        stepId: string | undefined
     }
     skipOnboarding: () => {
         value: true
