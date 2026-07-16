@@ -1042,7 +1042,7 @@ class CoverallsSourceConfig(config.Config):
 
 @config.config
 class CratesIOSourceConfig(config.Config):
-    pass
+    crates: str
 
 
 @config.config
