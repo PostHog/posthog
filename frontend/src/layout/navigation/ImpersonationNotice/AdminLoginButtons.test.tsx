@@ -4,16 +4,18 @@ import { Region } from '~/types'
 
 import { AdminLoginButtons } from './AdminLoginButtons'
 
+const multiRegionAdminLoginUrls = [
+    { region: Region.US, url: 'https://us.posthog.com/admin/posthog/user/' },
+    { region: Region.EU, url: 'https://eu.posthog.com/admin/posthog/user/' },
+]
+
 describe('AdminLoginButtons', () => {
     afterEach(cleanup)
 
     test.each([
         {
             labelStyle: 'default descriptive',
-            adminLoginUrls: [
-                { region: Region.US, url: 'https://us.posthog.com/admin/posthog/user/' },
-                { region: Region.EU, url: 'https://eu.posthog.com/admin/posthog/user/' },
-            ],
+            adminLoginUrls: multiRegionAdminLoginUrls,
             useRegionLabels: undefined,
             expectedLabels: ['Login as customer@example.com (US)', 'Login as customer@example.com (EU)'],
         },
@@ -25,10 +27,7 @@ describe('AdminLoginButtons', () => {
         },
         {
             labelStyle: 'compact region',
-            adminLoginUrls: [
-                { region: Region.US, url: 'https://us.posthog.com/admin/posthog/user/' },
-                { region: Region.EU, url: 'https://eu.posthog.com/admin/posthog/user/' },
-            ],
+            adminLoginUrls: multiRegionAdminLoginUrls,
             useRegionLabels: true,
             expectedLabels: ['US region', 'EU region'],
         },
