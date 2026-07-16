@@ -51,6 +51,11 @@ export const REVIEW_PRIORITY_RANK: Record<ReviewIssuePriorityEnumApi, number> = 
 // While a review is running, the list refreshes on this cadence so the stage/progress row is live.
 const IN_PROGRESS_POLL_INTERVAL_MS = 10_000
 
+// How long after triggering a review the list keeps polling for its report row to appear — the row
+// is created seconds after the 202 by the workflow's fetch step, but a run that dies before creating
+// it must not keep the list polling forever.
+const TRIGGERED_REVIEW_WATCH_TIMEOUT_MS = 2 * 60 * 1000
+
 /** The review list's initial depth, the step each "Show more" adds, and what "Show fewer" collapses to. */
 export const REVIEWS_PAGE_SIZE = 5
 
@@ -405,6 +410,10 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         // Starts a review of the pasted PR URL; the button guards double-submission via `triggeringReview`.
         submitTriggerReview: true,
         submitTriggerReviewFinished: true,
+        // Keeps the recent-reviews poll alive until a just-triggered review's report row appears —
+        // without it the poll only arms when some other review is already visibly running.
+        startTriggeredReviewWatch: true,
+        stopTriggeredReviewWatch: true,
     }),
 
     loaders(({ values }) => ({
@@ -627,6 +636,13 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 submitTriggerReviewFinished: () => false,
             },
         ],
+        awaitingTriggeredReview: [
+            false,
+            {
+                startTriggeredReviewWatch: () => true,
+                stopTriggeredReviewWatch: () => false,
+            },
+        ],
     }),
 
     selectors({
@@ -683,10 +699,16 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
     }),
 
     listeners(({ actions, values, cache }) => ({
-        // Poll while any review is running so the stage row moves; the disposable auto-pauses on
-        // hidden tabs and is torn down on unmount.
+        // Poll while any review is running so the stage row moves — or while a just-triggered
+        // review's row hasn't appeared yet; the disposable auto-pauses on hidden tabs and is torn
+        // down on unmount.
         loadRecentReviewsSuccess: () => {
-            if (values.recentReviews?.some((review) => review.in_progress)) {
+            const anyInProgress = values.recentReviews?.some((review) => review.in_progress) ?? false
+            if (anyInProgress && values.awaitingTriggeredReview) {
+                // The triggered review landed — the regular in-progress polling takes over.
+                actions.stopTriggeredReviewWatch()
+            }
+            if (anyInProgress || values.awaitingTriggeredReview) {
                 cache.disposables.add(() => {
                     const pollTimer = window.setInterval(
                         () => actions.loadRecentReviews(),
@@ -706,6 +728,20 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             ) {
                 actions.applyDefaultReviewsScope(ReviewHogReviewsListScope.Everyone)
             }
+        },
+        startTriggeredReviewWatch: () => {
+            // Bounded: a run that dies before creating its report row must not poll forever. The
+            // next list load after expiry sees no in-progress rows and disposes the poll itself.
+            cache.disposables.add(() => {
+                const expiryTimer = window.setTimeout(
+                    () => actions.stopTriggeredReviewWatch(),
+                    TRIGGERED_REVIEW_WATCH_TIMEOUT_MS
+                )
+                return () => clearTimeout(expiryTimer)
+            }, 'triggeredReviewWatch')
+        },
+        stopTriggeredReviewWatch: () => {
+            cache.disposables.dispose('triggeredReviewWatch')
         },
         setReviewsScope: () => actions.loadRecentReviews(),
         applyDefaultReviewsScope: () => actions.loadRecentReviews(),
@@ -786,6 +822,9 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 await reviewHogReviewsTriggerCreate(currentProjectId(), { pr_url: prUrl })
                 lemonToast.success('Review started. It will appear under recent reviews as it runs.')
                 actions.setTriggerPrUrl('')
+                // The review's report row is created seconds later by the workflow's fetch step, so
+                // one immediate reload usually misses it — arm the watch before reloading.
+                actions.startTriggeredReviewWatch()
                 actions.loadRecentReviews()
             } catch (error: any) {
                 // The trigger endpoint's rejections come back as `{error: "..."}` bodies.

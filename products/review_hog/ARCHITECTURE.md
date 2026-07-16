@@ -2463,7 +2463,7 @@ is authoritative server-side, and the deterministic per-PR workflow id + `USE_EX
   the fetch activity either way. Drafts remain reviewable + publishable (existing posture; the UI copy
   should say the review is posted to the PR).
 - `start_review_pr_workflow(pr_url=…, publish=True, acting_user_id=request.user.id,
-  trigger_source=TRIGGER_UI)` with `user_id = request.user.id` too (inbox precedent: the run user must be a
+trigger_source=TRIGGER_UI)` with `user_id = request.user.id` too (inbox precedent: the run user must be a
   real active org member — the requester is one by construction). New `TRIGGER_UI = "ui"` constant beside
   label/inbox/manual; ungated in the workflow's gate map (explicit ask); update the `trigger_source`
   comment on `ReviewReport`.
@@ -2482,7 +2482,7 @@ is authoritative server-side, and the deterministic per-PR workflow id + `USE_EX
   (`POST /api/projects/:id/review_hog/reviews/trigger/`): team gate vs `settings.REVIEWHOG_TEAM_ID`
   (403), `PRParser` URL parse (400), sync `GitHubIntegration.first_for_team_repository` access check
   (400), then `start_review_pr_workflow(publish=True, user_id=acting_user_id=request.user.id,
-  trigger_source=TRIGGER_UI)` → `202 {workflow_id, status}`. The URL is canonicalized (trailing
+trigger_source=TRIGGER_UI)` → `202 {workflow_id, status}`. The URL is canonicalized (trailing
   `/files` etc. dropped) before it reaches the workflow id.
 - `backend/temporal/types.py` — `TRIGGER_UI = "ui"`; ungated in the workflow's gate map (no
   workflow.py change, so no Temporal versioning concern).
@@ -2497,7 +2497,7 @@ is authoritative server-side, and the deterministic per-PR workflow id + `USE_EX
   `can_trigger_reviews` exposure), `test_settings_api.py` defaults updated, two
   `reviewHogSettingsLogic.test.ts` cases (in-flight flag resets on both outcomes).
 - **v1 gap (deliberate):** the endpoint doesn't fetch PR metadata synchronously, so a typo'd PR
-  *number* in an accessible repo still fails async, before the report row exists — nothing appears
+  _number_ in an accessible repo still fails async, before the report row exists — nothing appears
   in the UI. Fix when it bites: one `GET /pulls/{n}` in the action (also rejects forks/closed PRs
   with a message; the fetch activity stays authoritative).
 - **Cross-caller same-head caveat (pre-existing resume identity, now easier to reach):** the per-head

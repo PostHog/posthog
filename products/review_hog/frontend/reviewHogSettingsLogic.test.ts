@@ -85,8 +85,16 @@ describe('reviewHogSettingsLogic', () => {
         logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
 
         await expectLogic(logic, () => logic.actions.submitTriggerReview())
-            .toDispatchActions(['submitTriggerReview', 'loadRecentReviews', 'submitTriggerReviewFinished'])
+            .toDispatchActions([
+                'submitTriggerReview',
+                'startTriggeredReviewWatch',
+                'loadRecentReviews',
+                'submitTriggerReviewFinished',
+            ])
             .toMatchValues({ triggeringReview: false, triggerPrUrl: '' })
+        // The report row is created seconds after the 202; the watch keeps the list polling until
+        // it appears — without it the poll only arms when another review is already running.
+        expect(logic.values.awaitingTriggeredReview).toBe(true)
     })
 
     it('a rejected trigger resets the in-flight flag and keeps the input for correction', async () => {
@@ -108,10 +116,11 @@ describe('reviewHogSettingsLogic', () => {
 
         await expectLogic(logic, () => logic.actions.submitTriggerReview())
             .toDispatchActions(['submitTriggerReview', 'submitTriggerReviewFinished'])
-            .toNotHaveDispatchedActions(['loadRecentReviews'])
+            .toNotHaveDispatchedActions(['loadRecentReviews', 'startTriggeredReviewWatch'])
             .toMatchValues({
                 triggeringReview: false,
                 triggerPrUrl: 'https://github.com/PostHog/posthog.com/pull/1',
+                awaitingTriggeredReview: false,
             })
     })
 
