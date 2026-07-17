@@ -234,16 +234,23 @@ class TestFetch:
         # The host prefix is preserved so non-retryable-error matching still works.
         assert "for url: https://pagespeedonline.googleapis.com" in message
 
-    def test_chunked_encoding_error_is_retried(self):
-        # A connection broken mid-response surfaces as ChunkedEncodingError, which isn't a subclass of
-        # ConnectionError — it must still be retried rather than failing the sync on the first hiccup.
-        session = mock.MagicMock()
-        session.get.side_effect = [
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            # A connection broken mid-response surfaces as ChunkedEncodingError, and a body that fails
+            # to decode as ContentDecodingError. Both subclass RequestException directly (not
+            # ConnectionError), so they must be retried rather than failing the sync on the first hiccup.
             requests.exceptions.ChunkedEncodingError(
                 "Connection broken: InvalidChunkLength(got length b'', 0 bytes read)"
             ),
-            _response(200, {"analysisUTCTimestamp": "2024-01-15T12:34:56Z"}),
-        ]
+            requests.exceptions.ContentDecodingError(
+                "Received response with content-encoding: gzip, but failed to decode it."
+            ),
+        ],
+    )
+    def test_body_read_errors_are_retried(self, exc):
+        session = mock.MagicMock()
+        session.get.side_effect = [exc, _response(200, {"analysisUTCTimestamp": "2024-01-15T12:34:56Z"})]
 
         with mock.patch.object(_fetch.retry, "sleep"):
             body = _fetch(session, "k", "DESKTOP", "https://posthog.com", structlog.get_logger())
