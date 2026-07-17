@@ -2286,6 +2286,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "object_store",
+ "proptest",
  "rand 0.8.5",
  "rdkafka",
  "rocksdb",
