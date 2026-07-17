@@ -29,8 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.m
     validate_credentials as validate_mixpanel_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.settings import (
+    DEFAULT_API_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SUPPORTED_API_VERSIONS,
     SUPPORTS_INCREMENTAL,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -39,6 +41,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MixpanelSource(ResumableSource[MixpanelSourceConfig, MixpanelResumeConfig]):
     api_docs_url = "https://developer.mixpanel.com"
+
+    supported_versions = SUPPORTED_API_VERSIONS
+    default_version = DEFAULT_API_VERSION
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -185,4 +190,5 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

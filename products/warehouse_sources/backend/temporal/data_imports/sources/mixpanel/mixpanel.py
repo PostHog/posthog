@@ -17,6 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.settings import (
     DEFAULT_EXPORT_LOOKBACK_DAYS,
+    EXPORT_API_PATH_SEGMENT,
+    MIXPANEL_API_VERSION_V1,
     MIXPANEL_ENDPOINTS,
     REGION_HOSTS,
 )
@@ -106,6 +108,13 @@ def _query_base(region: str) -> str:
 
 def _export_base(region: str) -> str:
     return _hosts(region)[1]
+
+
+def _export_url(region: str, api_version: str) -> str:
+    # A pin is honored verbatim, so an unknown/future label can reach here; fall back to
+    # Mixpanel's only raw-export path (`2.0`) rather than raising on the lookup.
+    segment = EXPORT_API_PATH_SEGMENT.get(api_version, "2.0")
+    return f"{_export_base(region)}/api/{segment}/export"
 
 
 def _flatten_event(event: dict[str, Any]) -> dict[str, Any]:
@@ -306,6 +315,7 @@ def _iter_export(
     manager: ResumableSourceManager[MixpanelResumeConfig],
     start_date: date,
     end_date: date,
+    api_version: str,
 ) -> Iterator[list[dict[str, Any]]]:
     """Stream the raw event export one UTC day at a time.
 
@@ -313,7 +323,7 @@ def _iter_export(
     incremental granularity and our resume granularity. We save state pointing at the
     *next* day only after a day's batches have been yielded, so a crash re-fetches the
     in-flight day (merge dedupes on `$insert_id`)."""
-    url = f"{_export_base(region)}/api/2.0/export"
+    url = _export_url(region, api_version)
 
     resume = manager.load_state() if manager.can_resume() else None
     resumed_from = _to_date(resume.from_date) if resume and resume.from_date else None
@@ -411,6 +421,7 @@ def get_rows(
     manager: ResumableSourceManager[MixpanelResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    api_version: str = MIXPANEL_API_VERSION_V1,
 ) -> Iterator[list[dict[str, Any]]]:
     if endpoint == "export":
         last_value_date = _to_date(db_incremental_field_last_value) if should_use_incremental_field else None
@@ -424,7 +435,15 @@ def get_rows(
             )
             start_date = end_date
         yield from _iter_export(
-            region, username, secret, project_id, logger, manager, start_date=start_date, end_date=end_date
+            region,
+            username,
+            secret,
+            project_id,
+            logger,
+            manager,
+            start_date=start_date,
+            end_date=end_date,
+            api_version=api_version,
         )
     elif endpoint == "engage":
         yield from _iter_engage(region, username, secret, project_id, logger, manager)
@@ -446,6 +465,7 @@ def mixpanel_source(
     manager: ResumableSourceManager[MixpanelResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    api_version: str = MIXPANEL_API_VERSION_V1,
 ) -> SourceResponse:
     endpoint_config = MIXPANEL_ENDPOINTS[endpoint]
 
@@ -461,6 +481,7 @@ def mixpanel_source(
             manager=manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            api_version=api_version,
         ),
         primary_keys=endpoint_config.primary_keys,
         partition_count=1,

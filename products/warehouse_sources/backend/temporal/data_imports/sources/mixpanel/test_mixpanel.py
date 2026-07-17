@@ -26,7 +26,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.m
     mixpanel_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.settings import MIXPANEL_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.settings import (
+    MIXPANEL_API_VERSION_2_0,
+    MIXPANEL_API_VERSION_V1,
+    MIXPANEL_ENDPOINTS,
+)
 
 LOGGER = structlog.get_logger()
 
@@ -272,13 +276,30 @@ class TestValidateCredentials:
 
 
 class TestExportIterator:
-    def _run(self, manager: FakeManager, start: date, end: date, responses: list[FakeResponse]) -> list[dict]:
+    def _run(
+        self,
+        manager: FakeManager,
+        start: date,
+        end: date,
+        responses: list[FakeResponse],
+        api_version: str = MIXPANEL_API_VERSION_V1,
+    ) -> list[dict]:
         with patch.object(mp, "_request", side_effect=responses) as mock_request:
             batches = list(
-                mp._iter_export("us", "u", "s", "123", LOGGER, manager, start_date=start, end_date=end)  # type: ignore[arg-type]
+                mp._iter_export(  # type: ignore[arg-type]
+                    "us", "u", "s", "123", LOGGER, manager, start_date=start, end_date=end, api_version=api_version
+                )
             )
         self._mock_request = mock_request
         return [row for batch in batches for row in batch]
+
+    @parameterized.expand([("v1", MIXPANEL_API_VERSION_V1), ("2.0", MIXPANEL_API_VERSION_2_0)])
+    def test_export_hits_versioned_path(self, _name: str, api_version: str) -> None:
+        # Both supported versions resolve to Mixpanel's `2.0` raw-export path; the segment is
+        # derived from the pin, so this guards the version -> URL wiring per supported version.
+        self._run(FakeManager(), date(2024, 1, 1), date(2024, 1, 1), [FakeResponse(lines=[])], api_version=api_version)
+        url = self._mock_request.call_args_list[0].args[1]
+        assert url == "https://data.mixpanel.com/api/2.0/export"
 
     def test_streams_jsonl_per_day_and_saves_state(self) -> None:
         manager = FakeManager()
@@ -337,7 +358,17 @@ class TestExportStreamRetry:
             patch.object(mp.time, "sleep") as mock_sleep,
         ):
             batches = list(
-                mp._iter_export("us", "u", "s", "123", LOGGER, manager, start_date=day, end_date=day)  # type: ignore[arg-type]
+                mp._iter_export(  # type: ignore[arg-type]
+                    "us",
+                    "u",
+                    "s",
+                    "123",
+                    LOGGER,
+                    manager,
+                    start_date=day,
+                    end_date=day,
+                    api_version=MIXPANEL_API_VERSION_V1,
+                )
             )
 
         rows = [row for batch in batches for row in batch]
@@ -362,7 +393,17 @@ class TestExportStreamRetry:
         ):
             with pytest.raises(requests.exceptions.ChunkedEncodingError):
                 list(
-                    mp._iter_export("us", "u", "s", "123", LOGGER, manager, start_date=day, end_date=day)  # type: ignore[arg-type]
+                    mp._iter_export(  # type: ignore[arg-type]
+                        "us",
+                        "u",
+                        "s",
+                        "123",
+                        LOGGER,
+                        manager,
+                        start_date=day,
+                        end_date=day,
+                        api_version=MIXPANEL_API_VERSION_V1,
+                    )
                 )
 
         assert mock_request.call_count == mp.STREAM_MAX_ATTEMPTS
@@ -380,7 +421,17 @@ class TestExportStreamRetry:
         ):
             with pytest.raises(ValueError):
                 list(
-                    mp._iter_export("us", "u", "s", "123", LOGGER, manager, start_date=day, end_date=day)  # type: ignore[arg-type]
+                    mp._iter_export(  # type: ignore[arg-type]
+                        "us",
+                        "u",
+                        "s",
+                        "123",
+                        LOGGER,
+                        manager,
+                        start_date=day,
+                        end_date=day,
+                        api_version=MIXPANEL_API_VERSION_V1,
+                    )
                 )
 
         assert mock_request.call_count == 1

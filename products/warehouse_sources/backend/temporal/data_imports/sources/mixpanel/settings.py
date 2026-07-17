@@ -3,7 +3,25 @@ from enum import StrEnum
 from typing import Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+
+# Mixpanel vendor API version labels. `v1` is PostHog's legacy placeholder — the source
+# predates explicit versioning — and `2.0` is Mixpanel's current published API version.
+MIXPANEL_API_VERSION_V1 = UNVERSIONED_API_VERSION
+MIXPANEL_API_VERSION_2_0 = "2.0"
+
+SUPPORTED_API_VERSIONS: tuple[str, ...] = (MIXPANEL_API_VERSION_V1, MIXPANEL_API_VERSION_2_0)
+DEFAULT_API_VERSION = MIXPANEL_API_VERSION_2_0
+
+# Mixpanel serves the Raw Event Export under a versioned path segment (`/api/2.0/export`).
+# Both supported labels currently resolve to Mixpanel's `2.0` export path; deriving the
+# segment from the pin keeps a future export-API version a one-line change here rather than
+# a hunt through the request layer.
+EXPORT_API_PATH_SEGMENT: dict[str, str] = {
+    MIXPANEL_API_VERSION_V1: "2.0",
+    MIXPANEL_API_VERSION_2_0: "2.0",
+}
 
 
 class MixpanelRegion(StrEnum):
