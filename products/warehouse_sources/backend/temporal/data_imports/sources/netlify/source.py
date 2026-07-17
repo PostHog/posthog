@@ -131,6 +131,8 @@ Create a personal access token under **User settings > Applications > Personal a
         return netlify_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Netlify endpoint is full refresh
         )
