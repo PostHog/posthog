@@ -2942,7 +2942,7 @@ class NotionSourceConfig(config.Config):
 
 @config.config
 class NugetSourceConfig(config.Config):
-    pass
+    package_ids: str
 
 
 @config.config
@@ -4199,7 +4199,8 @@ class StripeSourceConfig(config.Config):
 
 @config.config
 class StytchSourceConfig(config.Config):
-    pass
+    project_id: str
+    secret: str
 
 
 @config.config
