@@ -11,6 +11,8 @@ from temporalio import exceptions
 from posthog.schema import QueryStatus
 
 from posthog.clickhouse.client.execute_async import QueryStatusManager
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQuerySizeExceeded, ClickHouseQueryTimeOut
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError, ClickHouseTooManyRowsOrBytesError
@@ -20,6 +22,25 @@ from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.temporal import frame_materialize
 
 _DISPATCH_TARGET = "products.notebooks.backend.temporal.client.start_frame_materialize_workflow"
+
+
+def _registered_inputs(
+    team_id: int, notebook_short_id: str, user_id: int, query: str = "select 1"
+) -> tuple["frame_materialize.FrameMaterializeInputs", QueryStatusManager]:
+    query_id = uuid.uuid4().hex
+    inputs = frame_materialize.FrameMaterializeInputs(
+        query_id=query_id,
+        team_id=team_id,
+        notebook_short_id=notebook_short_id,
+        user_id=user_id,
+        query=query,
+        query_hash="abc123",
+        cache_key=f"notebook-frame:{team_id}:abc123",
+    )
+    manager = QueryStatusManager(query_id, team_id)
+    manager.store_query_status(QueryStatus(id=query_id, team_id=team_id))
+    manager.register_cache_key_mapping(inputs.cache_key)
+    return inputs, manager
 
 
 class TestFrameMaterializeEnqueue(APIBaseTest):
@@ -63,20 +84,7 @@ class TestFrameMaterializeEnqueue(APIBaseTest):
         run.assert_called_once()
 
     def _registered_inputs(self) -> tuple["frame_materialize.FrameMaterializeInputs", QueryStatusManager]:
-        query_id = uuid.uuid4().hex
-        inputs = frame_materialize.FrameMaterializeInputs(
-            query_id=query_id,
-            team_id=self.team.id,
-            notebook_short_id=self.notebook.short_id,
-            user_id=self.user.id,
-            query="select 1",
-            query_hash="abc123",
-            cache_key=f"notebook-frame:{self.team.id}:abc123",
-        )
-        manager = QueryStatusManager(query_id, self.team.id)
-        manager.store_query_status(QueryStatus(id=query_id, team_id=self.team.id))
-        manager.register_cache_key_mapping(inputs.cache_key)
-        return inputs, manager
+        return _registered_inputs(self.team.id, self.notebook.short_id, self.user.id)
 
     @parameterized.expand(
         [
@@ -173,3 +181,181 @@ class TestFrameMaterializeEnqueue(APIBaseTest):
         lookup.assert_called_once()
         status = manager.get_query_status()
         self.assertFalse(status.complete)  # not finalized — Temporal retries per policy
+
+
+class TestFrameMaterializeCHWrites(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(team=self.team, short_id="nbfmch1")
+
+    def test_ch_writes_materializes_a_readable_arrow_object(self):
+        # End-to-end through the real path: pooled DESCRIBE, the stringify second pass,
+        # the INSERT assembly around real printed HogQL (trailing SETTINGS clause,
+        # %(hogql_val)s placeholders), and CH writing the object itself. Catches any
+        # assembly change that produces invalid SQL, and the loss of
+        # output_format_arrow_string_as_string / the UUID stringification, which would
+        # hand pandas raw bytes.
+        frame_uuid = "018e0e7a-1111-2222-3333-444444444444"
+        inputs, manager = _registered_inputs(
+            self.team.id,
+            self.notebook.short_id,
+            self.user.id,
+            query=f"select number as n, toUUID('{frame_uuid}') as u from numbers(3)",
+        )
+        key = frame_store.build_frame_key(inputs.team_id, inputs.notebook_short_id, inputs.query_hash)
+        self.addCleanup(object_storage.delete, key)
+
+        with self.settings(NOTEBOOKS_FRAME_STORE_CH_WRITES=True, OBJECT_STORAGE_ENABLED=True):
+            returned_key = frame_materialize.materialize_frame(inputs)
+
+        self.assertEqual(returned_key, key)
+        status = manager.get_query_status()
+        self.assertTrue(status.complete and not status.error)
+        self.assertEqual(status.results, {"object_key": key})
+
+        import pyarrow as pa  # noqa: PLC0415 — keeps the heavy dep off the module import path
+
+        data = object_storage.read_bytes(key)
+        assert data is not None
+        table = pa.ipc.open_stream(data).read_all()
+        self.assertEqual(table.num_rows, 3)
+        self.assertTrue(pa.types.is_string(table.schema.field("u").type))
+        self.assertEqual(table.column("u").to_pylist(), [frame_uuid] * 3)
+
+    def test_ch_writes_zero_row_result_writes_a_valid_empty_object(self):
+        # Empty results are common in notebooks (a filter matching nothing). CH must still
+        # write a valid (header-only) Arrow object for a zero-row INSERT INTO s3, or stat_frame
+        # would see no object → retry → generic failure. Guards against a CH version/setting
+        # change (or a switch away from ArrowStream) that stops emitting the empty object.
+        inputs, manager = _registered_inputs(
+            self.team.id,
+            self.notebook.short_id,
+            self.user.id,
+            query="select number as n from numbers(0)",
+        )
+        key = frame_store.build_frame_key(inputs.team_id, inputs.notebook_short_id, inputs.query_hash)
+        self.addCleanup(object_storage.delete, key)
+
+        with self.settings(NOTEBOOKS_FRAME_STORE_CH_WRITES=True, OBJECT_STORAGE_ENABLED=True):
+            frame_materialize.materialize_frame(inputs)
+
+        status = manager.get_query_status()
+        self.assertTrue(status.complete and not status.error)
+
+        import pyarrow as pa  # noqa: PLC0415 — keeps the heavy dep off the module import path
+
+        data = object_storage.read_bytes(key)
+        assert data is not None
+        self.assertEqual(pa.ipc.open_stream(data).read_all().num_rows, 0)
+
+    def test_insert_sql_binds_s3_args_as_parameters(self):
+        # The s3() endpoint/bucket/key/credentials are bound as query params, not spliced as
+        # literals: sync_execute's single %-substitution pass escapes them (so a % or quote in
+        # a config value can't corrupt the format pass or reach the credential zone). A
+        # regression back to literal splicing is the design doc's named injection risk.
+        # Path-style URL uses the CH-reachable endpoint, NOT OBJECT_STORAGE_ENDPOINT.
+        with self.settings(
+            NOTEBOOKS_FRAME_STORE_S3_ENDPOINT="http://store:19000",
+            NOTEBOOKS_FRAME_STORE_S3_BUCKET="bucket",
+            OBJECT_STORAGE_ACCESS_KEY_ID="ke'y%s",
+            OBJECT_STORAGE_SECRET_ACCESS_KEY="s'ec\\ret",
+        ):
+            sql, params = frame_materialize._insert_into_s3_sql("SELECT 1", "notebooks/frames/team_1/nb/abc.arrow")
+        self.assertEqual(
+            sql,
+            "INSERT INTO FUNCTION s3(%(_nb_s3_url)s, %(_nb_s3_key)s, %(_nb_s3_secret)s, 'ArrowStream')\nSELECT 1",
+        )
+        # Raw values, unescaped, under reserved keys — escaping happens in the substitution
+        # pass, and nothing hostile is ever concatenated into the statement text.
+        self.assertEqual(params["_nb_s3_url"], "http://store:19000/bucket/notebooks/frames/team_1/nb/abc.arrow")
+        self.assertEqual(params["_nb_s3_key"], "ke'y%s")
+        self.assertEqual(params["_nb_s3_secret"], "s'ec\\ret")
+
+    def test_insert_sql_prod_endpoint_is_virtual_hosted_and_keyless(self):
+        # The prod branch that dev/CI never exercises: an empty CH endpoint (cluster reaches AWS
+        # via IAM role) must yield a virtual-hosted HTTPS URL and NO inline credentials — not a
+        # scheme-less `/bucket/key` from concatenating an empty endpoint (which CH rejects).
+        with self.settings(
+            NOTEBOOKS_FRAME_STORE_S3_ENDPOINT="",
+            NOTEBOOKS_FRAME_STORE_S3_BUCKET="ph-frames",
+            NOTEBOOKS_FRAME_STORE_S3_REGION="eu-west-1",
+            OBJECT_STORAGE_ACCESS_KEY_ID="should-be-ignored",
+            OBJECT_STORAGE_SECRET_ACCESS_KEY="should-be-ignored",
+        ):
+            sql, params = frame_materialize._insert_into_s3_sql("SELECT 1", "notebooks/frames/team_1/nb/abc.arrow")
+        self.assertEqual(sql, "INSERT INTO FUNCTION s3(%(_nb_s3_url)s, 'ArrowStream')\nSELECT 1")
+        self.assertEqual(
+            params["_nb_s3_url"],
+            "https://ph-frames.s3.eu-west-1.amazonaws.com/notebooks/frames/team_1/nb/abc.arrow",
+        )
+        self.assertNotIn("_nb_s3_key", params)
+
+    @parameterized.expand(
+        [
+            # Budget failures sync_execute rewraps as APIException subclasses (NOT
+            # InternalCHQueryError) — the case the earlier hand-built InternalCHQueryError
+            # masked. Must be terminal, else the canonical whale failures retry 10x.
+            ("memory_wrapped", ClickHouseQueryMemoryLimitExceeded(), True, "materialization limits"),
+            ("timeout_wrapped", ClickHouseQueryTimeOut(), True, "time limit"),
+            # A big-but-valid query (printer-expanded IN lists) that overflows max_query_size:
+            # deterministic, terminal with an actionable message, not a retry.
+            ("query_size_wrapped", ClickHouseQuerySizeExceeded(), True, "too large to materialize"),
+            # A user-safe CH query error surfaced at execution (e.g. type mismatch): terminal
+            # with the real, sanitized message — not retried into a generic failure.
+            (
+                "exposed_user_error",
+                ExposedCHQueryError("Code: 53. DB::Exception: There is no supertype for types", code=53),
+                True,
+                "no supertype for types",
+            ),
+            # A code that does arrive as InternalCHQueryError (307 TOO_MANY_BYTES): terminal.
+            ("too_many_bytes", InternalCHQueryError("DB::Exception", code=307), True, "materialization limits"),
+            # Unrecognized code (e.g. an S3-side blip): plausibly transient, retry per policy.
+            ("unrecognized_code", InternalCHQueryError("DB::Exception", code=499), False, None),
+        ]
+    )
+    def test_insert_error_maps_to_terminal_or_retryable(self, _name, error, terminal, expected_message):
+        inputs, manager = _registered_inputs(self.team.id, self.notebook.short_id, self.user.id)
+
+        with (
+            self.settings(NOTEBOOKS_FRAME_STORE_CH_WRITES=True),
+            patch.object(frame_materialize, "_print_clickhouse_sql", return_value=("SELECT 1", {})),
+            patch.object(frame_materialize, "_materialize_slots"),
+            patch.object(frame_materialize, "sync_execute", side_effect=error),
+        ):
+            with self.assertRaises(exceptions.ApplicationError if terminal else type(error)) as caught:
+                frame_materialize.materialize_frame(inputs)
+
+        status = manager.get_query_status()
+        if terminal:
+            self.assertTrue(caught.exception.non_retryable)
+            self.assertTrue(status.complete and status.error)
+            self.assertIn(expected_message, status.error_message or "")
+        else:
+            self.assertFalse(status.complete)  # not finalized — Temporal retries per policy
+
+    def test_oversize_object_is_deleted_and_terminal(self):
+        # max_result_bytes bounds results returned to a client, not an INSERT's sink — the
+        # post-write size check is the only output cap on this path. Removing it as
+        # "redundant" would let a huge-per-row query persist an unbounded object.
+        inputs, manager = _registered_inputs(self.team.id, self.notebook.short_id, self.user.id)
+        key = frame_store.build_frame_key(inputs.team_id, inputs.notebook_short_id, inputs.query_hash)
+
+        with (
+            self.settings(NOTEBOOKS_FRAME_STORE_CH_WRITES=True),
+            patch.object(frame_materialize, "_print_clickhouse_sql", return_value=("SELECT 1", {})),
+            patch.object(frame_materialize, "_materialize_slots"),
+            patch.object(frame_materialize, "sync_execute", return_value=None),
+            patch.object(
+                frame_materialize.frame_store, "stat_frame", return_value=frame_materialize._MAX_RESULT_BYTES + 1
+            ),
+            patch.object(frame_materialize.frame_store, "delete_frame") as delete_frame,
+        ):
+            with self.assertRaises(exceptions.ApplicationError) as caught:
+                frame_materialize.materialize_frame(inputs)
+
+        delete_frame.assert_called_once_with(key)
+        self.assertTrue(caught.exception.non_retryable)
+        status = manager.get_query_status()
+        self.assertTrue(status.complete and status.error)
+        self.assertIn("too large", status.error_message or "")

@@ -8,6 +8,7 @@ refuses any key outside the requesting team's prefix.
 """
 
 import re
+import datetime as dt
 from typing import IO
 
 from django.conf import settings
@@ -44,7 +45,10 @@ def build_frame_key(team_id: int, notebook_short_id: str, query_hash: str) -> st
     hash, but a key must never be constructible with path separators in it.
     """
     for segment in (notebook_short_id, query_hash):
-        if not _KEY_SEGMENT_RE.match(segment):
+        # fullmatch, not match: `$` in `.match` also matches before a trailing newline, so a
+        # segment like "nb\n" would pass — and this key is spliced into a SQL statement on the
+        # CH-writes path, where the doc's threat model makes exact charset validation load-bearing.
+        if not _KEY_SEGMENT_RE.fullmatch(segment):
             raise FrameStoreError(f"Invalid frame key segment: {segment!r}")
     return f"{team_prefix(team_id)}{notebook_short_id}/{query_hash}.arrow"
 
@@ -57,10 +61,32 @@ def write_stream(key: str, fileobj: IO[bytes]) -> int:
     post-write HEAD both confirms the object exists (an UnavailableStorage client no-ops
     writes silently) and provides the size for observability.
     """
-    object_storage.write_stream(key, fileobj, extras={"ContentType": ARROW_STREAM_CONTENT_TYPE})
-    head = object_storage.head_object(key)
+    object_storage.write_stream(
+        key, fileobj, extras={"ContentType": ARROW_STREAM_CONTENT_TYPE}, bucket=settings.NOTEBOOKS_FRAME_STORE_S3_BUCKET
+    )
+    return stat_frame(key)
+
+
+def stat_frame(key: str, *, written_after: "dt.datetime | None" = None) -> int:
+    """Confirm the frame object at `key` exists and return its size.
+
+    The post-write existence check for both write paths: the worker upload (an
+    UnavailableStorage client no-ops writes silently) and the CH-side INSERT (whose
+    success response says the query finished, not that the bytes are servable).
+
+    `written_after` guards the CH-side path against a silent no-op: ClickHouse writes from
+    its own network, so if it "succeeds" against a store/bucket the app can't read, a stale
+    object from an earlier run at this deterministic key would otherwise pass existence and be
+    served as fresh. Requiring LastModified at/after the write start turns that into a loud
+    failure. The margin for clock skew is the caller's to bake into `written_after`.
+    """
+    head = object_storage.head_object(key, bucket=settings.NOTEBOOKS_FRAME_STORE_S3_BUCKET)
     if head is None:
         raise FrameStoreError("Frame object was not stored")
+    if written_after is not None:
+        last_modified = head.get("LastModified")
+        if isinstance(last_modified, dt.datetime) and last_modified < written_after:
+            raise FrameStoreError("Frame object predates this write — object store endpoint/bucket skew?")
     return int(head.get("ContentLength") or 0)
 
 
@@ -73,7 +99,10 @@ def presign_get(key: str, team_id: int) -> str:
     if not key.startswith(team_prefix(team_id)):
         raise FrameStoreError("Frame key is not under the requesting team's prefix")
     url = object_storage.get_presigned_url(
-        key, expiration=PRESIGN_EXPIRY_SECONDS, content_type=ARROW_STREAM_CONTENT_TYPE
+        key,
+        expiration=PRESIGN_EXPIRY_SECONDS,
+        content_type=ARROW_STREAM_CONTENT_TYPE,
+        bucket=settings.NOTEBOOKS_FRAME_STORE_S3_BUCKET,
     )
     if not url:
         raise FrameStoreError("Could not presign the frame object")
@@ -87,4 +116,4 @@ def delete_frame(key: str) -> None:
     must never delete — it could destroy an object an earlier successful run's still-live
     status points at. The only legitimate caller is the writer discarding its own bytes.
     """
-    object_storage.delete(key)
+    object_storage.delete(key, bucket=settings.NOTEBOOKS_FRAME_STORE_S3_BUCKET)
