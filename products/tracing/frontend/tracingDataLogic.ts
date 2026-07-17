@@ -19,7 +19,9 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { AggregatedSpanRow, SpanTreeNode } from '~/queries/schema/schema-general'
@@ -566,8 +568,8 @@ export interface tracingDataLogicMeta {
             filters: TracingFilters
         ) => number
         durationHistogramData: (rawDurationHistogram: DurationHistogramRow[]) => TracingDurationHistogramData
-        latencyHeatmapData: (rawLatencyHeatmap: any) => TracingLatencyHeatmapData
-        showHeatmap: (filters: TracingFilters, compareActive: boolean) => boolean
+        latencyHeatmapData: (rawLatencyHeatmap: LatencyHeatmapRow[]) => TracingLatencyHeatmapData
+        showHeatmap: (filters: TracingFilters, compareActive: boolean, featureFlags: FeatureFlagsSet) => boolean
         listRows: (spans: Span[], filters: TracingFilters) => Span[]
         listRowDurations: (listRows: Span[]) => number[]
         isDurationMode: (filters: TracingFilters, compareActive: boolean) => boolean
@@ -610,6 +612,8 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 'compareActive',
                 'timeComparison',
             ],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             tracingFiltersLogic({ id }),
@@ -1258,12 +1262,17 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             (s) => [s.rawLatencyHeatmap],
             (rows: LatencyHeatmapRow[]): TracingLatencyHeatmapData => pivotLatencyHeatmap(rows),
         ],
-        // Single owner of the "show the latency heatmap?" rule. The comparison overlay is a
-        // time-window drag surface, so the heatmap yields to the activity chart while comparing.
+        // Single owner of the "show the latency heatmap?" rule — gates the fetch, the rendering,
+        // and the duration-histogram skip together. The feature-flag check here means a
+        // ?chart=heatmap deep link with the flag off degrades to the activity chart without
+        // fetching. The comparison overlay is a time-window drag surface, so the heatmap also
+        // yields to the activity chart while comparing.
         showHeatmap: [
-            (s) => [s.filters, s.compareActive],
-            (filters: TracingFilters, compareActive: boolean): boolean =>
-                filters.chartType === 'heatmap' && !compareActive,
+            (s) => [s.filters, s.compareActive, s.featureFlags],
+            (filters: TracingFilters, compareActive: boolean, featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.TRACING_LATENCY_HEATMAP] &&
+                filters.chartType === 'heatmap' &&
+                !compareActive,
         ],
         // The rows the list renders. 'traces' mode shows root spans only (one row per trace);
         // 'spans' mode shows every matching span (root and child) flat. The fetch passes flatSpans

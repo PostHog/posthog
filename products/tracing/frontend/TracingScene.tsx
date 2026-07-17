@@ -118,6 +118,7 @@ function TracingSceneContents(): JSX.Element {
     const { facetRailCollapsed } = useValues(tracingConfigLogic)
     const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
+    const heatmapEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_LATENCY_HEATMAP]
 
     // Resolved aggregation window (ms) — turns span counts into a request rate.
     // Use sparklineWindowMs which correctly resolves relative date strings (e.g. '-1h').
@@ -206,7 +207,7 @@ function TracingSceneContents(): JSX.Element {
                     durationHistogram={isDurationMode && !showHeatmap ? durationHistogramData : null}
                     visibleRowDurationRange={visibleRowDurationRange}
                     chartType={filters.chartType}
-                    onChartTypeChange={setChartType}
+                    onChartTypeChange={heatmapEnabled ? setChartType : undefined}
                     latencyHeatmap={showHeatmap ? latencyHeatmapData : null}
                     latencyHeatmapLoading={latencyHeatmapLoading}
                     heatmapDisabledReason={
