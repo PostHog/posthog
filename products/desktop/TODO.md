@@ -57,7 +57,7 @@ The long-term goal is to merge PostHog Code (github.com/posthog/code) into this 
 - [x] Windows x64 NSIS installer built in CI (frontend built once on Linux, shared as an artifact with the per-OS packaging jobs) and uploaded as the `posthog-desktop-windows-x64` workflow artifact
 - [ ] Per-platform targets beyond macOS/Windows (AppImage/deb), `electronLanguages` trimming
 - [x] macOS signing + notarization on master/dispatch builds (PostHog Inc. Developer ID cert + Apple ID notarization, reusing PostHog Code's org secrets in `build-desktop-app.yml`)
-- [x] Fork-based release pipeline: `desktop` branch on `mariusandra/posthog` (fork default branch), daily Claude-driven upstream sync (`desktop-sync.yml` + `syncing-desktop-fork` skill), version-bump-triggered GitHub releases with signed macOS DMG + Windows installer (`desktop-release.yml`)
+- [x] Fork-based release pipeline: `desktop` branch on `mariusandra/posthog` (fork default branch), daily agent-driven upstream sync (`desktop-sync.yml` runs the OpenAI Codex CLI + `syncing-desktop-fork` skill), version-bump-triggered GitHub releases with signed macOS DMG + Windows installer (`desktop-release.yml`)
 - [ ] Tab-awareness conversion playbook for the sync skill: how to convert an incoming/new scene to the scene-aware pattern, then convert all remaining scenes
 - [ ] Windows signing; release hardening (packaged-app smoke test, checksums — PostHog Code's `code-release.yml` is the model)
 - [ ] Auto-update via `electron-updater` with GitHub Releases

@@ -7,7 +7,7 @@ description: Merge PostHog/posthog master into the desktop fork branch (mariusan
 
 The PostHog desktop app lives on the `desktop` branch of the fork `mariusandra/posthog` (default branch there).
 It is upstream `PostHog/posthog` master plus the desktop changes (`products/desktop/`, scene-awareness work in `frontend/`).
-The `.github/workflows/desktop-sync.yml` workflow merges upstream master into it daily; this skill is the procedure, both for that workflow's Claude step and for running a sync by hand.
+The `.github/workflows/desktop-sync.yml` workflow merges upstream master into it daily; this skill is the procedure, both for that workflow's automated agent step (OpenAI Codex CLI) and for running a sync by hand.
 
 ## The merge
 
@@ -17,7 +17,7 @@ git fetch --filter=blob:none upstream master
 git merge --no-edit upstream/master
 ```
 
-If the merge is already in progress (CI runs Claude only after a conflicted `git merge`), skip straight to conflict resolution — never `git merge --abort` and never reset the branch.
+If the merge is already in progress (CI invokes the agent only after a conflicted `git merge`), skip straight to conflict resolution — never `git merge --abort` and never reset the branch.
 
 ## Resolving conflicts
 

@@ -1,11 +1,12 @@
 name: Desktop Fork Sync
 
 # Fork-only (mariusandra/posthog): merges PostHog/posthog master into the
-# `desktop` branch daily, with Claude resolving conflicts and merge fallout
-# per .agents/skills/syncing-desktop-fork/SKILL.md. Inert in PostHog/posthog.
+# `desktop` branch daily, with the OpenAI Codex CLI resolving conflicts and
+# merge fallout per .agents/skills/syncing-desktop-fork/SKILL.md. Inert in
+# PostHog/posthog.
 #
 # Fork setup: enable Actions on the fork, enable this (scheduled workflows in
-# forks start disabled), and add the ANTHROPIC_API_KEY secret.
+# forks start disabled), and add the OPENAI_API_KEY secret.
 
 on:
     schedule:
@@ -52,7 +53,7 @@ jobs:
 
             # Node comes from setup-node inside the composite; skip the pnpm
             # install here when conflicted — manifests may hold conflict markers,
-            # Claude installs after resolving instead.
+            # the agent installs after resolving instead.
             - name: Install desktop dependencies
               if: steps.merge.outputs.state == 'merged'
               uses: ./.github/actions/pnpm-install
@@ -72,15 +73,14 @@ jobs:
               continue-on-error: true
               run: pnpm --filter=@posthog/desktop test
 
-            - name: Resolve with Claude
+            - name: Resolve with Codex
               if: steps.merge.outputs.state == 'conflicts' || steps.tests.outcome == 'failure'
               env:
-                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
                   MERGE_STATE: ${{ steps.merge.outputs.state }}
               run: |
-                  npm install -g @anthropic-ai/claude-code pnpm
-                  claude -p "You are running inside the desktop-sync workflow on the mariusandra/posthog fork. Merge state: $MERGE_STATE (either an in-progress conflicted merge of upstream/master, or a completed merge whose desktop tests fail). Read .agents/skills/syncing-desktop-fork/SKILL.md and follow it: finish the merge, fix what the merge broke, and leave the working tree committed and clean. Do not push." \
-                      --dangerously-skip-permissions
+                  npm install -g @openai/codex pnpm
+                  codex exec --dangerously-bypass-approvals-and-sandbox "You are running inside the desktop-sync workflow on the mariusandra/posthog fork. Merge state: $MERGE_STATE (either an in-progress conflicted merge of upstream/master, or a completed merge whose desktop tests fail). Read .agents/skills/syncing-desktop-fork/SKILL.md and follow it: finish the merge, fix what the merge broke, and leave the working tree committed and clean. Do not push."
 
             - name: Verify merge concluded
               run: |
