@@ -225,10 +225,11 @@ is a routine cause of confusion; keep the table in mind.
 The PostHog MCP is pinned to direct-tools mode. Its allowed tools appear as
 top-level `posthog__<name>` tools with their argument schemas attached, so call
 them directly. There is no `posthog__call_tool`, `posthog__get_tool_schema`, or
-`posthog__explore_tools` wrapper in this mode. If a named `posthog__*` tool is
-absent, treat that capability as unavailable for this session instead of looking
-for a wrapper. The non-PostHog entries below (`@posthog/*` natives, client tools)
-are also called directly.
+`posthog__explore_tools` wrapper in this mode. The runtime's connected and
+unavailable MCP sections are authoritative for connection status. Never claim
+the PostHog MCP is disconnected based on whether you can enumerate or recall its
+tool declarations. The non-PostHog entries below (`@posthog/*` natives, client
+tools) are also called directly.
 
 | Class                        | Examples                                                                                                                                                                       | When you use it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

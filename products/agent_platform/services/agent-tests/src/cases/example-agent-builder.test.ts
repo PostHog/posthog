@@ -115,6 +115,7 @@ describe('example: agent-builder bundle', () => {
             expect.arrayContaining(['agents:read', 'agents:write', 'agent_session:read'])
         )
         expect(files['agent.md']).toContain('Never ask the user to connect or reconnect PostHog')
+        expect(files['agent.md']).toMatch(/Never claim\s+the PostHog MCP is disconnected/)
     })
 
     it('declares the client tools the console UI implements', async () => {
