@@ -35,17 +35,17 @@ re-rendered into the team's view whenever the code changes. Everything else is j
 the raw tables is always enough**: never create additional warehouse views for engineering analytics data, and never
 re-derive in SQL what the three views already encode.
 
-| What the product shows                              | Where the data actually lives                                                         | Can it back an insight?                       |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| PR list, merge times, CI status, workflow health    | Data warehouse tables `<prefix>github_pull_requests`, `<prefix>github_workflow_runs`  | **Yes** (SQL insight over the tables)          |
-| Reviews and approvals                               | `<prefix>github_reviews`                                                              | **Yes**                                        |
-| Team-level PR metrics (author→team attribution)     | `<prefix>github_team_members` semi-joined against the PR authors                      | **Yes** (team aggregates only)                 |
-| Job durations, queue times, runner tiers            | `<prefix>github_workflow_jobs`                                                        | **Yes**                                        |
-| CI cost (runner-tier price ladder)                  | `engineering_analytics_job_costs` view                                                | **Yes** (query the view, never recompute cost) |
-| Per-job CI history with commit attribution          | `engineering_analytics_ci_job_history` view                                           | **Yes**                                        |
-| Grouped (fingerprinted) CI failure lines            | `engineering_analytics_ci_failures` view (reads the Logs product, short retention)    | **Yes**, for short recent windows              |
-| Thinned CI failure logs for a PR or run             | Logs product (`service_name = 'github-ci-logs'`) + thinning logic                     | No (use the MCP tools ad hoc)                  |
-| Flaky-test leaderboard, broken-tests triage, team CI health | CI trace spans + ranking/classification logic in product code                 | No (use the MCP tools ad hoc)                  |
+| What the product shows                                      | Where the data actually lives                                                        | Can it back an insight?                        |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------- |
+| PR list, merge times, CI status, workflow health            | Data warehouse tables `<prefix>github_pull_requests`, `<prefix>github_workflow_runs` | **Yes** (SQL insight over the tables)          |
+| Reviews and approvals                                       | `<prefix>github_reviews`                                                             | **Yes**                                        |
+| Team-level PR metrics (author→team attribution)             | `<prefix>github_team_members` semi-joined against the PR authors                     | **Yes** (team aggregates only)                 |
+| Job durations, queue times, runner tiers                    | `<prefix>github_workflow_jobs`                                                       | **Yes**                                        |
+| CI cost (runner-tier price ladder)                          | `engineering_analytics_job_costs` view                                               | **Yes** (query the view, never recompute cost) |
+| Per-job CI history with commit attribution                  | `engineering_analytics_ci_job_history` view                                          | **Yes**                                        |
+| Grouped (fingerprinted) CI failure lines                    | `engineering_analytics_ci_failures` view (reads the Logs product, short retention)   | **Yes**, for short recent windows              |
+| Thinned CI failure logs for a PR or run                     | Logs product (`service_name = 'github-ci-logs'`) + thinning logic                    | No (use the MCP tools ad hoc)                  |
+| Flaky-test leaderboard, broken-tests triage, team CI health | CI trace spans + ranking/classification logic in product code                        | No (use the MCP tools ad hoc)                  |
 
 So the job splits cleanly:
 warehouse-backed metrics (raw tables or the three views) become SQL insights (then dashboards, then subscriptions);
