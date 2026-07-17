@@ -1911,6 +1911,7 @@ class ExternalDataSourceType(StrEnum):
     PINECONE = "Pinecone"
     PLATFORM_SH = "PlatformSh"
     PROMPTING_COMPANY = "PromptingCompany"
+    PROMPT_WATCH = "PromptWatch"
     QDRANT = "Qdrant"
     RENDER = "Render"
     REPLICATE = "Replicate"
@@ -2033,6 +2034,13 @@ class ExternalDataSourceType(StrEnum):
     KONG_KONNECT = "KongKonnect"
     KANDJI = "Kandji"
     AUTOMOX = "Automox"
+    AUTUMN = "Autumn"
+    GET_STREAM = "GetStream"
+    OCTOLENS = "Octolens"
+    KAJABI = "Kajabi"
+    SHOPWARE = "Shopware"
+    DUBSADO = "Dubsado"
+    CAMPFIRE = "Campfire"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2118,6 +2126,7 @@ class FileSystemIconType(StrEnum):
     TOOLBAR = "toolbar"
     VISUAL_REVIEW = "visual_review"
     CODE_REVIEW = "code_review"
+    STAMPHOG = "stamphog"
     SETTINGS = "settings"
     HEALTH = "health"
     INBOX = "inbox"
@@ -3015,6 +3024,7 @@ class ProductKey(StrEnum):
     PLATFORM_AND_SUPPORT = "platform_and_support"
     PRODUCT_ANALYTICS = "product_analytics"
     PRODUCT_TOURS = "product_tours"
+    PULSE = "pulse"
     REVENUE_ANALYTICS = "revenue_analytics"
     REVIEW_HOG = "review_hog"
     SESSION_REPLAY = "session_replay"

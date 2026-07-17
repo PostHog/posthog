@@ -41,8 +41,12 @@ impl Default for RoutingTableConfig {
     fn default() -> Self {
         Self {
             router_name: "router-0".to_string(),
-            lease_ttl: 30,
-            heartbeat_interval: Duration::from_secs(10),
+            // A crashed router stays in every freeze quorum until its
+            // registration expires, stalling any handoff frozen in that
+            // window — keep the TTL short (graceful exits deregister
+            // immediately on the way out).
+            lease_ttl: 10,
+            heartbeat_interval: Duration::from_secs(3),
         }
     }
 }
@@ -164,6 +168,12 @@ impl RoutingTable {
 
         // Abort and await all remaining tasks for clean shutdown
         tasks.shutdown().await;
+
+        // Deregister so freeze quorums stop counting this router
+        // immediately. Left to lease expiry, every handoff frozen in the
+        // next TTL window stalls waiting for a freeze ack this router
+        // will never write.
+        drop(self.store.revoke_lease(lease_id).await);
 
         result
     }

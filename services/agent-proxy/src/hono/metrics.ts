@@ -47,7 +47,7 @@ export const taskRunStreamConnectionDurationSeconds = new Histogram({
     registers: [register],
 })
 
-// Stream length is capped at TASK_RUN_STREAM_MAX_LENGTH (~20k); the top
+// Stream length is capped at TASK_RUN_STREAM_MAX_LENGTH (~5k); the top
 // buckets show how close real runs get to the trim threshold.
 export const taskRunStreamLengthOnConnect = new Histogram({
     name: 'posthog_tasks_task_run_stream_length_on_connect',

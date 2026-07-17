@@ -63,6 +63,7 @@ from .attentive.source import AttentiveSource
 from .attio.source import AttioSource
 from .auth0.source import Auth0Source
 from .automox.source import AutomoxSource
+from .autumn.source import AutumnSource
 from .aviationstack.source import AviationstackSource
 from .aviator.source import AviatorSource
 from .awin.source import AwinSource
@@ -113,6 +114,7 @@ from .callrail.source import CallRailSource
 from .campaign_manager_360.source import CampaignManager360Source
 from .campaign_monitor.source import CampaignMonitorSource
 from .campayn.source import CampaynSource
+from .campfire.source import CampfireSource
 from .canny.source import CannySource
 from .capsule_crm.source import CapsuleCRMSource
 from .captain_data.source import CaptainDataSource
@@ -217,6 +219,7 @@ from .drip.source import DripSource
 from .dropbox.source import DropboxSource
 from .dropbox_sign.source import DropboxSignSource
 from .dub.source import DubSource
+from .dubsado.source import DubsadoSource
 from .dwolla.source import DwollaSource
 from .dynamics365.source import Dynamics365Source
 from .dynamodb.source import DynamoDBSource
@@ -281,6 +284,7 @@ from .fulcrum.source import FulcrumSource
 from .fullstory.source import FullStorySource
 from .gainsight_px.source import GainsightPxSource
 from .gerrit.source import GerritSource
+from .getstream.source import GetStreamSource
 from .giphy.source import GiphySource
 from .gitbook.source import GitBookSource
 from .gitea.source import GiteaSource
@@ -385,6 +389,7 @@ from .justcall.source import JustCallSource
 from .justsift.source import JustSiftSource
 from .k6_cloud.source import K6CloudSource
 from .kafka.source import KafkaSource
+from .kajabi.source import KajabiSource
 from .kandji.source import KandjiSource
 from .kapa_ai.source import KapaAISource
 from .katana.source import KatanaSource
@@ -500,6 +505,7 @@ from .notion.source import NotionSource
 from .nuget.source import NugetSource
 from .nutshell.source import NutshellSource
 from .nylas.source import NylasSource
+from .octolens.source import OctolensSource
 from .octopus_deploy.source import OctopusDeploySource
 from .okta.source import OktaSource
 from .omnisend.source import OmnisendSource
@@ -589,6 +595,7 @@ from .printify.source import PrintifySource
 from .productboard.source import ProductboardSource
 from .productive.source import ProductiveSource
 from .prompting_company.source import PromptingCompanySource
+from .promptwatch.source import PromptWatchSource
 from .pulumi_cloud.source import PulumiCloudSource
 from .pylon.source import PylonSource
 from .pypi.source import PyPISource
@@ -677,6 +684,7 @@ from .sharetribe.source import SharetribeSource
 from .shippo.source import ShippoSource
 from .shipstation.source import ShipStationSource
 from .shopify.source import ShopifySource
+from .shopware.source import ShopwareSource
 from .shopwired.source import ShopWiredSource
 from .shortcut.source import ShortcutSource
 from .shortio.source import ShortioSource
