@@ -14,8 +14,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use common::{
-    build_event, local_stage, make_ctx, make_ctx_with_sample_rate, process_one, remote_stage,
-    spawn_recording_stub_server, spawn_stub_server, ServerBehavior,
+    build_event, build_event_with, local_stage, make_ctx, make_ctx_with_sample_rate, process_one,
+    remote_stage, spawn_recording_stub_server, spawn_stub_server, ServerBehavior,
 };
 
 use cymbal::error::{ResolveError, UnhandledError};
@@ -26,7 +26,8 @@ use cymbal::symbolication::symbol::SymbolResolver;
 use cymbal::symbolication::symbol_store::chunk_id::OrChunkId;
 use cymbal::symbolication::symbol_store::proguard::ProguardRef;
 use cymbal::types::batch::Batch;
-use cymbal::types::exception_properties::ExceptionProperties;
+use cymbal::types::event::AnyEvent;
+use cymbal::types::exception_event::{ExceptionEvent, Parsed};
 use cymbal::types::operator::TeamId;
 use cymbal::types::stage::Stage;
 use cymbal::types::Stacktrace;
@@ -84,31 +85,43 @@ fn remote_stage_with_resolver(
     }
 }
 
-fn build_dart_event() -> ExceptionProperties {
-    let mut evt: ExceptionProperties = serde_json::from_value(json!({
-        "$exception_list": [{
-            "type": "minified:Foo",
-            "value": "boom",
-            "stacktrace": {
-                "type": "raw",
-                "frames": [{
-                    "platform": "web:javascript",
-                    "filename": "https://example.com/app.js",
-                    "function": "a",
-                    "lineno": 1,
-                    "colno": 2,
-                    "chunk_id": "chunk-a"
-                }]
-            }
-        }]
-    }))
-    .expect("valid exception properties");
-    evt.team_id = 7;
-    evt.uuid = Uuid::from_u128(42);
-    evt
+fn parsed_event(uuid: Uuid, properties: serde_json::Value) -> ExceptionEvent<Parsed> {
+    AnyEvent {
+        uuid,
+        event: "$exception".to_string(),
+        team_id: 7,
+        timestamp: String::new(),
+        properties,
+        others: Default::default(),
+    }
+    .try_into()
+    .expect("valid exception properties")
 }
 
-fn build_event_with_symbol_refs(uuid: Uuid, symbol_refs: &[&str]) -> ExceptionProperties {
+fn build_dart_event(uuid: Uuid) -> ExceptionEvent<Parsed> {
+    parsed_event(
+        uuid,
+        json!({
+            "$exception_list": [{
+                "type": "minified:Foo",
+                "value": "boom",
+                "stacktrace": {
+                    "type": "raw",
+                    "frames": [{
+                        "platform": "web:javascript",
+                        "filename": "https://example.com/app.js",
+                        "function": "a",
+                        "lineno": 1,
+                        "colno": 2,
+                        "chunk_id": "chunk-a"
+                    }]
+                }
+            }]
+        }),
+    )
+}
+
+fn build_event_with_symbol_refs(uuid: Uuid, symbol_refs: &[&str]) -> ExceptionEvent<Parsed> {
     let exceptions: Vec<serde_json::Value> = symbol_refs
         .iter()
         .enumerate()
@@ -130,13 +143,12 @@ fn build_event_with_symbol_refs(uuid: Uuid, symbol_refs: &[&str]) -> ExceptionPr
             })
         })
         .collect();
-    let mut evt: ExceptionProperties = serde_json::from_value(json!({
-        "$exception_list": exceptions
-    }))
-    .expect("valid exception properties");
-    evt.team_id = 7;
-    evt.uuid = uuid;
-    evt
+    parsed_event(
+        uuid,
+        json!({
+            "$exception_list": exceptions
+        }),
+    )
 }
 
 fn sampling_bucket(team_id: i32, uuid: Uuid) -> f64 {
@@ -166,11 +178,11 @@ async fn happy_path_preserves_batch_event_and_exception_order() {
     let ctx = make_ctx(&[addr], 0, Duration::from_secs(5)).await;
     let evt_a = build_event(3);
     let evt_b = build_event(2);
-    let expected_uuids = [evt_a.uuid, evt_b.uuid];
+    let expected_uuids = [evt_a.uuid(), evt_b.uuid()];
     let expected_types: Vec<Vec<_>> = [&evt_a, &evt_b]
         .into_iter()
         .map(|evt| {
-            evt.exception_list
+            evt.exception_list()
                 .iter()
                 .map(|e| e.exception_type.clone())
                 .collect()
@@ -187,12 +199,12 @@ async fn happy_path_preserves_batch_event_and_exception_order() {
         .collect();
 
     assert_eq!(resolved.len(), 2);
-    assert_eq!(resolved[0].uuid, expected_uuids[0]);
-    assert_eq!(resolved[1].uuid, expected_uuids[1]);
+    assert_eq!(resolved[0].uuid(), expected_uuids[0]);
+    assert_eq!(resolved[1].uuid(), expected_uuids[1]);
     let resolved_types: Vec<Vec<_>> = resolved
         .iter()
         .map(|evt| {
-            evt.exception_list
+            evt.exception_list()
                 .iter()
                 .map(|e| e.exception_type.clone())
                 .collect()
@@ -202,7 +214,7 @@ async fn happy_path_preserves_batch_event_and_exception_order() {
     for (resolved_evt, expected_evt_types) in resolved.iter().zip(expected_types.iter()) {
         let mut expected_properties = expected_evt_types.clone();
         expected_properties.sort();
-        let mut resolved_properties = resolved_evt.exception_types.clone().unwrap_or_default();
+        let mut resolved_properties = resolved_evt.metadata().types.clone();
         resolved_properties.sort();
         assert_eq!(resolved_properties, expected_properties);
     }
@@ -213,7 +225,7 @@ async fn local_mode_ignores_remote_pool_when_remote_is_disabled() {
     let (_addr, hits) = spawn_stub_server(ServerBehavior::AlwaysInvalidArgument).await;
     let evt = build_event(3);
     let original_types: Vec<_> = evt
-        .exception_list
+        .exception_list()
         .iter()
         .map(|e| e.exception_type.clone())
         .collect();
@@ -222,16 +234,16 @@ async fn local_mode_ignores_remote_pool_when_remote_is_disabled() {
         .await
         .expect("no unhandled error");
 
-    assert_eq!(resolved.exception_list.len(), 3);
+    assert_eq!(resolved.exception_list().len(), 3);
     let resolved_types: Vec<_> = resolved
-        .exception_list
+        .exception_list()
         .iter()
         .map(|e| e.exception_type.clone())
         .collect();
     assert_eq!(resolved_types, original_types);
     let mut expected_properties = original_types.clone();
     expected_properties.sort();
-    let mut resolved_properties = resolved.exception_types.unwrap_or_default();
+    let mut resolved_properties = resolved.metadata().types.clone();
     resolved_properties.sort();
     assert_eq!(resolved_properties, expected_properties);
     assert!(
@@ -256,12 +268,12 @@ async fn sample_rate_zero_routes_eligible_events_locally_without_remote_calls() 
     );
     assert!(matches!(
         resolved
-            .exception_list
+            .exception_list()
             .first()
             .and_then(|e| e.stack.as_ref()),
         Some(Stacktrace::Resolved { .. })
     ));
-    assert_eq!(resolved.exception_types, Some(vec!["Boom0".to_string()]));
+    assert_eq!(resolved.metadata().types, vec!["Boom0".to_string()]);
 }
 
 #[tokio::test]
@@ -380,16 +392,20 @@ async fn accepted_outcomes_release_routing_slots_before_terminal_completion() {
 async fn metadata_encodes_debug_images_json() {
     let (addr, _streams, items) = spawn_recording_stub_server(ServerBehavior::Happy).await;
     let ctx = make_ctx(&[addr], 0, Duration::from_secs(5)).await;
-    let mut evt = build_event(1);
-    evt.debug_images = vec![DebugImage {
-        debug_id: "ABCDEF".to_string(),
-        image_addr: "0x100000000".to_string(),
-        image_vmaddr: Some("0x100000000".to_string()),
-        image_size: Some(4096),
-        code_file: Some("Example.app/Example".to_string()),
-        image_type: Some("macho".to_string()),
-        arch: Some("arm64".to_string()),
-    }];
+    let evt = build_event_with(
+        1,
+        7,
+        Uuid::now_v7(),
+        vec![DebugImage {
+            debug_id: "ABCDEF".to_string(),
+            image_addr: "0x100000000".to_string(),
+            image_vmaddr: Some("0x100000000".to_string()),
+            image_size: Some(4096),
+            code_file: Some("Example.app/Example".to_string()),
+            image_type: Some("macho".to_string()),
+            arch: Some("arm64".to_string()),
+        }],
+    );
 
     let result = remote_stage(ctx)
         .process(Batch::from(vec![Ok(evt)]))
@@ -424,7 +440,7 @@ async fn per_item_overloaded_outcomes_reroute_independently() {
         .into_iter()
         .map(|item| item.expect("event must not be EventError"))
         .collect();
-    assert_eq!(resolved[0].exception_list.len(), 2);
+    assert_eq!(resolved[0].exception_list().len(), 2);
     assert_eq!(good_items.lock().unwrap().len(), 2);
     assert!(
         overloaded_items.lock().unwrap().len() <= 2,
@@ -440,8 +456,7 @@ async fn mixed_sampled_remote_and_unsampled_local_events_preserve_output_orderin
     let local_uuid = uuid_for_sampling_decision(7, sample_rate, false);
     let ctx = make_ctx_with_sample_rate(&[addr], 0, Duration::from_secs(5), sample_rate).await;
     let resolver = Arc::new(CountingResolver::default());
-    let mut local_evt = build_dart_event();
-    local_evt.uuid = local_uuid;
+    let local_evt = build_dart_event(local_uuid);
     let remote_evt = build_event_with_symbol_refs(remote_uuid, &["remote-bundle"]);
 
     let result = remote_stage_with_resolver(ctx, resolver.clone())
@@ -457,21 +472,22 @@ async fn mixed_sampled_remote_and_unsampled_local_events_preserve_output_orderin
         .collect();
 
     assert_eq!(resolved.len(), 2);
-    assert_eq!(resolved[0].uuid, local_uuid);
-    assert_eq!(resolved[1].uuid, remote_uuid);
+    assert_eq!(resolved[0].uuid(), local_uuid);
+    assert_eq!(resolved[1].uuid(), remote_uuid);
     assert_eq!(hits.lock().unwrap().len(), 1);
     assert_eq!(resolver.dart_name_calls.load(Ordering::SeqCst), 1);
-    assert_eq!(resolved[0].exception_list[0].exception_type, "ResolvedDart");
-    assert_eq!(resolved[1].exception_list[0].exception_type, "Boom0");
+    assert_eq!(
+        resolved[0].exception_list()[0].exception_type,
+        "ResolvedDart"
+    );
+    assert_eq!(resolved[1].exception_list()[0].exception_type, "Boom0");
 }
 
 #[tokio::test]
 async fn partial_sample_rate_is_deterministic_for_same_event() {
     let (addr, hits) = spawn_stub_server(ServerBehavior::Happy).await;
     let ctx = make_ctx_with_sample_rate(&[addr], 0, Duration::from_secs(5), 0.5).await;
-    let mut evt = build_event(1);
-    evt.team_id = 77;
-    evt.uuid = Uuid::from_u128(0x1234);
+    let evt = build_event_with(1, 77, Uuid::from_u128(0x1234), Vec::new());
 
     for _ in 0..8 {
         let _resolved = process_one(remote_stage(ctx.clone()), evt.clone())
@@ -494,7 +510,7 @@ async fn sampled_remote_failure_does_not_fall_back_to_local_resolution() {
 
     let err = process_one(
         remote_stage_with_resolver(ctx, resolver.clone()),
-        build_dart_event(),
+        build_dart_event(Uuid::from_u128(42)),
     )
     .await
     .expect_err("sampled remote failure must surface");
@@ -513,7 +529,7 @@ async fn unsampled_events_run_local_exception_frame_and_properties_resolvers() {
 
     let resolved = process_one(
         remote_stage_with_resolver(ctx, resolver.clone()),
-        build_dart_event(),
+        build_dart_event(Uuid::from_u128(42)),
     )
     .await
     .expect("unsampled event should resolve locally");
@@ -521,15 +537,12 @@ async fn unsampled_events_run_local_exception_frame_and_properties_resolvers() {
     assert!(hits.lock().unwrap().is_empty());
     assert_eq!(resolver.dart_name_calls.load(Ordering::SeqCst), 1);
     assert_eq!(resolver.raw_frame_calls.load(Ordering::SeqCst), 1);
-    assert_eq!(resolved.exception_list[0].exception_type, "ResolvedDart");
+    assert_eq!(resolved.exception_list()[0].exception_type, "ResolvedDart");
     assert!(matches!(
-        resolved.exception_list[0].stack.as_ref(),
+        resolved.exception_list()[0].stack.as_ref(),
         Some(Stacktrace::Resolved { .. })
     ));
-    assert_eq!(
-        resolved.exception_types,
-        Some(vec!["ResolvedDart".to_string()])
-    );
+    assert_eq!(resolved.metadata().types, vec!["ResolvedDart".to_string()]);
 }
 
 #[tokio::test]
@@ -546,7 +559,7 @@ async fn transport_unavailable_retries_against_another_endpoint() {
     let resolved = process_one(remote_stage(ctx), evt)
         .await
         .expect("stage succeeded");
-    assert_eq!(resolved.exception_list.len(), 1);
+    assert_eq!(resolved.exception_list().len(), 1);
 
     assert!(
         bad_hits.lock().unwrap().is_empty(),
@@ -569,7 +582,7 @@ async fn per_item_retry_outcome_triggers_caller_side_reroute() {
     let resolved = process_one(remote_stage(ctx), evt)
         .await
         .expect("stage succeeded");
-    assert_eq!(resolved.exception_list.len(), 1);
+    assert_eq!(resolved.exception_list().len(), 1);
     assert_eq!(good_items.lock().unwrap().len(), 1);
     assert!(retry_items.lock().unwrap().len() <= 1);
 }

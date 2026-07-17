@@ -129,5 +129,22 @@ describe('activeCloudRunLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.activeCloudRun).toMatchObject({ taskId: 'local-task' })
         })
+
+        it('clears a stale local handle when the server reports no active run', async () => {
+            // A returning provisioned user whose run finished/was abandoned still has a handle in
+            // localStorage. Hydration must reconcile it away, or the install card and FAB keep
+            // claiming setup is in flight forever. Mount before the user loads so the seeded handle
+            // is in place before the single hydration runs (no mount-time race to reason about).
+            mockActiveWizardRun.mockResolvedValue(undefined)
+            logic = activeCloudRunLogic()
+            logic.mount()
+            logic.actions.setActiveCloudRun('stale-task', 'stale-run', '2026-01-01T00:00:00Z', MOCK_TEAM_ID)
+            expect(logic.values.activeCloudRun).not.toBeNull()
+
+            setUser(true)
+
+            await expectLogic(logic).toDispatchActions(['hydrateFromServer', 'clearActiveCloudRun'])
+            expect(logic.values.activeCloudRun).toBeNull()
+        })
     })
 })

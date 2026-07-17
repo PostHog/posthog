@@ -89,6 +89,18 @@ export const CdcTableModeEnumApi = {
     Both: 'both',
 } as const
 
+export interface ExternalDataSourceApiVersionDeprecationApi {
+    /** The deprecated vendor API version this source is pinned to. */
+    version: string
+    /**
+     * Date the vendor stops serving this version; null if not announced.
+     * @nullable
+     */
+    sunset_at: string | null
+    /** The source's current default vendor API version — the migration target. */
+    default_version: string
+}
+
 /**
  * @nullable
  */
@@ -119,6 +131,9 @@ export type ExternalDataSchemaApiSource = {
     readonly supports_row_filters?: boolean
     /** @nullable */
     readonly user_access_level?: string | null
+    /** @nullable */
+    readonly api_version?: string | null
+    readonly supported_api_versions?: string[]
 } | null
 
 export interface ExternalDataSchemaApi {
@@ -219,6 +234,14 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     readonly source: ExternalDataSchemaApiSource
+    /**
+     * Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.
+     * @maxLength 128
+     * @nullable
+     */
+    api_version?: string | null
+    /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
+    readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecationApi | null
 }
 
 export interface PaginatedExternalDataSchemaListApi {
@@ -260,6 +283,9 @@ export type PatchedExternalDataSchemaApiSource = {
     readonly supports_row_filters?: boolean
     /** @nullable */
     readonly user_access_level?: string | null
+    /** @nullable */
+    readonly api_version?: string | null
+    readonly supported_api_versions?: string[]
 } | null
 
 export interface PatchedExternalDataSchemaApi {
@@ -360,6 +386,14 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     readonly source?: PatchedExternalDataSchemaApiSource
+    /**
+     * Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.
+     * @maxLength 128
+     * @nullable
+     */
+    api_version?: string | null
+    /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
+    readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecationApi | null
 }
 
 /**
@@ -1231,6 +1265,14 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `KongKonnect` - KongKonnect
  * * `Kandji` - Kandji
  * * `Automox` - Automox
+ * * `Autumn` - Autumn
+ * * `GetStream` - GetStream
+ * * `Octolens` - Octolens
+ * * `Kajabi` - Kajabi
+ * * `Shopware` - Shopware
+ * * `Dubsado` - Dubsado
+ * * `Campfire` - Campfire
+ * * `PromptWatch` - PromptWatch
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2086,6 +2128,14 @@ export const ExternalDataSourceTypeEnumApi = {
     KongKonnect: 'KongKonnect',
     Kandji: 'Kandji',
     Automox: 'Automox',
+    Autumn: 'Autumn',
+    GetStream: 'GetStream',
+    Octolens: 'Octolens',
+    Kajabi: 'Kajabi',
+    Shopware: 'Shopware',
+    Dubsado: 'Dubsado',
+    Campfire: 'Campfire',
+    PromptWatch: 'PromptWatch',
 } as const
 
 /**
@@ -2158,6 +2208,15 @@ export interface ExternalDataSourceSerializersApi {
     readonly access_method: AccessMethodEnumApi
     /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
+    /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
+    auto_sync_new_schemas?: boolean
+    /**
+     * Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.
+     * @maxItems 100
+     * @nullable
+     * @items.maxLength 250
+     */
+    auto_sync_schema_patterns?: string[] | null
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
@@ -2179,6 +2238,13 @@ export interface ExternalDataSourceSerializersApi {
     readonly supports_webhooks: boolean
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection: boolean
+    /**
+     * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
+     * @nullable
+     */
+    readonly api_version: string | null
+    /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
+    readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecationApi | null
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -3061,7 +3127,15 @@ export interface ExternalDataSourceCreateApi {
      * * `ConfluentCloud` - ConfluentCloud
      * * `KongKonnect` - KongKonnect
      * * `Kandji` - Kandji
-     * * `Automox` - Automox */
+     * * `Automox` - Automox
+     * * `Autumn` - Autumn
+     * * `GetStream` - GetStream
+     * * `Octolens` - Octolens
+     * * `Kajabi` - Kajabi
+     * * `Shopware` - Shopware
+     * * `Dubsado` - Dubsado
+     * * `Campfire` - Campfire
+     * * `PromptWatch` - PromptWatch */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -3090,6 +3164,11 @@ export interface ExternalDataSourceCreateApi {
     created_via?: ExternalDataSourceCreateCreatedViaEnumApi
     /** Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
+}
+
+export interface ExternalDataSourceCreateResponseApi {
+    /** ID of the created external data source. */
+    id: string
 }
 
 export type PatchedExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
@@ -3129,6 +3208,15 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly access_method?: AccessMethodEnumApi
     /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
+    /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
+    auto_sync_new_schemas?: boolean
+    /**
+     * Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.
+     * @maxItems 100
+     * @nullable
+     * @items.maxLength 250
+     */
+    auto_sync_schema_patterns?: string[] | null
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
@@ -3150,6 +3238,13 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly supports_webhooks?: boolean
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection?: boolean
+    /**
+     * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
+     * @nullable
+     */
+    readonly api_version?: string | null
+    /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
+    readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecationApi | null
 }
 
 export type ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem = {
@@ -3210,6 +3305,8 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      * @nullable
      */
     row_filters?: ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem[] | null
+    /** When true and the schema has no sync method configured yet (and this update does not set one), discover the table on the source and fill in default sync settings: incremental sync with an auto-selected tracking column where supported, otherwise append, otherwise full refresh. Ignored for schemas that already have a sync method. */
+    apply_sync_defaults?: boolean
 }
 
 export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
@@ -4105,7 +4202,15 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `ConfluentCloud` - ConfluentCloud
      * * `KongKonnect` - KongKonnect
      * * `Kandji` - Kandji
-     * * `Automox` - Automox */
+     * * `Automox` - Automox
+     * * `Autumn` - Autumn
+     * * `GetStream` - GetStream
+     * * `Octolens` - Octolens
+     * * `Kajabi` - Kajabi
+     * * `Shopware` - Shopware
+     * * `Dubsado` - Dubsado
+     * * `Campfire` - Campfire
+     * * `PromptWatch` - PromptWatch */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -4982,7 +5087,15 @@ export interface DatabaseSchemaRequestApi {
      * * `ConfluentCloud` - ConfluentCloud
      * * `KongKonnect` - KongKonnect
      * * `Kandji` - Kandji
-     * * `Automox` - Automox */
+     * * `Automox` - Automox
+     * * `Autumn` - Autumn
+     * * `GetStream` - GetStream
+     * * `Octolens` - Octolens
+     * * `Kajabi` - Kajabi
+     * * `Shopware` - Shopware
+     * * `Dubsado` - Dubsado
+     * * `Campfire` - Campfire
+     * * `PromptWatch` - PromptWatch */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -5919,7 +6032,15 @@ export interface SourcePreviewRequestApi {
      * * `ConfluentCloud` - ConfluentCloud
      * * `KongKonnect` - KongKonnect
      * * `Kandji` - Kandji
-     * * `Automox` - Automox */
+     * * `Automox` - Automox
+     * * `Autumn` - Autumn
+     * * `GetStream` - GetStream
+     * * `Octolens` - Octolens
+     * * `Kajabi` - Kajabi
+     * * `Shopware` - Shopware
+     * * `Dubsado` - Dubsado
+     * * `Campfire` - Campfire
+     * * `PromptWatch` - PromptWatch */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -6813,7 +6934,15 @@ export interface SourceSetupApi {
      * * `ConfluentCloud` - ConfluentCloud
      * * `KongKonnect` - KongKonnect
      * * `Kandji` - Kandji
-     * * `Automox` - Automox */
+     * * `Automox` - Automox
+     * * `Autumn` - Autumn
+     * * `GetStream` - GetStream
+     * * `Octolens` - Octolens
+     * * `Kajabi` - Kajabi
+     * * `Shopware` - Shopware
+     * * `Dubsado` - Dubsado
+     * * `Campfire` - Campfire
+     * * `PromptWatch` - PromptWatch */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -7714,7 +7843,15 @@ export interface SourceCredentialCreateApi {
      * * `ConfluentCloud` - ConfluentCloud
      * * `KongKonnect` - KongKonnect
      * * `Kandji` - Kandji
-     * * `Automox` - Automox */
+     * * `Automox` - Automox
+     * * `Autumn` - Autumn
+     * * `GetStream` - GetStream
+     * * `Octolens` - Octolens
+     * * `Kajabi` - Kajabi
+     * * `Shopware` - Shopware
+     * * `Dubsado` - Dubsado
+     * * `Campfire` - Campfire
+     * * `PromptWatch` - PromptWatch */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload

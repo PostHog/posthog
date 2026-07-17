@@ -772,7 +772,12 @@ class OauthIntegration:
                 client_secret=settings.REDDIT_ADS_CLIENT_SECRET,
                 scope="read adsread adsconversions history adsedit",
                 id_path="reddit_user_id",  # We'll extract this from JWT
-                name_path="reddit_user_id",  # Same as ID for Reddit
+                # ads-api /me returns the human-readable username under the granted ads scopes
+                # (oauth.reddit.com/api/v1/me would need the extra `identity` scope), wrapped in a
+                # `data` object. Falls back to the JWT user id when absent.
+                token_info_url="https://ads-api.reddit.com/api/v3/me",
+                token_info_config_fields=["data.reddit_username"],
+                name_path="data.reddit_username",
                 additional_authorize_params={"duration": "permanent"},
             )
         elif kind == "tiktok-ads":

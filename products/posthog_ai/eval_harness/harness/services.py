@@ -115,8 +115,9 @@ def start_mcp_server(live_server_url: str) -> Callable[[], None]:
         # here (no POSTHOG_ANALYTICS_* config), so every flag would resolve false.
         # Force flag-gated behavior on for evals via the dev/test-only override seam
         # (honored only when NODE_ENV is explicitly development/test — set above).
-        # No flags currently need forcing on.
-        "FEATURE_FLAG_OVERRIDES": json.dumps({}),
+        # product-data-catalog gates the metric-discovery section of the execute-sql
+        # description; the governed-metrics evals exercise that path.
+        "FEATURE_FLAG_OVERRIDES": json.dumps({"product-data-catalog": True}),
     }
 
     logger.info("Starting MCP server (Hono runtime) on port %d (API: %s)", MCP_PORT, api_url)

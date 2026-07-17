@@ -18,7 +18,22 @@ from posthog.models.user import User
 from products.signals.backend.models import SignalReport
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.webhooks import find_task_run
+from products.tasks.backend.webhooks import _account_type, find_task_run
+
+
+class TestAccountType(TestCase):
+    @parameterized.expand(
+        [
+            ("org_owner", {"repository": {"owner": {"type": "Organization"}}}, "organization"),
+            ("user_owner", {"repository": {"owner": {"type": "User"}}}, "personal"),
+            ("org_fallback_no_owner", {"organization": {"login": "acme"}}, "organization"),
+            ("org_owner_beats_missing_org", {"repository": {"owner": {"type": "Organization"}}}, "organization"),
+            ("unknown", {"repository": {"full_name": "acme/widgets"}}, None),
+            ("empty", {}, None),
+        ]
+    )
+    def test_account_type(self, _name, payload, expected):
+        self.assertEqual(_account_type(payload), expected)
 
 
 def generate_github_signature(payload: bytes, secret: str) -> str:
@@ -726,7 +741,8 @@ class TestExternalPRWebhook(TestCase):
         return {
             "action": action,
             "installation": {"id": 555000},
-            "repository": {"full_name": "acme/widgets"},
+            "repository": {"full_name": "acme/widgets", "owner": {"login": "acme", "type": "Organization"}},
+            "organization": {"login": "acme"},
             "pull_request": {
                 "html_url": "https://github.com/acme/widgets/pull/7",
                 "number": 7,
@@ -775,6 +791,8 @@ class TestExternalPRWebhook(TestCase):
         self.assertEqual(props["pr_deletions"], 30)
         self.assertEqual(props["pr_changed_files"], 5)
         self.assertEqual(props["pr_commits"], 3)
+        self.assertEqual(props["account_type"], "organization")
+        self.assertEqual(props["repo_owner_type"], "Organization")
         self.assertIsNone(props["task_id"])
         self.assertIsNone(props["origin_product"])
         self.assertIsNone(props["title"])

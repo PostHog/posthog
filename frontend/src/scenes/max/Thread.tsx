@@ -21,6 +21,7 @@ import {
     IconX,
 } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonButtonPropsBase,
     LemonCheckbox,
@@ -76,6 +77,7 @@ import {
     ThreadView,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
+import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { LangGraphActivity, ShimmeringContent } from './components/Activity'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
@@ -120,11 +122,16 @@ function isErrorMessage(message: ThreadMessage): boolean {
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversation, sandboxConversationKey, isConvertedConversation } = useValues(maxThreadLogic)
     const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
+    const isPiTask = isPiTaskRuntime(conversation?.task?.runtime)
 
     const containerClassName = cn(
         '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
         className
     )
+
+    if (isPiTask) {
+        return <LemonBanner type="info">Pi session logs aren't available in PostHog yet.</LemonBanner>
+    }
 
     // Born-sandbox conversation (no legacy history): render only the sandbox thread.
     if (isSandboxRuntime && !isConvertedConversation) {
@@ -302,6 +309,7 @@ function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element 
                                         conversationId={conversationId}
                                         traceId={traceId}
                                         summary={ticketSummaryData.summary}
+                                        targetArea={ticketSummaryData.targetArea}
                                     />
                                 ))}
                         </React.Fragment>
