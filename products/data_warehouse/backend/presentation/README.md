@@ -52,6 +52,8 @@ the baseline:
 python .github/scripts/check-dwh-source-agnostic.py --regenerate-baseline
 ```
 
-The baseline only shrinks. When it hits zero, delete the guard.
+The baseline only shrinks. It is now empty: the presentation layer is fully source-agnostic, so
+the guard acts as a hard regression check — any new `ExternalDataSourceType.<NAME>` /
+`is_direct_<engine>` reference here fails CI. Keep it that way.
 
 See `implementing-warehouse-sources` for how to add behaviour to a source.
