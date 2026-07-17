@@ -208,6 +208,20 @@ class TestDiscoverJobs:
         assert [r["url"] for r in rows] == ["https://j/exfil/"]
         assert all(url.startswith("https://j/") for url in fetched)
 
+    def test_respects_total_job_budget(self) -> None:
+        # Breadth cap: a server returning a huge flat fan-out must stop once the budget is hit rather
+        # than yielding (and, for folders, recursing into) an unbounded number of jobs.
+        many = {
+            "jobs": [
+                {"name": f"j{i}", "url": f"https://j/job/j{i}/", "_class": "hudson.model.FreeStyleProject"}
+                for i in range(10)
+            ]
+        }
+        with mock.patch.object(jenkins, "MAX_TOTAL_JOBS", 3):
+            with mock.patch.object(jenkins, "_fetch", return_value=_resp(many)):
+                rows = list(_discover_jobs(MagicMock(), "https://j", ("u", "t"), MagicMock()))
+        assert len(rows) == 3
+
     def test_respects_depth_cap(self) -> None:
         # Every level returns a folder pointing one level deeper; the cap must bound the fetches so a
         # pathological (or cyclic) folder tree can't loop forever.
@@ -222,6 +236,25 @@ class TestDiscoverJobs:
                 list(_discover_jobs(MagicMock(), "https://j", ("u", "t"), MagicMock()))
         # Fetches happen at depths 0, 1, 2; the cap blocks descending to depth 3.
         assert fetch.call_count == 3
+
+
+class TestReadBodyCapped:
+    def test_rejects_response_over_cap(self) -> None:
+        # A hostile/misconfigured host returning a body past the cap must raise (and release the
+        # connection) instead of buffering the whole thing into worker memory.
+        response = MagicMock()
+        response.iter_content.return_value = iter([b"x" * jenkins.RESPONSE_CHUNK_BYTES] * 5)
+        with mock.patch.object(jenkins, "MAX_RESPONSE_BYTES", jenkins.RESPONSE_CHUNK_BYTES * 2):
+            with pytest.raises(ValueError):
+                jenkins._read_body_capped(response, "https://j/")
+        response.close.assert_called_once()
+
+    def test_caches_body_under_cap(self) -> None:
+        # Under the cap the decoded body is cached so downstream `.json()` reads from memory.
+        response = MagicMock()
+        response.iter_content.return_value = iter([b'{"ok":', b" true}"])
+        jenkins._read_body_capped(response, "https://j/")
+        assert response._content == b'{"ok": true}'
 
 
 def _fake_manager(state: JenkinsResumeConfig | None) -> MagicMock:

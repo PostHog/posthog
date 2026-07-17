@@ -21,6 +21,16 @@ MAX_RETRY_ATTEMPTS = 5
 BUILDS_PAGE_SIZE = 100
 # Guard against pathological Folder / Multibranch nesting when discovering jobs recursively.
 MAX_JOB_DEPTH = 10
+# MAX_JOB_DEPTH caps nesting; this caps breadth. The customer configures the host, so a hostile or
+# misconfigured server could return unbounded folder fan-out at every level and hold a worker issuing
+# an effectively unlimited number of authenticated requests. Stop discovery once this many jobs have
+# been emitted (far above any real Jenkins instance).
+MAX_TOTAL_JOBS = 100_000
+# Cap the decoded response body we buffer per request. The customer configures the host, so a hostile
+# or misconfigured server could otherwise return an arbitrarily large (or highly compressed) body and
+# exhaust the import worker. The `tree=` selectors keep real responses tiny; this only trips on abuse.
+MAX_RESPONSE_BYTES = 50 * 1024 * 1024
+RESPONSE_CHUNK_BYTES = 1024 * 1024
 
 # Field selectors passed to Jenkins' `tree` param. Keeping them explicit (rather than `depth=`) means
 # we only pull the columns we store and never accidentally fetch large nested build/console payloads.
@@ -120,18 +130,42 @@ def _fetch(
     auth: tuple[str, str],
     logger: FilteringBoundLogger,
 ) -> requests.Response:
-    response = session.get(url, auth=auth, headers=_headers(), timeout=REQUEST_TIMEOUT_SECONDS)
+    # Stream so the status/headers arrive before the body, letting us cap the decoded size (see
+    # _read_body_capped) rather than letting `requests` buffer an unbounded response up front.
+    response = session.get(url, auth=auth, headers=_headers(), timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
 
     # No documented rate limits (bounded by the customer's own server), but honor 429 if a reverse
     # proxy imposes one, and retry transient 5xx.
     if response.status_code == 429 or response.status_code >= 500:
+        response.close()
         raise JenkinsRetryableError(f"Jenkins API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
+        response.close()
         logger.error(f"Jenkins API error: status={response.status_code}, url={url}")
         response.raise_for_status()
 
+    _read_body_capped(response, url)
     return response
+
+
+def _read_body_capped(response: requests.Response, url: str) -> None:
+    """Buffer the streamed body up to MAX_RESPONSE_BYTES, then cache it so `.json()` still works.
+
+    A response over the cap raises (non-retryable — it won't shrink on retry) instead of being read
+    into memory in full.
+    """
+    buffer = bytearray()
+    for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
+        if not chunk:
+            continue
+        buffer += chunk
+        if len(buffer) > MAX_RESPONSE_BYTES:
+            response.close()
+            raise ValueError(f"Jenkins response exceeded the {MAX_RESPONSE_BYTES}-byte limit: url={url}")
+    # Cache the decoded body so downstream `.json()` reads from memory rather than re-reading the
+    # (now consumed) stream.
+    response._content = bytes(buffer)
 
 
 def validate_credentials(
@@ -149,17 +183,24 @@ def validate_credentials(
 
     session = make_tracked_session(redact_values=(api_token,), allow_redirects=False)
     try:
-        response = session.get(url, auth=(username, api_token), headers=_headers(), timeout=REQUEST_TIMEOUT_SECONDS)
+        # Stream and only read the status line: the probe never needs the body, so a hostile host
+        # can't make us buffer a large response just to validate credentials.
+        response = session.get(
+            url, auth=(username, api_token), headers=_headers(), timeout=REQUEST_TIMEOUT_SECONDS, stream=True
+        )
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
-    if response.status_code == 200:
+    status_code = response.status_code
+    response.close()
+
+    if status_code == 200:
         return True, None
-    if response.status_code == 401:
+    if status_code == 401:
         return False, "Invalid Jenkins username or API token"
-    if response.status_code == 403:
+    if status_code == 403:
         return False, "The Jenkins user lacks Overall/Read permission"
-    return False, f"Jenkins returned status {response.status_code}"
+    return False, f"Jenkins returned status {status_code}"
 
 
 def _to_epoch_ms(value: Any) -> int | None:
@@ -222,6 +263,7 @@ def _discover_jobs(
     # (object_url, depth) frontier. Start at the instance root.
     frontier: list[tuple[str, int]] = [(base_url, 0)]
     seen_urls: set[str] = set()
+    discovered = 0
 
     while frontier:
         object_url, depth = frontier.pop()
@@ -239,6 +281,11 @@ def _discover_jobs(
                 continue
             seen_urls.add(job_url)
             yield {**job, "id": job_url, "url": job_url}
+
+            discovered += 1
+            if discovered >= MAX_TOTAL_JOBS:
+                logger.warning(f"Jenkins: reached the {MAX_TOTAL_JOBS}-job discovery limit; stopping traversal")
+                return
 
             if _is_job_container(job) and depth + 1 < MAX_JOB_DEPTH:
                 frontier.append((job_url, depth + 1))
