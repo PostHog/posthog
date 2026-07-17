@@ -13,7 +13,7 @@ import pyarrow as pa
 import structlog
 from clickhouse_connect import get_client
 from clickhouse_connect.driver.client import Client as ClickHouseClient
-from clickhouse_connect.driver.exceptions import ClickHouseError
+from clickhouse_connect.driver.exceptions import ClickHouseError, ProgrammingError
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
 
@@ -143,6 +143,28 @@ def _is_retryable_connect_error(error_message: str) -> bool:
     return _is_transient_connect_drop(error_message) or _TRANSIENT_RATE_LIMIT_SUBSTRING in error_message
 
 
+def _apply_session_settings(client: ClickHouseClient, settings: dict[str, Any]) -> None:
+    """Apply session settings, tolerating a server that reports one as readonly.
+
+    Our settings are performance and Arrow-output tuning hints. A readonly user
+    profile (common on managed ClickHouse) reports every setting as readonly, and
+    clickhouse-connect refuses to send those — raising ProgrammingError ("Setting
+    <x> is unknown or readonly"). Passing them at client construction turns that
+    into a fatal connect error that fails the whole sync. Applying them one by one
+    lets us keep the settings the server accepts and fall back to the server
+    default for the rest.
+    """
+    for key, value in settings.items():
+        try:
+            client.set_client_setting(key, value)
+        except ProgrammingError as e:
+            structlog.get_logger().warning(
+                "ClickHouse rejected session setting; falling back to server default",
+                setting=key,
+                exc_info=e,
+            )
+
+
 def _get_client(
     *,
     host: str,
@@ -165,7 +187,7 @@ def _get_client(
     attempt = 0
     while True:
         try:
-            return get_client(
+            client = get_client(
                 host=host,
                 port=port,
                 database=database,
@@ -177,7 +199,6 @@ def _get_client(
                 connect_timeout=CONNECT_TIMEOUT_SECONDS,
                 send_receive_timeout=query_timeout,
                 query_limit=0,  # we manage limits ourselves
-                settings=settings or {},
                 compress=True,
             )
         except (ClickHouseError, OSError, ssl.SSLError) as e:
@@ -197,6 +218,12 @@ def _get_client(
                 time.sleep(attempt)
                 continue
             raise ClickHouseConnectionError(message) from e
+
+        # Apply tuning settings after connect, not at construction, so a readonly
+        # source profile that rejects one degrades to the server default instead
+        # of failing the whole connection.
+        _apply_session_settings(client, settings or {})
+        return client
 
 
 def _strip_type_modifiers(type_name: str) -> tuple[str, bool]:
