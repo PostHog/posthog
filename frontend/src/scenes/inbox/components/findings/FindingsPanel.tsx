@@ -37,6 +37,7 @@ export function FindingsPanel(): JSX.Element {
         filteredRows,
         filteredReportRows,
         reportRows,
+        touchedReports,
         availableScouts,
         totalCount,
         authoredReportCount,
@@ -50,14 +51,18 @@ export function FindingsPanel(): JSX.Element {
         hasLoadedOnce,
         emissionsLoadFailed,
         emissionsLoading,
+        scoutReportsLoading,
     } = useValues(findingsLogic)
-    const { setSearchText, setScoutFilter, setSeverityFilter, setSortKey, loadEmissions } = useActions(findingsLogic)
+    const { setSearchText, setScoutFilter, setSeverityFilter, setSortKey, loadEmissions, loadScoutReports } =
+        useActions(findingsLogic)
 
     const isFiltering =
         searchText.trim().length > 0 ||
         scoutFilter !== FINDINGS_SCOUT_FILTER_ALL ||
         severityFilter !== FINDINGS_SEVERITY_FILTER_ALL
-    const hasReports = reportRows.length > 0
+    // Keyed on the *touched* ids (from the runs window), not the resolved rows — a failed report
+    // fetch must keep the section on screen in an error state, not silently hide it.
+    const hasReports = touchedReports.length > 0
 
     return (
         <div className="flex flex-col gap-4 px-4 py-3">
@@ -141,7 +146,24 @@ export function FindingsPanel(): JSX.Element {
                     {hasReports && (
                         <div className="flex flex-col gap-2">
                             <span className="text-xs font-medium text-default uppercase tracking-wide">Reports</span>
-                            {filteredReportRows.length === 0 ? (
+                            {scoutReportsLoading && reportRows.length === 0 ? (
+                                <LemonSkeleton className="h-12 w-full rounded" />
+                            ) : reportRows.length === 0 ? (
+                                // Touched ids exist but none resolved — the fetches failed (or the
+                                // reports were deleted). Don't render a false "no reports": say so
+                                // and offer a retry, since the poll won't refetch an unchanged set.
+                                <div className="flex flex-col items-center gap-2 rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
+                                    <span>Couldn't load the reports your scouts authored or edited.</span>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={() => loadScoutReports()}
+                                        loading={scoutReportsLoading}
+                                    >
+                                        Retry
+                                    </LemonButton>
+                                </div>
+                            ) : filteredReportRows.length === 0 ? (
                                 <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
                                     No reports match your search and filters.
                                 </div>

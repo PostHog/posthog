@@ -24,8 +24,9 @@ const REPORT_LINK_RETRY_WINDOW_MINUTES = 30
 // Cadence of the page's own runs-window poll (matches the fleet section's); retries cold/failed loads.
 const RUNS_REFETCH_INTERVAL_MS = 60_000
 
-// Bound the per-report fetch fan-out for reports the fleet touched via the report channel, the
-// same way the per-scout detail view bounds its own report fetches.
+// Bound the reports the fleet-wide surfaces consider (tallies, fetch fan-out, rendered list), the
+// same way the per-scout detail view bounds its own report fetches. Applied in the `touchedReports`
+// selector — keeping the most recently touched — so every consumer describes the same set.
 const MAX_FLEET_TOUCHED_REPORTS = 50
 
 /** A report the fleet touched via the report channel, joined with how and by which scout. */
@@ -77,6 +78,7 @@ export interface findingsLogicValues {
     scoutCount: number
     scoutFilter: string
     scoutReports: SignalReport[]
+    scoutReportsLoadFailed: boolean
     scoutReportsLoading: boolean
     searchText: string
     severityFilter: string
@@ -85,6 +87,7 @@ export interface findingsLogicValues {
     touchedReports: {
         action: ScoutReportAction
         id: string
+        latestRunId: string
         skillName: string
     }[]
     touchedReportsKey: string
@@ -159,12 +162,14 @@ export interface findingsLogicMeta {
         touchedReports: (emittedRuns: SignalScoutRunSummary[]) => {
             action: ScoutReportAction
             id: string
+            latestRunId: string
             skillName: string
         }[]
         touchedReportsKey: (
             touchedReports: {
                 action: ScoutReportAction
                 id: string
+                latestRunId: string
                 skillName: string
             }[]
         ) => string
@@ -173,6 +178,7 @@ export interface findingsLogicMeta {
             touchedReports: {
                 action: ScoutReportAction
                 id: string
+                latestRunId: string
                 skillName: string
             }[]
         ) => FleetScoutReportRow[]
@@ -208,6 +214,7 @@ export interface findingsLogicMeta {
             touchedReports: {
                 action: ScoutReportAction
                 id: string
+                latestRunId: string
                 skillName: string
             }[]
         ) => number
@@ -215,6 +222,7 @@ export interface findingsLogicMeta {
             touchedReports: {
                 action: ScoutReportAction
                 id: string
+                latestRunId: string
                 skillName: string
             }[]
         ) => number
@@ -230,7 +238,15 @@ export interface findingsLogicMeta {
             runsWindowLoadedOnce: boolean,
             emittedRuns: SignalScoutRunSummary[],
             emissionsLoading: boolean,
-            emissions: SignalScoutEmission[]
+            emissions: SignalScoutEmission[],
+            touchedReports: {
+                action: ScoutReportAction
+                id: string
+                latestRunId: string
+                skillName: string
+            }[],
+            scoutReportsLoading: boolean,
+            scoutReports: SignalReport[]
         ) => boolean
     }
 }
@@ -306,22 +322,26 @@ export const findingsLogic = kea<findingsLogicType>([
         ],
         // The reports the fleet authored/edited directly via the report channel. Unlike findings, the
         // run already carries the report id (no async grouping), so each report is fetched straight by
-        // id to resolve its title + live status. Best-effort: a deleted/inaccessible report drops out
-        // (its `get` rejects) rather than erroring the page.
+        // id to resolve its title + live status. The `touchedReports` selector already caps the set.
+        // A partially failed fan-out surfaces the reports that did load (a deleted/inaccessible report
+        // drops out), but when *every* fetch fails while touched ids exist, throw — an outage must show
+        // the Reports section's error/retry state, not a false "no reports".
         scoutReports: [
             [] as SignalReport[],
             {
                 loadScoutReports: async () => {
-                    const touched = values.touchedReports.slice(0, MAX_FLEET_TOUCHED_REPORTS)
+                    const touched = values.touchedReports
                     if (touched.length === 0) {
                         return []
                     }
                     const settled = await Promise.allSettled(touched.map(({ id }) => api.signalReports.get(id)))
-                    return settled
-                        .filter(
-                            (result): result is PromiseFulfilledResult<SignalReport> => result.status === 'fulfilled'
-                        )
-                        .map((result) => result.value)
+                    const fulfilled = settled.filter(
+                        (result): result is PromiseFulfilledResult<SignalReport> => result.status === 'fulfilled'
+                    )
+                    if (fulfilled.length === 0) {
+                        throw new Error('Failed to load the reports scouts touched')
+                    }
+                    return fulfilled.map((result) => result.value)
                 },
             },
         ],
@@ -344,6 +364,16 @@ export const findingsLogic = kea<findingsLogicType>([
                 loadEmissionsFailure: () => true,
             },
         ],
+        // True only when the most recent reports load failed outright (every per-report fetch
+        // rejected). Lets the Reports section show an error/retry state instead of a false empty.
+        scoutReportsLoadFailed: [
+            false,
+            {
+                loadScoutReports: () => false,
+                loadScoutReportsSuccess: () => false,
+                loadScoutReportsFailure: () => true,
+            },
+        ],
     }),
 
     selectors({
@@ -364,13 +394,28 @@ export const findingsLogic = kea<findingsLogicType>([
                     .sort()
                     .join(','),
         ],
-        // The distinct reports the fleet touched via the report channel in the window, each tagged with
-        // how (authoring supersedes a later edit of the same report, matching the scout detail view)
-        // and by which scout — the authoring run's skill wins; an edited-only report gets the most
-        // recent editing run's skill. Runs arrive newest first, so first-writer-wins per pass.
+        // The distinct reports the fleet touched via the report channel in the window, most recently
+        // touched first, each tagged with how (authoring supersedes a later edit of the same report,
+        // matching the scout detail view) and by which scout — the authoring run's skill wins; an
+        // edited-only report gets the most recent editing run's skill. Runs arrive newest first, so
+        // first-writer-wins per pass. Capped at MAX_FLEET_TOUCHED_REPORTS *here* — not just in the
+        // loader — so the header tallies, the fetch, and the rendered list all describe the same set,
+        // and the cap keeps the most recently touched reports rather than arbitrary ones.
         touchedReports: [
             (s) => [s.emittedRuns],
-            (emittedRuns: SignalScoutRunSummary[]): { id: string; action: ScoutReportAction; skillName: string }[] => {
+            (
+                emittedRuns: SignalScoutRunSummary[]
+            ): { id: string; action: ScoutReportAction; skillName: string; latestRunId: string }[] => {
+                // Newest run touching each report, on either channel — drives both the recency cap
+                // order and the refetch key (a later run re-editing a report must refetch it).
+                const latestRunById = new Map<string, string>()
+                for (const run of emittedRuns) {
+                    for (const id of [...(run.edited_report_ids ?? []), ...(run.emitted_report_ids ?? [])]) {
+                        if (!latestRunById.has(id)) {
+                            latestRunById.set(id, run.run_id)
+                        }
+                    }
+                }
                 const byId = new Map<string, { action: ScoutReportAction; skillName: string }>()
                 for (const run of emittedRuns) {
                     for (const id of run.edited_report_ids ?? []) {
@@ -386,16 +431,23 @@ export const findingsLogic = kea<findingsLogicType>([
                         }
                     }
                 }
-                return [...byId.entries()].map(([id, { action, skillName }]) => ({ id, action, skillName }))
+                // latestRunById's insertion order is newest-touch-first, so slicing keeps recency.
+                return [...latestRunById.entries()]
+                    .slice(0, MAX_FLEET_TOUCHED_REPORTS)
+                    .map(([id, latestRunId]) => ({ id, ...byId.get(id)!, latestRunId }))
             },
         ],
         // Stable key over the touched report set — refetch the reports only when the set actually
-        // changes, not on every runs-window poll that returns the same runs.
+        // changes, not on every runs-window poll that returns the same runs. Includes the newest
+        // touching run id so a later run editing an already-listed report refetches its live
+        // title/status rather than serving them stale forever.
         touchedReportsKey: [
             (s) => [s.touchedReports],
-            (touchedReports: { id: string; action: ScoutReportAction; skillName: string }[]): string =>
+            (
+                touchedReports: { id: string; action: ScoutReportAction; skillName: string; latestRunId: string }[]
+            ): string =>
                 touchedReports
-                    .map(({ id, action }) => `${id}:${action}`)
+                    .map(({ id, action, latestRunId }) => `${id}:${action}:${latestRunId}`)
                     .sort()
                     .join(','),
         ],
@@ -579,16 +631,31 @@ export const findingsLogic = kea<findingsLogicType>([
         ],
         // "Loaded once" — distinguishes "not loaded yet" from "loaded, empty" without a skeleton flash.
         // With no emitted runs there's nothing to fetch, so resolve immediately; otherwise the
-        // `!emissionsLoading` guard suppresses poll flicker once findings are in hand.
+        // `!...Loading` guards suppress poll flicker once content is in hand. Waits on *both* channels:
+        // a report-only fleet must not flash the "haven't surfaced anything" empty state in the gap
+        // between the emissions load settling and the per-report fetches resolving.
         hasLoadedOnce: [
-            (s) => [s.runsWindowLoadedOnce, s.emittedRuns, s.emissionsLoading, s.emissions],
+            (s) => [
+                s.runsWindowLoadedOnce,
+                s.emittedRuns,
+                s.emissionsLoading,
+                s.emissions,
+                s.touchedReports,
+                s.scoutReportsLoading,
+                s.scoutReports,
+            ],
             (
                 runsWindowLoadedOnce: boolean,
                 emittedRuns: SignalScoutRunSummary[],
                 emissionsLoading: boolean,
-                emissions: SignalScoutEmission[]
+                emissions: SignalScoutEmission[],
+                touchedReports: { id: string; action: ScoutReportAction; skillName: string; latestRunId: string }[],
+                scoutReportsLoading: boolean,
+                scoutReports: SignalReport[]
             ): boolean =>
-                runsWindowLoadedOnce && (emittedRuns.length === 0 || !emissionsLoading || emissions.length > 0),
+                runsWindowLoadedOnce &&
+                (emittedRuns.length === 0 || !emissionsLoading || emissions.length > 0) &&
+                (touchedReports.length === 0 || !scoutReportsLoading || scoutReports.length > 0),
         ],
     }),
 
