@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -11,6 +12,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.j
     JamfProConfigurationError,
     JamfProCredentials,
     JamfProHostNotAllowedError,
+    JamfProPaginationLimitError,
+    JamfProResponseTooLargeError,
     JamfProResumeConfig,
     JamfProTokenManager,
     _build_params,
@@ -37,6 +40,13 @@ def _response(*, status_code: int = 200, json_data: Any = None, text: str = "") 
     response.is_permanent_redirect = status_code in (301, 308)
     response.text = text
     response.json.return_value = json_data
+    # Responses are read via stream=True + iter_content, so serve the body in that shape. A fresh
+    # iterator per call lets a single mock response stand in for repeated fetches.
+    if json_data is not None:
+        body = json.dumps(json_data).encode()
+    else:
+        body = text.encode()
+    response.iter_content.side_effect = lambda *args, **kwargs: iter([body] if body else [])
     if status_code >= 400:
         error = requests.HTTPError(
             f"{status_code} Client Error: for url: https://example.jamfcloud.com", response=response
@@ -432,6 +442,53 @@ class TestGetRows:
 
         assert session.get.call_args.kwargs["allow_redirects"] is False
         assert session.post.call_args.kwargs["allow_redirects"] is False
+
+    def test_oversized_page_body_is_rejected(self):
+        # The instance URL is customer-controlled; a hostile server returning a body larger than the
+        # cap must fail the sync rather than buffer it whole into a shared worker's memory.
+        manager = self._manager()
+        big_page = _response(json_data={"results": [{"id": "1"}]})
+        big_page.iter_content.side_effect = lambda *a, **k: iter([b"x" * 2048])
+        session = _session(post_responses=[_response(json_data=TOKEN_JSON)], get_responses=[big_page])
+        with (
+            mock.patch.object(jamf_pro_module, "make_tracked_session", return_value=session),
+            mock.patch.object(jamf_pro_module, "MAX_RESPONSE_BYTES", 1024),
+        ):
+            with pytest.raises(JamfProResponseTooLargeError):
+                list(
+                    get_rows(
+                        host="example.jamfcloud.com",
+                        credentials=CLIENT_CREDENTIALS,
+                        endpoint="computers",
+                        logger=mock.MagicMock(),
+                        resumable_source_manager=manager,
+                        team_id=1,
+                    )
+                )
+
+    def test_pagination_stops_when_server_never_terminates(self):
+        # A server returning a non-empty page forever with no totalCount would otherwise loop until
+        # the activity's week-long timeout; the hard page cap breaks that.
+        manager = self._manager()
+        session = _session(post_responses=[_response(json_data=TOKEN_JSON)])
+        session.get.return_value = _response(json_data={"results": [{"id": "1"}]})
+        with (
+            mock.patch.object(jamf_pro_module, "make_tracked_session", return_value=session),
+            mock.patch.object(jamf_pro_module, "MAX_PAGES", 3),
+        ):
+            with pytest.raises(JamfProPaginationLimitError):
+                list(
+                    get_rows(
+                        host="example.jamfcloud.com",
+                        credentials=CLIENT_CREDENTIALS,
+                        endpoint="computers",
+                        logger=mock.MagicMock(),
+                        resumable_source_manager=manager,
+                        team_id=1,
+                    )
+                )
+        # Pages 0, 1, 2 fetched; the loop raises before fetching page 3.
+        assert session.get.call_count == 3
 
 
 class TestJamfProSourceResponse:

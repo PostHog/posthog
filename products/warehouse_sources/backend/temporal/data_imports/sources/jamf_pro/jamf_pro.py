@@ -1,4 +1,5 @@
 import re
+import json
 import time
 import dataclasses
 from collections.abc import Iterator
@@ -22,6 +23,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.s
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 5
 
+# The instance URL is customer-controlled, so a hostile or misconfigured server could return an
+# arbitrarily large (or endlessly streaming) body. `requests` buffers a non-streamed response whole
+# into a shared worker's memory before `.json()` runs, so every response is read with `stream=True`
+# and capped at this many decompressed bytes. Jamf's largest legitimate page — 100 computers-inventory
+# rows with every requested section — is a few MiB, so this leaves generous headroom.
+MAX_RESPONSE_BYTES = 100 * 1024 * 1024
+_RESPONSE_CHUNK_BYTES = 64 * 1024
+# Only a bounded prefix of an error body is read for logging, so a hostile server can't exhaust
+# memory through the error path either.
+_ERROR_BODY_PREVIEW_BYTES = 2 * 1024
+
+# A misbehaving or hostile server can return a non-empty `results` page forever while omitting or
+# inflating `totalCount`, pinning the (up to week-long) resumable activity in an endless fetch loop.
+# Cap the highest page we will ever fetch for one endpoint. At 100-200 rows per page this is far
+# more than any real Jamf tenant holds, so it only ever trips on a server that never terminates.
+MAX_PAGES = 50_000
+
 # Jamf Pro bearer tokens are short-lived (~20 minutes for basic-auth tokens; OAuth tokens report
 # their own expires_in). Re-mint this many seconds before the deadline so a request never rides
 # a token that expires mid-flight.
@@ -42,6 +60,52 @@ class JamfProHostNotAllowedError(Exception):
 
 class JamfProConfigurationError(Exception):
     pass
+
+
+class JamfProResponseTooLargeError(Exception):
+    pass
+
+
+class JamfProPaginationLimitError(Exception):
+    pass
+
+
+def _read_capped_json(response: requests.Response) -> Any:
+    """Parse a streamed JSON response, refusing a body larger than ``MAX_RESPONSE_BYTES``.
+
+    ``iter_content`` decodes any content-encoding, so the cap bounds the decompressed size and a
+    compressed body can't slip past it. The response is always closed, so an aborted read doesn't
+    leak the connection.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        for chunk in response.iter_content(chunk_size=_RESPONSE_CHUNK_BYTES):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > MAX_RESPONSE_BYTES:
+                raise JamfProResponseTooLargeError(
+                    f"Jamf Pro response exceeded the {MAX_RESPONSE_BYTES}-byte limit; refusing to buffer it"
+                )
+            chunks.append(chunk)
+    finally:
+        response.close()
+    return json.loads(b"".join(chunks))
+
+
+def _read_body_preview(response: requests.Response) -> str:
+    """Read a bounded prefix of a streamed body for error logging, never buffering it whole."""
+    chunks: list[bytes] = []
+    total = 0
+    for chunk in response.iter_content(chunk_size=_RESPONSE_CHUNK_BYTES):
+        if not chunk:
+            continue
+        chunks.append(chunk)
+        total += len(chunk)
+        if total >= _ERROR_BODY_PREVIEW_BYTES:
+            break
+    return b"".join(chunks)[:_ERROR_BODY_PREVIEW_BYTES].decode("utf-8", errors="replace")
 
 
 @dataclasses.dataclass
@@ -113,18 +177,22 @@ class JamfProTokenManager:
     def _mint(self) -> None:
         response = self._request_token()
 
-        if response.status_code == 429 or response.status_code >= 500:
-            raise JamfProRetryableError(f"Jamf Pro token request failed (retryable): status={response.status_code}")
+        try:
+            if response.status_code == 429 or response.status_code >= 500:
+                raise JamfProRetryableError(f"Jamf Pro token request failed (retryable): status={response.status_code}")
 
-        # A 3xx isn't an error status, so reject it explicitly rather than following it to a
-        # potentially internal Location (SSRF).
-        if response.is_redirect or response.is_permanent_redirect:
-            raise JamfProHostNotAllowedError(
-                f"Jamf Pro API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
-            )
+            # A 3xx isn't an error status, so reject it explicitly rather than following it to a
+            # potentially internal Location (SSRF).
+            if response.is_redirect or response.is_permanent_redirect:
+                raise JamfProHostNotAllowedError(
+                    f"Jamf Pro API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
+                )
 
-        response.raise_for_status()
-        payload = response.json()
+            response.raise_for_status()
+            # The token endpoint is customer-controlled too — cap its body like any other response.
+            payload = _read_capped_json(response)
+        finally:
+            response.close()
 
         if self._credentials.method == "client_credentials":
             self._token = payload["access_token"]
@@ -148,6 +216,7 @@ class JamfProTokenManager:
                 },
                 timeout=REQUEST_TIMEOUT_SECONDS,
                 allow_redirects=False,
+                stream=True,
             )
 
         if not self._credentials.username or not self._credentials.password:
@@ -157,6 +226,7 @@ class JamfProTokenManager:
             auth=(self._credentials.username, self._credentials.password),
             timeout=REQUEST_TIMEOUT_SECONDS,
             allow_redirects=False,
+            stream=True,
         )
 
     @staticmethod
@@ -265,25 +335,33 @@ def validate_credentials(
     config = JAMF_PRO_ENDPOINTS[schema_name]
     probe_params = {"page": 0, "page-size": 1} if config.paginated else {}
     try:
+        # Stream and close without touching the body — the probe only needs the status. This keeps
+        # a customer-controlled server from buffering an unbounded body into memory at source-create.
         response = session.get(
             _build_url(normalized, config, probe_params),
             headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
             timeout=10,
             allow_redirects=False,
+            stream=True,
         )
+        try:
+            is_redirect = response.is_redirect or response.is_permanent_redirect
+            status_code = response.status_code
+        finally:
+            response.close()
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
-    if response.is_redirect or response.is_permanent_redirect:
+    if is_redirect:
         return False, HOST_NOT_ALLOWED_ERROR
 
-    if response.status_code == 200:
+    if status_code == 200:
         return True, None
 
-    if response.status_code == 403:
+    if status_code == 403:
         return False, f"Your Jamf Pro API client lacks the read privilege for {schema_name}"
 
-    return False, f"Jamf Pro API returned status {response.status_code} for {schema_name}"
+    return False, f"Jamf Pro API returned status {status_code} for {schema_name}"
 
 
 def get_rows(
@@ -321,25 +399,32 @@ def get_rows(
         # get_token() inside the retry scope so an expired token or transient mint failure is
         # retried along with the page itself.
         headers = {"Authorization": f"Bearer {token_manager.get_token()}", "Accept": "application/json"}
-        response = session.get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False)
+        # stream=True so _read_capped_json bounds the body instead of `requests` buffering it whole.
+        response = session.get(
+            page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False, stream=True
+        )
 
-        # Jamf has no server-side rate limiting or Retry-After headers; it recommends adaptive
-        # backoff instead, which the exponential jitter above provides.
-        if response.status_code == 429 or response.status_code >= 500:
-            raise JamfProRetryableError(
-                f"Jamf Pro API error (retryable): status={response.status_code}, url={page_url}"
-            )
+        try:
+            # Jamf has no server-side rate limiting or Retry-After headers; it recommends adaptive
+            # backoff instead, which the exponential jitter above provides.
+            if response.status_code == 429 or response.status_code >= 500:
+                raise JamfProRetryableError(
+                    f"Jamf Pro API error (retryable): status={response.status_code}, url={page_url}"
+                )
 
-        if response.is_redirect or response.is_permanent_redirect:
-            raise JamfProHostNotAllowedError(
-                f"Jamf Pro API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
-            )
+            if response.is_redirect or response.is_permanent_redirect:
+                raise JamfProHostNotAllowedError(
+                    f"Jamf Pro API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
+                )
 
-        if not response.ok:
-            logger.error(f"Jamf Pro API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
+            if not response.ok:
+                body = _read_body_preview(response)
+                logger.error(f"Jamf Pro API error: status={response.status_code}, body={body}, url={page_url}")
+                response.raise_for_status()
 
-        return response.json()
+            return _read_capped_json(response)
+        finally:
+            response.close()
 
     if not config.paginated:
         data = fetch_page(_build_url(host, config, {}))
@@ -356,6 +441,14 @@ def get_rows(
         logger.debug(f"Jamf Pro: resuming {endpoint} from page {page}")
 
     while True:
+        # A server that never signals termination (non-empty results, missing/inflated totalCount)
+        # would otherwise loop until the activity's week-long timeout — bound the page count. The
+        # check is on the absolute page index so it holds across resumes, not just per run.
+        if page >= MAX_PAGES:
+            raise JamfProPaginationLimitError(
+                f"Jamf Pro pagination for {endpoint} exceeded {MAX_PAGES} pages without terminating"
+            )
+
         data = fetch_page(_build_url(host, config, {**params, "page": page}))
 
         results = data.get("results", [])
