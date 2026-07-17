@@ -20,6 +20,7 @@ import type {
     DesktopFileSystemListParams,
     DesktopFileSystemShortcutListParams,
     DomainsListParams,
+    EffectiveAuthorizationApi,
     EnterprisePropertyDefinitionApi,
     ExportedAssetApi,
     ExportsListParams,
@@ -2993,6 +2994,23 @@ export const usersCredentialsReviewCompleteCreate = async (uuid: string, options
     return apiMutator<void>(getUsersCredentialsReviewCompleteCreateUrl(uuid), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getUsersEffectiveAuthorizationRetrieveUrl = (uuid: string) => {
+    return `/api/users/${uuid}/effective_authorization/`
+}
+
+/**
+ * Return the authoritative, server-verified authorization carried by the current request's credential — its API scopes and organization/team restrictions. Pass `@me` as the UUID. Intended for a downstream resource server that needs a token's effective scopes without parsing the token body itself.
+ */
+export const usersEffectiveAuthorizationRetrieve = async (
+    uuid: string,
+    options?: RequestInit
+): Promise<EffectiveAuthorizationApi> => {
+    return apiMutator<EffectiveAuthorizationApi>(getUsersEffectiveAuthorizationRetrieveUrl(uuid), {
+        ...options,
+        method: 'GET',
     })
 }
 

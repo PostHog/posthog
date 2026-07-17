@@ -3653,6 +3653,51 @@ export interface PatchedUserApi {
     readonly requires_credential_review?: boolean
 }
 
+/**
+ * * `personal_api_key` - personal_api_key
+ * * `oauth` - oauth
+ * * `id_jag` - id_jag
+ * * `session` - session
+ */
+export type CredentialTypeEnumApi = (typeof CredentialTypeEnumApi)[keyof typeof CredentialTypeEnumApi]
+
+export const CredentialTypeEnumApi = {
+    PersonalApiKey: 'personal_api_key',
+    Oauth: 'oauth',
+    IdJag: 'id_jag',
+    Session: 'session',
+} as const
+
+/**
+ * The authoritative, server-verified authorization carried by the current request's
+ * credential. Lets a downstream resource server read a token's effective scopes and
+ * org/team restrictions instead of parsing the token body itself.
+ */
+export interface EffectiveAuthorizationApi {
+    /**
+     * API scopes granted to this credential, e.g. 'insight:read'. Null for session auth (unrestricted).
+     * @nullable
+     */
+    scopes: string[] | null
+    /**
+     * Organization UUIDs this credential is restricted to. Null means unrestricted (all of the user's organizations).
+     * @nullable
+     */
+    scoped_organizations: string[] | null
+    /**
+     * Team (project) ids this credential is restricted to. Null means unrestricted (org-wide, including ID-JAG tokens).
+     * @nullable
+     */
+    scoped_teams: number[] | null
+    /** The kind of credential that authenticated this request.
+     *
+     * * `personal_api_key` - personal_api_key
+     * * `oauth` - oauth
+     * * `id_jag` - id_jag
+     * * `session` - session */
+    credential_type: CredentialTypeEnumApi
+}
+
 export interface UserGitHubAccountApi {
     /**
      * GitHub account type for the installation (e.g. User or Organization).

@@ -629,6 +629,28 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(api_resp.status_code, status.HTTP_200_OK, api_resp.content)
         self.assertEqual(api_resp.json()["email"], "user@example.com")
 
+    def test_effective_authorization_reflects_id_jag_token(self) -> None:
+        # The resource server reads a token's effective authorization from here instead of
+        # parsing the unverified JWT body. Must surface the server-verified scopes and pin
+        # scoped_organizations to the token's single org_id (org-wide, no team restriction).
+        assertion = _make_id_jag(
+            scope="user:read insight:read",
+            extra_claims={"email": "user@example.com", "email_verified": True},
+        )
+        issue_resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(issue_resp.status_code, status.HTTP_200_OK, issue_resp.content)
+        access_token = issue_resp.json()["access_token"]
+
+        api_resp = self.client.get(
+            "/api/users/@me/effective_authorization/", HTTP_AUTHORIZATION=f"Bearer {access_token}"
+        )
+        self.assertEqual(api_resp.status_code, status.HTTP_200_OK, api_resp.content)
+        body = api_resp.json()
+        self.assertEqual(body["credential_type"], "id_jag")
+        self.assertEqual(set(body["scopes"]), {"user:read", "insight:read"})
+        self.assertEqual(body["scoped_organizations"], [str(self.organization.id)])
+        self.assertIsNone(body["scoped_teams"])
+
     def test_rejects_when_domain_has_no_id_jag_issuer_configured(self) -> None:
         # ID-JAG is opt-in per domain. With `id_jag_issuer_url` cleared, an
         # otherwise valid ID-JAG must be rejected — the org hasn't bound an IdP yet.

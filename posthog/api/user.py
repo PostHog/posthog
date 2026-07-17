@@ -96,7 +96,13 @@ from posthog.models.user import (
     ShortcutPosition,
 )
 from posthog.models.webauthn_credential import WebauthnCredential
-from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
+from posthog.permissions import (
+    APIScopePermission,
+    TimeSensitiveActionPermission,
+    UserNoOrgMembershipDeletePermission,
+    get_authenticator_scoped_orgs_teams,
+    get_authenticator_scopes,
+)
 from posthog.rate_limit import (
     OnboardingSkipThrottle,
     ToolbarOAuthRefreshThrottle,
@@ -880,6 +886,32 @@ class RevokeOtherSessionsResponseSerializer(serializers.Serializer):
     revoked_count = serializers.IntegerField(help_text="Number of other login sessions that were revoked.")
 
 
+class EffectiveAuthorizationSerializer(serializers.Serializer):
+    """The authoritative, server-verified authorization carried by the current request's
+    credential. Lets a downstream resource server read a token's effective scopes and
+    org/team restrictions instead of parsing the token body itself."""
+
+    scopes = serializers.ListField(
+        child=serializers.CharField(),
+        allow_null=True,
+        help_text="API scopes granted to this credential, e.g. 'insight:read'. Null for session auth (unrestricted).",
+    )
+    scoped_organizations = serializers.ListField(
+        child=serializers.CharField(),
+        allow_null=True,
+        help_text="Organization UUIDs this credential is restricted to. Null means unrestricted (all of the user's organizations).",
+    )
+    scoped_teams = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_null=True,
+        help_text="Team (project) ids this credential is restricted to. Null means unrestricted (org-wide, including ID-JAG tokens).",
+    )
+    credential_type = serializers.ChoiceField(
+        choices=["personal_api_key", "oauth", "id_jag", "session"],
+        help_text="The kind of credential that authenticated this request.",
+    )
+
+
 @extend_schema(extensions={"x-product": "core"})
 @extend_schema_view(
     retrieve=extend_schema(
@@ -989,6 +1021,44 @@ class UserViewSet(
     def github_login(self, request, **kwargs):
         user = self.get_object()
         return Response({"github_login": user.get_github_login()})
+
+    @extend_schema(
+        responses=EffectiveAuthorizationSerializer,
+        description=(
+            "Return the authoritative, server-verified authorization carried by the current request's credential — "
+            "its API scopes and organization/team restrictions. Pass `@me` as the UUID. Intended for a downstream "
+            "resource server that needs a token's effective scopes without parsing the token body itself."
+        ),
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        required_scopes=["user:read"],
+        url_path="effective_authorization",
+    )
+    def effective_authorization(self, request, **kwargs):
+        self.get_object()  # Enforce @me / self-only object permissions before reflecting the credential.
+        authenticator = request.successful_authenticator
+        scoped_organizations, scoped_teams = get_authenticator_scoped_orgs_teams(authenticator)
+
+        if isinstance(authenticator, PersonalAPIKeyAuthentication):
+            credential_type = "personal_api_key"
+        elif isinstance(authenticator, IDJagAccessTokenAuthentication):
+            credential_type = "id_jag"
+        elif isinstance(authenticator, OAuthAccessTokenAuthentication):
+            credential_type = "oauth"
+        else:
+            credential_type = "session"
+
+        serializer = EffectiveAuthorizationSerializer(
+            {
+                "scopes": get_authenticator_scopes(authenticator),
+                "scoped_organizations": scoped_organizations,
+                "scoped_teams": scoped_teams,
+                "credential_type": credential_type,
+            }
+        )
+        return Response(serializer.data)
 
     @extend_schema(responses=UserAuthSessionSerializer(many=True))
     @action(

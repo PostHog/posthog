@@ -542,6 +542,27 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     return None
 
 
+def get_authenticator_scoped_orgs_teams(authenticator) -> tuple[list[str] | None, list[int] | None]:
+    """The organization/team restrictions carried by a scoped-token authenticator, as
+    (scoped_organizations, scoped_teams). `None` means unrestricted for that dimension.
+
+    Single source of truth for the token->(orgs, teams) mapping, shared by APIScopePermission's
+    team/org enforcement and cross-resource authorization introspection so the two cannot drift —
+    if they did, one path could grant access the other believes is out of scope.
+
+    - OAuth / personal API key: whatever restrictions the credential was created with.
+    - ID-JAG: pinned to the single organization in the token's `org_id` claim (cross-org
+      confused-deputy defense), org-wide within it (no team restriction).
+    - Session and any other non-scoped auth: unrestricted (`None`, `None`)."""
+    if isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return authenticator.access_token.scoped_organizations, authenticator.access_token.scoped_teams
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        return authenticator.personal_api_key.scoped_organizations, authenticator.personal_api_key.scoped_teams
+    if isinstance(authenticator, IDJagAccessTokenAuthentication):
+        return [authenticator.organization_id], None
+    return None, None
+
+
 class APIScopePermission(ScopeBasePermission):
     """
     The request is via an API key or OAuth token and the user has the appropriate scopes.
@@ -658,22 +679,10 @@ class APIScopePermission(ScopeBasePermission):
 
         self._check_organization_personal_api_key_restrictions(request, view)
 
-        if isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
-            scoped_organizations = request.successful_authenticator.access_token.scoped_organizations
-            scoped_teams = request.successful_authenticator.access_token.scoped_teams
-        elif isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
-            scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
-            scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
-        elif isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication):
-            # ID-JAG access tokens are bound to the specific PostHog Organization
-            # whose OrganizationDomain pinned the trusted IdP — carried in the
-            # `org_id` claim. Pin `scoped_organizations` to that single org so
-            # the token cannot reach other orgs the resolved user happens to
-            # be a member of (cross-org confused-deputy defense).
-            scoped_organizations = [request.successful_authenticator.organization_id]
-            scoped_teams = None
-        else:
-            raise ValueError("Unexpected authentication type")
+        # ID-JAG pins scoped_organizations to its single `org_id` claim (cross-org
+        # confused-deputy defense); OAuth/personal keys carry their own restrictions.
+        # Only these three token types reach this method (session/PSAK/sharing exit earlier).
+        scoped_organizations, scoped_teams = get_authenticator_scoped_orgs_teams(request.successful_authenticator)
 
         if scoped_teams and not skip_team_and_org:
             # Views that aren't project-nested but still need to accept
