@@ -7805,9 +7805,15 @@ export namespace Schemas {
       order?: number | null;
       deleted?: boolean;
       /**
+         *
        *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
        *         A dashboard ID for each of the dashboards that this insight is displayed on.
-       *          */
+       *         This field may be omitted from responses: once opt-in enforcement is enabled, API-token
+       *         callers (personal API keys, OAuth) only receive it when passing the
+       *         `include_dashboards=true` query parameter. Do not rely on it being present.
+       *
+         * @deprecated
+         */
       dashboards?: number[];
       /**
        *     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
@@ -8028,6 +8034,48 @@ export namespace Schemas {
     export interface AddSnapshotsResult {
       added: number;
       uploads: UploadTarget[];
+    }
+
+    /**
+     * Body of POST /vision/scanners/:id/affected_cohort/. Same qualifiers as the impact GET.
+     */
+    export interface AffectedCohortRequest {
+      /**
+         * Trailing window of observations to count. Defaults to 30 days.
+         * @minimum 1
+         * @maximum 90
+         */
+      window_days?: number;
+      /**
+         * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
+         * @maxLength 100
+         * @nullable
+         */
+      tag?: string | null;
+      /**
+         * Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types.
+         * @nullable
+         */
+      min_score?: number | null;
+      /**
+         * Scorer scanners only: count sessions scoring at or below this value.
+         * @nullable
+         */
+      max_score?: number | null;
+    }
+
+    /**
+     * The static cohort created from the scanner's affected users.
+     */
+    export interface AffectedCohortResponse {
+      /** ID of the created static cohort; usable anywhere cohorts are (funnels, surveys, experiments). */
+      readonly cohort_id: number;
+      /** Generated cohort name, stamped with the creation date since the snapshot doesn't live-update. */
+      readonly name: string;
+      /** Persons actually in the created cohort. Can be lower than `affected_users`: matched distinct IDs without a person profile are dropped, and merged persons deduplicate. */
+      readonly users_in_cohort: number;
+      /** Trailing window the cohort was drawn from, in days. */
+      readonly window_days: number;
     }
 
     export interface AgentAggregateStats {
@@ -40898,6 +40946,7 @@ export namespace Schemas {
      * * `low` - Low
      * * `medium` - Medium
      * * `high` - High
+     * * `critical` - Critical
      */
     export type TicketPriorityEnum = typeof TicketPriorityEnum[keyof typeof TicketPriorityEnum];
 
@@ -40906,6 +40955,7 @@ export namespace Schemas {
       Low: 'low',
       Medium: 'medium',
       High: 'high',
+      Critical: 'critical',
     } as const;
 
     /**
@@ -40962,11 +41012,12 @@ export namespace Schemas {
        * * `on_hold` - On hold
        * * `resolved` - Resolved */
       status?: TicketStatusEnum;
-      /** Ticket priority: low, medium, or high. Null if unset.
+      /** Ticket priority: low, medium, high, or critical. Null if unset.
        *
        * * `low` - Low
        * * `medium` - Medium
-       * * `high` - High */
+       * * `high` - High
+       * * `critical` - Critical */
       priority?: TicketPriorityEnum | BlankEnum | null;
       readonly assignee: TicketAssignment;
       /** Customer-provided traits such as name and email */
@@ -41225,7 +41276,8 @@ export namespace Schemas {
          */
       derived_name?: string | null;
       query?: unknown;
-      readonly dashboards: readonly number[];
+      /** @deprecated */
+      readonly dashboards?: readonly number[];
       readonly dashboard_tiles: readonly DashboardTileBasic[];
       /**
          * @maxLength 400
@@ -44902,9 +44954,15 @@ export namespace Schemas {
       order?: number | null;
       deleted?: boolean;
       /**
+         *
        *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
        *         A dashboard ID for each of the dashboards that this insight is displayed on.
-       *          */
+       *         This field may be omitted from responses: once opt-in enforcement is enabled, API-token
+       *         callers (personal API keys, OAuth) only receive it when passing the
+       *         `include_dashboards=true` query parameter. Do not rely on it being present.
+       *
+         * @deprecated
+         */
       dashboards?: number[];
       /**
        *     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
@@ -48686,11 +48744,12 @@ export namespace Schemas {
        * * `on_hold` - On hold
        * * `resolved` - Resolved */
       status?: TicketStatusEnum;
-      /** Ticket priority: low, medium, or high. Null if unset.
+      /** Ticket priority: low, medium, high, or critical. Null if unset.
        *
        * * `low` - Low
        * * `medium` - Medium
-       * * `high` - High */
+       * * `high` - High
+       * * `critical` - Critical */
       priority?: TicketPriorityEnum | BlankEnum | null;
       readonly assignee?: TicketAssignment;
       /** Customer-provided traits such as name and email */
@@ -55557,6 +55616,20 @@ export namespace Schemas {
     export interface ScannerCreatorsResponse {
       /** Users who created at least one scanner on this team. Returned regardless of pagination state so the dropdown stays stable across pages. */
       creators: UserBasic[];
+    }
+
+    /**
+     * Who this scanner's findings affected in the window; counted from observations, not estimated.
+     */
+    export interface ScannerImpact {
+      /** Distinct sessions with an affected observation in the window. For monitors only verdict-yes observations count; for other scanner types every succeeded observation counts. */
+      readonly affected_sessions: number;
+      /** Distinct users behind the affected sessions, by distinct ID. May include anonymous device IDs when the recorded sessions were not identified. */
+      readonly affected_users: number;
+      /** Affected sessions whose recording carried no distinct ID at all. */
+      readonly sessions_without_user: number;
+      /** Trailing window the counts cover, in days. */
+      readonly window_days: number;
     }
 
     /**
@@ -65246,6 +65319,10 @@ export namespace Schemas {
 
     export type EnvironmentsDashboardsCreateParams = {
     format?: EnvironmentsDashboardsCreateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type EnvironmentsDashboardsCreateFormat = typeof EnvironmentsDashboardsCreateFormat[keyof typeof EnvironmentsDashboardsCreateFormat];
@@ -65263,6 +65340,10 @@ export namespace Schemas {
     filters_override?: string;
     format?: EnvironmentsDashboardsRetrieveFormat;
     /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
+    /**
      * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
@@ -65278,6 +65359,10 @@ export namespace Schemas {
 
     export type EnvironmentsDashboardsUpdateParams = {
     format?: EnvironmentsDashboardsUpdateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type EnvironmentsDashboardsUpdateFormat = typeof EnvironmentsDashboardsUpdateFormat[keyof typeof EnvironmentsDashboardsUpdateFormat];
@@ -65290,6 +65375,10 @@ export namespace Schemas {
 
     export type EnvironmentsDashboardsPartialUpdateParams = {
     format?: EnvironmentsDashboardsPartialUpdateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type EnvironmentsDashboardsPartialUpdateFormat = typeof EnvironmentsDashboardsPartialUpdateFormat[keyof typeof EnvironmentsDashboardsPartialUpdateFormat];
@@ -67215,6 +67304,10 @@ export namespace Schemas {
     favorited?: boolean;
     format?: EnvironmentsInsightsListFormat;
     /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
+    /**
      * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
      */
     insight?: EnvironmentsInsightsListInsight;
@@ -67302,6 +67395,10 @@ export namespace Schemas {
 
     export type EnvironmentsInsightsCreateParams = {
     format?: EnvironmentsInsightsCreateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type EnvironmentsInsightsCreateFormat = typeof EnvironmentsInsightsCreateFormat[keyof typeof EnvironmentsInsightsCreateFormat];
@@ -67335,6 +67432,10 @@ export namespace Schemas {
      * When set, the specified dashboard's filters and date range override will be applied.
      */
     from_dashboard?: number;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     /**
      *
      * Whether to refresh the insight, how aggresively, and if sync or async:
@@ -67376,6 +67477,10 @@ export namespace Schemas {
 
     export type EnvironmentsInsightsUpdateParams = {
     format?: EnvironmentsInsightsUpdateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type EnvironmentsInsightsUpdateFormat = typeof EnvironmentsInsightsUpdateFormat[keyof typeof EnvironmentsInsightsUpdateFormat];
@@ -67388,6 +67493,10 @@ export namespace Schemas {
 
     export type EnvironmentsInsightsPartialUpdateParams = {
     format?: EnvironmentsInsightsPartialUpdateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type EnvironmentsInsightsPartialUpdateFormat = typeof EnvironmentsInsightsPartialUpdateFormat[keyof typeof EnvironmentsInsightsPartialUpdateFormat];
@@ -67564,6 +67673,10 @@ export namespace Schemas {
      */
     days?: number;
     format?: EnvironmentsInsightsTrendingRetrieveFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     /**
      * Maximum number of insights to return. Defaults to 10. Capped at 100.
      */
@@ -69553,6 +69666,31 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsVisionScannersImpactRetrieveParams = {
+    /**
+     * Scorer scanners only: count sessions scoring at or below this value.
+     * @nullable
+     */
+    max_score?: number | null;
+    /**
+     * Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types.
+     * @nullable
+     */
+    min_score?: number | null;
+    /**
+     * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
+     * @maxLength 100
+     * @nullable
+     */
+    tag?: string | null;
+    /**
+     * Trailing window of observations to count. Defaults to 30 days.
+     * @minimum 1
+     * @maximum 90
+     */
+    window_days?: number;
+    };
+
     export type EnvironmentsVisionScannersObservationsListParams = {
     /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
@@ -71503,7 +71641,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`.
+     * Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`, `critical`.
      */
     priority?: string;
     /**
@@ -71728,6 +71866,10 @@ export namespace Schemas {
 
     export type DashboardsCreateParams = {
     format?: DashboardsCreateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type DashboardsCreateFormat = typeof DashboardsCreateFormat[keyof typeof DashboardsCreateFormat];
@@ -71745,6 +71887,10 @@ export namespace Schemas {
     filters_override?: string;
     format?: DashboardsRetrieveFormat;
     /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
+    /**
      * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
@@ -71760,6 +71906,10 @@ export namespace Schemas {
 
     export type DashboardsUpdateParams = {
     format?: DashboardsUpdateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type DashboardsUpdateFormat = typeof DashboardsUpdateFormat[keyof typeof DashboardsUpdateFormat];
@@ -71772,6 +71922,10 @@ export namespace Schemas {
 
     export type DashboardsPartialUpdateParams = {
     format?: DashboardsPartialUpdateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type DashboardsPartialUpdateFormat = typeof DashboardsPartialUpdateFormat[keyof typeof DashboardsPartialUpdateFormat];
@@ -74798,6 +74952,10 @@ export namespace Schemas {
     favorited?: boolean;
     format?: InsightsListFormat;
     /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
+    /**
      * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
      */
     insight?: InsightsListInsight;
@@ -74885,6 +75043,10 @@ export namespace Schemas {
 
     export type InsightsCreateParams = {
     format?: InsightsCreateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type InsightsCreateFormat = typeof InsightsCreateFormat[keyof typeof InsightsCreateFormat];
@@ -74918,6 +75080,10 @@ export namespace Schemas {
      * When set, the specified dashboard's filters and date range override will be applied.
      */
     from_dashboard?: number;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     /**
      *
      * Whether to refresh the insight, how aggresively, and if sync or async:
@@ -74959,6 +75125,10 @@ export namespace Schemas {
 
     export type InsightsUpdateParams = {
     format?: InsightsUpdateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type InsightsUpdateFormat = typeof InsightsUpdateFormat[keyof typeof InsightsUpdateFormat];
@@ -74971,6 +75141,10 @@ export namespace Schemas {
 
     export type InsightsPartialUpdateParams = {
     format?: InsightsPartialUpdateFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     };
 
     export type InsightsPartialUpdateFormat = typeof InsightsPartialUpdateFormat[keyof typeof InsightsPartialUpdateFormat];
@@ -75147,6 +75321,10 @@ export namespace Schemas {
      */
     days?: number;
     format?: InsightsTrendingRetrieveFormat;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     /**
      * Maximum number of insights to return. Defaults to 10. Capped at 100.
      */
@@ -78303,6 +78481,31 @@ export namespace Schemas {
      * Case-insensitive substring match across name, description, and the prompt in scanner_config.
      */
     search?: string;
+    };
+
+    export type VisionScannersImpactRetrieveParams = {
+    /**
+     * Scorer scanners only: count sessions scoring at or below this value.
+     * @nullable
+     */
+    max_score?: number | null;
+    /**
+     * Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types.
+     * @nullable
+     */
+    min_score?: number | null;
+    /**
+     * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
+     * @maxLength 100
+     * @nullable
+     */
+    tag?: string | null;
+    /**
+     * Trailing window of observations to count. Defaults to 30 days.
+     * @minimum 1
+     * @maximum 90
+     */
+    window_days?: number;
     };
 
     export type VisionScannersObservationsListParams = {

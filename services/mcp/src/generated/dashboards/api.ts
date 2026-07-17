@@ -44,6 +44,12 @@ export const DashboardsCreateParams = /* @__PURE__ */ zod.object({
 
 export const DashboardsCreateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
 })
 
 export const dashboardsCreateBodyNameMax = 400
@@ -97,6 +103,12 @@ export const DashboardsRetrieveQueryParams = /* @__PURE__ */ zod.object({
             'Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.'
         ),
     format: zod.enum(['json', 'txt']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
     variables_override: zod
         .string()
         .optional()
@@ -116,6 +128,12 @@ export const DashboardsPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const DashboardsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
 })
 
 export const dashboardsPartialUpdateBodyNameMax = 400

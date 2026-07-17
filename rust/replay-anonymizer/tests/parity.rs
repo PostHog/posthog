@@ -4,8 +4,8 @@
 use std::path::Path;
 use std::time::Instant;
 
-use replay_anonymizer_node::allow_lists::AllowLists;
-use replay_anonymizer_node::{
+use posthog_replay_anonymizer::allow_lists::AllowLists;
+use posthog_replay_anonymizer::{
     anonymize_event_str, anonymize_message, context::Ctx, text::scrub_text, url::scrub_url_opts,
     url::URL_SCHEME_ALLOWLIST,
 };
@@ -153,7 +153,7 @@ fn email_scanner_worst_case_is_linear() {
     let input = format!("{local}@{domain}");
     let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
     let start = Instant::now();
-    let _ = scrub_text(&allow, &input);
+    let _scrubbed = scrub_text(&allow, &input);
     assert!(
         start.elapsed().as_millis() < 2000,
         "email scanner should be linear on an @-bearing run, took {:?}",
