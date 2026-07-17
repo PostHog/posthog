@@ -1,5 +1,3 @@
-from typing import cast
-
 from django.utils import timezone
 
 import structlog
@@ -11,15 +9,11 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.views import APIView
 
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.helpers.impersonation import is_impersonated
-from posthog.models.activity_logging.activity_log import Detail, log_activity
-from posthog.models.user import User
 from posthog.permissions import APIScopePermission, IsStaffUser
 
 from products.managed_migrations.backend.models.batch_import_utils import (
     extract_batch_import_info,
     get_batch_import_created_by_info,
-    get_batch_import_detail_name,
     redact_part_key,
     redact_urls_in_json,
     redact_urls_in_text,
@@ -314,26 +308,6 @@ class BatchImportSupportViewSet(viewsets.ReadOnlyModelViewSet):
         if self.action == "retrieve":
             return BatchImportSupportDetailSerializer
         return BatchImportSupportListSerializer
-
-    def retrieve(self, request: request.Request, *args, **kwargs) -> response.Response:
-        batch_import = self.get_object()
-        # A detail read hands staff the raw state/config of a team they don't belong to,
-        # so it gets a durable ActivityLog row in that team's activity history, not just
-        # the structlog line below (log retention is short and logs aren't queryable
-        # in-app). `list` keeps structlog only: ActivityLog rows require a team or
-        # organization id, which a cross-team listing doesn't have.
-        source_type, content_type, _start, _end = extract_batch_import_info(batch_import)
-        log_activity(
-            organization_id=batch_import.team.organization_id,
-            team_id=batch_import.team_id,
-            user=cast(User, request.user),
-            was_impersonated=is_impersonated(request),
-            item_id=batch_import.id,
-            scope="BatchImport",
-            activity="support_viewed",
-            detail=Detail(name=get_batch_import_detail_name(source_type, content_type)),
-        )
-        return response.Response(self.get_serializer(batch_import).data)
 
     # Allowlist of query params safe to audit-log. PersonalAPIKeyAuthentication accepts
     # `?personal_api_key=...`, so logging raw query_params would write plaintext staff

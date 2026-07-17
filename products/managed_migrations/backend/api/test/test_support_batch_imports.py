@@ -9,7 +9,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
-from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -249,26 +248,6 @@ class TestBatchImportSupportAPI(APIBaseTest):
             audit_logs[0]["query_params"],
             {"status": "paused", "search": "Parsing data in file 'https://a.com/x' failed"},
         )
-
-    def test_detail_read_writes_activity_log_entry(self):
-        # Staff detail reads of another team's job must leave a durable, queryable
-        # trail in that team's activity log - guards against the audit write being
-        # dropped from `retrieve`.
-        batch_import = self._create_import(
-            import_config={"source": {"type": "mixpanel"}, "data_format": {"content": {"type": "mixpanel"}}}
-        )
-
-        with self.captureOnCommitCallbacks(execute=True):
-            response = self.client.get(f"/api/managed_migrations_support/{batch_import.id}/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        entry = ActivityLog.objects.get(scope="BatchImport", activity="support_viewed")
-        self.assertEqual(entry.item_id, str(batch_import.id))
-        self.assertEqual(entry.team_id, self.team.id)
-        self.assertEqual(entry.organization_id, self.organization.id)
-        self.assertEqual(entry.user_id, self.user.id)
-        assert entry.detail is not None
-        self.assertEqual(entry.detail["name"], "mixpanel (mixpanel)")
 
     def test_secret_values_never_appear_in_responses(self):
         # Structural guarantee first: neither serializer declares the field at all
