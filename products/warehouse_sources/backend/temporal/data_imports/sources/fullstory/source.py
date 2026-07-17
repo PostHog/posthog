@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.fullstory.fullstory import (
     ENDPOINTS,
     FullStoryResumeConfig,
@@ -90,23 +93,9 @@ You can create an API key in Fullstory under Settings > Integrations & API Keys 
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        # The users listing has no updated-since filter; session/event data
-        # only exists behind async Data Export jobs (a follow-up).
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        # The users listing has no updated-since filter (no incremental fields), so it is
+        # full-refresh only; session/event data only exists behind async Data Export jobs (a follow-up).
+        return build_endpoint_schemas(ENDPOINTS, {}, names)
 
     def validate_credentials(
         self, config: FullStorySourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -128,6 +117,7 @@ You can create an API key in Fullstory under Settings > Integrations & API Keys 
         return fullstory_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
