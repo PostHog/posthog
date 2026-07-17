@@ -6904,6 +6904,14 @@ const api = {
             return new ApiRequest().conversation(conversationId).withAction('cancel').update()
         },
 
+        /**
+         * Share an internal (impersonation-created) chat for direct-link access. Only works during
+         * impersonation. The chat stays out of everyone's history — only people with the link can open it.
+         */
+        share(conversationId: string): Promise<Conversation> {
+            return new ApiRequest().conversation(conversationId).withAction('share').create()
+        },
+
         list(): Promise<PaginatedResponse<Conversation>> {
             return new ApiRequest().conversations().get()
         },

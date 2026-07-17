@@ -5,6 +5,8 @@ from typing import Any, cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from parameterized import parameterized
+
 from django.db import connection
 from django.http import StreamingHttpResponse
 from django.test import override_settings
@@ -593,6 +595,79 @@ class TestConversation(APIBaseTest):
         with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            # (shared_via_link, expected_status) — an internal chat opens by direct link only once shared
+            ("not_shared", False, status.HTTP_404_NOT_FOUND),
+            ("shared", True, status.HTTP_200_OK),
+        ]
+    )
+    def test_retrieve_internal_conversation_requires_sharing(self, _name, shared_via_link, expected_status):
+        """A project member can open another user's internal (impersonation-created) chat by direct
+        link only after it has been explicitly shared."""
+        conversation = Conversation.objects.create(
+            user=self.other_user,
+            team=self.team,
+            title="Impersonation chat",
+            type=Conversation.Type.ASSISTANT,
+            is_internal=True,
+            shared_via_link=shared_via_link,
+        )
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+            self.assertEqual(response.status_code, expected_status)
+
+    def test_shared_internal_conversation_never_appears_in_history(self):
+        """A shared internal chat is openable by direct link but must stay out of the history list."""
+        Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="Shared impersonation chat",
+            type=Conversation.Type.ASSISTANT,
+            is_internal=True,
+            shared_via_link=True,
+        )
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["results"], [])
+
+    def test_share_conversation_requires_impersonation(self):
+        """The share action is only available while impersonating (support agents)."""
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="Impersonation chat",
+            type=Conversation.Type.ASSISTANT,
+            is_internal=True,
+        )
+
+        response = self.client.post(f"/api/environments/{self.team.id}/conversations/{conversation.id}/share/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        conversation.refresh_from_db()
+        self.assertFalse(conversation.shared_via_link)
+
+    @patch("ee.api.conversation.is_impersonated_session", return_value=True)
+    def test_share_conversation_during_impersonation_marks_shared(self, _mock_impersonated):
+        """Sharing during impersonation flips the flag so project members can open the chat by link."""
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="Impersonation chat",
+            type=Conversation.Type.ASSISTANT,
+            is_internal=True,
+        )
+
+        response = self.client.post(f"/api/environments/{self.team.id}/conversations/{conversation.id}/share/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["shared_via_link"])
+
+        conversation.refresh_from_db()
+        self.assertTrue(conversation.shared_via_link)
 
     def test_conversations_ordered_by_updated_at_descending(self):
         """Test that conversations are ordered by updated_at in descending order"""

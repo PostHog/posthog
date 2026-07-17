@@ -221,6 +221,8 @@ export function NavTabChat({
                                                                 </AiChatListItem.Group>
                                                                 <AiChatListItem.Actions
                                                                     conversationId={conversation.id}
+                                                                    isInternal={conversation.is_internal}
+                                                                    sharedViaLink={conversation.shared_via_link}
                                                                 />
                                                             </AiChatListItem.Root>
                                                         )}

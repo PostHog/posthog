@@ -7458,6 +7458,8 @@ export interface Conversation {
     slack_thread_key?: string | null
     slack_workspace_domain?: string | null
     is_internal?: boolean
+    /** Internal (impersonation-created) chat that has been shared for direct-link access by project members. */
+    shared_via_link?: boolean
     pending_approvals?: PendingApproval[]
     is_sandbox?: boolean
     /**

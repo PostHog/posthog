@@ -8,6 +8,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -171,6 +172,9 @@ export interface maxGlobalLogicActions {
     deregisterTool: (key: string) => {
         key: string
     }
+    shareConversation: (id: string) => {
+        id: string
+    }
     dismissLiabilityNotice: () => {
         value: true
     }
@@ -304,6 +308,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         deregisterTool: (key: string) => ({ key }),
         prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
         deleteConversation: (id: string) => ({ id }),
+        shareConversation: (id: string) => ({ id }),
         dismissLiabilityNotice: true,
         setPhaiViewMode: (mode: PhaiViewMode) => ({ mode }),
     }),
@@ -436,6 +441,17 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 actions.loadConversationHistory()
             } catch {
                 lemonToast.error('Failed to delete chat')
+            }
+        },
+        shareConversation: async ({ id }) => {
+            try {
+                await api.conversations.share(id)
+                const shareLink = urls.absolute(urls.currentProject(urls.ai(id)))
+                await copyToClipboard(shareLink, 'chat sharing link')
+                // Refresh so the chat reflects its shared state on next open.
+                actions.loadConversationHistory()
+            } catch {
+                lemonToast.error('Failed to share chat')
             }
         },
     })),

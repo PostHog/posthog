@@ -6,6 +6,7 @@ from typing import cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 from django.utils import timezone
 
 import pydantic
@@ -324,9 +325,17 @@ class ConversationViewSet(
                 title__isnull=False,
                 type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT, Conversation.Type.SLACK],
             )
-            # Hide internal conversations from customers, but show them to support agents during impersonation
+            # Internal conversations (created by support agents during impersonation) are hidden from
+            # customers, but visible to support agents while impersonating.
             if not is_impersonated_session(self.request):
-                queryset = queryset.filter(is_internal=False)
+                if self.action == "list":
+                    # History never surfaces internal conversations.
+                    queryset = queryset.filter(is_internal=False)
+                else:
+                    # Direct-link retrieval: an internal conversation opens only once it has been
+                    # explicitly shared, so a link the support agent hands over works for project
+                    # members without the chat ever showing up in their history.
+                    queryset = queryset.filter(Q(is_internal=False) | Q(shared_via_link=True))
             queryset = queryset.order_by("-updated_at")
         if self.action == "list":
             queryset = queryset.defer("approval_decisions", "messages_json", "sandbox_task_id", "sandbox_run_id")
@@ -886,6 +895,34 @@ class ConversationViewSet(
             return Response({"error": "Failed to cancel conversation"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        description=(
+            "Share an internal conversation for direct-link access. Only available while impersonating "
+            "(support agents). The conversation stays out of everyone's history, so only people who "
+            "have the link can open it."
+        ),
+        request=None,
+        responses={
+            200: ConversationMinimalSerializer,
+            403: OpenApiResponse(description="Sharing is only available during an impersonated session."),
+        },
+    )
+    @action(detail=True, methods=["POST"])
+    def share(self, request: Request, *args, **kwargs) -> Response:
+        if not is_impersonated_session(request):
+            return Response(
+                {"error": "Conversations can only be shared during an impersonated session"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        conversation: Conversation = self.get_object()
+        if not conversation.shared_via_link:
+            conversation.shared_via_link = True
+            conversation.save(update_fields=["shared_via_link"])
+
+        serializer = ConversationMinimalSerializer(conversation, context=self.get_serializer_context())
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(
         description="Delete a conversation.",
