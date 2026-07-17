@@ -1,3 +1,4 @@
+import uuid
 import hashlib
 
 from django.db import transaction
@@ -29,6 +30,14 @@ def _fingerprint(kind: str, hint: str) -> str:
     # kind prefix; the kind prefix keeps fingerprints of different kinds distinct.
     digest = hashlib.sha256(hint.encode()).hexdigest()[:32]
     return f"{kind}:{digest}"[:_FINGERPRINT_MAX_LENGTH]
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+        return True
+    except ValueError:
+        return False
 
 
 def _resolve_citations(citation_ids: list[str], evidence_index: dict[str, EvidenceRef]) -> list[EvidenceRef]:
@@ -105,8 +114,12 @@ def _resolve_link_fks(team_id: int, evidence: list[EvidenceRef]) -> dict[tuple[E
             resolved[(EvidenceType.INSIGHT, insight.short_id)] = insight
     alert_refs = by_type.get(EvidenceType.ALERT)
     if alert_refs:
-        # AlertConfiguration has a UUID primary key, so its refs aren't numeric.
-        for alert in AlertConfiguration.objects.filter(team_id=team_id, id__in=alert_refs):
+        # AlertConfiguration has a UUID primary key; a non-UUID ref would raise on the query, so
+        # filter it out (mirrors the non-numeric guard below) and it stays an FK-less link.
+        valid_uuids = {r for r in alert_refs if _is_uuid(r)}
+        if invalid := alert_refs - valid_uuids:
+            logger.warning("pulse_persist_non_uuid_ref", evidence_type=EvidenceType.ALERT, refs=sorted(invalid))
+        for alert in AlertConfiguration.objects.filter(team_id=team_id, id__in=valid_uuids):
             resolved[(EvidenceType.ALERT, str(alert.id))] = alert
     for evidence_type, model in (
         (EvidenceType.DASHBOARD, Dashboard),

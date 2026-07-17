@@ -28,7 +28,8 @@ _DEFAULT_LOOKBACK_DAYS = 7
 
 # Priority-aware truncation before the MAX_ITEMS payload cap: a chatty low-priority source can't
 # crowd out actionable items. The assert fails loudly at import if a new SourceItemKind lacks a
-# priority (mirrors the KIND_DESCRIPTIONS guard in generation/schemas.py) — it would silently sort last.
+# priority (same import-time enum-coverage guard the KIND_DESCRIPTIONS assert uses) — it would
+# otherwise silently sort last.
 KIND_PRIORITY: dict[str, int] = {SourceItemKind.HEALTH: 0, SourceItemKind.MOVEMENT: 1, SourceItemKind.CONTEXT: 2}
 assert set(KIND_PRIORITY) == set(SourceItemKind)
 
