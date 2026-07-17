@@ -135,6 +135,19 @@ ScreenWidth = Literal[600, 800, 1920, 1400, 4000]
 CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter"]
 
 
+def _insight_query_wants_legend(query: dict) -> bool:
+    """A static PNG has no hover tooltips, so multi-series charts default the exporter's
+    horizontal legend on — unless the query explicitly opted out."""
+    source = query.get("source", query)  # This to handle the InsightVizNode wrapper
+    if not isinstance(source, dict) or source.get("kind") != NodeKind.TRENDS_QUERY:
+        return False
+    trends_filter = source.get("trendsFilter") or {}
+    if trends_filter.get("showLegend") is False:
+        return False
+    series = source.get("series")
+    return (isinstance(series, list) and len(series) > 1) or bool(source.get("breakdownFilter"))
+
+
 def _insight_query_screenshot_width(query: dict) -> ScreenWidth:
     """Initial viewport width for an insight-style query render.
 
@@ -270,7 +283,11 @@ def _export_to_png(
             # Ad-hoc query export: no saved insight, the query lives in export_context. The
             # sharing view computes the (cache-warmed) result server-side at page load, so
             # give the navigation extra headroom over the insight path.
-            url_to_render = absolute_uri(f"/exporter?token={access_token}")
+            # The exporter page still skips the legend for display types without one.
+            legend_param = (
+                "&legend=true" if _insight_query_wants_legend(exported_asset.export_context["source"]) else ""
+            )
+            url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}")
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = _insight_query_screenshot_width(exported_asset.export_context["source"])
             page_load_timeout = 100

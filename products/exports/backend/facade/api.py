@@ -5,9 +5,7 @@ delivering a chart to Slack) can render server-side without shuttling bytes thro
 API clients.
 """
 
-import copy
 from datetime import timedelta
-from typing import Any
 
 from django.conf import settings
 
@@ -31,21 +29,13 @@ logger = structlog.get_logger(__name__)
 RENDER_TIMEOUT = timedelta(seconds=90)
 
 
-# A static PNG has no hover tooltips, so a multi-series chart is unreadable without a
-# legend. The exporter frontend still skips the legend for display types without one.
-def _enable_legend_for_multi_series(query: Any) -> None:
-    if not isinstance(query, dict) or query.get("kind") != "InsightVizNode":
-        return
-    source = query.get("source")
-    if not isinstance(source, dict) or source.get("kind") != "TrendsQuery":
-        return
-    series = source.get("series")
-    multi_series = (isinstance(series, list) and len(series) > 1) or bool(source.get("breakdownFilter"))
-    if not multi_series:
-        return
-    trends_filter = source.setdefault("trendsFilter", {})
-    if isinstance(trends_filter, dict):
-        trends_filter.setdefault("showLegend", True)
+def _validate_adhoc_export_context(export_context: dict) -> None:
+    """The ad-hoc render pipeline (viewport sizing, the exporter page's Query dispatch)
+    assumes an InsightVizNode-wrapped source; anything else renders a JSON dump instead
+    of a chart, so reject it here with a real error instead."""
+    source = export_context.get("source")
+    if not isinstance(source, dict) or source.get("kind") != "InsightVizNode":
+        raise ValueError("export_context.source must be an InsightVizNode-wrapped query")
 
 
 def render_png_export(
@@ -67,8 +57,7 @@ def render_png_export(
     if (export_context is None) == (insight_id is None):
         raise ValueError("Provide exactly one of export_context or insight_id")
     if export_context is not None:
-        export_context = copy.deepcopy(export_context)
-        _enable_legend_for_multi_series(export_context.get("source"))
+        _validate_adhoc_export_context(export_context)
     if insight_id is not None:
         insight = Insight.objects.filter(id=insight_id, team_id=team.id, deleted=False).first()
         # Object-level access matters here: created_by may not be allowed to view the insight.
@@ -103,9 +92,15 @@ def render_png_export(
     try:
         async_to_sync(_run)()
     except Exception as e:
-        # export_asset_direct records the failure on the asset before re-raising, so callers
-        # read asset.exception; swallowing here mirrors the exports API's create path.
+        # export_asset_direct records activity failures on the asset, but a dispatch
+        # failure (Temporal unreachable, workflow never started) would leave
+        # asset.exception empty — record it so the documented failure contract
+        # ("bytes are None and asset.exception carries the error") always holds.
         logger.info("render_png_export_failed", asset_id=asset.id, error=str(e))
+        asset.refresh_from_db()
+        if not asset.exception:
+            asset.exception = str(e) or "Export dispatch failed"
+            asset.save(update_fields=["exception"])
 
     asset.refresh_from_db()
     if asset.exception:

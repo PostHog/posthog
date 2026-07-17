@@ -271,6 +271,11 @@ CHART_RENDERING_FEATURE_FLAGS = ["quill-chart-style-refresh", "product-analytics
 def chart_rendering_flags_for_resource(resource: Model | None) -> list[str]:
     created_by = getattr(resource, "created_by", None)
     if created_by is None:
+        # SharingConfiguration has no created_by; fall back to the shared resource's creator.
+        insight = getattr(resource, "insight", None)
+        dashboard = getattr(resource, "dashboard", None)
+        created_by = getattr(insight, "created_by", None) or getattr(dashboard, "created_by", None)
+    if created_by is None:
         return []
     enabled = []
     for key in CHART_RENDERING_FEATURE_FLAGS:
