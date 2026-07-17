@@ -140,6 +140,12 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # `get_schemas` with a placeholder config could connect, hang, or close the DB session.
     lists_tables_without_credentials: bool = False
 
+    # `True` only for sources whose engine supports xmin-based incremental replication
+    # (Postgres). Gates the xmin sync type at the source-type level; per-table availability is
+    # still decided by `SourceSchema.supports_xmin` at discovery. The API branches on this flag
+    # instead of naming the source type.
+    supports_xmin: bool = False
+
     # Vendor API versions this source implements, as opaque vendor labels (Stripe date
     # versions, semver, names) — never parsed or ordered by the framework. Sources whose
     # vendor has no meaningful API versioning keep the `UNVERSIONED_API_VERSION` default.

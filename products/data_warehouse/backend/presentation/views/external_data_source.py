@@ -3030,8 +3030,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
         # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
         cdc_enabled = is_cdc_enabled_for_team(self.team)
-        # xmin is Postgres-only — gate on the source type so the capability never leaks to another SQL source.
-        is_postgres = source_type_model == ExternalDataSourceType.POSTGRES
+        # xmin is gated at the source-type level by the source's capability flag so it never
+        # leaks to another SQL source.
+        xmin_capable = source.supports_xmin
         data = [
             {
                 "table": schema.name,
@@ -3041,7 +3042,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
                 "cdc_available": schema.supports_cdc if cdc_enabled else None,
-                "xmin_available": schema.supports_xmin if is_postgres else None,
+                "xmin_available": schema.supports_xmin if xmin_capable else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
                 else None,
