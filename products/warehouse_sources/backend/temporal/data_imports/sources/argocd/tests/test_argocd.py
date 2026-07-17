@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.arg
     ArgocdHostNotAllowedError,
     ArgocdResponseTimeoutError,
     ArgocdResponseTooLargeError,
+    _has_ambiguous_authority,
     _history_rows,
     _items,
     _list_params,
@@ -83,6 +84,24 @@ class TestNormalizeHost:
     )
     def test_normalize_host(self, raw, expected):
         assert normalize_host(raw) == expected
+
+
+class TestAmbiguousAuthority:
+    @pytest.mark.parametrize(
+        "host, ambiguous",
+        [
+            ("https://argocd.example.com", False),
+            ("https://argocd.example.com/api/v1", False),
+            # Backslash + userinfo: urlparse says public.example, a `\`→`/` client says internal.
+            ("https://internal.example\\@public.example", True),
+            # Percent-encoded backslash hides the same trick from urlparse.
+            ("https://internal.example%5c@public.example", True),
+            # Plain userinfo is never valid for an Argo CD URL and muddies the authority.
+            ("https://user@argocd.example.com", True),
+        ],
+    )
+    def test_flags_parser_mismatches(self, host, ambiguous):
+        assert _has_ambiguous_authority(host) is ambiguous
 
 
 class TestListParams:
@@ -230,6 +249,23 @@ class TestGetRows:
                 )
             patched.return_value.get.assert_not_called()
 
+    def test_authority_parser_mismatch_is_rejected_before_any_request(self):
+        # `urlparse` reads the host after `@` (public.example) while an HTTP client that folds
+        # `\` into `/` reaches internal.example. The SSRF check must not be handed the wrong
+        # host — the request must never be attempted.
+        with _patch_session(_response(json_data={"items": []})) as patched:
+            with pytest.raises(ArgocdHostNotAllowedError):
+                list(
+                    get_rows(
+                        host="https://internal.example\\@public.example",
+                        api_token="tok",
+                        endpoint="applications",
+                        team_id=1,
+                        logger=mock.MagicMock(),
+                    )
+                )
+            patched.return_value.get.assert_not_called()
+
     def test_unsafe_host_is_rejected_before_any_request(self):
         with (
             mock.patch.object(argocd_module, "_is_host_safe", return_value=(False, "internal address")),
@@ -324,6 +360,13 @@ class TestValidateCredentials:
             validate_credentials("https://argocd.example.com", "tok", schema_name="projects")
         url = patched.return_value.get.call_args.args[0]
         assert url == "https://argocd.example.com/api/v1/projects"
+
+    def test_authority_parser_mismatch_is_rejected_without_probing(self):
+        # The probe must not be sent to a host the SSRF check never validated.
+        with _patch_session(_response(json_data={"items": None})) as patched:
+            valid, _msg = validate_credentials("https://internal.example\\@public.example", "tok", team_id=1)
+            assert valid is False
+        patched.return_value.get.assert_not_called()
 
     def test_invalid_token(self):
         with _patch_session(_response(status_code=401)):

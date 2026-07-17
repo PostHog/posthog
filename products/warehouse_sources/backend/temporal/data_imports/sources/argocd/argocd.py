@@ -117,6 +117,20 @@ def _host_only(host: str | None) -> str:
     return (urlparse(normalize_host(host)).hostname or "").lower()
 
 
+def _has_ambiguous_authority(host: str | None) -> bool:
+    """True if ``urlparse`` and the HTTP client could disagree on the real host.
+
+    A backslash (raw or percent-encoded) or userinfo (``@``) in the authority lets the SSRF
+    check validate one host while the request reaches another: ``urlparse`` reads the host
+    after the ``@`` as the hostname, but a client that folds ``\\`` into ``/`` treats the part
+    before it as the host. A real Argo CD URL contains neither, so refuse both.
+    """
+    raw = host or ""
+    if "\\" in raw or "%5c" in raw.lower():
+        return True
+    return "@" in urlparse(normalize_host(host)).netloc
+
+
 def _is_https(host: str | None) -> bool:
     # The API token rides in the Authorization header, so refuse plaintext HTTP to keep an
     # on-path attacker from capturing it.
@@ -260,6 +274,9 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = ARGOCD_ENDPOINTS[endpoint]
 
+    if _has_ambiguous_authority(host):
+        raise ArgocdHostNotAllowedError(HOST_NOT_ALLOWED_ERROR)
+
     if not _is_https(host):
         raise ArgocdHostNotAllowedError(HTTPS_REQUIRED_ERROR)
 
@@ -309,6 +326,9 @@ def validate_credentials(
     normalized = normalize_host(host)
     hostname = (urlparse(normalized).hostname or "").lower()
     if not normalized or not hostname:
+        return False, "Invalid Argo CD host"
+
+    if _has_ambiguous_authority(host):
         return False, "Invalid Argo CD host"
 
     if urlparse(normalized).scheme != "https":
