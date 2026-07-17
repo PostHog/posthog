@@ -740,10 +740,14 @@ is the canonical **`review-hog-authoring`** skill at `products/review_hog/skills
   from scouts' `scout-config-create`).
 - **Seeding:** `REVIEW_HOG_AUTHORING_PREFIX`/`_SKILL_NAME` (`skill_loader.py`),
   `discover_canonical_authoring` + `sync_canonical_authoring` (`lazy_seed.py` — same
-  prefix-and-category reconcile), synced in two moments: the run path (`_sync_review_skills`,
-  prune=True) and — because the guide must exist **before any review has run** — the settings GET
-  (`_seed_authoring_skill` in `api/settings.py`, tolerant, effective-team id), the Code review tab's
-  always-called endpoint. Not a run skill: no `ReviewSkillConfig` rows, no loader.
+  prefix-and-category reconcile). Both the run path (`_sync_review_skills`, prune=True) and the
+  settings GET (`api/settings.py`, tolerant, effective-team id) now go through
+  `sync_all_canonicals`, so the **whole** `review-hog-*` set — perspectives, validation, blind
+  spots, and the authoring guide — is seeded together. This matters because the guide must exist
+  **before any review has run** AND its grounding step reads the reference canonicals: seeding only
+  the guide on the tab's always-called endpoint left a cold team's `skill-list`/`skill-get` for the
+  references empty, dead-ending the authoring flow. Not a run skill: no `ReviewSkillConfig` rows, no
+  loader.
 - Tests: `test_authoring_skill.py` (discover name-contract guard + run-path seed) and a settings-GET
   idempotent-seed case in `test_settings_api.py`.
 

@@ -37,6 +37,14 @@ whether it _runs_ is a per-user setting in **Inbox → Code review**.
    the reference for structure and tone. For a perspective, skim the descriptions of every existing
    `review-hog-perspective-*` so the new lens doesn't re-cover ground an enabled one already owns
    (overlap gets deduplicated later, but it wastes review passes).
+
+   **Cold start.** On a team that has never run a review or opened **Inbox → Code review**, the
+   canonicals aren't seeded yet, so `skill-list`/`skill-get` come back empty. Two ways forward: open
+   **Inbox → Code review** once (that tab's load seeds the whole `review-hog-*` set for the team, so
+   a retried `skill-list` then finds them), or — if you have this repo checked out — read the
+   canonical straight from disk under `products/review_hog/skills/review-hog-*/SKILL.md` (the same
+   source the seed mirrors). Either gets you a reference; don't author blind.
+
 2. **Interview the user.** Ask what the skill should focus on, and offer a few concrete directions
    the current set doesn't cover — grounded in what you saw in step 1 and, when useful, in the
    project itself. Don't start writing until the direction is picked.

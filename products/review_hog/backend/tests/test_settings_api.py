@@ -49,16 +49,24 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         assert res.status_code == 200
         assert res.json()["review_labeled_prs"] is True
 
-    def test_get_seeds_the_authoring_skill_idempotently(self) -> None:
-        # The settings GET is the tab's always-called endpoint, so it must make the authoring guide
-        # exist before any review has run (the "Create your own …" tasks skill-get it) — and a
-        # repeat GET must not version-bump-loop the row.
+    def test_get_seeds_the_full_canonical_set_idempotently(self) -> None:
+        # The settings GET is the tab's always-called endpoint, so it must make the whole
+        # `review-hog-*` set exist before any review has run — not just the authoring guide, but the
+        # reference canonicals its grounding step reads (perspectives / validation / blind spots).
+        # Seeding only the guide left a cold team's `skill-list` for the references empty, dead-ending
+        # the authoring flow. A repeat GET must not version-bump-loop the rows.
         for _ in range(2):
             assert self.client.get(self.url).status_code == 200
 
-        rows = LLMSkill.objects.filter(team=self.team, name="review-hog-authoring")
-        assert rows.count() == 1
-        assert rows.get().version == 1
+        for prefix in (
+            "review-hog-authoring",
+            "review-hog-perspective-",
+            "review-hog-validation-",
+            "review-hog-blind-spots-",
+        ):
+            rows = LLMSkill.objects.filter(team=self.team, name__startswith=prefix, is_latest=True, deleted=False)
+            assert rows.exists(), f"expected {prefix}* canonical(s) seeded on settings GET"
+            assert all(r.version == 1 for r in rows), f"{prefix}* version-bumped on a no-op repeat GET"
 
     def test_environment_url_resolves_to_the_canonical_team(self) -> None:
         # With an environment (child team) id in the URL, the canonicalized `for_team` filter and a

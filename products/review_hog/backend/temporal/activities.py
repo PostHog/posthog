@@ -45,12 +45,7 @@ from products.review_hog.backend.reviewer.constants import (
     effective_priority,
     published_priorities_for,
 )
-from products.review_hog.backend.reviewer.lazy_seed import (
-    sync_canonical_authoring,
-    sync_canonical_blind_spots,
-    sync_canonical_perspectives,
-    sync_canonical_validation,
-)
+from products.review_hog.backend.reviewer.lazy_seed import sync_all_canonicals
 from products.review_hog.backend.reviewer.models import generate_all_schemas
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
@@ -636,10 +631,7 @@ def _sync_review_skills(team_id: int) -> None:
     # prune=True: the run path is the only recurring sync moment (scout-style reconciliation), so
     # disk-removed canonicals tombstone here — otherwise they'd linger live on every team forever.
     team = Team.objects.get(id=team_id)
-    sync_canonical_perspectives(team, prune=True)
-    sync_canonical_validation(team, prune=True)
-    sync_canonical_blind_spots(team, prune=True)
-    sync_canonical_authoring(team, prune=True)
+    sync_all_canonicals(team, prune=True)
 
 
 @activity.defn

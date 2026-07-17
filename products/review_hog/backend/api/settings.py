@@ -12,7 +12,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.review_hog.backend.models import ReviewUserSettings
-from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_canonical_authoring
+from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_all_canonicals
 
 logger = logging.getLogger(__name__)
 
@@ -103,9 +103,12 @@ class ReviewUserSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             serializer.is_valid(raise_exception=True)
             serializer.save()
             return Response(serializer.data)
-        # Seed the authoring companion before any review has run: the "Create your own …" tasks
-        # `skill-get` it over MCP, and this settings GET is the Code review tab's always-called
-        # endpoint. `instance.team_id` is already the effective (root) team — the same team the
-        # review runs under, so the skill lands where the sandbox agent's `skill-get` will look.
-        seed_canonicals_tolerantly(instance.team_id, sync_canonical_authoring)
+        # Seed the full canonical set before any review has run: the "Create your own …" tasks
+        # `skill-get` the authoring guide over MCP, and its first step grounds on the reference
+        # canonicals (`review-hog-perspective-*`, `-validation-*`, `-blind-spots-*`) — so those must
+        # exist too, or the authoring flow dead-ends on an empty `skill-list`. This settings GET is
+        # the Code review tab's always-called endpoint, so it's where we guarantee the whole set.
+        # `instance.team_id` is already the effective (root) team — the same team the review runs
+        # under, so the skills land where the sandbox agent's `skill-get` will look.
+        seed_canonicals_tolerantly(instance.team_id, sync_all_canonicals)
         return Response(ReviewUserSettingsSerializer(instance).data)
