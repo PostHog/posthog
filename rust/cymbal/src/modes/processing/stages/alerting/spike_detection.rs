@@ -10,9 +10,9 @@ use crate::app_context::AppContext;
 use crate::error::UnhandledError;
 use crate::issue_resolution::{send_issue_spiking_notification, Issue};
 use crate::metric_consts::{
-    SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_GET_SPIKING_ISSUES_TIME, SPIKE_INCREMENT_ISSUE_BUCKETS_TIME,
-    SPIKE_INCREMENT_TEAM_BUCKETS_TIME, SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED,
-    SPIKE_ISSUES_SPIKING,
+    SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_DETECTION_FAIL_OPEN, SPIKE_GET_SPIKING_ISSUES_TIME,
+    SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, SPIKE_INCREMENT_TEAM_BUCKETS_TIME,
+    SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED, SPIKE_ISSUES_SPIKING,
 };
 use crate::modes::processing::rules::spike::SpikeDetectionConfig;
 use crate::types::ProcessedExceptionProperties;
@@ -396,8 +396,18 @@ async fn get_spiking_issues(
         .into_iter()
         .collect();
 
+    // Best-effort read path: a transient Redis error here (e.g. a timeout) must not fail the
+    // whole /process batch and drop its exception events. Fail open like the write path and the
+    // rate limiter do — log, skip spike detection for this batch, and let the events through.
     let (issue_buckets, team_buckets) =
-        fetch_bucket_data(redis, &issue_ids, &unique_team_ids, &bucket_timestamps).await?;
+        match fetch_bucket_data(redis, &issue_ids, &unique_team_ids, &bucket_timestamps).await {
+            Ok(data) => data,
+            Err(e) => {
+                warn!("spike detection read failed open, skipping batch: {e}");
+                metrics::counter!(SPIKE_DETECTION_FAIL_OPEN).increment(1);
+                return Ok(vec![]);
+            }
+        };
 
     let team_baselines: HashMap<i32, f64> = compute_team_baselines(&team_buckets);
 
@@ -529,7 +539,7 @@ fn compute_team_baselines(team_buckets: &[TeamBuckets]) -> HashMap<i32, f64> {
 mod tests {
     use super::*;
     use chrono::TimeZone;
-    use common_redis::MockRedisClient;
+    use common_redis::{CustomRedisError, MockRedisClient};
 
     fn bytes(v: i64) -> Vec<u8> {
         v.to_string().into_bytes()
@@ -630,6 +640,22 @@ mod tests {
                 .await
                 .unwrap()
         }
+    }
+
+    // A transient Redis error on the best-effort read path must not fail the batch: spike
+    // detection is skipped (no spiking issues returned) instead of propagating a 500.
+    #[tokio::test]
+    async fn fails_open_when_read_path_redis_errors() {
+        let mut ctx = TestContext::new();
+        ctx.redis.mget_error(CustomRedisError::Timeout);
+
+        let configs = HashMap::from([(ctx.team_id, SpikeDetectionConfig::default())]);
+        let properties = HashMap::from([(ctx.issue_id, processed_properties(ctx.issue_id))]);
+
+        let result =
+            get_spiking_issues(&ctx.redis, &ctx.issues_by_id(), &properties, &configs).await;
+
+        assert!(result.expect("read path fails open, not propagating a 500").is_empty());
     }
 
     #[test]
