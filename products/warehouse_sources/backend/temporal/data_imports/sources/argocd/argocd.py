@@ -1,5 +1,6 @@
 import re
 import json
+import time
 from collections.abc import Iterator
 from typing import Any, Optional
 from urllib.parse import urlencode, urlparse
@@ -19,14 +20,19 @@ MAX_RETRIES = 5
 HOST_NOT_ALLOWED_ERROR = "Argo CD host is not allowed"
 HTTPS_REQUIRED_ERROR = "Argo CD host must use HTTPS"
 RESPONSE_TOO_LARGE_ERROR = "Argo CD API response exceeded the size limit"
+RESPONSE_TIMEOUT_ERROR = "Argo CD API response exceeded the download time limit"
 
 # The host is customer-controlled, so responses are streamed and read under a byte cap —
 # an arbitrarily large (or endless) 200 body must fail the sync instead of exhausting
 # worker memory. The cap applies to decoded bytes, so a gzip bomb can't slip past it.
-# Per-read stalls are bounded by the request read timeout and total sync duration by the
-# Temporal activity timeouts, so no separate wall-clock limit is enforced here.
 MAX_RESPONSE_BYTES = 512 * 1024 * 1024
 _READ_CHUNK_BYTES = 1024 * 1024
+
+# The per-read timeout only bounds the gap between chunks, so a server can trickle one byte
+# just before each read timeout and keep a worker occupied until the activity's 24h timeout.
+# A monotonic total-transfer deadline caps how long a single body read may take end to end,
+# independent of how the bytes are paced, so this slow-drip path fails the sync instead.
+MAX_RESPONSE_SECONDS = 600
 # Bytes read from an error body for a diagnostic message. Error bodies are never needed in
 # full, so only a short bounded snippet is ever pulled into memory.
 _ERROR_SNIPPET_BYTES = 2048
@@ -59,14 +65,25 @@ class ArgocdResponseTooLargeError(Exception):
     pass
 
 
-def _read_bounded(response: requests.Response, max_bytes: int) -> bytes:
-    """Read a streamed response body up to ``max_bytes`` decoded bytes, then abort."""
+class ArgocdResponseTimeoutError(Exception):
+    pass
+
+
+def _read_bounded(response: requests.Response, max_bytes: int, max_seconds: float = MAX_RESPONSE_SECONDS) -> bytes:
+    """Read a streamed response body under both a byte cap and a total-transfer deadline.
+
+    The deadline covers time spent waiting for each chunk, so a slow-drip body that stays
+    under the per-read timeout but never finishes is aborted instead of holding the worker.
+    """
     total = 0
     chunks: list[bytes] = []
+    deadline = time.monotonic() + max_seconds
     for chunk in response.iter_content(chunk_size=_READ_CHUNK_BYTES):
         total += len(chunk)
         if total > max_bytes:
             raise ArgocdResponseTooLargeError(f"{RESPONSE_TOO_LARGE_ERROR} ({max_bytes} bytes)")
+        if time.monotonic() > deadline:
+            raise ArgocdResponseTimeoutError(f"{RESPONSE_TIMEOUT_ERROR} ({max_seconds:g}s)")
         chunks.append(chunk)
     return b"".join(chunks)
 

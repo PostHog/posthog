@@ -47,7 +47,14 @@ class TestArgocdSource:
 
     @pytest.mark.parametrize(
         "expected_key",
-        ["401 Client Error", "403 Client Error", "Argo CD host is not allowed", "Argo CD host must use HTTPS"],
+        [
+            "401 Client Error",
+            "403 Client Error",
+            "Argo CD host is not allowed",
+            "Argo CD host must use HTTPS",
+            "Argo CD API response exceeded the size limit",
+            "Argo CD API response exceeded the download time limit",
+        ],
     )
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()

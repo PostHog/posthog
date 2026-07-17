@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.arg
     HOST_NOT_ALLOWED_ERROR,
     HTTPS_REQUIRED_ERROR,
     ArgocdHostNotAllowedError,
+    ArgocdResponseTimeoutError,
     ArgocdResponseTooLargeError,
     _history_rows,
     _items,
@@ -276,6 +277,28 @@ class TestGetRows:
             mock.patch.object(argocd_module, "MAX_RESPONSE_BYTES", 15),
             _patch_session(big),
             pytest.raises(ArgocdResponseTooLargeError),
+        ):
+            list(
+                get_rows(
+                    host="https://argocd.example.com",
+                    api_token="tok",
+                    endpoint="applications",
+                    team_id=1,
+                    logger=mock.MagicMock(),
+                )
+            )
+
+    def test_slow_drip_response_aborts_on_total_deadline(self):
+        # A body that stays under the byte cap and never trips the per-read timeout but keeps
+        # dripping past the total transfer budget must fail the sync, not hold the worker.
+        slow = _response()
+        slow.iter_content = mock.Mock(return_value=iter([b"x", b"x", b"x"]))
+        # First call sets the deadline; the next read is already past it.
+        monotonic = mock.Mock(side_effect=[0.0, 601.0, 602.0])
+        with (
+            mock.patch.object(argocd_module.time, "monotonic", monotonic),
+            _patch_session(slow),
+            pytest.raises(ArgocdResponseTimeoutError),
         ):
             list(
                 get_rows(
