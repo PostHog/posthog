@@ -46,9 +46,10 @@ class JumpcloudSource(ResumableSource[JumpcloudSourceConfig, JumpcloudResumeConf
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # The stored API key is sent with whatever `org_id` is configured, so changing it
-        # retargets the saved credential at a different organization — force secret re-entry.
-        return ["org_id"]
+        # Both fields retarget the stored API key, so changing either forces secret re-entry:
+        # `org_id` selects which organization the key acts on, and `region` selects which
+        # regional JumpCloud host the key is sent to.
+        return ["org_id", "region"]
 
     @property
     def get_source_config(self) -> SourceConfig:

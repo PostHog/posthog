@@ -55,9 +55,10 @@ class TestSourceConfig:
         assert org_id.required is False
         assert org_id.secret is False
 
-    def test_connection_host_fields_force_secret_reentry_on_org_change(self) -> None:
-        # Changing org_id retargets the stored API key at another organization's data.
-        assert JumpcloudSource().connection_host_fields == ["org_id"]
+    def test_connection_host_fields_force_secret_reentry_on_retarget(self) -> None:
+        # Changing org_id or region retargets the stored API key (different organization's
+        # data, or a different regional host), so both must force re-entering the key.
+        assert JumpcloudSource().connection_host_fields == ["org_id", "region"]
 
 
 class TestGetSchemas:
