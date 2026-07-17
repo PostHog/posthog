@@ -159,9 +159,9 @@ class TestLinearIntegrationModel(BaseTest):
                 {"data": {"attachmentCreate": {"success": True}}},
             ],
         ) as mock_query:
+            attachment_url = f'https://us.posthog.com/project/{self.team.id}/error_tracking/issue-id" }} mutation {{'
             result = linear.create_issue(
-                str(self.team.id),
-                'issue-id" } mutation {',
+                attachment_url,
                 {
                     "team_id": 'team-id" } mutation {',
                     "title": 'Title "quoted"',
@@ -2854,6 +2854,29 @@ class TestS3CompatibleIntegrationModel(BaseTest):
         )
         with pytest.raises(S3CredentialIntegrationError, match="missing required field: 'endpoint_url'"):
             S3CompatibleIntegration(integration)
+
+
+class TestPinterestAdsIntegrationDisplayName(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "business",
+                {"id": "1", "username": "13x6ppss87fecv1q790xh1orhyp9th", "business_name": "Posthog Inc"},
+                "Posthog Inc",
+            ),
+            ("personal", {"id": "1", "username": "javierposthog", "business_name": ""}, "javierposthog"),
+            # Older connections predate business_name being stored.
+            ("legacy", {"id": "1", "username": "javierposthog"}, "javierposthog"),
+        ]
+    )
+    def test_display_name_prefers_business_name(self, _name: str, config: dict, expected: str) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="pinterest-ads",
+            config=config,
+            integration_id=config["id"],
+        )
+        assert integration.display_name == expected
 
 
 class TestTikTokAdsIntegrationDisplayName(BaseTest):
