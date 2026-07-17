@@ -8,6 +8,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import temporalio.worker
+from parameterized import parameterized
 from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
@@ -159,6 +160,32 @@ class TestQueryNewRecords:
 
         query_arg = mock_parse.call_args[0][0]
         assert "parseDateTimeBestEffort(time) > now() - interval 14 day" in query_arg
+
+    @parameterized.expand(
+        [
+            ("github.acme.posthog-js.issues", ["github", "acme", "posthog-js", "issues"]),
+            ("github.acme.repo.name.issues", ["github", "acme", "repo", "name", "issues"]),
+            ("plain_table", ["plain_table"]),
+        ]
+    )
+    def test_dotted_and_dashed_table_names_survive_parsing(self, table_name, expected_chain):
+        # GitHub multi-repo sources produce dotted keys like `github.<owner>.<repo>.issues`, and repo
+        # names routinely contain dashes. Without per-segment identifier escaping, parse_select raises
+        # SyntaxError on the dash and no signals get emitted. parse_select runs for real here.
+        config = _make_config()
+        mock_result = MagicMock()
+        mock_result.columns = ["id"]
+        mock_result.results = [(1,)]
+
+        with patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query", return_value=mock_result) as mock_execute:
+            data_warehouse_record_fetcher(
+                team=MagicMock(),
+                config=config,
+                context={"table_name": table_name, "last_synced_at": "2025-01-01T00:00:00Z", "extra": {}},
+            )
+
+        parsed_query = mock_execute.call_args.kwargs["query"]
+        assert parsed_query.select_from.table.chain == expected_chain
 
     def test_reraises_on_query_error(self):
         # Must NOT swallow: silenced failures advance last_synced_at and permanently skip records.
