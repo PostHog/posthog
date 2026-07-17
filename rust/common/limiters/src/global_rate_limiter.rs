@@ -660,7 +660,18 @@ impl GlobalRateLimiterImpl {
         scope: &'static str,
     ) {
         tokio::spawn(async move {
-            let mut tick = tokio::time::interval(refresh_interval);
+            // `tokio::time::interval` panics on a zero period. A misconfigured
+            // interval must not kill this (detached) task and silently freeze
+            // dynamic refreshes, so clamp to a 1s floor and warn instead.
+            let period = refresh_interval.max(Duration::from_secs(1));
+            if period != refresh_interval {
+                warn!(
+                    scope,
+                    ?refresh_interval,
+                    "Custom-key refresh interval below 1s floor; clamping to 1s"
+                );
+            }
+            let mut tick = tokio::time::interval(period);
             loop {
                 tokio::select! {
                     _ = stop_rx.recv() => {
@@ -2204,5 +2215,26 @@ mod tests {
         );
         // The last pre-shutdown value is still in place.
         assert_eq!(observed.load().get("second"), Some(&22));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_zero_refresh_interval_is_clamped_not_panicking() {
+        // A zero interval would panic `tokio::time::interval` and kill the
+        // detached refresh task; the clamp must keep it running and ticking.
+        let mock = Arc::new(MockCustomKeyThresholdSource::with_thresholds(Some(
+            HashMap::from([("only".to_string(), 9u64)]),
+        )));
+        let mut config = test_config();
+        let observed = config.custom_keys.clone();
+        config.custom_key_source = Some(mock.clone() as Arc<dyn CustomKeyThresholdSource>);
+        config.custom_key_refresh_interval = Duration::ZERO;
+
+        let client = Arc::new(MockRedisClient::new());
+        let _limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
+
+        assert!(
+            wait_until(|| observed.load().get("only") == Some(&9)).await,
+            "clamped refresh task should still apply the initial map"
+        );
     }
 }
