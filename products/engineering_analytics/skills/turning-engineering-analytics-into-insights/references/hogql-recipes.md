@@ -2,7 +2,7 @@
 
 These base subqueries mirror the product's curated builders
 (`products/engineering_analytics/backend/logic/views/`), so an insight built on them matches what the dashboard and MCP tools report.
-Replace `github_pull_requests` / `github_workflow_runs` / `github_reviews` with the team's real table names from `engineering-analytics-sources` (`prefix` + `github_<endpoint>`).
+Replace every `github_*` table name (`github_pull_requests`, `github_workflow_runs`, `github_workflow_jobs`, `github_reviews`, `github_team_members`) with the team's real table name from `engineering-analytics-sources` (`prefix` + `github_<endpoint>`).
 The `engineering_analytics_*` views used below have fixed names — no prefix, no discovery.
 
 ## The PR base

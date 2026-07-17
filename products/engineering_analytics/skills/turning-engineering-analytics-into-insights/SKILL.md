@@ -59,8 +59,9 @@ The tables are `<prefix>github_pull_requests`, `<prefix>github_workflow_runs`, `
 an empty prefix means the plain `github_*` names.
 With multiple sources, ask which repo the user means; each source is one repo.
 
-The three `engineering_analytics_*` views need no discovery: their names are fixed (no prefix), and each unions every
-connected source, carrying `repo_owner` / `repo_name` columns (`repo` on `ci_failures`) to filter down to one repo.
+The three `engineering_analytics_*` views need no discovery: their names are fixed (no prefix), and they cover all of
+the team's GitHub sources at once — filter on `repo_owner` / `repo_name` (`job_costs`, `ci_job_history`) or `repo`
+(`ci_failures`, which reads the Logs product rather than the per-source tables) to scope down to one repo.
 
 ## Step 2: write HogQL that carries the curated semantics
 
