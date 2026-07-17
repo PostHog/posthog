@@ -52,7 +52,12 @@ from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action, format_paginated_url
-from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
+from posthog.auth import (
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+    SharingAccessTokenAuthentication,
+    SharingPasswordProtectedAuthentication,
+)
 from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_response_by_key
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -326,7 +331,50 @@ class DashboardTileBasicSerializer(serializers.ModelSerializer):
         fields = ["id", "dashboard_id", "deleted"]
 
 
-@extend_schema_serializer(exclude_fields=["filters", "saved"])
+INCLUDE_DASHBOARDS_PARAM = "include_dashboards"
+
+DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER = Counter(
+    "posthog_api_insight_deprecated_dashboards_field_used_total",
+    "Times the deprecated insight `dashboards` field was served in an insight payload (usage=read) "
+    "or accepted as write input (usage=write), by authentication method.",
+    labelnames=["usage", "access_method"],
+)
+
+
+def _dashboards_field_access_method(request: Request | None) -> str:
+    authenticator = getattr(request, "successful_authenticator", None)
+    if authenticator is None or isinstance(authenticator, SessionAuthentication):
+        return "session"
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        return "personal_api_key"
+    return type(authenticator).__name__
+
+
+def should_serve_deprecated_dashboards_field(context: dict) -> bool:
+    """
+    The insight `dashboards` field is deprecated in favor of `dashboard_tiles`, but computing it
+    for every response keeps every caller coupled to it. The web app still reads and writes it,
+    so session-authenticated requests keep receiving it until the frontend migrates; every other
+    caller must opt in with `?include_dashboards=true`. Serving is metered per insight payload so
+    remaining usage is visible before the field is removed.
+    """
+    request = context.get("request")
+    if request is None:
+        # Internal serialization (exports, subscriptions) has no requesting client to migrate.
+        return True
+    authenticator = getattr(request, "successful_authenticator", None)
+    is_session = authenticator is None or isinstance(authenticator, SessionAuthentication)
+    query_params = getattr(request, "query_params", None)
+    opted_in = query_params is not None and str_to_bool(query_params.get(INCLUDE_DASHBOARDS_PARAM, "0"))
+    if is_session or opted_in:
+        DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER.labels(
+            usage="read", access_method=_dashboards_field_access_method(request)
+        ).inc()
+        return True
+    return False
+
+
+@extend_schema_serializer(exclude_fields=["filters", "saved"], deprecate_fields=["dashboards"])
 class InsightBasicSerializer(
     SearchMatchTypeSerializerMixin,
     TaggedItemSerializerMixin,
@@ -385,7 +433,10 @@ class InsightBasicSerializer(
     def to_representation(self, instance):
         representation = super().to_representation(instance)
 
-        representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
+        if should_serve_deprecated_dashboards_field(self.context):
+            representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
+        else:
+            representation.pop("dashboards", None)
 
         if instance.query is not None or instance.query_from_filters is not None:
             representation["filters"] = {}
@@ -466,6 +517,7 @@ class InsightFilterOverrideContext(BaseModel):
     )
 
 
+@extend_schema_serializer(deprecate_fields=["dashboards"])
 class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
     hasMore = serializers.SerializerMethodField()
@@ -501,6 +553,8 @@ class InsightSerializer(InsightBasicSerializer):
         help_text="""
         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
         A dashboard ID for each of the dashboards that this insight is displayed on.
+        Only returned to API-token callers when `include_dashboards=true` is passed; the field
+        is omitted from responses otherwise.
         """,
         many=True,
         required=False,
@@ -596,6 +650,9 @@ class InsightSerializer(InsightBasicSerializer):
 
         new_dashboards = attrs.get("dashboards")
         if new_dashboards is not None:
+            DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER.labels(
+                usage="write", access_method=_dashboards_field_access_method(self.context.get("request"))
+            ).inc()
             team = self.context["get_team"]()
             existing_dashboard_ids: set[int] = set()
             if self.instance is not None:
@@ -1014,7 +1071,7 @@ class InsightSerializer(InsightBasicSerializer):
         # when they have just been updated
         # we store them and can use that list to correct the response
         # and avoid refreshing from the DB
-        if self.context.get("after_dashboard_changes"):
+        if self.context.get("after_dashboard_changes") and "dashboards" in representation:
             representation["dashboards"] = [
                 described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
             ]
@@ -1315,6 +1372,15 @@ INSIGHT_ID_PATH_PARAMETER = OpenApiParameter(
     description="Numeric primary key or 8-character `short_id` (for example `AaVQ8Ijw`) identifying the insight.",
 )
 
+INCLUDE_DASHBOARDS_PARAMETER = OpenApiParameter(
+    name=INCLUDE_DASHBOARDS_PARAM,
+    type=OpenApiTypes.BOOL,
+    description=(
+        "Opt in to receiving the deprecated `dashboards` field in insight payloads. API-token "
+        "callers no longer receive it by default; use `dashboard_tiles` instead."
+    ),
+)
+
 
 INSIGHT_VIEWED_MAX_IDS = 2500
 
@@ -1398,6 +1464,7 @@ Background calculation can be tracked using the `query_status` response field.""
                 type=OpenApiTypes.BOOL,
                 description="Return basic insight metadata only (no results, faster).",
             ),
+            INCLUDE_DASHBOARDS_PARAMETER,
             OpenApiParameter(
                 name="search",
                 type=OpenApiTypes.STR,
@@ -1474,6 +1541,7 @@ Background calculation can be tracked using the `query_status` response field.""
             ),
         ]
     ),
+    retrieve=extend_schema(parameters=[INSIGHT_ID_PATH_PARAMETER, INCLUDE_DASHBOARDS_PARAMETER]),
     update=extend_schema(parameters=[INSIGHT_ID_PATH_PARAMETER]),
     partial_update=extend_schema(parameters=[INSIGHT_ID_PATH_PARAMETER]),
     destroy=extend_schema(parameters=[INSIGHT_ID_PATH_PARAMETER]),
