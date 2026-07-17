@@ -48,16 +48,18 @@ export interface ExecInnerCallProperties {
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
 
 /**
- * Session-scoped skill-usage markers backing the skills-first nudge. The first
- * product `call` in a session that ran no `learn` load gets a one-time reminder
- * appended to its result — interaction-time reinforcement of the SKILLS FIRST
- * prompt section, which agents routinely rationalize their way past.
+ * Session-scoped skill-usage markers backing the skills-first gate. Product
+ * `call`s in a session that ran no `learn` load are rejected with a retryable
+ * instruction — interaction-time enforcement of the SKILLS FIRST prompt section,
+ * which agents demonstrably rationalize their way past when it is advisory only.
+ * `call --no-skills` acknowledges that no skill applies and opens the gate for
+ * the rest of the session.
  */
 export interface SkillsSessionState {
     hasLearned(): Promise<boolean>
     markLearned(): Promise<void>
-    /** Atomically claims the once-per-session nudge; false when already claimed. */
-    claimNudge(): Promise<boolean>
+    hasAcknowledgedNoSkills(): Promise<boolean>
+    markAcknowledgedNoSkills(): Promise<void>
 }
 
 export interface ExecToolOptions {
@@ -74,8 +76,8 @@ export interface ExecToolOptions {
     skillsSession?: SkillsSessionState
 }
 
-const SKILLS_NUDGE_NOTE =
-    'Note: no skills were loaded this session. PostHog ships task skills covering thresholds, schemas, and query patterns — run `learn -s "<task keywords>"` before going further. This note appears once.'
+const SKILLS_GATE_MESSAGE =
+    'No skills loaded this session. Run `learn -s "<task keywords>"` and load the matching skills first — they carry the thresholds, schemas, and query patterns this task needs. If no skill applies, re-run this exact command as `call --no-skills ...`.'
 
 /** True when a `learn` input loads content (guides, skills, or files) rather than listing or searching. */
 function isLearnLoad(rest: string): boolean {
@@ -83,16 +85,29 @@ function isLearnLoad(rest: string): boolean {
     return Boolean(first) && first !== 'skills' && first !== '-s' && first !== '-d'
 }
 
-/** Never lets a session-store hiccup break the actual tool result. */
-async function resolveSkillsNudge(session: SkillsSessionState | undefined): Promise<string | undefined> {
+/**
+ * Returns the gate rejection message, or undefined when the call may proceed.
+ * A session-store hiccup opens the gate — enforcement must never break tools.
+ */
+async function resolveSkillsGate(
+    session: SkillsSessionState | undefined,
+    noSkillsFlag: boolean
+): Promise<string | undefined> {
     if (!session) {
         return undefined
     }
     try {
+        if (noSkillsFlag) {
+            await session.markAcknowledgedNoSkills()
+            return undefined
+        }
         if (await session.hasLearned()) {
             return undefined
         }
-        return (await session.claimNudge()) ? SKILLS_NUDGE_NOTE : undefined
+        if (await session.hasAcknowledgedNoSkills()) {
+            return undefined
+        }
+        return SKILLS_GATE_MESSAGE
     } catch {
         return undefined
     }
@@ -113,10 +128,11 @@ function parseCommand(input: string): { verb: string; rest: string } {
     return { verb: trimmed.slice(0, idx), rest: trimmed.slice(idx + 1).trim() }
 }
 
-function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; rest: string } {
+function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; noSkills: boolean; rest: string } {
     let rest = input.trim()
     let forceJson = false
     let confirmed = false
+    let noSkills = false
 
     while (rest) {
         const parsed = parseCommand(rest)
@@ -130,10 +146,15 @@ function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean
             rest = parsed.rest
             continue
         }
+        if (parsed.verb === '--no-skills') {
+            noSkills = true
+            rest = parsed.rest
+            continue
+        }
         break
     }
 
-    return { forceJson, confirmed, rest }
+    return { forceJson, confirmed, noSkills, rest }
 }
 
 // Extracts the inner tool name from an exec `call` command, e.g.
@@ -301,7 +322,7 @@ export function createExecTool(
                     }
                     const learnResult = await learnCatalog.execute(rest)
                     // Only loads count as "learned" — a search whose results are then
-                    // ignored is exactly the bypass the nudge exists to catch.
+                    // ignored is exactly the bypass the gate exists to catch.
                     if (options.skillsSession && isLearnLoad(rest)) {
                         await options.skillsSession.markLearned().catch(() => undefined)
                     }
@@ -471,17 +492,21 @@ export function createExecTool(
 
                 case 'call': {
                     if (!rest) {
-                        throw new Error('Usage: call [--json] [--confirm] <tool_name> <json_input>')
+                        throw new Error('Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>')
                     }
                     if (!context) {
                         throw new Error('Cannot call PostHog tools without an API context')
                     }
-                    const { forceJson, confirmed, rest: callArgs } = parseCallFlags(rest)
+                    const { forceJson, confirmed, noSkills, rest: callArgs } = parseCallFlags(rest)
                     if (!callArgs) {
-                        throw new Error('Usage: call [--json] [--confirm] <tool_name> <json_input>')
+                        throw new Error('Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
                     const tool = findTool(allTools, toolName)
+                    const gateMessage = await resolveSkillsGate(options.skillsSession, noSkills)
+                    if (gateMessage) {
+                        throw new Error(gateMessage)
+                    }
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new Error(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`
@@ -619,8 +644,7 @@ export function createExecTool(
                         output_tokens: estimateTokens(outputText),
                         input,
                     })
-                    const nudge = await resolveSkillsNudge(options.skillsSession)
-                    return nudge ? `${outputText}\n\n${nudge}` : outputText
+                    return outputText
                 }
 
                 default:

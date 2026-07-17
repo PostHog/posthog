@@ -77,4 +77,25 @@ describe('ProjectSkillCatalog', () => {
         expect(descriptions.get('retention-analysis')).toBe('Find where users stop returning.')
         expect(list.names).toEqual(['retention-analysis'])
     })
+    it('falls back to tokenized listing rank when backend search returns nothing', async () => {
+        const request = vi.fn(async ({ path }: { path: string }) => {
+            if (path.endsWith('/search/')) {
+                return { results: [] }
+            }
+            return {
+                count: 2,
+                next: null,
+                results: [
+                    { name: 'hedgebox-revenue-policy', description: 'Qualified enterprise revenue definition.' },
+                    { name: 'oncall-runbook', description: 'Paging and escalation.' },
+                ],
+            }
+        })
+        const catalog = new ProjectSkillCatalog(makeContext(request))
+
+        const results = await catalog.searchResults('qualified enterprise revenue definition')
+
+        expect(results.map((result) => result.identifier)).toEqual(['project:hedgebox-revenue-policy'])
+        expect(results[0]!.score).toBeGreaterThan(0)
+    })
 })

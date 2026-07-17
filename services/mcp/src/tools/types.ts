@@ -32,7 +32,7 @@ export type State = {
     mcpConsumer: string | undefined
     mcpVendorClient: string | undefined
     skillsLearnedAt: number | undefined
-    skillsNudgedAt: number | undefined
+    skillsNoSkillsAckAt: number | undefined
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
     Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined> &
