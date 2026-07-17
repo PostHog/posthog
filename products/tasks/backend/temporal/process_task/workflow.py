@@ -20,7 +20,12 @@ from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
-from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextInput, get_pr_context
+from products.tasks.backend.temporal.patches import ci_follow_up_actionable_gate
+from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
+    GetPrContextInput,
+    get_pr_context,
+    is_pr_actionable,
+)
 
 from .activities.cleanup_sandbox import (
     CleanupSandboxInput,
@@ -114,6 +119,8 @@ class ResumedSandboxState:
     first_user_message_received: bool
     is_agent_design_enabled: bool
     last_active_time: Optional[str]  # ISO8601, or None if never active
+    # Defaulted so continue_as_new payloads from pre-rollout runs deserialize.
+    pr_unresolved_threads: int = 0
 
 
 @dataclass
@@ -269,6 +276,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # exception handler onto the right card.
         self._current_progress_step: Optional[tuple[str, str, str]] = None
         self._pr_fingerprint: Optional[str] = None
+        # Last observed unresolved review-thread count. Starting at 0 means
+        # feedback posted before the first poll still reads as new.
+        self._pr_unresolved_threads: int = 0
         # Emit the "PR opened / keeping CI green" progress once, the first time we observe a PR — the
         # agent opens it mid-run and then keeps it green, so without this the UI dead-ends at "Started agent".
         self._pr_progress_emitted: bool = False
@@ -481,18 +491,19 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
             return CIFollowUpDecision.SKIP
-        if self._pr_fingerprint != pr_context.fingerprint:
-            workflow.logger.info(
-                "PR context has changed, running CI follow-up",
-                extra={
-                    "run_id": self.context.run_id,
-                    "pr_url": pr_context.pr_url,
-                    "pr_state": pr_context.pr_state,
-                },
-            )
+        fingerprint_changed = self._pr_fingerprint != pr_context.fingerprint
+        if not ci_follow_up_actionable_gate():
+            # Legacy replay path: any fingerprint change fires; feedback is not consulted.
+            if not fingerprint_changed:
+                return CIFollowUpDecision.SKIP
             self._pr_fingerprint = pr_context.fingerprint
             return CIFollowUpDecision.FIRE
-        else:
+        # New unresolved review threads are feedback for the agent, and comparing
+        # against the last-seen count means its own thread replies (which never
+        # resolve anything) can't re-trigger it.
+        new_feedback = pr_context.unresolved_threads > self._pr_unresolved_threads
+        self._pr_unresolved_threads = pr_context.unresolved_threads
+        if not fingerprint_changed and not new_feedback:
             workflow.logger.info(
                 "PR context has not changed, skipping CI follow-up",
                 extra={
@@ -502,6 +513,22 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
             return CIFollowUpDecision.SKIP
+        self._pr_fingerprint = pr_context.fingerprint
+        fire = (fingerprint_changed and is_pr_actionable(pr_context)) or new_feedback
+        workflow.logger.info(
+            "PR context has changed, deciding CI follow-up",
+            extra={
+                "run_id": self.context.run_id,
+                "pr_url": pr_context.pr_url,
+                "pr_state": pr_context.pr_state,
+                "ci_status": pr_context.ci_status,
+                "changes_requested": pr_context.changes_requested,
+                "unresolved_threads": pr_context.unresolved_threads,
+                "new_feedback": new_feedback,
+                "fire": fire,
+            },
+        )
+        return CIFollowUpDecision.FIRE if fire else CIFollowUpDecision.SKIP
 
     async def _dispatch_ci_follow_up(self) -> None:
         self._ci_repetitions += 1
@@ -950,6 +977,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 connect_token=self._sandbox_connect_token,
                 ci_repetitions=self._ci_repetitions,
                 pr_fingerprint=self._pr_fingerprint,
+                pr_unresolved_threads=self._pr_unresolved_threads,
                 pr_progress_emitted=self._pr_progress_emitted,
                 first_user_message_received=self._first_user_message_received,
                 is_agent_design_enabled=self._is_agent_design_enabled,
@@ -961,6 +989,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._is_agent_design_enabled = resumed.is_agent_design_enabled
         self._ci_repetitions = resumed.ci_repetitions
         self._pr_fingerprint = resumed.pr_fingerprint
+        self._pr_unresolved_threads = resumed.pr_unresolved_threads
         self._pr_progress_emitted = resumed.pr_progress_emitted
         self._first_user_message_received = resumed.first_user_message_received
         self._last_active_time = datetime.fromisoformat(resumed.last_active_time) if resumed.last_active_time else None

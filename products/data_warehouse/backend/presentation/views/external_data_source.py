@@ -77,14 +77,14 @@ from products.data_warehouse.backend.facade.api import (
     delete_webhook_and_hog_function,
     detect_schema_clear_transition as detect_sql_schema_clear_transition,
     ensure_cdc_slot_cleanup_schedule,
-    get_mysql_source_location,
+    get_direct_query_engine,
     get_or_create_webhook_hog_function,
     get_postgres_source_location,
-    get_redshift_source_location,
     get_webhook_url,
     github_repositories_for_job_inputs,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
+    is_cdc_extraction_schedule_paused,
     is_custom_source_ai_builder_enabled_for_team,
     is_multi_schema_capable_sql_source,
     reconcile_github_repositories,
@@ -98,10 +98,7 @@ from products.data_warehouse.backend.facade.api import (
     sync_discover_schemas_schedule,
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
-    upsert_direct_mysql_table,
-    upsert_direct_postgres_table,
-    upsert_direct_redshift_table,
-    upsert_direct_snowflake_table,
+    unpause_cdc_extraction_schedule,
 )
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.presentation.views.external_data_schema import (
@@ -117,12 +114,7 @@ from products.data_warehouse.backend.presentation.views.source_api_versions impo
     api_version_deprecation_payload,
 )
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
-from products.warehouse_sources.backend.facade.api import (
-    mysql_columns_to_dwh_columns,
-    postgres_columns_to_dwh_columns,
-    snowflake_columns_to_dwh_columns,
-    validate_source_prefix,
-)
+from products.warehouse_sources.backend.facade.api import validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
     CustomOAuth2Integration,
     DataWarehouseTable,
@@ -130,6 +122,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
     PendingSourceCredential,
+    auto_enable_new_schemas,
     sync_old_schemas_with_new_schemas,
     update_sync_type_config_keys,
 )
@@ -161,6 +154,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     SSLRequiredError,
     WebhookSource,
     build_default_schemas,
+    build_default_sync_settings,
     cdc_pg_connection,
     draft_manifest_sync,
     fetch_docs_text,
@@ -479,62 +473,6 @@ def get_postgres_source_table_location(
     )
 
 
-def get_mysql_source_table_location(
-    *,
-    schema_name: str,
-    source_schema: SourceSchema | None,
-    default_schema: str | None,
-) -> tuple[str, str]:
-    return get_mysql_source_location(
-        schema_name=schema_name,
-        schema_metadata={
-            "source_schema": source_schema.source_schema if source_schema else None,
-            "source_table_name": source_schema.source_table_name if source_schema else None,
-        },
-        default_schema=default_schema,
-    )
-
-
-def get_snowflake_source_table_location(
-    *,
-    schema_name: str,
-    source_schema: SourceSchema | None,
-    default_schema: str | None,
-    default_catalog: str | None = None,
-) -> tuple[str | None, str, str]:
-    catalog = source_schema.source_catalog if source_schema and source_schema.source_catalog else default_catalog
-    if source_schema and source_schema.source_schema and source_schema.source_table_name:
-        return catalog, source_schema.source_schema, source_schema.source_table_name
-
-    normalized_default_schema = (
-        default_schema.strip() if isinstance(default_schema, str) and default_schema.strip() else None
-    )
-    if normalized_default_schema is None and "." in schema_name:
-        inferred_schema, inferred_table_name = schema_name.split(".", 1)
-        return catalog, inferred_schema, inferred_table_name
-
-    return catalog, normalized_default_schema or "", schema_name
-
-
-def get_redshift_source_table_location(
-    *,
-    schema_name: str,
-    source_schema: SourceSchema | None,
-    default_schema: str | None,
-    default_catalog: str | None = None,
-) -> tuple[str | None, str, str]:
-    return get_redshift_source_location(
-        schema_name=schema_name,
-        schema_metadata={
-            "source_catalog": source_schema.source_catalog if source_schema else None,
-            "source_schema": source_schema.source_schema if source_schema else None,
-            "source_table_name": source_schema.source_table_name if source_schema else None,
-        },
-        default_catalog=default_catalog,
-        default_schema=default_schema,
-    )
-
-
 CUSTOM_SOURCE_LIMIT_MESSAGE = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
 DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
     "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, and Redshift sources."
@@ -672,6 +610,15 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Row-filter predicates ANDed onto the source query. Null/empty means sync all rows.",
+    )
+    apply_sync_defaults = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "When true and the schema has no sync method configured yet (and this update does not set "
+            "one), discover the table on the source and fill in default sync settings: incremental sync "
+            "with an auto-selected tracking column where supported, otherwise append, otherwise full "
+            "refresh. Ignored for schemas that already have a sync method."
+        ),
     )
 
 
@@ -827,6 +774,30 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "Defaults to false for new sources; ignored for pure direct-query sources."
         ),
     )
+    auto_sync_new_schemas = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Automatically enable syncing for schemas discovered on this source after creation, "
+            "on both the scheduled discovery pass and manual schema refreshes. Defaults to false. "
+            "Not supported for direct-query sources."
+        ),
+    )
+    auto_sync_schema_patterns = serializers.ListField(
+        child=serializers.CharField(
+            max_length=250,
+            allow_blank=False,
+            help_text="An fnmatch-style glob pattern, e.g. `raw_*`.",
+        ),
+        required=False,
+        allow_null=True,
+        max_length=100,
+        help_text=(
+            "Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered "
+            "schema names auto-sync, matched case-insensitively against both the qualified and bare "
+            "table name. Null or empty means every new schema qualifies. Only used when "
+            "`auto_sync_new_schemas` is true."
+        ),
+    )
     api_version = serializers.CharField(
         read_only=True,
         allow_null=True,
@@ -859,6 +830,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "description",
             "access_method",
             "direct_query_enabled",
+            "auto_sync_new_schemas",
+            "auto_sync_schema_patterns",
             "engine",
             "last_run_at",
             "schemas",
@@ -1010,6 +983,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         validated_data.pop("access_method", None)
         # created_via is set at creation time and cannot be mutated afterwards
         validated_data.pop("created_via", None)
+
+        if validated_data.get("auto_sync_new_schemas") and instance.is_direct_query:
+            raise ValidationError(
+                "Auto-syncing new schemas is not supported for direct query sources, "
+                "because their schemas resolve at query time."
+            )
+
         incoming_prefix = validated_data.get("prefix", instance.prefix)
 
         if instance.is_direct_query:
@@ -2093,9 +2073,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if created_via == ExternalDataSource.CreatedVia.WIZARD and is_wizard_self_driving_program(request):
                 created_via = ExternalDataSource.CreatedVia.SELF_DRIVING
         is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
-        is_direct_mysql = is_direct_query and source_type == ExternalDataSourceType.MYSQL
-        is_direct_snowflake = is_direct_query and source_type == ExternalDataSourceType.SNOWFLAKE
-        is_direct_redshift = is_direct_query and source_type == ExternalDataSourceType.REDSHIFT
 
         if is_direct_query and source_type not in direct_capable_source_types():
             return Response(
@@ -2338,6 +2315,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     data={"message": cdc_error},
                 )
 
+        # Direct-query table materialization is engine-specific; dispatch on the engine, not the
+        # source type. None for non-direct-capable sources.
+        direct_engine_adapter = get_direct_query_engine(new_source_model.direct_engine)
+
         # Create all ExternalDataSchema objects and enable syncing for active schemas
         for schema in payload_schemas:
             sync_type = schema.get("sync_type")
@@ -2382,35 +2363,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             metadata_source_catalog: str | None
             metadata_source_schema: str | None
             metadata_source_table_name: str | None
-            if source_type_model == ExternalDataSourceType.POSTGRES:
+            # Direct mode needs a resolved source location for the live-query table; warehouse mode
+            # keeps storing whatever the source reported to avoid changing sync routing (except
+            # Postgres, which resolves in both modes — carried by the adapter flag).
+            if direct_engine_adapter is not None and (
+                is_direct_query or direct_engine_adapter.resolves_location_in_warehouse_mode
+            ):
                 metadata_source_catalog, metadata_source_schema, metadata_source_table_name = (
-                    get_postgres_source_table_location(
-                        schema_name=schema_name,
-                        source_schema=source_schema,
-                        default_schema=default_source_schema,
-                    )
-                )
-            elif is_direct_mysql:
-                # Direct mode needs a resolved source location for the live-query table; warehouse
-                # mode keeps storing whatever the source reported to avoid changing sync routing.
-                metadata_source_catalog = None
-                metadata_source_schema, metadata_source_table_name = get_mysql_source_table_location(
-                    schema_name=schema_name,
-                    source_schema=source_schema,
-                    default_schema=default_source_schema or source_config.to_dict().get("database"),
-                )
-            elif is_direct_snowflake:
-                metadata_source_catalog, metadata_source_schema, metadata_source_table_name = (
-                    get_snowflake_source_table_location(
-                        schema_name=schema_name,
-                        source_schema=source_schema,
-                        default_schema=default_source_schema,
-                        default_catalog=default_source_catalog,
-                    )
-                )
-            elif is_direct_redshift:
-                metadata_source_catalog, metadata_source_schema, metadata_source_table_name = (
-                    get_redshift_source_table_location(
+                    direct_engine_adapter.source_table_location(
                         schema_name=schema_name,
                         source_schema=source_schema,
                         default_schema=default_source_schema,
@@ -2562,10 +2522,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 row_filters=row_filters,
             )
 
-            # The CDC path is Postgres-only, and the direct paths are engine-specific —
-            # `get_postgres_source_table_location` / `get_mysql_source_table_location` guarantee
-            # non-None schema/table in their branches above. `cast` narrows for mypy without a
-            # runtime check. The adapter no-ops for self-managed / no-publication.
+            # The CDC path is Postgres-only, and the engine adapter's `source_table_location`
+            # guarantees non-None schema/table when it resolves above. `cast` narrows for mypy
+            # without a runtime check. The adapter no-ops for self-managed / no-publication.
             if is_cdc_schema and should_sync and cdc_enabled and cdc_adapter is not None:
                 cdc_adapter.add_table(
                     new_source_model,
@@ -2573,74 +2532,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     cast(str, metadata_source_table_name),
                 )
 
-            if new_source_model.is_direct_postgres and should_sync:
+            if direct_engine_adapter is not None and is_direct_query and should_sync:
                 # Apply the picker's column subset on the very first DataWarehouseTable build,
                 # not just on subsequent updates — otherwise users see all columns in HogQL until
-                # they hit save again or a refresh runs.
-                schema_model.table = upsert_direct_postgres_table(
+                # they hit save again or a refresh runs. Columns are keyed by raw, case-sensitive
+                # source names (`normalize=False`).
+                schema_model.table = direct_engine_adapter.upsert_table(
                     None,
                     schema_name=schema_name,
                     source=new_source_model,
                     columns=filter_dwh_columns_by_enabled_columns(
-                        postgres_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                        direct_engine_adapter.columns_to_dwh_columns(source_schema.columns if source_schema else []),
                         enabled_columns,
                         source_schema.detected_primary_keys if source_schema else None,
                         incremental_field,
-                        # Direct-postgres columns are keyed by raw, case-sensitive source names.
-                        normalize=False,
-                    ),
-                    source_catalog=metadata_source_catalog,
-                    source_schema=cast(str, metadata_source_schema),
-                    source_table_name=cast(str, metadata_source_table_name),
-                )
-                schema_model.save(update_fields=["table"])
-            elif new_source_model.is_direct_mysql and should_sync:
-                schema_model.table = upsert_direct_mysql_table(
-                    None,
-                    schema_name=schema_name,
-                    source=new_source_model,
-                    columns=filter_dwh_columns_by_enabled_columns(
-                        mysql_columns_to_dwh_columns(source_schema.columns if source_schema else []),
-                        enabled_columns,
-                        source_schema.detected_primary_keys if source_schema else None,
-                        incremental_field,
-                        # Direct-mysql columns are keyed by raw, case-sensitive source names.
-                        normalize=False,
-                    ),
-                    source_schema=cast(str, metadata_source_schema),
-                    source_table_name=cast(str, metadata_source_table_name),
-                )
-                schema_model.save(update_fields=["table"])
-            elif new_source_model.is_direct_snowflake and should_sync:
-                schema_model.table = upsert_direct_snowflake_table(
-                    None,
-                    schema_name=schema_name,
-                    source=new_source_model,
-                    columns=filter_dwh_columns_by_enabled_columns(
-                        snowflake_columns_to_dwh_columns(source_schema.columns if source_schema else []),
-                        enabled_columns,
-                        source_schema.detected_primary_keys if source_schema else None,
-                        incremental_field,
-                        # Direct-snowflake columns are keyed by raw, case-sensitive source names.
-                        normalize=False,
-                    ),
-                    source_catalog=metadata_source_catalog,
-                    source_schema=cast(str, metadata_source_schema),
-                    source_table_name=cast(str, metadata_source_table_name),
-                )
-                schema_model.save(update_fields=["table"])
-            elif new_source_model.is_direct_redshift and should_sync:
-                schema_model.table = upsert_direct_redshift_table(
-                    None,
-                    schema_name=schema_name,
-                    source=new_source_model,
-                    columns=filter_dwh_columns_by_enabled_columns(
-                        # Redshift information_schema types are Postgres-style, so reuse the Postgres mapper.
-                        postgres_columns_to_dwh_columns(source_schema.columns if source_schema else []),
-                        enabled_columns,
-                        source_schema.detected_primary_keys if source_schema else None,
-                        incremental_field,
-                        # Direct-redshift columns are keyed by raw source names.
                         normalize=False,
                     ),
                     source_catalog=metadata_source_catalog,
@@ -2928,6 +2833,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "properties": {
                     "added": {"type": "integer"},
                     "deleted": {"type": "integer"},
+                    "auto_enabled": {"type": "integer"},
                     "total_tables_seen": {"type": "integer"},
                 },
             }
@@ -3072,12 +2978,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 # ClickHouse isn't a SQLSource but exposes the same column-selection
                 # capability and reconcile hook, so it reuses this path.
                 source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
+
+        # Outside the atomic block: schedule creation talks to Temporal, which must not run under
+        # the source row lock or against rows that could still roll back. `schemas_created` holds
+        # post-substitution stored names, so remap the discovered names to match.
+        auto_enabled_names: list[str] = []
+        if schemas_created:
+            source_schemas_by_name = {name_substitutions.get(s.name, s.name): s for s in schemas}
+            auto_enabled_names = auto_enable_new_schemas(instance, schemas_created, source_schemas_by_name)
+
         logger.debug(
             "refresh_schemas completed",
             source_id=str(instance.id),
             team_id=self.team_id,
             added=len(schemas_created),
             deleted=len(schemas_deleted),
+            auto_enabled=len(auto_enabled_names),
             total_tables_seen=len(schemas),
         )
         return Response(
@@ -3085,6 +3001,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             data={
                 "added": len(schemas_created),
                 "deleted": len(schemas_deleted),
+                "auto_enabled": len(auto_enabled_names),
                 "total_tables_seen": len(schemas),
             },
         )
@@ -4091,6 +4008,107 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         return Response(status=status.HTTP_200_OK, data={"success": True, "schemas_reset": schemas_reset})
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response={"type": "object", "properties": {"success": {"type": "boolean"}}},
+                description="CDC resumed; the extraction schedule is unpaused.",
+            ),
+            400: OpenApiResponse(
+                description="CDC not enabled, the slot/publication were lost (use Repair CDC), the source is still "
+                "unreachable, or unpausing failed."
+            ),
+        },
+    )
+    @action(methods=["POST"], detail=True)
+    def resume_cdc(self, request: Request, *arg: Any, **kwargs: Any):
+        """Resume a CDC source whose extraction schedule was paused by a non-retryable
+        failure that left the replication slot intact (bad credentials, SSL/host errors).
+
+        Once the user has fixed the root cause, this re-probes the source DB — confirming
+        the connection now succeeds and the slot/publication still exist — then unpauses the
+        extraction schedule so streaming resumes from where it left off. No re-snapshot, so
+        it's the cheap counterpart to Repair CDC. If the slot/publication are actually gone
+        (``cdc_broken``, or a live probe showing them missing), resume is refused — only
+        Repair CDC can recreate them, at the cost of a full re-sync.
+        """
+        instance: ExternalDataSource = self.get_object()
+
+        adapter, err = self._get_cdc_adapter_or_400(instance)
+        if err is not None:
+            return err
+        assert adapter is not None  # narrowed by _get_cdc_adapter_or_400
+
+        cdc_config = adapter.parse_cdc_config(instance)
+        if not cdc_config.enabled:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "CDC is not enabled on this source."},
+            )
+
+        cdc_schemas = list(
+            ExternalDataSchema.objects.filter(
+                source=instance,
+                sync_type=ExternalDataSchema.SyncType.CDC,
+                should_sync=True,
+            ).exclude(deleted=True)
+        )
+        if not cdc_schemas:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "No schemas are syncing via change data capture, so there is nothing to resume."},
+            )
+
+        # A broken source has lost its slot/publication — resuming would just re-fail on the
+        # next tick. Route the user to Repair CDC, which recreates them (and re-syncs).
+        if any((schema.sync_type_config or {}).get("cdc_broken") for schema in cdc_schemas):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "The replication slot or publication was lost. Use Repair CDC to recreate it."},
+            )
+
+        # Re-probe the source: this both re-validates the connection (a still-wrong password
+        # raises here) and confirms the slot/publication survive, so we never unpause straight
+        # back into the same deterministic failure.
+        try:
+            live_status = adapter.get_status(instance)
+        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": f"Could not connect to source to resume CDC — check the credentials and try again: {e}"
+                },
+            )
+        except Exception as e:
+            capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to source to resume CDC: {e}"},
+            )
+
+        if live_status.get("slot_exists") is False or live_status.get("publication_exists") is False:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "The replication slot or publication is missing. Use Repair CDC to recreate it."},
+            )
+
+        try:
+            # Recreate the schedule if it was deleted out-of-band — unpausing a missing schedule is a
+            # silent no-op that would report success while CDC never runs (same ordering as CDC repair's
+            # _resume_schedules). sync builds an unpaused schedule; the explicit unpause covers the
+            # already-existing-but-paused case.
+            sync_cdc_extraction_schedule(instance)
+            unpause_cdc_extraction_schedule(str(instance.id))
+        except Exception as e:
+            capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not resume CDC: {e}"},
+            )
+
+        return Response(status=status.HTTP_200_OK, data={"success": True})
+
     @action(methods=["POST"], detail=True)
     def update_cdc_settings(self, request: Request, *arg: Any, **kwargs: Any):
         """Update CDC tuning fields without enabling/disabling.
@@ -4182,6 +4200,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": f"Could not connect to source to read CDC status: {e}"},
             )
 
+        # Paused-but-slot-intact means a non-retryable failure stopped the schedule; the UI offers
+        # Resume (vs Repair) so the user can restart without a full re-sync. Best-effort: a Temporal
+        # hiccup must not 500 this otherwise DB-only status read, so degrade to not-paused.
+        try:
+            schedule_paused = is_cdc_extraction_schedule_paused(str(instance.id))
+        except Exception:
+            logger.warning("cdc_status_schedule_paused_lookup_failed", source_id=str(instance.id), exc_info=True)
+            schedule_paused = False
+
         return Response(
             status=status.HTTP_200_OK,
             data={
@@ -4191,6 +4218,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "publication_name": cdc_config.publication_name,
                 "lag_warning_threshold_mb": cdc_config.lag_warning_threshold_mb,
                 "lag_critical_threshold_mb": cdc_config.lag_critical_threshold_mb,
+                "schedule_paused": schedule_paused,
                 **live_status,
             },
         )
@@ -4711,6 +4739,70 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
 
+    def _fill_default_sync_settings(
+        self,
+        source: ExternalDataSource,
+        schema_updates: list[dict[str, Any]],
+        source_schemas_by_id: dict[uuid.UUID, ExternalDataSchema],
+    ) -> tuple[dict[str, tuple[str, str]], set[str]]:
+        """Fill default sync settings into bulk-update items that ask for them.
+
+        Items with ``apply_sync_defaults`` targeting a schema that has no sync method yet (and
+        whose update doesn't set one) get their sync settings discovered from the source — one
+        discovery call for the whole batch. Returns per-schema failures (dropped tables,
+        webhook-only tables, discovery errors) for the caller to skip and report, plus the ids
+        of the schemas whose settings were filled in.
+        """
+        needing_defaults = [
+            schema_update
+            for schema_update in schema_updates
+            if schema_update.get("apply_sync_defaults")
+            and schema_update.get("sync_type") is None
+            and source_schemas_by_id[schema_update["id"]].sync_type is None
+        ]
+        # Direct-query sources have no sync method to configure — enabling is just should_sync.
+        if not needing_defaults or not source.supports_scheduled_sync:
+            return {}, set()
+
+        failures: dict[str, tuple[str, str]] = {}
+        names = [source_schemas_by_id[schema_update["id"]].name for schema_update in needing_defaults]
+        try:
+            source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+            config = source_impl.parse_config(source.job_inputs)
+            discovered = source_impl.get_schemas(config, self.team_id, names=names)
+        except Exception as e:
+            capture_exception(e)
+            reason = "could not read the source to pick default sync settings; check the source credentials"
+            for schema_update in needing_defaults:
+                schema = source_schemas_by_id[schema_update["id"]]
+                failures[str(schema.id)] = (schema.name, reason)
+            return failures, set()
+
+        # Not every source honors the `names` filter, so match by name instead of order.
+        discovered_by_name = {discovered_schema.name: discovered_schema for discovered_schema in discovered}
+        defaulted_schema_ids: set[str] = set()
+        for schema_update in needing_defaults:
+            schema = source_schemas_by_id[schema_update["id"]]
+            discovered_schema = discovered_by_name.get(schema.name)
+            if discovered_schema is None:
+                failures[str(schema.id)] = (
+                    schema.name,
+                    "not found on the source; pull new schemas to refresh the table list",
+                )
+                continue
+            if discovered_schema.webhook_only:
+                failures[str(schema.id)] = (
+                    schema.name,
+                    "can only be synced via webhooks; set up the webhook sync method instead",
+                )
+                continue
+            for key, value in build_default_sync_settings(discovered_schema).items():
+                # A caller-sent value wins; None (missing or explicit null) means "not set".
+                if schema_update.get(key) is None:
+                    schema_update[key] = value
+            defaulted_schema_ids.add(str(schema.id))
+        return failures, defaulted_schema_ids
+
     @extend_schema(
         request=ExternalDataSourceBulkUpdateSchemasSerializer,
         responses={200: ExternalDataSchemaSerializer(many=True)},
@@ -4737,6 +4829,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if len(source_schemas_by_id) != len(schema_ids):
             raise ValidationError("One or more schemas could not be found for this source")
 
+        # Items that ask for sync defaults on a not-yet-configured schema get them discovered and
+        # filled in up front. Tables that can't get defaults (dropped from the source, webhook-only)
+        # fail individually and are skipped below, without blocking the rest of the batch.
+        failed_schemas, defaulted_schema_ids = self._fill_default_sync_settings(
+            source, schema_updates, source_schemas_by_id
+        )
+        only_validation_errors = True
+
         serializer_context = self.get_serializer_context()
         updated_schemas: list[ExternalDataSchema] = []
         # Each deferred action is paired with its schema so a post-commit failure can be attributed.
@@ -4749,7 +4849,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         for schema_update in schema_updates:
             schema_id = schema_update["id"]
             schema = source_schemas_by_id[schema_id]
-            schema_payload = {key: value for key, value in schema_update.items() if key != "id"}
+            if str(schema.id) in failed_schemas:
+                continue
+            schema_payload = {
+                key: value for key, value in schema_update.items() if key not in ("id", "apply_sync_defaults")
+            }
 
             schema_post_commit_actions: list[Callable[[], None]] = []
             schema_serializer = ExternalDataSchemaSerializer(
@@ -4759,6 +4863,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 context={**serializer_context, "post_commit_actions": schema_post_commit_actions},
             )
             schema_serializer.is_valid(raise_exception=True)
+            if str(schema.id) in defaulted_schema_ids:
+                # Defaults discovery already confirmed these tables aren't webhook-only; seed the
+                # cache so the warm step below doesn't re-probe the source once per schema.
+                schema_serializer.seed_webhook_only_check(False)
             # Do the webhook-only source-discovery call (e.g. Google Ads token refresh + field query)
             # here, before the per-schema transaction below. Running it inside update()'s transaction
             # held the DB connection idle-in-transaction long enough for the server to close it.
@@ -4770,8 +4878,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # meant one schema's failure rolled back every schema and failed the request, so the user
         # got nothing applied. Isolating per schema keeps the ones that saved committed, attempts
         # every schema so a single bad one can't block the rest, and reports the failures together.
-        failed_schemas: dict[str, tuple[str, str]] = {}
-        only_validation_errors = True
         for schema, schema_serializer, schema_post_commit_actions in prepared:
             try:
                 with transaction.atomic():

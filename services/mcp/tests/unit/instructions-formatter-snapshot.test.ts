@@ -8,6 +8,7 @@ import type { GroupType } from '@/api/client'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
+import { PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import { buildActiveEnvironmentContextPrompt, type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructions-formatter'
 import { getToolDefinitions } from '@/tools/toolDefinitions'
@@ -160,7 +161,9 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const state = {
             allTools: Object.keys(getToolDefinitions()).map((name) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }),
-            toolFeatureFlags: {},
+            // Data catalog on: the analytics learn-topic description is longer with
+            // the flag, and topic descriptions are inlined in the command reference.
+            toolFeatureFlags: { [PRODUCT_DATA_CATALOG_FLAG]: true },
             renderUiEnabled: true,
             metadata: worstCaseMetadata,
             groupTypes: worstCaseGroupTypes,
