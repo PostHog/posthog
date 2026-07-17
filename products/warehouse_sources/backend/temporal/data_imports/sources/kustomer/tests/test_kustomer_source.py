@@ -105,10 +105,25 @@ class TestKustomerSource:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is KustomerResumeConfig
 
+    def test_version_declaration_keeps_v1_and_defaults_to_v2(self):
+        # New sources are stamped with default_version; existing v1 pins keep working.
+        assert self.source.supported_versions == ("v1", "v2")
+        assert self.source.default_version == "v2"
+        assert self.source.deprecated_versions == ()
+
+    @pytest.mark.parametrize(
+        "pinned_version, expected_version",
+        [
+            (None, "v2"),  # unpinned new source resolves to the default
+            ("v1", "v1"),  # existing pin is honored verbatim
+            ("v2", "v2"),
+        ],
+    )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.source.kustomer_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_kustomer_source):
+    def test_source_for_pipeline_plumbs_arguments(self, mock_kustomer_source, pinned_version, expected_version):
         inputs = mock.MagicMock()
         inputs.schema_name = "customers"
+        inputs.api_version = pinned_version
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -118,4 +133,5 @@ class TestKustomerSource:
         assert kwargs["org_name"] == "myorg"
         assert kwargs["api_key"] == "api-key"
         assert kwargs["endpoint"] == "customers"
+        assert kwargs["api_version"] == expected_version
         assert kwargs["resumable_source_manager"] is manager

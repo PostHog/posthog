@@ -32,8 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KustomerSource(ResumableSource[KustomerSourceConfig, KustomerResumeConfig]):
-    supported_versions = ("v1",)
-    default_version = "v1"
+    supported_versions = ("v1", "v2")
+    default_version = "v2"
     api_docs_url = "https://developer.kustomer.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -142,6 +142,7 @@ Your organization name is the first part of your Kustomer URL — for `myorg.kus
             org_name=config.org_name,
             api_key=config.api_key,
             endpoint=inputs.schema_name,
+            api_version=self.resolve_api_version(inputs.api_version),
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
         )

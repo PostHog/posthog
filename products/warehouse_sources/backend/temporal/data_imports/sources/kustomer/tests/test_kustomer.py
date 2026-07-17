@@ -99,7 +99,7 @@ class TestGetRows:
         ]
 
         manager = _make_manager()
-        batches = list(get_rows("myorg", "key", "customers", mock.MagicMock(), manager))
+        batches = list(get_rows("myorg", "key", "customers", "v1", mock.MagicMock(), manager))
 
         assert [item["id"] for batch in batches for item in batch] == ["1", "2"]
         manager.save_state.assert_called_once()
@@ -107,18 +107,20 @@ class TestGetRows:
         assert saved_url.startswith("https://myorg.api.kustomerapp.com/v1/customers?")
         assert mock_session.return_value.get.call_args_list[1].args[0] == saved_url
 
+    @pytest.mark.parametrize("api_version", ["v1", "v2"])
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.kustomer.make_tracked_session"
     )
-    def test_first_request_uses_endpoint_path_and_page_size(self, mock_session):
+    def test_first_request_uses_versioned_path_and_page_size(self, mock_session, api_version):
         mock_session.return_value.get.return_value = _response([])
 
         manager = _make_manager()
-        list(get_rows("myorg", "key", "conversations", mock.MagicMock(), manager))
+        list(get_rows("myorg", "key", "conversations", api_version, mock.MagicMock(), manager))
 
         url = mock_session.return_value.get.call_args.args[0]
         parsed = urlparse(url)
-        assert parsed.path == "/v1/conversations"
+        # The resolved vendor version is the URL path segment.
+        assert parsed.path == f"/{api_version}/conversations"
         assert parse_qs(parsed.query)["page[size]"] == ["100"]
 
     @mock.patch(
@@ -130,7 +132,7 @@ class TestGetRows:
         resume_url = "https://myorg.api.kustomerapp.com/v1/customers?page%5Bafter%5D=resume"
         manager = _make_manager(KustomerResumeConfig(next_url=resume_url))
 
-        list(get_rows("myorg", "key", "customers", mock.MagicMock(), manager))
+        list(get_rows("myorg", "key", "customers", "v1", mock.MagicMock(), manager))
 
         assert mock_session.return_value.get.call_args_list[0].args[0] == resume_url
 
@@ -151,7 +153,7 @@ class TestGetRows:
 
         manager = _make_manager()
         with pytest.raises(ValueError):
-            list(get_rows("myorg", "key", "customers", mock.MagicMock(), manager))
+            list(get_rows("myorg", "key", "customers", "v1", mock.MagicMock(), manager))
 
         manager.save_state.assert_not_called()
 
@@ -162,7 +164,7 @@ class TestGetRows:
         manager = _make_manager(KustomerResumeConfig(next_url="https://attacker.com/steal"))
 
         with pytest.raises(ValueError):
-            list(get_rows("myorg", "key", "customers", mock.MagicMock(), manager))
+            list(get_rows("myorg", "key", "customers", "v1", mock.MagicMock(), manager))
 
         mock_session.return_value.get.assert_not_called()
 
@@ -173,7 +175,7 @@ class TestGetRows:
         mock_session.return_value.get.return_value = _response([], next_link="/v1/customers?page%5Bafter%5D=loop")
 
         manager = _make_manager()
-        batches = list(get_rows("myorg", "key", "customers", mock.MagicMock(), manager))
+        batches = list(get_rows("myorg", "key", "customers", "v1", mock.MagicMock(), manager))
 
         assert batches == []
         assert mock_session.return_value.get.call_count == 1
@@ -184,7 +186,7 @@ class TestKustomerSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):
         config = KUSTOMER_ENDPOINTS[endpoint]
-        response = kustomer_source("myorg", "key", endpoint, mock.MagicMock(), _make_manager())
+        response = kustomer_source("myorg", "key", endpoint, "v1", mock.MagicMock(), _make_manager())
 
         assert response.name == endpoint
         assert response.primary_keys == [config.primary_key]
