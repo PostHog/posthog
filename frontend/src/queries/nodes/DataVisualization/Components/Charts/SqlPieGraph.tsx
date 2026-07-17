@@ -16,9 +16,8 @@ import { buildPieSeries, buildPieSlices, formatPieSliceCount } from './sqlPieGra
 const handleChartError = makeChartErrorHandler('sql-pie-chart')
 
 /**
- * SQL pie graph on @posthog/quill-charts' {@link PieChart}, gated behind the
- * `product-analytics-quill-sql-charts` flag (see {@link sqlChartComponentFor}). The chart core lives
- * in quill; the aggregation total and side legend stay here as chrome, matching the legacy wrapper.
+ * SQL pie graph on @posthog/quill-charts' {@link PieChart}. The chart core lives in quill; the
+ * aggregation total and side legend stay here as chrome.
  */
 export const SqlPieGraph = ({
     xData,

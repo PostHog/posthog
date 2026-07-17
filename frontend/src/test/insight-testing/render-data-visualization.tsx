@@ -1,6 +1,5 @@
 import { render } from '@testing-library/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -51,7 +50,6 @@ export interface RenderDataVisualizationProps {
     query?: DataVisualizationNode
     /** Row-major fixture, fed in via `cachedResults` to skip the network. */
     response: DataVizFixture
-    /** Defaults to `{ 'product-analytics-quill-sql-charts': true }`; merge in more or override. */
     featureFlags?: Record<string, string | boolean>
     readOnly?: boolean
     embedded?: boolean
@@ -59,10 +57,10 @@ export interface RenderDataVisualizationProps {
 }
 
 /** Mount a SQL insight (`DataVisualizationNode`) the way the real scene does — through
- *  `DataTableVisualization` → `dataVisualizationLogic` → `LineGraph` → the flag-gated quill
- *  chart — with the query result injected via `cachedResults` so nothing hits the network. */
+ *  `DataTableVisualization` → `dataVisualizationLogic` → `LineGraph` → the quill chart — with
+ *  the query result injected via `cachedResults` so nothing hits the network. */
 export function renderDataVisualization(props: RenderDataVisualizationProps): ReturnType<typeof render> {
-    const featureFlags = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS]: true, ...props.featureFlags }
+    const featureFlags = { ...props.featureFlags }
 
     initKeaTests()
     actionsModel.mount()
