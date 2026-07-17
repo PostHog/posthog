@@ -1,16 +1,20 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    HeaderLinkPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.guru.settings import (
     GURU_ENDPOINTS,
     GuruEndpointConfig,
@@ -18,30 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.guru.setti
 
 GURU_BASE_URL = "https://api.getguru.com/api/v1"
 GURU_API_HOST = "api.getguru.com"
-REQUEST_TIMEOUT_SECONDS = 60
-# Guru's rate limits are not publicly documented — be conservative and honor 429s.
-MAX_RETRY_ATTEMPTS = 5
-
-
-class GuruRetryableError(Exception):
-    pass
-
-
-class GuruHostNotAllowedError(Exception):
-    pass
-
-
-def _is_same_host(url: str) -> bool:
-    """Whether ``url`` points at the canonical Guru API host.
-
-    Pagination/resume URLs are server-controlled (they arrive in the Link header), so we
-    pin them to the validated host to avoid being redirected at an arbitrary internal
-    address (SSRF) and leaking the Basic auth credentials carried on every request.
-    """
-    try:
-        return (urlparse(url).hostname or "").lower() == GURU_API_HOST
-    except Exception:
-        return False
 
 
 @dataclasses.dataclass
@@ -49,12 +29,6 @@ class GuruResumeConfig:
     # Guru pagination follows a `Link: <url>; rel="next-page"` header whose URL is
     # self-contained (opaque continuation token), so the URL is all we persist.
     next_url: str
-
-
-def _get_session(api_token: str) -> requests.Session:
-    # allow_redirects=False so a 3xx can't silently move the credentialed request off the
-    # validated host (SSRF). See _NoRedirectSession in common/http/transport.py.
-    return make_tracked_session(redact_values=(api_token,), allow_redirects=False)
 
 
 def _format_last_modified(value: Any) -> str:
@@ -97,12 +71,6 @@ def _build_params(
     return params
 
 
-def _build_url(path: str, params: dict[str, str]) -> str:
-    if not params:
-        return f"{GURU_BASE_URL}{path}"
-    return f"{GURU_BASE_URL}{path}?{urlencode(params)}"
-
-
 def _normalize_member(item: dict[str, Any]) -> dict[str, Any]:
     # Team member rows nest the identifying email under `user`; copy it to the top
     # level so it can serve as the primary key. Use direct access so a member missing
@@ -114,99 +82,20 @@ def _normalize_member(item: dict[str, Any]) -> dict[str, Any]:
 
 def validate_credentials(username: str, api_token: str) -> bool:
     """Confirm the user token is valid. /whoami is a cheap authenticated probe."""
-    try:
-        response = _get_session(api_token).get(
-            f"{GURU_BASE_URL}/whoami",
-            auth=(username, api_token),
-            timeout=10,
-        )
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-def get_rows(
-    username: str,
-    api_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[GuruResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = GURU_ENDPOINTS[endpoint]
-    session = _get_session(api_token)
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None and _is_same_host(resume_config.next_url):
-        url: str = resume_config.next_url
-        logger.debug(f"Guru: resuming {endpoint} from URL: {url}")
-    else:
-        if resume_config is not None:
-            logger.warning("Guru: ignoring resume URL whose host does not match the Guru API host")
-        url = _build_url(
-            config.path,
-            _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field),
-        )
-
-    @retry(
-        retry=retry_if_exception_type((GuruRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=1, max=60),
-        reraise=True,
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_token,)),
+        f"{GURU_BASE_URL}/whoami",
+        auth=HTTPBasicAuth(username, api_token),
     )
-    def fetch_page(page_url: str) -> requests.Response:
-        response = session.get(page_url, auth=(username, api_token), timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise GuruRetryableError(f"Guru API error (retryable): status={response.status_code}, url={page_url}")
-
-        # A 3xx isn't an error status (`response.ok` is True), so reject it explicitly rather
-        # than silently parsing the redirect body as data — we never follow redirects (SSRF).
-        if response.is_redirect or response.is_permanent_redirect:
-            raise GuruHostNotAllowedError(
-                f"Guru API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
-            )
-
-        if not response.ok:
-            logger.error(f"Guru API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response
-
-    while True:
-        response = fetch_page(url)
-        data = response.json()
-        items = data if isinstance(data, list) else []
-
-        if endpoint == "members":
-            items = [_normalize_member(item) for item in items]
-
-        if items:
-            yield items
-
-        next_url = response.links.get("next-page", {}).get("url")
-        if not next_url:
-            break
-
-        # The next-page URL is server-controlled; only follow it if it stays on the Guru
-        # API host so a tampered response can't aim the credentialed request elsewhere (SSRF).
-        if not _is_same_host(next_url):
-            logger.warning("Guru: stopping pagination, next URL host does not match the Guru API host")
-            break
-
-        # Save state AFTER yielding the page so a crash re-yields the last page
-        # (merge dedupes on primary key) rather than skipping it.
-        resumable_source_manager.save_state(GuruResumeConfig(next_url=next_url))
-        url = next_url
+    return ok
 
 
 def guru_source(
     username: str,
     api_token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[GuruResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -214,18 +103,62 @@ def guru_source(
 ) -> SourceResponse:
     config = GURU_ENDPOINTS[endpoint]
 
+    params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field)
+
+    resource_config: dict[str, Any] = {
+        "name": endpoint,
+        "endpoint": {
+            "path": config.path,
+            "params": params,
+            # Guru returns a bare JSON array; a non-list 200 body means the response shape
+            # changed — fail loud instead of wrapping the stray object as a single row.
+            "data_selector_required": True,
+        },
+    }
+    if endpoint == "members":
+        resource_config["data_map"] = _normalize_member
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": GURU_BASE_URL,
+            "auth": {"type": "http_basic", "username": username, "password": api_token},
+            # Guru paginates via `Link: <url>; rel="next-page"` with an opaque continuation token.
+            "paginator": HeaderLinkPaginator(links_next_key="next-page"),
+            # The next-page/resume URLs are server-controlled; pin them to the Guru API host and
+            # refuse redirects so a tampered link can't move the credentialed request off-host and
+            # leak the Basic auth credentials (SSRF). Empty list => same host as base_url only.
+            "allowed_hosts": [],
+            "allow_redirects": False,
+        },
+        "resources": [resource_config],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes) rather than skipping it.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(GuruResumeConfig(next_url=state["next_url"]))
+
+    # Incremental filtering is server-side and already baked into `params` above, so the
+    # framework's incremental injection is unused here.
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            username=username,
-            api_token=api_token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=lambda: resource,
         primary_keys=[config.primary_key],
         partition_count=1,
         partition_size=1,
@@ -233,4 +166,5 @@ def guru_source(
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         sort_mode="asc",
+        column_hints=resource.column_hints,
     )
