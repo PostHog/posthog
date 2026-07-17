@@ -219,6 +219,7 @@ the row lists both.
 | fireworks_ai                     | HTTP                        | requests                                                        | ✅                          |
 | fleetio                          | HTTP                        | requests                                                        | ✅                          |
 | firehydrant                      | HTTP                        | requests                                                        | ✅                          |
+| flagsmith                        | HTTP                        | requests                                                        | ✅                          |
 | flexmail                         | HTTP                        | requests                                                        | ✅                          |
 | float_app                        | HTTP                        | requests                                                        | ✅                          |
 | flowlu                           | HTTP                        | requests                                                        | ✅                          |
@@ -286,6 +287,7 @@ the row lists both.
 | iterable                         | HTTP                        | requests                                                        | ✅                          |
 | jamf_pro                         | HTTP                        | requests                                                        | ✅                          |
 | jellyfish                        | HTTP                        | requests                                                        | ✅                          |
+| jenkins                          | HTTP                        | requests                                                        | ✅                          |
 | jfrog_artifactory                | HTTP                        | requests                                                        | ✅                          |
 | jira                             | HTTP                        | requests                                                        | ✅                          |
 | jobnimbus                        | HTTP                        | requests                                                        | ✅                          |
@@ -759,7 +761,6 @@ doesn't conflict with concurrent PRs.
 - instagram
 - instantly
 - interzoid
-- jenkins
 - jobber
 - judgeme_reviews
 - justsift

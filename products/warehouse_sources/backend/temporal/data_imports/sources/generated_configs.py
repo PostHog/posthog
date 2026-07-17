@@ -1612,7 +1612,8 @@ class FireworksAISourceConfig(config.Config):
 
 @config.config
 class FlagsmithSourceConfig(config.Config):
-    pass
+    api_key: str
+    base_url: str | None = None
 
 
 @config.config
@@ -2252,7 +2253,9 @@ class JellyfishSourceConfig(config.Config):
 
 @config.config
 class JenkinsSourceConfig(config.Config):
-    pass
+    host: str
+    username: str
+    api_token: str
 
 
 @config.config
