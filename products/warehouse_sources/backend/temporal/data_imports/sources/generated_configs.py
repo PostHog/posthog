@@ -805,7 +805,9 @@ class ChartMogulSourceConfig(config.Config):
 
 @config.config
 class ChatwootSourceConfig(config.Config):
-    pass
+    account_id: str
+    api_access_token: str
+    host: str | None = None
 
 
 @config.config
