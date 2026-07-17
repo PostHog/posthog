@@ -17,7 +17,7 @@ const createMockContext = (): Context => ({
         POSTHOG_UI_APPS_TOKEN: undefined,
     },
     stateManager: {
-        getAuthorizationMetadata: async () => ({ scopes: ['*'] }),
+        getAuthorizationMetadata: async () => ({ scopes: ['*'], scoped_teams: [], scoped_organizations: [] }),
         getAiConsentGiven: async () => undefined,
     } as any,
     sessionManager: new SessionManager({} as any),

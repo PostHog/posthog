@@ -23,7 +23,7 @@ function createMockContext(): Context {
             POSTHOG_UI_APPS_TOKEN: undefined,
         },
         stateManager: {
-            getAuthorizationMetadata: async () => ({ scopes: ['*'] }),
+            getAuthorizationMetadata: async () => ({ scopes: ['*'], scoped_teams: [], scoped_organizations: [] }),
             getAiConsentGiven: async () => true,
         } as any,
         sessionManager: new SessionManager({} as any),
