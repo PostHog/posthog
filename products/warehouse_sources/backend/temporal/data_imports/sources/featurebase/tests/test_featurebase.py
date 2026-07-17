@@ -462,6 +462,37 @@ def _json_response(payload: Any, status_code: int = 200) -> MagicMock:
     return response
 
 
+class TestSessionSampleCapture:
+    # Featurebase bodies carry free-form customer content (posts/comments HTML, admin-only
+    # comments, contact PII) and the webhook create/list responses carry the whsec_ signing
+    # secret in a bare `secret` field that the name-based scrubbers don't redact. Reverting
+    # capture=False re-exposes those bodies to HTTP sample capture.
+    @parameterized.expand(
+        [
+            (
+                "polling",
+                lambda: list(
+                    get_rows("fb_test", "boards", MagicMock(), _FakeResumableManager())  # type: ignore[arg-type]
+                ),
+            ),
+            ("validate_credentials", lambda: validate_credentials("fb_test")),
+            ("webhook_management", lambda: delete_webhook("fb_test", "https://us.posthog.com/webhook")),
+        ]
+    )
+    def test_sessions_disable_sample_capture_and_redact_api_key(self, _name: str, trigger: Any) -> None:
+        response = MagicMock(status_code=200, ok=True)
+        response.json.return_value = {"data": [], "nextCursor": None}
+        session = MagicMock()
+        session.get.return_value = response
+
+        with patch.object(featurebase, "make_tracked_session", return_value=session) as session_factory:
+            trigger()
+
+        assert session_factory.call_count >= 1
+        for call in session_factory.call_args_list:
+            assert call.kwargs == {"redact_values": ("fb_test",), "capture": False}
+
+
 class TestValidateCredentials:
     @parameterized.expand(
         [

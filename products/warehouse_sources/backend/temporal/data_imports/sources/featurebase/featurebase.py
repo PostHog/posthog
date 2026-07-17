@@ -141,6 +141,18 @@ def _fetch_page(
     return response.json()
 
 
+def _make_session(api_key: str) -> requests.Session:
+    """Tracked session for every Featurebase call — metered and logged, never sample-captured.
+
+    ``capture=False``: pulled bodies carry free-form customer content (post/comment HTML,
+    admin-only comments via ``privacy=all``, contact PII) and the webhook create/list/refresh
+    responses carry the ``whsec_`` signing secret in a bare ``secret`` field that the
+    name-based scrubbers don't recognise. ``redact_values`` masks the API key anywhere it
+    appears in logged URLs.
+    """
+    return make_tracked_session(redact_values=(api_key,), capture=False)
+
+
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """One cheap probe to confirm the API key is genuine.
 
@@ -149,7 +161,7 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """
     url = _build_url("/admins", {})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        response = _make_session(api_key).get(url, headers=_get_headers(api_key), timeout=10)
     except Exception as e:
         return False, f"Could not reach Featurebase: {e}"
 
@@ -337,7 +349,7 @@ def get_rows(
     headers = _get_headers(api_key)
     # One session reused across every page (and, for the fan-out, every post) so urllib3 keeps
     # the connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    session = _make_session(api_key)
 
     if config.fan_out_over_posts:
         yield from _get_post_voter_rows(session, headers, logger, config, resumable_source_manager)
@@ -480,7 +492,7 @@ def _find_webhook_by_url(webhooks: list[dict[str, Any]], webhook_url: str) -> di
 
 
 def create_webhook(api_key: str, webhook_url: str) -> WebhookCreationResult:
-    session = make_tracked_session()
+    session = _make_session(api_key)
     headers = _get_headers(api_key)
     payload = {
         "name": POSTHOG_WEBHOOK_NAME,
@@ -507,7 +519,7 @@ def create_webhook(api_key: str, webhook_url: str) -> WebhookCreationResult:
 
 
 def sync_webhook_events(api_key: str, webhook_url: str, desired_topics: list[str]) -> WebhookSyncResult:
-    session = make_tracked_session()
+    session = _make_session(api_key)
     headers = _get_headers(api_key)
     try:
         webhook = _find_webhook_by_url(_list_webhooks(session, headers), webhook_url)
@@ -530,7 +542,7 @@ def sync_webhook_events(api_key: str, webhook_url: str, desired_topics: list[str
 
 
 def get_external_webhook_info(api_key: str, webhook_url: str) -> ExternalWebhookInfo:
-    session = make_tracked_session()
+    session = _make_session(api_key)
     headers = _get_headers(api_key)
     try:
         webhook = _find_webhook_by_url(_list_webhooks(session, headers), webhook_url)
@@ -553,7 +565,7 @@ def get_external_webhook_info(api_key: str, webhook_url: str) -> ExternalWebhook
 
 
 def delete_webhook(api_key: str, webhook_url: str) -> WebhookDeletionResult:
-    session = make_tracked_session()
+    session = _make_session(api_key)
     headers = _get_headers(api_key)
     try:
         webhook = _find_webhook_by_url(_list_webhooks(session, headers), webhook_url)
