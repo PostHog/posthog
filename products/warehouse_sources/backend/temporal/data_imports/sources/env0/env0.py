@@ -235,7 +235,13 @@ def get_rows(
     headers = _get_headers(api_key_id, api_key_secret)
     # One session reused across every page and fan-out parent so urllib3 keeps the connection
     # alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    #
+    # capture=False: sample capture records raw response bodies before _normalize_row strips
+    # deployment secrets (variable `value`s, injected `oidcToken`/`vcsAccessToken`), and the
+    # name-based scrubbers don't recognise those keys. The environment fan-out also enumerates
+    # /environments through this session, whose rows can carry those same secrets nested under
+    # latestDeploymentLog if the API ignores excludeFields. Requests stay metered and logged.
+    session = make_tracked_session(capture=False)
 
     date_window_params = _build_date_window_params(
         config, should_use_incremental_field, db_incremental_field_last_value
