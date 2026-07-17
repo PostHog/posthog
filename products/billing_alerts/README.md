@@ -8,4 +8,4 @@ The UI still mounts from the organization Billing tab and reuses billing access/
 
 Scheduled evaluation follows the shared alert delivery barrier: evaluate and produce every alert in the activity batch, flush once, acknowledge each producer result, then persist each lifecycle outcome in a short transaction.
 
-The product-local creation flow is intentional. The shared `AlertWizard` creates one HogFunction from one sub-template, while billing atomically creates a four-event destination group for firing, resolved, errored, and broken notifications through the shared backend destination builders. Billing can adopt the shared wizard once it supports backend-managed destination groups.
+Billing follows the Logs alerting pattern: billing owns its creation UI, evaluation rules, persistence adapter, and lifecycle message definitions. The shared alerting infrastructure handles lifecycle decisions, scheduling, grouped destination persistence, and event delivery.
