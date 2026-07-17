@@ -3812,7 +3812,8 @@
                                 "CalendarHeatmap",
                                 "TwoDimensionalHeatmap",
                                 "BoxPlot",
-                                "SlopeGraph"
+                                "SlopeGraph",
+                                "Scatter"
                             ],
                             "type": "string"
                         },
