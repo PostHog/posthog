@@ -98,8 +98,8 @@ function InstallationStatusDot({ progress }: { progress: InstallationProgress })
 }
 
 /**
- * Wizard progress as a quiet, height-matched sibling of the project-token chip: one line of
- * status with the wizard-sync pip strip. The whole chip opens the detailed dialog.
+ * Wizard progress as a one-line status chip on its own row below the project token, height-matched
+ * to the token chip so the two stack as one quiet family. The whole chip opens the detailed dialog.
  */
 export function QuickstartInstallationProgress({ progress }: { progress: InstallationProgress }): JSX.Element {
     const { openDialog } = useActions(wizardSyncUiLogic)
@@ -108,7 +108,7 @@ export function QuickstartInstallationProgress({ progress }: { progress: Install
 
     return (
         <div
-            className="max-w-full min-w-0"
+            className="basis-full min-w-0"
             role="status"
             aria-live="polite"
             data-attr="quickstart-installation-progress"
@@ -116,13 +116,13 @@ export function QuickstartInstallationProgress({ progress }: { progress: Install
             <button
                 type="button"
                 onClick={openDialog}
-                className="group flex max-w-full min-w-0 cursor-pointer items-center gap-2 rounded border bg-bg-light px-3 py-2 transition-colors hover:bg-fill-highlight-50"
+                className="group flex w-fit max-w-full min-w-0 cursor-pointer items-center gap-2 rounded border bg-bg-light px-3 py-2 transition-colors hover:bg-fill-highlight-50"
                 data-attr="quickstart-installation-status"
             >
                 <InstallationStatusDot progress={progress} />
                 <span className="text-xs font-medium text-secondary whitespace-nowrap">{syncHeadline(progress)}</span>
                 {task && (
-                    <span className="min-w-0 max-w-96 truncate text-xs text-tertiary" title={task}>
+                    <span className="min-w-0 max-w-72 truncate text-xs text-tertiary" title={task}>
                         {task}
                     </span>
                 )}
