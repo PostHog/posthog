@@ -187,6 +187,29 @@ class TestResolveSearchProperties:
         assert props.count("hs_lastmodifieddate") == 1
         assert props.count("hs_object_id") == 1
 
+    def test_default_props_discover_custom_and_thread_version(self) -> None:
+        # include_custom_props=True with no selection: non-hs_ custom props are appended,
+        # and the pinned api_version reaches the property-discovery call.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot._get_property_names",
+            return_value=["amount", "hs_internal_only", "custom_field"],
+        ) as get_names_mock:
+            props, _ = _resolve_search_properties(
+                api_key="k",
+                refresh_token="r",
+                endpoint="deals",
+                object_type="deal",
+                selected_properties=None,
+                include_custom_props=True,
+                required_props=["hs_lastmodifieddate", "hs_object_id"],
+                logger=MagicMock(),
+                source_id=None,
+                api_version=HUBSPOT_API_VERSION_2026_03,
+            )
+        assert "custom_field" in props  # non-hs_ custom prop discovered and appended
+        assert "hs_internal_only" not in props  # hs_ props are not auto-added
+        assert get_names_mock.call_args.kwargs["api_version"] == HUBSPOT_API_VERSION_2026_03
+
     def test_invalid_selected_ignored(self) -> None:
         logger = MagicMock()
         with patch(
