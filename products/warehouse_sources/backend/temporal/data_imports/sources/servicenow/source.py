@@ -24,6 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ServiceNowSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.servicenow import (
+    SERVICENOW_API_VERSION_V1,
+    SERVICENOW_API_VERSION_V2,
     ServiceNowAuth,
     ServiceNowResumeConfig,
     servicenow_source,
@@ -39,7 +41,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ServiceNowSource(ResumableSource[ServiceNowSourceConfig, ServiceNowResumeConfig]):
-    api_docs_url = "https://developer.servicenow.com"
+    api_docs_url = "https://www.servicenow.com/docs/r/washingtondc/api-reference/rest-apis/c_TableAPI.html"
+
+    # Both Table API versions stay supported; new sources default to v2 (stable since Geneva).
+    # Existing sources were stamped with their v1 pin at creation, so the default flip leaves
+    # them on v1 (the versionless path) and their syncs unchanged.
+    supported_versions = (SERVICENOW_API_VERSION_V1, SERVICENOW_API_VERSION_V2)
+    default_version = SERVICENOW_API_VERSION_V2
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -198,6 +206,7 @@ The account or API key needs **read** access (the `rest_api_explorer` role or eq
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             team_id=inputs.team_id,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
