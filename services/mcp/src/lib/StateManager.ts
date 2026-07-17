@@ -49,6 +49,11 @@ export class StateManager {
         return this._user
     }
 
+    /**
+     * Resolve the scopes and tenant restrictions used to build the MCP tool catalog.
+     * User authentication only establishes who the bearer represents; this metadata
+     * separately determines which tools that bearer is allowed to see and call.
+     */
     private async _fetchAuthorizationMetadata(): Promise<NonNullable<State['authorizationMetadata']>> {
         const token = this._api.config.apiToken
         if (isIdJagAccessToken(token)) {
