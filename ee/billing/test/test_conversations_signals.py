@@ -6,17 +6,20 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 from posthog.models import Organization, Team, User
 
+from products.conversations.backend.cross_region import OrgIdentity
 from products.conversations.backend.models import TeamConversationsSlackConfig, Ticket
 from products.conversations.backend.models.constants import Channel
 
 from ee.billing.salesforce_enrichment.conversations_signals import (
+    _cross_region_verified_ticket_ids,
     _get_slack_bot_token,
+    _tickets_with_verified_org,
     aggregate_conversations_slack_signals_for_orgs,
     build_slack_channel_url,
     build_support_ticket_url,
@@ -435,3 +438,28 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
         assert _get_slack_bot_token("TUNMATCHED", self.team.id) == "xoxb-test"
         # No token when neither path resolves.
         assert _get_slack_bot_token("TUNMATCHED", None) is None
+
+    @override_settings(CLOUD_DEPLOYMENT="US", CONVERSATIONS_CROSS_REGION_SECRET="secret")
+    def test_cross_region_verified_tickets_join_the_verified_set(self):
+        # A customer whose members live in the sibling region has no local OrganizationMembership,
+        # so the org can't be verified here on its own.
+        sibling_org_id = "019b2be2-5563-0000-6408-1e45bbe55e38"
+        ticket = self._create_slack_ticket(
+            channel_id="C_SIBLING",
+            activity_at=dt.datetime(2026, 7, 14, 12, 0, tzinfo=dt.UTC),
+            org_id=sibling_org_id,
+            distinct_id="customer@sibling.example.com",
+        )
+
+        assert not _tickets_with_verified_org().filter(id=ticket.id).exists()
+
+        identity = OrgIdentity(sibling_org_id, "customer@sibling.example.com", "")
+        with patch(
+            "ee.billing.salesforce_enrichment.conversations_signals.verify_org_memberships_cross_region",
+            return_value={identity},
+        ) as probe:
+            cross_region_ids = _cross_region_verified_ticket_ids([sibling_org_id])
+
+        probe.assert_called_once()
+        assert cross_region_ids == {str(ticket.id)}
+        assert _tickets_with_verified_org(cross_region_ids).filter(id=ticket.id).exists()
