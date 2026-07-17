@@ -8132,3 +8132,81 @@ class TestClickhouseRetentionGroupAggregation(
     #     self.assertIn("USA", breakdown_values)
     #     self.assertNotIn("Canada", breakdown_values)
     #     self.assertIn(BREAKDOWN_OTHER_STRING_LABEL, breakdown_values)  # Canada should be in "Other"
+
+
+class TestRetentionFirstTimeTwoLegScan(APIBaseTest):
+    def _variant_base_query(self, retention_type: str) -> ast.SelectQuery:
+        runner = RetentionQueryRunner(
+            team=self.team,
+            query={
+                "kind": "RetentionQuery",
+                "retentionFilter": {
+                    "retentionType": retention_type,
+                    "targetEntity": {"id": "signup", "type": "events"},
+                    "returningEntity": {"id": "did_action", "type": "events"},
+                },
+            },
+        )
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
+            return RetentionFixedIntervalBaseQueryBuilder(runner).build_base_query()
+
+    @staticmethod
+    def _where_constants(arm: ast.SelectQuery) -> list[Any]:
+        constants: list[Any] = []
+
+        def walk(value: Any) -> None:
+            if isinstance(value, ast.Constant):
+                constants.append(value.value)
+            if hasattr(value, "__dataclass_fields__"):
+                for field_name in value.__dataclass_fields__:
+                    walk(getattr(value, field_name))
+            elif isinstance(value, list | tuple):
+                for item in value:
+                    walk(item)
+
+        walk(arm.where)
+        return constants
+
+    @staticmethod
+    def _where_has_timestamp_bound(arm: ast.SelectQuery) -> bool:
+        found = False
+
+        def walk(value: Any) -> None:
+            nonlocal found
+            if isinstance(value, ast.CompareOperation) and isinstance(value.left, ast.Field):
+                if value.left.chain[-1] == "timestamp":
+                    found = True
+            if hasattr(value, "__dataclass_fields__"):
+                for field_name in value.__dataclass_fields__:
+                    walk(getattr(value, field_name))
+            elif isinstance(value, list | tuple):
+                for item in value:
+                    walk(item)
+
+        walk(arm.where)
+        return found
+
+    @parameterized.expand(["retention_first_time", "retention_first_ever_occurrence"])
+    def test_first_time_modes_scan_two_arms_with_bounded_return_arm(self, retention_type):
+        base_query = self._variant_base_query(retention_type)
+        assert base_query.select_from is not None
+        table = base_query.select_from.table
+        self.assertIsInstance(table, ast.SelectSetQuery)
+        start_arm, return_arm = list(table.select_queries())  # type: ignore[union-attr]
+
+        start_constants = self._where_constants(start_arm)
+        return_constants = self._where_constants(return_arm)
+        self.assertIn("signup", start_constants)
+        self.assertNotIn("did_action", start_constants)
+        self.assertIn("did_action", return_constants)
+        self.assertNotIn("signup", return_constants)
+
+        # The start arm must scan all time to find each actor's first occurrence;
+        # the return arm only ever aggregates within the window, so it stays bounded.
+        self.assertFalse(self._where_has_timestamp_bound(start_arm))
+        self.assertTrue(self._where_has_timestamp_bound(return_arm))
+
+    def test_recurring_mode_keeps_single_scan(self):
+        base_query = self._variant_base_query("retention_recurring")
+        assert base_query.select_from is not None
+        self.assertIsInstance(base_query.select_from.table, ast.Field)

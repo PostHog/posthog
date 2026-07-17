@@ -282,8 +282,14 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         # start and return timestamp arrays can be computed in one pass. Property aggregation has a known
         # legacy/variant discrepancy and stays on the UNION; a data-warehouse entity is a genuinely
         # different source and cannot collapse here.
+        # First-time modes also stay on the UNION: they drop the window bound to find each actor's
+        # first-ever start event, and a single scan then reads every column over all history, while
+        # the two arms confine the unbounded scan to the start entity's rows and keep the return arm
+        # window-bounded.
         return (
             not self.has_property_aggregation
+            and not self.is_first_occurrence_matching_filters
+            and not self.is_first_ever_occurrence
             and self.start_event.type != EntityType.DATA_WAREHOUSE
             and self.return_event.type != EntityType.DATA_WAREHOUSE
         )
@@ -497,7 +503,13 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         table_name = entity.table_name if entity_is_dwh else "events"
         assert table_name
-        where_expr = None if entity_is_dwh else ast.And(exprs=self._event_filters())
+        # Arm-scoped filters instead of the OR of both entities: each arm pre-filters to its own
+        # entity's event names, and in first-time modes only the start arm scans all time.
+        where_expr = (
+            None
+            if entity_is_dwh
+            else ast.And(exprs=[*self.runner.arm_event_filters(entity, query_kind), *self._cohort_breakdown_filters()])
+        )
 
         select_fields: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=actor_field),
@@ -913,7 +925,9 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         )
 
     def _event_filters(self) -> list[ast.Expr]:
-        event_filters = self.global_event_filters.copy()
+        return [*self.global_event_filters, *self._cohort_breakdown_filters()]
+
+    def _cohort_breakdown_filters(self) -> list[ast.Expr]:
         if (
             self.query.breakdownFilter
             and self.query.breakdownFilter.breakdowns
@@ -923,15 +937,15 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             cohort_id = self.query.breakdownFilter.breakdowns[0].property
             # Don't add cohort filter for "all users" (cohort_id = 0)
             if int(cohort_id) != ALL_USERS_COHORT_ID:
-                event_filters.append(
+                return [
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.InCohort,
                         left=ast.Field(chain=["person_id"]),
                         right=ast.Constant(value=int(cohort_id)),
                     )
-                )
+                ]
 
-        return event_filters
+        return []
 
     def _is_valid_start_interval_expr(self, start_event_timestamps_field: str = "start_event_timestamps") -> ast.Expr:
         start_event_timestamps = ast.Field(chain=[start_event_timestamps_field])
