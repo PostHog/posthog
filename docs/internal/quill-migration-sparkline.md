@@ -3,6 +3,9 @@
 Goal: delete `frontend/src/lib/components/Sparkline.tsx` (Chart.js + `chartjs-plugin-annotation`, ~520 lines) and move all ~18 consumers to `@posthog/quill-charts`.
 Part of the chart.js removal effort — see [quill-chart-migration.md](./quill-chart-migration.md).
 
+> **Scope update (2026-07-17):** the surfaces that grew a real axis, drag-select, reference lines, or an external highlighted range are not sparklines — they moved to [quill-migration-sparkline-to-chart.md](./quill-migration-sparkline-to-chart.md), which targets `TimeSeriesBarChart`/`TimeSeriesLineChart`/`BarChart` instead of quill `Sparkline`.
+> That doc **supersedes the "medium" and "heavy" waves below**; this stream now covers only the genuine (compact, axis-less) sparklines — the simple wave shipped in step 2.
+
 ## Key insight
 
 Quill's `Sparkline` component is NOT the target for most consumers.
@@ -148,4 +151,5 @@ Step 2 (in-place quill path behind a flag) is up as [#70231](https://github.com/
 
 ### Next up
 
-Step 3 (medium wave): time axes via `config.xAxis`, reference lines via quill `ReferenceLine`, drag-select via `onDateRangeZoom` — extending the quill path so InvocationsSparkline, LogsSamplingForm, and the metrics product stop hitting the legacy gate; delete `MetricsChartLegend` in favor of quill's `config.legend`. Wait for #70223 (HighlightedRange/hatch) to merge first — the heavy wave needs it, and the medium wave's drag-select verification should happen on top of it.
+The old step 3–4 (medium/heavy waves) are **superseded**: those surfaces are charts, not sparklines, and moved to [quill-migration-sparkline-to-chart.md](./quill-migration-sparkline-to-chart.md) — they migrate to `TimeSeriesBarChart`/`TimeSeriesLineChart`/`BarChart` directly instead of being forced through an extended quill `Sparkline`.
+What remains for this stream: the HogQLX `<Sparkline>` tag (screenshot coverage) and the final cleanup — once the chart migrations land, drop the wrapper's advanced props (`onSelectionChange`, `highlightedRange`, `incompleteBars`, `referenceLines`, `withXScale`/`withYScale`) and delete the Chart.js path + flag.

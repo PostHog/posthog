@@ -40,7 +40,7 @@ Consumers:
 | HogQLX `<Sparkline>` render           | `frontend/src/queries/nodes/HogQLX/render.tsx`                                            |
 
 Gap: the shared component supports multi-series with breakdowns, custom tick/x-scale formatting, and drag-to-select ranges; quill `Sparkline` is a flat `number[]`.
-Logs/tracing drag-select maps to quill's `onDateRangeZoom`; multi-series likely means these migrate to `TimeSeriesBarChart`/`TimeSeriesLineChart` rather than quill `Sparkline`.
+Logs/tracing drag-select maps to quill's `onDateRangeZoom`; these and the other feature-heavy consumers migrate to `TimeSeriesBarChart`/`TimeSeriesLineChart`/`BarChart` rather than quill `Sparkline` — they're charts, not sparklines (see [quill-migration-sparkline-to-chart.md](./quill-migration-sparkline-to-chart.md)).
 
 ### B. Chart.js via the DataViz `LineGraph` (rides the SQL flag)
 
@@ -94,9 +94,10 @@ No quill equivalent exists and these aren't chart-library shaped; leave as-is un
 
 Ordered by leverage per unit of effort; each phase is independently shippable.
 
-Detailed, agent-ready plans exist for three work streams:
+Detailed, agent-ready plans exist for these work streams:
 
-- [Sparkline replacement](./quill-migration-sparkline.md) — the shared Chart.js sparkline and its ~18 consumers
+- [Sparkline replacement](./quill-migration-sparkline.md) — the genuine (compact, axis-less) sparklines
+- [Sparklines that are actually charts](./quill-migration-sparkline-to-chart.md) — the ex-"sparkline" surfaces with axes/drag-select/reference lines/highlighted ranges, re-targeted to `TimeSeriesBarChart`/`TimeSeriesLineChart`/`BarChart`
 - [Billing line graph](./quill-migration-billing.md) — `BillingLineGraph` and the period-marker overlay
 - [Experiments charts](./quill-migration-experiments.md) — exposures charts and the variant timeseries with CI bands
 
