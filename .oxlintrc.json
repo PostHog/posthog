@@ -443,6 +443,23 @@
                     }
                 ]
             }
+        },
+        {
+            "files": ["frontend/src/lib/components/UniversalFilters/constants.ts"],
+            "rules": {
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        "paths": [
+                            {
+                                "name": "~/types",
+                                "allowTypeImports": true,
+                                "message": "constants.ts is a leaf module kept free of ~/types's value-import graph (which circles back through scenes/session-recordings and caused \"Cannot access 'DEFAULT_UNIVERSAL_GROUP_FILTER' before initialization\" TDZ errors). Only `import type` from ~/types is allowed here; import/no-cycle can't catch this because the real cycle is far deeper than its configured maxDepth."
+                            }
+                        ]
+                    }
+                ]
+            }
         }
     ]
 }
