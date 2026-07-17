@@ -80,7 +80,8 @@ class TestMailerLiteSourceClass:
     def test_source_for_pipeline_plumbing(self) -> None:
         inputs = MagicMock(spec=SourceInputs)
         inputs.schema_name = "subscribers"
-        inputs.logger = MagicMock()
+        inputs.team_id = 7
+        inputs.job_id = "job-1"
         manager = MagicMock(spec=ResumableSourceManager)
 
         with patch(
@@ -90,6 +91,7 @@ class TestMailerLiteSourceClass:
             mock_source.assert_called_once_with(
                 api_key="test-key",
                 endpoint="subscribers",
-                logger=inputs.logger,
+                team_id=7,
+                job_id="job-1",
                 resumable_source_manager=manager,
             )
