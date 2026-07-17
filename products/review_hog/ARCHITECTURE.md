@@ -265,7 +265,7 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
-### ✅ BUILT 2026-07-16 — inline finding comments: colored severity badges + problem/fix surfaced
+### ✅ BUILT 2026-07-16 — inline finding comments: colored severity badges replace the text meta
 
 The inline comment `_format_issue_comment` builds (`publish_review.py`) had its meta line recolored after comparing it against Greptile's PR comments — a deliberately minimal change that leaves the four collapsed sections (`Issue description`, `Suggested fix`, `Why we think it's a valid issue`, `Prompt to fix with AI`) exactly as they were.
 Before: a plain `### title` followed by a text meta line (`**Priority:** should_fix | **Category:** performance | **Lines:** …`).
