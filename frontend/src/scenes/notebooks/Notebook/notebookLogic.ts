@@ -75,6 +75,7 @@ import {
     collectHogqlSqlNodes,
     collectNodeIndices,
     collectPythonNodes,
+    collectNotebookFrameNodes,
     collectSqlV2Nodes,
 } from '../Nodes/notebookNodeContent'
 import type {
@@ -82,6 +83,7 @@ import type {
     HogqlSqlNodeSummary,
     NotebookDependencyGraph,
     PythonNodeSummary,
+    NotebookFrameNodeSummary,
     SqlV2NodeSummary,
 } from '../Nodes/notebookNodeContent'
 import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
@@ -341,6 +343,7 @@ export interface notebookLogicValues {
     shouldBeEditable: boolean
     showHistory: boolean
     sqlNodeIndices: Map<string, number>
+    frameNodeSummaries: NotebookFrameNodeSummary[]
     sqlV2NodeSummaries: SqlV2NodeSummary[]
     syncStatus: NotebookSyncStatus
     title: string
@@ -650,6 +653,7 @@ export interface notebookLogicMeta {
         duckSqlNodeSummaries: (content: JSONContent) => DuckSqlNodeSummary[]
         hogqlSqlNodeSummaries: (content: JSONContent) => HogqlSqlNodeSummary[]
         sqlV2NodeSummaries: (content: JSONContent) => SqlV2NodeSummary[]
+        frameNodeSummaries: (content: JSONContent) => NotebookFrameNodeSummary[]
         dependencyGraph: (content: JSONContent) => NotebookDependencyGraph
         pythonNodeIndices: (content: JSONContent) => Map<string, number>
         sqlNodeIndices: (content: JSONContent) => Map<string, number>
@@ -1343,6 +1347,7 @@ export const notebookLogic = kea<notebookLogicType>([
         duckSqlNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectDuckSqlNodes(content)],
         hogqlSqlNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectHogqlSqlNodes(content)],
         sqlV2NodeSummaries: [(s) => [s.content], (content: JSONContent) => collectSqlV2Nodes(content)],
+        frameNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectNotebookFrameNodes(content)],
         dependencyGraph: [(s) => [s.content], (content: JSONContent) => buildNotebookDependencyGraph(content)],
 
         pythonNodeIndices: [

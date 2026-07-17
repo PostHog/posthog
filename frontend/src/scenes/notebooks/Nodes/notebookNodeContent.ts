@@ -306,30 +306,46 @@ export const getUniqueSqlV2ReturnVariable = (
 // tiptap-shaped nodes so the collectors and the dependency graph see the same cells in both
 // notebook formats. Scoped to the revamped-notebook cell types (SQLV2 + kernel Python):
 // expanding the other node types would change their (markdown-blind) summaries and naming.
-const expandMarkdownNotebookNodesOfType = (node: any, nodeType: NotebookNodeType): JSONContent[] => {
+const expandMarkdownNotebookNodesOfTypes = (node: any, nodeTypes: NotebookNodeType[]): JSONContent[] => {
     if (typeof node?.attrs?.markdown !== 'string') {
         return []
     }
-    return parseMarkdownNotebook(node.attrs.markdown).nodes.flatMap((block) =>
-        block.type === 'component' && block.tagName === NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG[nodeType]
-            ? [
-                  {
-                      type: nodeType,
-                      attrs: {
-                          ...block.props,
-                          // Prefer the persisted nodeId prop: the parsed block id is a content
-                          // fingerprint, which drifts from the live cell id as soon as any prop
-                          // changes (running a cell writes runId/result into its props).
-                          nodeId:
-                              typeof block.props.nodeId === 'string' && block.props.nodeId
-                                  ? block.props.nodeId
-                                  : block.id,
-                      },
-                  },
-              ]
-            : []
-    )
+    // Keyed by tag so one pass over the parsed blocks can expand several cell types at once,
+    // keeping them in document order — collecting each type separately would group all the SQL
+    // cells before all the Python ones.
+    const nodeTypeByTag = new Map<string, NotebookNodeType>()
+    for (const nodeType of nodeTypes) {
+        const tag = NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG[nodeType]
+        if (tag) {
+            nodeTypeByTag.set(tag, nodeType)
+        }
+    }
+    return parseMarkdownNotebook(node.attrs.markdown).nodes.flatMap((block): JSONContent[] => {
+        if (block.type !== 'component') {
+            return []
+        }
+        const nodeType = nodeTypeByTag.get(block.tagName)
+        if (!nodeType) {
+            return []
+        }
+        return [
+            {
+                type: nodeType,
+                attrs: {
+                    ...block.props,
+                    // Prefer the persisted nodeId prop: the parsed block id is a content
+                    // fingerprint, which drifts from the live cell id as soon as any prop
+                    // changes (running a cell writes runId/result into its props).
+                    nodeId:
+                        typeof block.props.nodeId === 'string' && block.props.nodeId ? block.props.nodeId : block.id,
+                },
+            },
+        ]
+    })
 }
+
+const expandMarkdownNotebookNodesOfType = (node: any, nodeType: NotebookNodeType): JSONContent[] =>
+    expandMarkdownNotebookNodesOfTypes(node, [nodeType])
 
 const expandMarkdownNotebookSqlV2Nodes = (node: any): JSONContent[] =>
     expandMarkdownNotebookNodesOfType(node, NotebookNodeType.SQLV2)
@@ -395,6 +411,90 @@ export const collectPythonNodes = (content?: JSONContent | null): PythonNodeSumm
                 pythonIndex: nodes.length + 1,
                 title: typeof attrs.title === 'string' ? attrs.title : '',
             })
+        }
+        if (Array.isArray(node.content)) {
+            node.content.forEach(walk)
+        }
+    }
+
+    walk(content)
+    return nodes
+}
+
+export type NotebookFrameNodeSummary = {
+    nodeId: string
+    name: string
+    /**
+     * Which cell produced it, which decides where the data lives. A SQL cell that pushed to
+     * ClickHouse can be referenced again from SQL with no kernel at all (it is re-inlined as a
+     * CTE); a Python cell's output only exists inside the kernel.
+     */
+    nodeType: 'sql' | 'python'
+    /** [column name, type] pairs from the last run, empty when the cell has never produced a frame. */
+    columns: [string, string][]
+    rowCount: number | null
+    /** A cell with no successful run yet can't be referenced — the backend resolves refs to the latest DONE run. */
+    hasRun: boolean
+}
+
+const frameNodeColumns = (result: any): [string, string][] => {
+    if (!result || !Array.isArray(result.types)) {
+        return []
+    }
+    return result.types
+        .filter((pair: unknown): pair is [string, string] => Array.isArray(pair) && pair.length >= 2)
+        .map(([name, type]: [string, string]) => [String(name), String(type)] as [string, string])
+}
+
+/**
+ * Every cell in a revamped notebook that binds a name other cells can reference, in document
+ * order, with the shape of its last run.
+ *
+ * This is the notebook's own record, not the kernel's: a SQL cell's output never enters the
+ * kernel unless something materializes it, so the kernel's catalog alone cannot see it.
+ * Names follow each collector's existing rules — SQL names disambiguated as the dependency
+ * graph does, Python names left as the raw kernel variables.
+ */
+export const collectNotebookFrameNodes = (content?: JSONContent | null): NotebookFrameNodeSummary[] => {
+    if (!content || typeof content !== 'object') {
+        return []
+    }
+
+    const nodes: NotebookFrameNodeSummary[] = []
+    const usedReturnVariables = new Set<string>()
+
+    const walk = (node: any): void => {
+        if (!node || typeof node !== 'object') {
+            return
+        }
+        if (node.type === NotebookNodeType.SQLV2 || node.type === NotebookNodeType.PythonV2) {
+            const attrs = node.attrs ?? {}
+            const isSql = node.type === NotebookNodeType.SQLV2
+            const rawReturnVariable = typeof attrs.returnVariable === 'string' ? attrs.returnVariable : ''
+            let name: string
+            if (isSql) {
+                name = buildUniqueSqlV2ReturnVariable(
+                    resolveSqlV2ReturnVariable(rawReturnVariable),
+                    usedReturnVariables
+                )
+                usedReturnVariables.add(normalizeSqlIdentifier(name))
+            } else {
+                name = rawReturnVariable.trim() || 'df'
+            }
+            const result = attrs.result ?? null
+            nodes.push({
+                nodeId: attrs.nodeId ?? '',
+                name,
+                nodeType: isSql ? 'sql' : 'python',
+                columns: frameNodeColumns(result),
+                rowCount: typeof result?.row_count === 'number' ? result.row_count : null,
+                // A run that produced no frame (stdout-only Python, a DDL statement) has a result
+                // but no columns — it binds nothing referenceable.
+                hasRun: Boolean(result) && frameNodeColumns(result).length > 0,
+            })
+        }
+        if (node.type === NotebookNodeType.MarkdownNotebook) {
+            expandMarkdownNotebookNodesOfTypes(node, [NotebookNodeType.SQLV2, NotebookNodeType.PythonV2]).forEach(walk)
         }
         if (Array.isArray(node.content)) {
             node.content.forEach(walk)

@@ -30,16 +30,21 @@ export const getNotebookSqlEditorTabId = (nodeId: string | null | undefined, suf
 /**
  * The "Dataframes" section this node contributes to the shared database tree (Journey 7).
  *
- * Reads from logics the notebook already mounts — notebookKernelInfoLogic is connected by
- * notebookLogic and polls kernel/status, so this adds no requests. queryDatabaseLogic is read
- * only for its search term, so the section filters along with the rest of the tree.
+ * Reads from logics the notebook already mounts, so it adds no requests: the cells' bound names
+ * come from notebookLogic's document, and the kernel's live catalog from notebookKernelInfoLogic,
+ * which notebookLogic connects and polls. queryDatabaseLogic is read only for its search term, so
+ * the section filters along with the rest of the tree.
  */
 function useNotebookDataframeTreeSections(): TreeDataItem[] {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { notebookLogic } = useValues(nodeLogic)
+    const { frameNodeSummaries } = useValues(notebookLogic)
     const { localFrames } = useValues(notebookKernelInfoLogic({ shortId: notebookLogic.props.shortId }))
     const { searchTerm } = useValues(queryDatabaseLogic)
-    return useMemo(() => buildDataframeTreeSection(localFrames, searchTerm ?? ''), [localFrames, searchTerm])
+    return useMemo(
+        () => buildDataframeTreeSection(frameNodeSummaries, localFrames, searchTerm ?? ''),
+        [frameNodeSummaries, localFrames, searchTerm]
+    )
 }
 
 const withNotebookHogQLTags = (query: DataVisualizationNode): DataVisualizationNode => ({
