@@ -52,6 +52,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import make_tracked_channel
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
@@ -80,6 +81,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
 __all__ = [
+    "BIGQUERY_API_VERSION_V2",
     "BIGQUERY_DATASET_NOT_FOUND_ERROR",
     "BIGQUERY_INVALID_IDENTIFIER_ERROR",
     "BIGQUERY_TOKEN_RESPONSE_ERROR",
@@ -100,6 +102,23 @@ __all__ = [
 # Host used both to build the Storage Read API gRPC channel and to label the
 # tracked gRPC transport's logs/metrics.
 BIGQUERY_STORAGE_HOST = "bigquerystorage.googleapis.com"
+
+# The core BigQuery REST API is stable at v2 — every resource path is served under /bigquery/v2/ —
+# so both the legacy unversioned pin and the explicit v2 label resolve to the same REST endpoint.
+# `_REST_API_VERSION_BY_LABEL` is the single place to extend should BigQuery ever ship a new REST
+# path version; mapping the legacy label onto v2 keeps existing pinned syncs byte-for-byte unchanged
+# (the google-cloud-bigquery client has always talked to the v2 endpoint).
+BIGQUERY_API_VERSION_V2 = "v2"
+_REST_API_VERSION_BY_LABEL = {
+    UNVERSIONED_API_VERSION: BIGQUERY_API_VERSION_V2,
+    BIGQUERY_API_VERSION_V2: BIGQUERY_API_VERSION_V2,
+}
+
+
+def _bigquery_rest_api_version(api_version: str | None) -> str:
+    """Map a source instance's opaque version pin onto BigQuery's REST API path segment."""
+    return _REST_API_VERSION_BY_LABEL.get(api_version or "", BIGQUERY_API_VERSION_V2)
+
 
 # Stable, source-specific marker for a failed service-account OAuth token refresh.
 # Used both when raising below and when matching in `BigQuerySource.get_non_retryable_errors`,
@@ -325,6 +344,7 @@ def bigquery_client(
     private_key_id: str,
     client_email: str,
     token_uri: str,
+    api_version: str = BIGQUERY_API_VERSION_V2,
 ) -> typing.Iterator[bigquery.Client]:
     """Manage a BigQuery client."""
     project_id = _normalize_identifier(project_id)
@@ -351,6 +371,13 @@ def bigquery_client(
         credentials=credentials,
         _http=authed_session,
     )
+    # Pin the REST API version segment the client builds request paths from (/bigquery/<version>/).
+    # BigQuery is stable at v2, so this matches the library default — setting it makes the source's
+    # version pin authoritative rather than implicit. Written fail-soft on the private `_connection`
+    # like the API_BASE_URL read below, so a library rename degrades instead of crashing the sync.
+    connection = getattr(client, "_connection", None)
+    if connection is not None:
+        connection.API_VERSION = api_version
     # `_connection.API_BASE_URL` is the endpoint the client will actually call (it honors
     # api_endpoint overrides and universe-domain hosts), so the logged host can't drift.
     # It's a private attribute, so read it fail-soft: a library rename must degrade the log
@@ -1295,6 +1322,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 region=region,
                 dataset_project_id=dataset_project_id,
                 bq_destination_table_id=destination_table,
+                rest_api_version=_bigquery_rest_api_version(inputs.api_version),
             )
         finally:
             # Delete the destination table (if it exists) after we're done with it
@@ -1316,6 +1344,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         region: str | None,
         dataset_project_id: str | None,
         bq_destination_table_id: str,
+        rest_api_version: str = BIGQUERY_API_VERSION_V2,
         partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
     ) -> SourceResponse:
         """Produce a pipeline source for BigQuery.
@@ -1355,6 +1384,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             private_key_id=private_key_id,
             client_email=client_email,
             token_uri=token_uri,
+            api_version=rest_api_version,
         ) as bq_client:
             bq_table = bq_client.get_table(fully_qualified_table_name)
             primary_keys = _get_primary_keys_for_table(bq_table, bq_client)
@@ -1379,6 +1409,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 private_key_id=private_key_id,
                 client_email=client_email,
                 token_uri=token_uri,
+                api_version=rest_api_version,
             ) as bq_client:
                 bq_table = bq_client.get_table(fully_qualified_table_name)
 
