@@ -37,11 +37,14 @@ from posthog.schema import EmbeddingModelName
 from posthog.api.embedding_worker import emit_embedding_request
 
 from products.signals.backend.artefact_schemas import (
+    SIGNALS_PRODUCT,
+    TASK_RUN_TYPE_SCOUT,
     ActionabilityAssessment,
     NoteArtefact,
     PriorityAssessment,
     SafetyJudgment,
     SuggestedReviewers,
+    TaskRunArtefact,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutRun
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
@@ -170,6 +173,17 @@ def create_scout_report(
             attribution=attribution,
             reevaluate_autostart=False,
         )
+        # Link the authoring scout run itself as a `task_run` artefact, so the report's Runs section
+        # and activity log can surface the scout's transcript — without it the run is only visible as
+        # an anonymous "by agent" byline on the rows above. Written in-txn for the same no-divergence
+        # reason as the note; skipped when the run isn't bridged to a resolvable task.
+        if run is not None and attribution.task_id is not None:
+            SignalReportArtefact.add_log(
+                team_id=team_id,
+                report_id=report_id,
+                content=_scout_task_run_content(run, attribution.task_id),
+                attribution=attribution,
+            )
         # The judge verdicts that set `status`, recorded as the report's status artefacts so the
         # decision is auditable on the report (and so the inbox derives the same actionability/safety
         # state a pipeline report would). Written in-txn with the report for the same no-divergence reason.
@@ -494,6 +508,58 @@ def record_report_edit(*, team_id: int, run_id: uuid.UUID, report_id: str) -> No
             run.save(update_fields=["edited_report_ids"])
     except Exception:
         logger.exception("signals_scout.edit_report: failed to record report edit for run %s", run_id)
+
+
+def record_scout_run_task_artefact(*, team_id: int, report_id: str, run: SignalScoutRun, task_id: str | None) -> None:
+    """Link the editing scout run to the report as a `task_run` artefact — the edit-channel
+    counterpart to the in-txn append in `create_scout_report`. `edit_report` can target ANY inbox
+    report (pipeline-authored included), so this is what makes the editing run's transcript reachable
+    from the report's work log rather than just an anonymous "by agent" byline.
+
+    Deduped by task: a run that edits the report it authored (or edits the same report twice) records
+    the link once — the artefact is an association, not a per-edit log entry (that detail lives in the
+    note/status artefacts the edit itself appends). Best-effort like the run tallies: the edit has
+    already committed by the time this runs, so a failure here is swallowed rather than surfaced as a
+    false edit failure. No-ops when the run isn't bridged to a resolvable task (`task_id` is None).
+    """
+    if task_id is None:
+        return
+    try:
+        with transaction.atomic():
+            # The artefact log has no uniqueness constraint, so serialize the check-then-append under
+            # the report row lock — concurrent edits from the same run would otherwise both pass the
+            # exists() check and double-write the association.
+            if not SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first():
+                return
+            # The `task_id` column mirrors the content's task id on every signals-pipeline `task_run`
+            # artefact (they're attributed to the task they record), so it doubles as the dedupe key.
+            if SignalReportArtefact.objects.filter(
+                team_id=team_id,
+                report_id=report_id,
+                type=SignalReportArtefact.ArtefactType.TASK_RUN,
+                task_id=task_id,
+            ).exists():
+                return
+            SignalReportArtefact.add_log(
+                team_id=team_id,
+                report_id=report_id,
+                content=_scout_task_run_content(run, task_id),
+                attribution=ArtefactAttribution.from_task(task_id),
+            )
+    except Exception:
+        logger.exception(
+            "signals_scout.edit_report: failed to record scout task_run artefact",
+            extra={"team_id": team_id, "report_id": report_id, "run_id": str(run.id)},
+        )
+
+
+def _scout_task_run_content(run: SignalScoutRun, task_id: str) -> TaskRunArtefact:
+    return TaskRunArtefact(
+        task_id=task_id,
+        run_id=str(run.task_run_id) if run.task_run_id else None,
+        product=SIGNALS_PRODUCT,
+        type=TASK_RUN_TYPE_SCOUT,
+    )
 
 
 def _provenance_note_text(run: SignalScoutRun | None) -> str:
