@@ -81,7 +81,7 @@ class TestPost:
         session = MagicMock()
         session.post.return_value = response
         # Call the undecorated function so tenacity's exponential backoff doesn't sleep in tests.
-        return _post.__wrapped__(session, "getMonitors", {"api_key": "k"}, MagicMock())
+        return _post.__wrapped__(session, "getMonitors", {"api_key": "k"}, MagicMock())  # type: ignore[attr-defined]
 
     def test_ok_payload_returned(self) -> None:
         payload = {"stat": "ok", "monitors": [{"id": 1}]}
