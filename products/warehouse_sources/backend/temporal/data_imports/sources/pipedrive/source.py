@@ -147,6 +147,8 @@ You can find your personal API token in Pipedrive under **Settings > Personal pr
             company_domain=normalize_company_domain(config.company_domain),
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Pipedrive endpoint is full refresh
         )
