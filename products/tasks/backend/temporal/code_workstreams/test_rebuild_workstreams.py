@@ -2,6 +2,7 @@ import random
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from freezegun import freeze_time
@@ -94,14 +95,17 @@ def test_task_to_input_preserves_merge_signal_from_older_run():
         state={},
         output={"pr_url": pr_url},
     )
-    task = SimpleNamespace(
-        id="task-id",
-        team_id=1,
-        title="Task",
-        updated_at=datetime(2026, 5, 31, tzinfo=UTC),
-        repository=None,
-        latest_run=latest_run,
-        runs=SimpleNamespace(all=lambda: [merged_run, latest_run]),
+    task = cast(
+        Task,
+        SimpleNamespace(
+            id="task-id",
+            team_id=1,
+            title="Task",
+            updated_at=datetime(2026, 5, 31, tzinfo=UTC),
+            repository=None,
+            latest_run=latest_run,
+            runs=SimpleNamespace(all=lambda: [merged_run, latest_run]),
+        ),
     )
 
     task_input, _ = _task_to_input(task)

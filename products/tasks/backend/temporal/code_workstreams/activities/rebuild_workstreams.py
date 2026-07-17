@@ -65,13 +65,16 @@ def _pr_url_from_run(run: Optional[TaskRun]) -> Optional[str]:
 def _task_pr_is_merged(task: Task, pr_url: Optional[str]) -> bool:
     if not pr_url:
         return False
-    return any(
-        run.team_id == task.team_id
-        and bool(run.output)
-        and run.output.get("pr_url") == pr_url
-        and run.output.get("pr_merged") is True
-        for run in task.runs.all()
-    )
+    for run in task.runs.all():
+        output = run.output
+        if (
+            run.team_id == task.team_id
+            and isinstance(output, dict)
+            and output.get("pr_url") == pr_url
+            and output.get("pr_merged") is True
+        ):
+            return True
+    return False
 
 
 def _task_to_input(task: Task) -> tuple[TaskInput, Optional[str]]:
