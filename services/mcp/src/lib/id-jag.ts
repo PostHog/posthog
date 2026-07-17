@@ -29,3 +29,35 @@ export function isIdJagAccessToken(token: string): boolean {
         return false
     }
 }
+
+export interface IdJagAuthorizationMetadata {
+    scopes: string[]
+    scopedOrganizations: string[]
+}
+
+/**
+ * Read authorization metadata from an ID-JAG access token after the PostHog
+ * API has authenticated that same token via `/api/users/@me/`.
+ *
+ * This helper does not verify the JWT signature. Callers must first authenticate
+ * the token with PostHog, which is the resource server and source of truth for
+ * signature, expiry, audience, membership, and entitlement validation.
+ */
+export function readIdJagAuthorizationMetadata(token: string): IdJagAuthorizationMetadata | null {
+    if (!isIdJagAccessToken(token)) {
+        return null
+    }
+    try {
+        const payloadRaw = token.split('.')[1]
+        if (!payloadRaw) {
+            return null
+        }
+        const payloadJson = atob(base64UrlToBase64(payloadRaw))
+        const payload = JSON.parse(payloadJson) as { scope?: unknown; org_id?: unknown }
+        const scopes = typeof payload.scope === 'string' ? payload.scope.split(/\s+/).filter(Boolean) : []
+        const scopedOrganizations = typeof payload.org_id === 'string' && payload.org_id ? [payload.org_id] : []
+        return { scopes, scopedOrganizations }
+    } catch {
+        return null
+    }
+}

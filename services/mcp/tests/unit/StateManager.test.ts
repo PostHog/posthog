@@ -61,6 +61,29 @@ describe('StateManager', () => {
         })
     })
 
+    describe('getApiKey', () => {
+        it('uses validated ID-JAG claims instead of OAuth introspection', async () => {
+            const header = Buffer.from(JSON.stringify({ typ: 'at+jwt', alg: 'RS256' })).toString('base64url')
+            const payload = Buffer.from(
+                JSON.stringify({ scope: 'user:read agents:read agents:write', org_id: 'org-1' })
+            ).toString('base64url')
+            const token = `${header}.${payload}.signature`
+            const api = {
+                config: { apiToken: token },
+                users: () => ({ me: async () => ({ success: true, data: mockUser }) }),
+                apiKeys: () => ({ current: async () => ({ success: false }) }),
+                oauth: () => ({ introspect: async () => ({ success: false }) }),
+            } as unknown as ApiClient
+            stateManager = new StateManager(cache, api)
+
+            await expect(stateManager.getApiKey()).resolves.toEqual({
+                scopes: ['user:read', 'agents:read', 'agents:write'],
+                scoped_teams: [],
+                scoped_organizations: ['org-1'],
+            })
+        })
+    })
+
     describe('getDistinctId', () => {
         it('should get distinct ID from cache if available', async () => {
             await cache.set('distinctId', 'cached-distinct-id')

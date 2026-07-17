@@ -9,6 +9,7 @@ import {
     wrapError,
 } from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
+import { isIdJagAccessToken, readIdJagAuthorizationMetadata } from '@/lib/id-jag'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
@@ -49,6 +50,23 @@ export class StateManager {
     }
 
     private async _fetchApiKey(): Promise<NonNullable<State['apiKey']>> {
+        const token = this._api.config.apiToken
+        if (isIdJagAccessToken(token)) {
+            // `/oauth/introspect` only supports database-backed OAuth tokens.
+            // Authenticate the ID-JAG JWT through PostHog first, then read the
+            // already-validated scope and organization claims locally.
+            await this.getUser()
+            const metadata = readIdJagAuthorizationMetadata(token)
+            if (!metadata) {
+                throw new Error(ErrorCode.INVALID_API_KEY)
+            }
+            return {
+                scopes: metadata.scopes,
+                scoped_teams: [],
+                scoped_organizations: metadata.scopedOrganizations,
+            }
+        }
+
         const apiKeyResult = await this._api.apiKeys().current()
         if (apiKeyResult.success) {
             const { scopes, scoped_teams, scoped_organizations } = apiKeyResult.data
@@ -61,7 +79,7 @@ export class StateManager {
             }
         }
 
-        const introspectionResult = await this._api.oauth().introspect({ token: this._api.config.apiToken })
+        const introspectionResult = await this._api.oauth().introspect({ token })
 
         if (!introspectionResult.success) {
             throw new Error(ErrorCode.INVALID_API_KEY)
