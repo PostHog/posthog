@@ -1,0 +1,9 @@
+.venv/
+/config.json
+inputs/
+work/
+output/
+engine/target/
+__pycache__/
+*.pyc
+.ruff_cache/

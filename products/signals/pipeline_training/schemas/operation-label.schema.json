@@ -1,0 +1,59 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://posthog.com/signals/pipeline-training/operation-label.schema.json",
+    "title": "Two-report operation judgment",
+    "type": "object",
+    "required": [
+        "candidate_revision",
+        "operation_id",
+        "left_report_id",
+        "right_report_id",
+        "verdict",
+        "provenance",
+        "confidence"
+    ],
+    "properties": {
+        "candidate_revision": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "operation_id": { "type": "string", "minLength": 1 },
+        "left_report_id": { "type": "string", "minLength": 1 },
+        "right_report_id": { "type": "string", "minLength": 1 },
+        "verdict": { "enum": ["keep_separate", "whole_merge", "subset", "ambiguous"] },
+        "selected_left": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "selected_right": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "secondary_verdict": { "enum": ["keep_separate", "whole_merge", "subset", "ambiguous", null] },
+        "secondary_selected_left": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "secondary_selected_right": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "secondary_reader": { "type": ["string", "null"] },
+        "provenance": { "type": "string", "minLength": 1 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "reader": { "type": ["string", "null"] },
+        "rationale": { "type": ["string", "null"] },
+        "raw_response_ref": { "type": ["string", "null"] }
+    },
+    "allOf": [
+        {
+            "if": { "properties": { "verdict": { "const": "subset" } } },
+            "then": { "required": ["selected_left", "selected_right"] }
+        },
+        {
+            "if": {
+                "required": ["secondary_verdict"],
+                "properties": { "secondary_verdict": { "const": "subset" } }
+            },
+            "then": { "required": ["secondary_selected_left", "secondary_selected_right", "secondary_reader"] }
+        },
+        {
+            "if": {
+                "required": ["secondary_verdict"],
+                "properties": {
+                    "secondary_verdict": { "enum": ["keep_separate", "whole_merge", "subset", "ambiguous"] }
+                }
+            },
+            "then": {
+                "required": ["secondary_reader"],
+                "properties": { "secondary_reader": { "type": "string", "minLength": 1 } }
+            }
+        }
+    ],
+    "additionalProperties": false
+}

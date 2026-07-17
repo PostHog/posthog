@@ -1,0 +1,35 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://posthog.com/signals/pipeline-training/signal.schema.json",
+    "title": "Signal training row",
+    "type": "object",
+    "required": ["document_id", "timestamp", "content", "source_product", "source_type", "embedding"],
+    "properties": {
+        "document_id": { "type": "string", "minLength": 1 },
+        "timestamp": { "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "number" }] },
+        "content": { "type": "string", "minLength": 1 },
+        "source_product": { "type": "string", "minLength": 1 },
+        "source_type": { "type": "string", "minLength": 1 },
+        "source_id": { "type": ["string", "null"] },
+        "weight": { "type": "number", "minimum": 0 },
+        "embedding": {
+            "type": "array",
+            "minItems": 1536,
+            "maxItems": 1536,
+            "items": { "type": "number" }
+        },
+        "concern_signature": { "type": "object" },
+        "concern_signature_embedding": {
+            "type": "array",
+            "minItems": 1536,
+            "maxItems": 1536,
+            "items": { "type": "number" }
+        },
+        "metadata": { "type": "object" }
+    },
+    "dependentRequired": {
+        "concern_signature": ["concern_signature_embedding"],
+        "concern_signature_embedding": ["concern_signature"]
+    },
+    "additionalProperties": true
+}

@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://posthog.com/signals/pipeline-training/report-link.schema.json",
+    "title": "Cross-report clone link",
+    "type": "object",
+    "required": ["report_a", "report_b", "max_cosine", "overlap_a", "overlap_b"],
+    "properties": {
+        "report_a": { "type": "string", "minLength": 1 },
+        "report_b": { "type": "string", "minLength": 1 },
+        "max_cosine": { "type": "number", "minimum": -1, "maximum": 1 },
+        "overlap_a": { "type": "integer", "minimum": 0 },
+        "overlap_b": { "type": "integer", "minimum": 0 }
+    },
+    "additionalProperties": false
+}

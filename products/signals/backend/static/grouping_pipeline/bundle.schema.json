@@ -1,0 +1,184 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://posthog.com/research/signals-grouping-replay-v1.schema.json",
+    "title": "Portable Signals grouping replay",
+    "type": "object",
+    "required": [
+        "schema_version",
+        "created_at",
+        "mode",
+        "pipeline",
+        "input",
+        "runtime",
+        "enrichment",
+        "warnings",
+        "reports",
+        "signals",
+        "decisions",
+        "events",
+        "integrity"
+    ],
+    "properties": {
+        "schema_version": { "const": "posthog-signals-grouping-replay/v1" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "mode": { "enum": ["oracle-off", "oracle-on"] },
+        "pipeline": {
+            "type": "object",
+            "required": [
+                "name",
+                "fingerprint",
+                "implementation",
+                "artifact_hashes",
+                "engine_source_sha256",
+                "enrichment_source_sha256",
+                "engine_binary_sha256",
+                "runner_sha256",
+                "configuration",
+                "preflight_configuration",
+                "mode_configuration"
+            ],
+            "properties": {
+                "name": { "type": "string" },
+                "fingerprint": { "$ref": "#/$defs/sha256" },
+                "implementation": { "const": "python-only-onnxruntime" },
+                "artifact_hashes": {
+                    "type": "object",
+                    "additionalProperties": { "$ref": "#/$defs/sha256" }
+                },
+                "engine_source_sha256": { "$ref": "#/$defs/sha256" },
+                "enrichment_source_sha256": { "$ref": "#/$defs/sha256" },
+                "engine_binary_sha256": { "$ref": "#/$defs/sha256" },
+                "runner_sha256": { "$ref": "#/$defs/sha256" },
+                "configuration": { "type": "object" },
+                "preflight_configuration": { "type": "object" },
+                "mode_configuration": { "type": "object" }
+            },
+            "additionalProperties": true
+        },
+        "input": {
+            "type": "object",
+            "required": [
+                "source_name",
+                "sha256",
+                "signal_count",
+                "concern_signature_count",
+                "concern_signature_coverage",
+                "concern_signature_embedding_count",
+                "concern_signature_embedding_coverage"
+            ],
+            "properties": {
+                "source_name": { "type": "string" },
+                "sha256": { "$ref": "#/$defs/sha256" },
+                "signal_count": { "type": "integer", "minimum": 1 },
+                "concern_signature_count": { "type": "integer", "minimum": 0 },
+                "concern_signature_coverage": { "type": "number", "minimum": 0, "maximum": 1 },
+                "concern_signature_embedding_count": { "type": "integer", "minimum": 0 },
+                "concern_signature_embedding_coverage": { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+        },
+        "runtime": { "type": "object" },
+        "enrichment": { "type": "object" },
+        "warnings": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["code", "message"],
+                "properties": {
+                    "code": { "type": "string" },
+                    "message": { "type": "string" }
+                }
+            }
+        },
+        "reports": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "report_id",
+                    "engine_report_id",
+                    "title",
+                    "summary",
+                    "signal_ids",
+                    "signal_count",
+                    "total_weight",
+                    "first_seen",
+                    "last_seen",
+                    "source_products"
+                ],
+                "properties": {
+                    "report_id": { "type": "string", "minLength": 1 },
+                    "engine_report_id": { "type": "string", "minLength": 1 },
+                    "title": { "type": "string" },
+                    "summary": { "type": "string" },
+                    "signal_ids": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+                    "signal_count": { "type": "integer", "minimum": 1 },
+                    "total_weight": { "type": "number", "minimum": 0 },
+                    "first_seen": { "type": "string", "format": "date-time" },
+                    "last_seen": { "type": "string", "format": "date-time" },
+                    "source_products": { "type": "object", "additionalProperties": { "type": "integer" } }
+                }
+            }
+        },
+        "signals": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "required": [
+                    "document_id",
+                    "timestamp",
+                    "content",
+                    "source_product",
+                    "source_type",
+                    "source_id",
+                    "weight",
+                    "embedding",
+                    "concern_signature",
+                    "metadata",
+                    "report_id"
+                ],
+                "properties": {
+                    "document_id": { "type": "string", "minLength": 1 },
+                    "timestamp": { "type": "string", "format": "date-time" },
+                    "content": { "type": "string", "minLength": 1 },
+                    "source_product": { "type": "string" },
+                    "source_type": { "type": "string" },
+                    "source_id": { "type": "string" },
+                    "weight": { "type": "number", "minimum": 0 },
+                    "embedding": { "$ref": "#/$defs/embedding" },
+                    "concern_signature": { "type": ["object", "null"] },
+                    "metadata": { "type": "object" },
+                    "report_id": { "type": "string", "minLength": 1 }
+                }
+            }
+        },
+        "decisions": { "type": "array", "items": { "type": "object" } },
+        "events": {
+            "type": "object",
+            "required": ["member_repair", "split", "merge"],
+            "properties": {
+                "member_repair": { "type": "array", "items": { "type": "object" } },
+                "split": { "type": "array", "items": { "type": "object" } },
+                "merge": { "type": "array", "items": { "type": "object" } }
+            }
+        },
+        "integrity": {
+            "type": "object",
+            "required": ["algorithm", "canonical_payload_sha256"],
+            "properties": {
+                "algorithm": { "const": "sha256" },
+                "canonical_payload_sha256": { "$ref": "#/$defs/sha256" }
+            }
+        }
+    },
+    "$defs": {
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "embedding": {
+            "type": "array",
+            "minItems": 1536,
+            "maxItems": 1536,
+            "items": { "type": "number" }
+        }
+    },
+    "additionalProperties": false
+}

@@ -1,0 +1,65 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://posthog.com/research/signals-grouping-lab3-input-row.schema.json",
+    "title": "Lab 3 signal JSONL row",
+    "type": "object",
+    "required": ["content"],
+    "anyOf": [{ "required": ["document_id"] }, { "required": ["id"] }],
+    "allOf": [
+        {
+            "anyOf": [{ "required": ["timestamp"] }, { "required": ["ts"] }]
+        }
+    ],
+    "properties": {
+        "document_id": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1 },
+        "timestamp": { "oneOf": [{ "type": "string", "format": "date-time" }, { "type": "number" }] },
+        "ts": { "oneOf": [{ "type": "string", "format": "date-time" }, { "type": "number" }] },
+        "content": { "type": "string", "minLength": 1 },
+        "embedding": {
+            "type": "array",
+            "minItems": 1536,
+            "maxItems": 1536,
+            "items": { "type": "number" }
+        },
+        "source_product": { "type": "string" },
+        "product": { "type": "string" },
+        "source_type": { "type": "string" },
+        "type": { "type": "string" },
+        "source_id": { "type": "string" },
+        "weight": { "type": "number", "minimum": 0 },
+        "metadata": { "type": "object" },
+        "concern_signature": {
+            "type": "object",
+            "required": ["polarity"],
+            "properties": {
+                "polarity": { "enum": ["problem", "success", "neutral"] },
+                "surface": {},
+                "failure_mode": { "type": ["string", "null"] },
+                "error_anchor": { "type": ["string", "null"] },
+                "affected_entity": { "type": ["string", "null"] },
+                "concern_tags": { "type": "array", "items": { "type": "string" } },
+                "one_liner": { "type": ["string", "null"] },
+                "failmode": { "type": "array", "items": { "type": "string" } },
+                "tags": { "type": "array", "items": { "type": "string" } },
+                "anchor": { "type": "array", "items": { "type": "string" } },
+                "oneliner": { "type": "array", "items": { "type": "string" } },
+                "has_failmode": { "type": "boolean" },
+                "has_anchor": { "type": "boolean" },
+                "embedding": { "$ref": "#/$defs/embedding" },
+                "emb": { "$ref": "#/$defs/embedding" }
+            },
+            "additionalProperties": true
+        },
+        "concern_signature_embedding": { "$ref": "#/$defs/embedding" }
+    },
+    "$defs": {
+        "embedding": {
+            "type": "array",
+            "minItems": 1536,
+            "maxItems": 1536,
+            "items": { "type": "number" }
+        }
+    },
+    "additionalProperties": true
+}

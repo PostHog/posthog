@@ -1,0 +1,19 @@
+{
+    "schema_version": 1,
+    "frozen_at": "2026-07-16",
+    "artifacts": {
+        "groupjoin_direct.manifest.json": "765bff95f6e0c5012c66cd3b9d89e7e03efeb863edf488016763f774b9128c6b",
+        "groupjoin_direct.onnx": "a7c0b480dff81528c032218c8ba811b44b0d20a21b13fafcb66f76044a3fbee6",
+        "integrated_late_interaction_report_shuffler_128.onnx": "774b5410c9a551f4ec5b0202d0826c84553d10e6a524ef4960a65dd51f94bd15",
+        "integrated_late_interaction_report_shuffler_300.onnx": "8b75a010db78bc6763e50646cffb5c6ee98863dbc9a95131a4ea2a0a2f169efb",
+        "integrated_late_interaction_report_shuffler_32.onnx": "a5c61669c8b6a865d166069b85c9fa0822ca7b4212a63f92a7ed72c2f00759c1",
+        "integrated_late_interaction_report_shuffler_64.onnx": "4462b538d5f0a27e42c0ec310bcc3cd620503bb208c889ef0aa0fdb9501a843b",
+        "integrated_late_interaction_report_shuffler_8.onnx": "14425369ba0c2a1e52835eb555c995dc173bb62677d4cc3f22435853bb8fa37c",
+        "integrated_report_shuffler.manifest.json": "4432a8331076f10c8518d1eaf894771d37489ebf13099bf6fa94c84004de2f5c",
+        "models-stack.json": "533f802d3df153e099efed99f7194af41d163f8ab59cafbe62d58857692fcd8f"
+    },
+    "sources": {
+        "groupjoin": "groupjoin-20260710-1722",
+        "shuffler": "coherent-curriculum-stage1-v1"
+    }
+}

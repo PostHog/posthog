@@ -1,0 +1,59 @@
+{
+    "schema_version": 1,
+    "name": "lab3-older-join-curriculum-shuffler-v1",
+    "description": "Frozen Lab 2 elected pipeline, optionally followed by the frozen remediation-coherence-v2 Opus shuffling oracle.",
+    "source_frontier": "lab-2 elected older-join plus curriculum-shuffler frontier",
+    "artifact_manifest": "artifacts/manifest.json",
+    "preflight": {
+        "signature_model": "claude-haiku-4-5",
+        "signature_prompt_version": "lab3-sig-v1",
+        "embedding_model": "text-embedding-3-small",
+        "signature_concurrency": 128,
+        "embedding_concurrency": 8,
+        "cache_policy": "append-only-run-directory"
+    },
+    "engine_config": {
+        "mode": "classifier",
+        "models": "artifacts/models-stack.json",
+        "id_lane_limit": 10,
+        "precompute_retrieval": true,
+        "use_groupjoin": true,
+        "groupjoin_neural_manifest": "artifacts/groupjoin_direct.manifest.json",
+        "groupjoin_neural_mode": "stack",
+        "gj_raw_tau": 0.82,
+        "use_concern": true,
+        "concern_split_sigma": 0.4,
+        "concern_split_budget": 256,
+        "concern_merge_gamma": 1.1,
+        "member_repair_manifest": "artifacts/integrated_report_shuffler.manifest.json",
+        "member_repair_architecture": "bipartite",
+        "member_repair_integrated_gates": true,
+        "member_repair_trigger_tau": 0.95,
+        "member_repair_member_tau": 0.1,
+        "member_repair_report_gate": "hgb-d2",
+        "member_repair_report_gate_tau": 0.5,
+        "member_repair_risk_gate": "logistic",
+        "member_repair_risk_tau": 0.0,
+        "member_repair_apply": true,
+        "member_repair_split_after": true,
+        "member_repair_llm_max_tokens": 6000,
+        "matching_model": "claude-opus-4-8"
+    },
+    "modes": {
+        "oracle-off": {
+            "description": "Frozen learned pipeline with no match-time LLM oracle.",
+            "engine_overrides": {
+                "member_repair_llm_oracle": false
+            }
+        },
+        "oracle-on": {
+            "description": "The same learned pipeline with one Opus remediation-coherence judgment for each eligible shuffler proposal.",
+            "engine_overrides": {
+                "member_repair_llm_oracle": true
+            },
+            "oracle_model": "claude-opus-4-8",
+            "oracle_prompt_version": "remediation-coherence-v2",
+            "proposal_count": 1
+        }
+    }
+}

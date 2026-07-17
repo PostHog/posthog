@@ -1,0 +1,70 @@
+{
+    "schema_version": 1,
+    "seed": 4242,
+    "source": {
+        "export_directory": "inputs/export",
+        "concern_ledger": "inputs/ledgers/concerns.jsonl",
+        "concern_prompt_version": "sig-v1",
+        "llm_label_ledger": "inputs/ledgers/labels.llm.jsonl",
+        "human_label_ledger": "inputs/ledgers/labels.human.jsonl"
+    },
+    "workspace": "work",
+    "outputs": "output",
+    "labeling": {
+        "clone_scan_batch_size": 256,
+        "pair_candidates_per_report_link": 2,
+        "within_report_pairs": 2,
+        "within_report_scan_members": 32,
+        "max_pair_candidates": 10000,
+        "max_report_candidates": 5000,
+        "max_operation_candidates": 5000,
+        "candidate_member_sample": 8,
+        "content_preview_chars": 1200,
+        "required_label_kinds": ["pair", "report", "operation"]
+    },
+    "cleaning": {
+        "sampling_seed": 42,
+        "monster_cap": 1024,
+        "error_tracking_product": "error_tracking",
+        "error_tracking_signal_target": 32000,
+        "exclude_scout_bypass_reports": true
+    },
+    "territories": {
+        "names": ["train", "validation_a", "validation_b"],
+        "clone_link_cosine": 0.99,
+        "clone_link_min_smaller_overlap": 0.05,
+        "residual_link_cosine": 0.95,
+        "annex_fraction": 0.05,
+        "swap_iterations": 20000
+    },
+    "lineage": {
+        "python": "auto",
+        "require_concern_signatures": true,
+        "groupjoin_epochs": 24,
+        "groupjoin_patience": 4,
+        "groupjoin_batch_size": 512,
+        "shuffler_pretrain_epochs": 35,
+        "shuffler_finetune_epochs": 15,
+        "shuffler_batch_size": 32,
+        "shuffler_head_epochs": 80,
+        "shuffler_safety_epochs": 50,
+        "device": "auto"
+    },
+    "surfaces": {
+        "pair_negative_to_positive_ratio": 5.0,
+        "coherent_pairs_per_report": 20,
+        "operation_pairs_per_operation": 40,
+        "coherent_cuts_per_report": 3,
+        "curriculum_within_report_repeats": 2,
+        "curriculum_max_triplets": 1500
+    },
+    "evaluation": {
+        "admission_threshold": 0.82,
+        "split_threshold": 0.4,
+        "shuffle_trigger_threshold": 0.95,
+        "shuffle_member_threshold": 0.1,
+        "shuffle_action_threshold": 0.5,
+        "shuffle_safety_threshold": 0.0,
+        "allow_validation_b": false
+    }
+}

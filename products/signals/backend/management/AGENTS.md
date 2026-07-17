@@ -178,6 +178,92 @@ is safe to re-run. Each artefact carries a `(product, type)` pair: these are sig
 now, but the run happened earlier). Live creation paths append the same artefacts at run time going
 forward — custom agents instead use their own `identifier()` `(product, type)` pair.
 
+## Offline grouping replay
+
+The export, replay, and import commands form a deliberately offline path for evaluating the frozen grouping pipeline.
+They do not enqueue the production grouping or research workflows.
+
+### Export a bounded source dataset
+
+`export_signals_grouping_data` reads the latest version of each signal from team-scoped HogQL, including its full 1,536-dimensional embedding.
+The lower timestamp bound is mandatory and the signal count has a hard cap.
+Deleted signals are filtered only after latest-version deduplication, so a tombstone cannot expose an older live version.
+
+```bash
+python manage.py export_signals_grouping_data /tmp/signals-export \
+    --team-id 1 \
+    --since 2026-06-01T00:00:00Z \
+    --until 2026-07-01T00:00:00Z \
+    --max-signals 10000
+```
+
+The destination must not exist.
+It is installed atomically with mode `0700`; `signals.jsonl`, `reports.jsonl`, and `manifest.json` use mode `0600`.
+The manifest records source bounds, counts, warnings, and SHA-256 integrity data for both JSONL files.
+Command output contains counts and paths only, never signal content.
+The export and replay commands enforce a 10,000-signal ceiling because the current proof-of-concept retrieval loop is not designed for an unbounded team history.
+Use narrower time ranges for larger evaluations.
+
+### Run the frozen replay
+
+`run_signals_grouping_pipeline` accepts an export directory or a standalone signals JSONL file and writes one portable `posthog-signals-grouping-replay/v1` JSON bundle.
+Provider results and intermediate cache entries live in an append-only work directory, which makes retries resumable and auditable.
+`reports.jsonl` preserves the observed production partition for labeling and comparison; it never seeds replay assignment.
+
+```bash
+python manage.py run_signals_grouping_pipeline \
+    /tmp/signals-export \
+    /tmp/replay-oracle-off.json \
+    --team-id 1 \
+    --work-dir /tmp/signals-replay-work \
+    --mode oracle-off \
+    --haiku-concurrency 128 \
+    --embedding-concurrency 8
+
+# Validate input and integrity without provider calls, cache writes, or output.
+python manage.py run_signals_grouping_pipeline \
+    /tmp/signals-export /tmp/replay.json --dry-run
+```
+
+`--team-id` attributes uncached Haiku or embedding requests to a team through the PostHog gateway.
+Embedding retries are isolated per text and a shared eight-request ceiling covers both signal and concern-signature embeddings.
+`oracle-on` is experimental and also requires `--experimental-oracle-on`:
+
+```bash
+python manage.py run_signals_grouping_pipeline \
+    /tmp/signals-export /tmp/replay-oracle-on.json \
+    --team-id 1 --mode oracle-on --experimental-oracle-on
+```
+
+### Import a portable bundle for local display
+
+`import_signals_grouping_pipeline` accepts only a portable v1 bundle and only runs with `DEBUG=True`.
+Before any write, it validates bundle integrity, complete one-to-one membership, timestamps, counts, and every embedding value.
+It also requires an explicit namespace and checks both the ClickHouse embedding table and ingestion buffer for target document ID collisions.
+It creates fresh report IDs, clearly labels safety/actionability/priority artefacts as display defaults, and inserts the bundled vectors directly into ClickHouse.
+It never invokes the live matcher, Temporal, report research, or judging.
+
+```bash
+# Full validation, no writes.
+python manage.py import_signals_grouping_pipeline /tmp/replay-oracle-off.json \
+    --team-id 1 --document-id-prefix replay-a: --dry-run
+
+# Materialize the largest eligible reports for UI review.
+python manage.py import_signals_grouping_pipeline /tmp/replay-oracle-off.json \
+    --team-id 1 \
+    --min-signals 2 \
+    --limit-reports 100 \
+    --document-id-prefix replay-a: \
+    --max-signal-age-days 80 \
+    --yes
+```
+
+Use a unique document ID prefix when comparing multiple imports in one team.
+The command refuses a blank prefix or a prefix that produces any existing target document ID.
+Timeline compression keeps old replay data inside the embeddings table TTL while preserving order and relative spacing.
+Postgres report and artefact writes are atomic, but ClickHouse is a separate store.
+If the ClickHouse phase fails after Postgres commits, remove the newly imported display reports before retrying.
+
 ## Tips
 
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`
