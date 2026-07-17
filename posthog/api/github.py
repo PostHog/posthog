@@ -19,15 +19,17 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
+from posthog.api.project_secret_api_key import roll_project_secret_api_key_and_notify
 from posthog.models import Team
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token, revoke_oauth_session
 from posthog.models.personal_api_key import find_personal_api_key
+from posthog.models.project_secret_api_key import find_project_secret_api_key
 from posthog.models.utils import mask_key_value
 from posthog.redis import get_client
 from posthog.tasks.email import (
+    send_feature_flags_secure_api_key_exposed,
     send_oauth_token_exposed,
     send_personal_api_key_exposed,
-    send_project_secret_api_key_exposed,
 )
 from posthog.utils import get_instance_region
 
@@ -262,16 +264,28 @@ class SecretAlert(APIView):
                     send_personal_api_key_exposed(key.user.id, key.id, old_mask_value, more_info)
 
             elif item["type"] == GITHUB_TYPE_FOR_SECURE_API_KEY:
-                try:
-                    team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
+                key_kind = None
+
+                project_secret_api_key = find_project_secret_api_key(token)
+                if project_secret_api_key is not None:
                     local_found = True
+                    key_kind = "project_secret_api_key"
                     result["label"] = "true_positive"
 
                     more_info = f"This key was detected by GitHub at {item['url']}."
-                    send_project_secret_api_key_exposed(team.id, mask_key_value(token), more_info)
+                    roll_project_secret_api_key_and_notify(project_secret_api_key, more_info)
+                else:
+                    try:
+                        team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
+                        local_found = True
+                        key_kind = "team_secret_token"
+                        result["label"] = "true_positive"
 
-                except Team.DoesNotExist:
-                    pass
+                        more_info = f"This key was detected by GitHub at {item['url']}."
+                        send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
+
+                    except Team.DoesNotExist:
+                        pass
 
                 pending_events.append(
                     {
@@ -279,6 +293,7 @@ class SecretAlert(APIView):
                         "source": item["source"],
                         "url": item["url"],
                         "found": local_found,
+                        "key_kind": key_kind,
                         "token_hash": token_sha256,
                         **token_debug,
                     }
