@@ -433,7 +433,6 @@ def test_workflow_resource_attributes_includes_query_and_drilldown_fields(
     monkeypatch.setenv("GITHUB_SERVER_URL", "https://github.com")
     monkeypatch.setenv("GITHUB_REPOSITORY", "PostHog/posthog")
     monkeypatch.setenv("GITHUB_RUN_ID", "25218527467")
-    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
 
     attrs = report_test_timings.workflow_resource_attributes()
 
@@ -443,8 +442,6 @@ def test_workflow_resource_attributes_includes_query_and_drilldown_fields(
     assert attrs["ci.branch"] == "worktree-per-test-telemetry-junit"
     assert attrs["ci.pr_number"] == 57216
     assert attrs["ci.repository"] == "PostHog/posthog"
-    assert attrs["ci.run_id"] == "25218527467"
-    assert attrs["ci.run_attempt"] == "2"
     assert attrs["ci.run_url"] == "https://github.com/PostHog/posthog/actions/runs/25218527467"
 
 

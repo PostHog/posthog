@@ -38,14 +38,15 @@ autonomous agents (e.g. PostHog Code) reasoning about their own PRs.
   pair **per workflow run** (many on a multi-workflow repo, interleaved by time), then merged/closed. Answers
   "where is PR N stuck". `metric_quality` is `partial`.
 - **`engineering-analytics-flaky-tests`** — the active test-health queue from the per-test CI spans, over a
-  window (`date_from` default `-7d`, max 30 days). Evidence is counted per CI run, never per span or run
-  attempt. `classification` is `confirmed_flake` only where one commit was seen both failing and passing
-  (`same_commit_recovery_run_count > 0`, which a CI re-run is what proves); `quarantined` means failing while
-  masked as xfail; `suspected_regression` means only failures were recorded, which is absence of proof, not
-  proof of a real break. A test qualifies on any recovery, an xfail, any master/main failure, or failures on ≥
-  `min_failed_prs` distinct PRs (`failed_pr_count`). Answers "which tests are flaky right now" and picks
-  quarantine candidates. Counts are absolute signal, never rates — passing runs are mostly not emitted, so there
-  is no honest denominator.
+  window (`date_from` default `-7d`, max 30 days). Evidence is counted per CI run, never per span. `classification`
+  is `confirmed_flake` only where the evidence proves nondeterminism (`same_commit_recovery_run_count > 0`, an
+  in-job retry recovered it); `quarantined` means failing while masked as xfail; `suspected_regression` means only
+  failures were recorded, which is absence of proof, not proof of a real break. A test qualifies on any recovery,
+  an xfail, any master/main failure, or failures on ≥ `min_failed_prs` distinct PRs (`failed_pr_count`). Answers
+  "what is this failing test costing us" and picks quarantine candidates. **It does not answer "which tests are
+  flaky" — Trunk does**, across every suite, and it auto-quarantines; this queue only sees Backend CI and only
+  proves a flake for tests hand-marked `@pytest.mark.flaky(reruns=N)`. Counts are absolute signal, never rates —
+  passing runs are mostly not emitted, so there is no honest denominator.
 
 There is no aggregate time-to-merge tool and no "counts" tool — derive those from `pull-requests` (the stuck/failing
 counts, the merge-time percentiles).
@@ -80,7 +81,7 @@ These are structural limits of today's snapshot data — state them, don't paper
 | Which PRs are stuck open longest?                      | `pull-requests`                     | Keep `state = open`, not `is_draft`, not `author.is_bot`; sort by `created_at` ascending (oldest first).                                                                                                                                                                                       |
 | How long are PRs taking to merge? Per author?          | `pull-requests`                     | Over merged rows (`merged_at` set, not bot, not draft), aggregate `open_to_merge_seconds` — median and p95. Group by `author.handle` for **cohort context, not a ranking** (per-developer surveillance is an explicit non-goal). Trend it by calling with two `date_from` windows.             |
 | Where is PR N stuck?                                   | `pr-lifecycle`                      | Walk the sorted events: `opened → first CI started`, the CI span (first start → last finish; one pair per workflow), `last CI finished → merged`. The largest gap is the bottleneck. A long open→merge with quick CI points at review/idle time the `partial` data can't itemize yet — say so. |
-| Which tests are flaky? What should be quarantined?     | `engineering-analytics-flaky-tests` | Default window is `-7d`; rows are already ranked by `rerun_passed_count` + `failed_pr_count`. Report counts, never rates. A no-rerun lane surfaces flakes as plain failures — that's what `failed_pr_count` catches.                                                                           |
+| What is a failing test costing us? What to quarantine? | `engineering-analytics-flaky-tests` | Default window is `-7d`; rows are already ranked by blast radius (master failures, then distinct PRs hit). Report counts, never rates. For "is it flaky", send them to Trunk: only `confirmed_flake` rows are proven here, and only for tests hand-marked with reruns.                         |
 
 ## The high-value chain
 

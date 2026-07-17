@@ -8,19 +8,18 @@ outcomes, the repository scoping, the ownership fallback, and above all the **gr
 drift apart. Sharing a predicate string was not enough: each caller still counted its own way,
 and they disagreed.
 
-The grain is the CI run, not the span and not the run attempt:
+The grain is the CI run, not the span. One run fans a test out across matrix legs (person-on-events,
+compat, and friends), so span-grain counting multiplies a single failure by the number of legs that
+ran it. At run grain a failure in any leg counts once, and outweighs a pass in another.
 
-- A re-run re-uploads only the shards it re-executed, but the reporter emits every artifact it
-  downloads, so an attempt re-reports shards it never ran. Counting spans or attempts multiplies
-  one failure by the number of re-runs.
-- Every attempt of a run tests the same commit, so attempts are repeated trials: a run that both
-  failed and passed a test has proven it nondeterministic, whichever attempt failed first. That is
-  what ``recovered_in_run`` means, and it is the only proof of flakiness this telemetry carries.
-  Backend CI runs pytest without ``--reruns`` on purpose, so a GitHub re-run is where it comes
-  from; ``rerun_passed`` is the same proof from lanes that do enable in-job retries.
+What this signal can and cannot prove:
 
-Failures with no such recovery prove nothing about determinism, so callers classify them on blast
-radius instead and must never call them flaky.
+- ``rerun_passed`` is proof of nondeterminism: the test failed and passed within one run. It reaches
+  only the handful of tests hand-marked ``@pytest.mark.flaky(reruns=N)``, because Backend CI runs
+  pytest without ``--reruns`` deliberately, so raw failures reach Trunk unmasked.
+- Everything else proves nothing about determinism. Trunk is the flake authority here: it sees every
+  suite and quarantines automatically. This surface answers what Trunk does not, which is how much a
+  failing test costs us, so unproven failures are ranked by blast radius and never called flaky.
 """
 
 from datetime import datetime
@@ -43,35 +42,18 @@ _RUN_EVIDENCE = """
     SELECT
         nodeid,
         run_id,
-        argMax(owner_team, trial_at) AS owner_team,
+        argMax(owner_team, span_timestamp) AS owner_team,
         anyIf(selector, selector != '') AS selector,
         anyIf(pr_number, pr_number != '') AS pr_number,
         anyIf(branch, branch != '') AS branch,
         max(is_current) AS is_current,
-        max(trial_failed) AS failed_in_run,
-        max(trial_quarantined) AS quarantined_in_run,
-        max(trial_rerun_passed) OR (max(trial_failed) AND max(trial_passed)) AS recovered_in_run,
-        max(trial_at) AS run_at,
-        maxIf(trial_at, trial_failed OR trial_rerun_passed OR trial_quarantined) AS run_signal_at
-    FROM (
-        -- One row per (test, run attempt). An attempt reports every shard, so a test can appear in
-        -- several matrix legs at once; a failure in any leg outweighs a pass in another.
-        SELECT
-            nodeid,
-            run_id,
-            argMax(owner_team, span_timestamp) AS owner_team,
-            anyIf(selector, selector != '') AS selector,
-            anyIf(pr_number, pr_number != '') AS pr_number,
-            anyIf(branch, branch != '') AS branch,
-            max(is_current) AS is_current,
-            max(outcome IN ('failed', 'error')) AS trial_failed,
-            max(outcome = 'rerun_passed') AS trial_rerun_passed,
-            max(outcome = 'xfailed') AS trial_quarantined,
-            max(outcome = 'passed') AND NOT trial_failed AS trial_passed,
-            max(span_timestamp) AS trial_at
-        FROM (__SPAN_SCAN__)
-        GROUP BY nodeid, run_id, attempt
-    )
+        max(outcome IN ('failed', 'error')) AS failed_in_run,
+        max(outcome = 'xfailed') AS quarantined_in_run,
+        max(outcome = 'rerun_passed') AS recovered_in_run,
+        -- Every scanned span is a signal span (the fence admits no plain passes), so the run's last
+        -- span is its last signal.
+        max(span_timestamp) AS run_signal_at
+    FROM (__SPAN_SCAN__)
     GROUP BY nodeid, run_id
 """
 
@@ -80,9 +62,9 @@ def run_evidence(*, bounded: bool) -> str:
     """One row per (test, CI run): what that run proves about that test.
 
     Every consumer groups this, never the raw spans, so all of them count at the same grain and
-    agree on what "flaky" means. See the module docstring for why the run is the grain.
+    agree on what the signal means. See the module docstring for why the run is the grain.
     """
-    return _RUN_EVIDENCE.replace("__SPAN_SCAN__", span_scan(bounded=bounded, with_run_attempts=True))
+    return _RUN_EVIDENCE.replace("__SPAN_SCAN__", span_scan(bounded=bounded, with_run_id=True))
 
 
 # Scans [scan_from, date_to?]; `is_current` splits rows at {date_from} so a caller scanning
@@ -102,33 +84,20 @@ _SCAN = """
     WHERE service_name = {service_name}
         AND lower(resource_attributes['ci.repository']) = lower({repository})
         AND timestamp >= {scan_from}__DATE_TO__
-        AND (attributes['test.outcome'] IN {signal_outcomes}__RECOVERY_ARM__)
+        AND attributes['test.outcome'] IN {signal_outcomes}
 """
 
 _RUN_COLUMNS = """
-        resource_attributes['ci.run_id'] AS run_id,
-        ifNull(accurateCastOrNull(resource_attributes['ci.run_attempt'], 'Int64'), 1) AS attempt,"""
-
-# Only re-run attempts' passes are read. Reading first-attempt passes too would mean scanning the
-# whole passing corpus, which dwarfs the signal one, to gain only the runs whose disagreement began
-# with a pass (passed on attempt 1, failed on the re-run). That is real proof, and this misses it.
-_RECOVERY_ARM = """
-            OR (
-                attributes['test.outcome'] = 'passed'
-                AND resource_attributes['ci.run_attempt'] NOT IN ('', '1')
-            )"""
+        resource_attributes['ci.run_id'] AS run_id,"""
 
 
-def span_scan(*, bounded: bool, with_run_attempts: bool = False) -> str:
+def span_scan(*, bounded: bool, with_run_id: bool = False) -> str:
     """The scan SELECT, with or without the upper time bound (some callers scan to now).
 
-    ``with_run_attempts`` adds ``run_id`` / ``attempt`` and widens the outcome fence to include
-    re-run passes, which is what lets a caller group at run grain and see a same-commit recovery.
+    ``with_run_id`` adds the ``run_id`` a caller needs to group at run grain.
     """
-    return (
-        _SCAN.replace("__DATE_TO__", " AND timestamp <= {date_to}" if bounded else "")
-        .replace("__RUN_COLUMNS__", _RUN_COLUMNS if with_run_attempts else "")
-        .replace("__RECOVERY_ARM__", _RECOVERY_ARM if with_run_attempts else "")
+    return _SCAN.replace("__DATE_TO__", " AND timestamp <= {date_to}" if bounded else "").replace(
+        "__RUN_COLUMNS__", _RUN_COLUMNS if with_run_id else ""
     )
 
 

@@ -23,9 +23,6 @@
 #   Trunk posting from a non-blocking timing trial — and so also omits the test
 #   steps' continue-on-error and that verdict step, letting each shard's test
 #   exit code be the verdict directly)
-# - Per-test trace telemetry: canonical replaces JUnit artifacts and reruns the
-#   trace reporter on workflow rerun attempts. The shadow omits both because it
-#   uploads no artifacts and emits no per-test traces.
 # - Per-test failure rollup: canonical's django_tests gate uploads product JUnit and, when a
 #   test job fails, downloads that shard's JUnit to list the actual failing tests. The shadow
 #   strips artifact uploads (above), so it has nothing to download and keeps the plain

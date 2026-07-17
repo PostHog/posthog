@@ -7,8 +7,12 @@ aggregate under the literal team ``'unowned'``, an honest first-class bucket tha
 ownership gaps instead of dropping them.
 
 Teams are organizational owners of code surfaces; nothing here aggregates by author
-(SPEC §2). Both queries share the flaky-tests caveats: sub-threshold passing runs are not
-emitted, so every figure is an absolute count over signal spans, never a rate.
+(SPEC §2). Both queries group ``_test_spans.run_evidence()``, so they carry its caveats and its
+grain: sub-threshold passing runs are not emitted, so every figure is an absolute count over
+signal spans, never a rate.
+
+This is the ownership dimension Trunk does not have. Trunk knows which tests are flaky; only these
+spans know which team owns them and what a failing test costs the fleet.
 
 Reads the ``posthog.trace_spans`` table on the LOGS ClickHouse cluster, not the warehouse.
 """
@@ -55,7 +59,7 @@ _ROSTER_SELECT = f"""
     FROM (
         SELECT
             nodeid,
-            argMax(owner_team, run_at) AS owner_team,
+            argMax(owner_team, run_signal_at) AS owner_team,
             countIf(recovered_in_run AND is_current) AS recovery_runs_current,
             countIf(recovered_in_run AND NOT is_current) AS recovery_runs_prior,
             countIf(failed_in_run AND is_current) AS failed_runs_current,

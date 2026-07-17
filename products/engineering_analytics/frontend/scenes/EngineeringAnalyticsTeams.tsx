@@ -67,7 +67,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
             width: 140,
             align: 'right',
             tooltip:
-                'Owned tests one commit was seen both failing and passing in this window, which is what a CI re-run proves, vs the previous window.',
+                'Owned tests an in-job retry recovered in this window, vs the previous one. Trunk detects flakes across every suite; this only counts the ones proven here.',
             sorter: (a, b) => a.flakyTestCount - b.flakyTestCount,
             render: (_, row) => <CountWithDelta current={row.flakyTestCount} prior={row.flakyTestCountPrior} />,
         },
@@ -77,7 +77,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
             width: 140,
             align: 'right',
             tooltip:
-                'Owned tests that failed with no recorded recovery and still hit several PRs or master. Treat as real breaks until a re-run shows the same commit passing.',
+                'Owned tests that failed with no recorded recovery and still hit several PRs or master. Treat as real breaks; check Trunk before calling them flaky.',
             sorter: (a, b) => a.regressionTestCount - b.regressionTestCount,
             render: (_, row) => (
                 <CountWithDelta current={row.regressionTestCount} prior={row.regressionTestCountPrior} />
@@ -98,7 +98,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
             key: 'sameCommitRecoveryRunCount',
             width: 130,
             align: 'right',
-            tooltip: 'Runs where one commit both failed and passed an owned test. This is what proves a flake.',
+            tooltip: 'Runs where an in-job retry recovered an owned test after it failed. This is what proves a flake.',
             sorter: (a, b) => a.sameCommitRecoveryRunCount - b.sameCommitRecoveryRunCount,
             render: (_, row) => (
                 <CountWithDelta current={row.sameCommitRecoveryRunCount} prior={row.sameCommitRecoveryRunCountPrior} />

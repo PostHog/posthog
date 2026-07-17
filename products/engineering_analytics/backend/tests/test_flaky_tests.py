@@ -13,13 +13,9 @@ from products.engineering_analytics.backend.logic.queries._test_spans import sel
 from products.engineering_analytics.backend.tests.test_views import connect_github_source_without_data
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
-T_RERUN_RECOVERY = "posthog/api/test/test_rerun/TestRerun::test_green_on_attempt_2"
-T_RERUN_SELECTOR = "posthog/api/test/test_rerun.py::TestRerun::test_green_on_attempt_2"
-T_STALE_REREPORT = "posthog/api/test/test_stale/TestStale::test_reported_twice"
-T_MATRIX_LEGS = "posthog/api/test/test_legs/TestLegs::test_one_leg_fails"
-T_CROSS_RUN_PASS = "posthog/api/test/test_cross/TestCross::test_passes_in_another_run"
-T_PASS_THEN_FAIL = "posthog/api/test/test_order/TestOrder::test_fails_after_passing"
+T_MATRIX_LEGS = "posthog/api/test/test_legs/TestLegs::test_fails_in_two_legs"
 T_IN_JOB_RETRY = "posthog/api/test/test_injob/TestInJob::test_pytest_retry"
+T_IN_JOB_SELECTOR = "posthog/api/test/test_injob.py::TestInJob::test_pytest_retry"
 T_THREE_PRS = "posthog/api/test/test_three/TestThree::test_fails_on_three_prs"
 T_TWO_PRS = "posthog/api/test/test_two/TestTwo::test_fails_on_two_prs"
 T_MASTER = "posthog/api/test/test_master/TestMaster::test_breaks_trunk"
@@ -55,27 +51,25 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         old = now - timedelta(days=10)
 
         rows = [
-            # Failed on attempt 1, green on the re-run: one commit, both outcomes. The emitter
-            # stamped test.selector here, so it wins over the nodeid reconstruction.
-            cls._span(1, T_RERUN_RECOVERY, "failed", ts=earlier, run="100", branch="master", selector=T_RERUN_SELECTOR),
-            cls._span(2, T_RERUN_RECOVERY, "passed", ts=recent, run="100", attempt="2", branch="master"),
-            # A re-run re-reports the shards it didn't re-execute, so the same failure arrives twice
-            # under two attempts. One run, one failure.
-            cls._span(3, T_STALE_REREPORT, "failed", ts=earlier, run="200", branch="master"),
-            cls._span(4, T_STALE_REREPORT, "failed", ts=earlier, run="200", attempt="2", branch="master"),
-            # Attempt 2 re-reports a failing leg and a passing leg together. The failure wins.
+            # One run fans a test across matrix legs, and two of them fail. One run, one failure.
             cls._span(5, T_MATRIX_LEGS, "failed", ts=earlier, run="250", branch="master"),
-            cls._span(6, T_MATRIX_LEGS, "failed", ts=recent, run="250", attempt="2", branch="master"),
-            cls._span(7, T_MATRIX_LEGS, "passed", ts=recent, run="250", attempt="2", branch="master"),
-            # A pass in a different run is a different commit and proves nothing.
-            cls._span(8, T_CROSS_RUN_PASS, "failed", ts=earlier, run="300", branch="master"),
-            cls._span(9, T_CROSS_RUN_PASS, "passed", ts=recent, run="301", attempt="2", branch="master"),
-            # One commit disagreeing with itself proves nondeterminism whichever way round it lands,
-            # so a pass on an earlier attempt than the failure still counts.
-            cls._span(24, T_PASS_THEN_FAIL, "passed", ts=earlier, run="1400", attempt="2", branch="master"),
-            cls._span(25, T_PASS_THEN_FAIL, "failed", ts=recent, run="1400", attempt="3", branch="master"),
-            # In-job pytest retry: the same proof from a lane that runs with --reruns.
-            cls._span(10, T_IN_JOB_RETRY, "rerun_passed", ts=recent, run="400", pr="401", branch="f1"),
+            cls._span(6, T_MATRIX_LEGS, "failed", ts=recent, run="250", branch="master"),
+            # A third leg passed. Plain passes sit outside the scan fence, so a passing leg can never
+            # be mistaken for the test recovering.
+            cls._span(7, T_MATRIX_LEGS, "passed", ts=recent, run="250", branch="master"),
+            # In-job pytest retry: the only proof of nondeterminism this telemetry carries, and it
+            # reaches only tests hand-marked @pytest.mark.flaky(reruns=N). The emitter stamped
+            # test.selector here, so it wins over the nodeid reconstruction.
+            cls._span(
+                10,
+                T_IN_JOB_RETRY,
+                "rerun_passed",
+                ts=recent,
+                run="400",
+                pr="401",
+                branch="f1",
+                selector=T_IN_JOB_SELECTOR,
+            ),
             # Failures across 3 distinct PRs, no recovery: qualifies on blast radius alone.
             cls._span(11, T_THREE_PRS, "failed", ts=earlier, run="500", pr="501", branch="f1"),
             cls._span(12, T_THREE_PRS, "failed", ts=earlier, run="501", pr="502", branch="f2"),
@@ -122,7 +116,6 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         *,
         ts: datetime,
         run: str,
-        attempt: str = "1",
         pr: str = "",
         branch: str = "",
         selector: str = "",
@@ -139,7 +132,6 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             f"'{key}', '{value}'"
             for key, value in (
                 ("ci.run_id", run),
-                ("ci.run_attempt", attempt),
                 ("ci.pr_number", pr),
                 ("ci.branch", branch),
                 ("ci.repository", repo),
@@ -167,11 +159,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         # The 2-PR test is below the bar; the out-of-window, foreign-service, other-repo, and
         # outcome-less job-root spans must never qualify.
         assert {row["nodeid"] for row in data["items"]} == {
-            T_RERUN_RECOVERY,
-            T_STALE_REREPORT,
             T_MATRIX_LEGS,
-            T_CROSS_RUN_PASS,
-            T_PASS_THEN_FAIL,
             T_IN_JOB_RETRY,
             T_THREE_PRS,
             T_MASTER,
@@ -184,37 +172,29 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("recovered_on_rerun_attempt", T_RERUN_RECOVERY, "confirmed_flake"),
             ("recovered_via_in_job_retry", T_IN_JOB_RETRY, "confirmed_flake"),
-            # The pass came before the failure; one commit, both outcomes, still a flake.
-            ("passed_then_failed_in_one_run", T_PASS_THEN_FAIL, "confirmed_flake"),
-            # The pass is in another run, so it is another commit and proves nothing.
-            ("pass_in_a_different_run", T_CROSS_RUN_PASS, "suspected_regression"),
-            # A failing leg and a passing leg in one attempt is not a recovery.
+            # A passing leg alongside a failing one is not proof of anything.
             ("pass_in_another_matrix_leg", T_MATRIX_LEGS, "suspected_regression"),
             ("no_recovery_recorded", T_THREE_PRS, "suspected_regression"),
             ("failing_while_xfailed", T_QUARANTINED, "quarantined"),
         ]
     )
-    def test_classification_follows_same_commit_recovery(self, _name: str, nodeid: str, expected: str) -> None:
+    def test_classification_needs_proof_to_call_a_test_flaky(self, _name: str, nodeid: str, expected: str) -> None:
         assert self._rows()[nodeid]["classification"] == expected
 
     def test_evidence_is_counted_once_per_run(self) -> None:
         rows = self._rows()
 
-        # Two attempts of one run, both reporting the same failure: one run, one failure, and the
-        # re-report is not mistaken for a second occurrence.
-        stale = rows[T_STALE_REREPORT]
-        assert stale["failed_run_count"] == 1
-        assert stale["same_commit_recovery_run_count"] == 0
-        assert stale["master_failed_run_count"] == 1
+        # Two failing matrix legs of one run: one run, one failure. Span-grain counting would say 2.
+        legs = rows[T_MATRIX_LEGS]
+        assert legs["failed_run_count"] == 1
+        assert legs["master_failed_run_count"] == 1
+        # The passing leg must not read as a recovery.
+        assert legs["same_commit_recovery_run_count"] == 0
 
-        recovered = rows[T_RERUN_RECOVERY]
+        recovered = rows[T_IN_JOB_RETRY]
         assert recovered["same_commit_recovery_run_count"] == 1
-        assert recovered["failed_run_count"] == 1
-        assert recovered["selector"] == T_RERUN_SELECTOR
-        # The attempt-2 pass is not a signal, so recency still points at the failure.
-        assert recovered["last_signal_at"] < rows[T_MASTER]["last_signal_at"]
+        assert recovered["selector"] == T_IN_JOB_SELECTOR
 
         three_prs = rows[T_THREE_PRS]
         assert (three_prs["failed_run_count"], three_prs["failed_pr_count"]) == (3, 3)

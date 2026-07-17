@@ -343,12 +343,13 @@ const FLAKY_CLASSIFICATION: Record<FlakyTestClassification, { label: string; typ
         label: 'Confirmed flake',
         type: 'warning',
         tooltip:
-            'One commit both failed and passed this test, so the failure is nondeterministic. Fix it, or quarantine it while you do.',
+            'A retry recovered this test in the same run, so the failure is nondeterministic. Fix it, or quarantine it while you do.',
     },
     suspected_regression: {
         label: 'Suspected regression',
         type: 'danger',
-        tooltip: 'Only failures recorded. Treat it as a real break until one commit is seen both failing and passing.',
+        tooltip:
+            'Only failures recorded, so nothing here proves the test is flaky. Treat it as a real break, and check Trunk if you think it flakes.',
     },
     quarantined: {
         label: 'Quarantined, still failing',
@@ -462,8 +463,12 @@ function ActiveTestHealthQueue(): JSX.Element {
                 <div className="flex flex-col gap-0.5">
                     <h3 className="m-0 text-base font-semibold">Active test health queue</h3>
                     <p className="m-0 text-xs text-tertiary">
-                        Backend tests worth acting on now, ranked by blast radius. A test is a confirmed flake once one
-                        commit both failed and passed it, which is what a CI re-run proves.
+                        Backend tests worth acting on now, ranked by blast radius: how many PRs they broke and how often
+                        they broke master. For flake detection across every suite, see{' '}
+                        <Link to="https://app.trunk.io/posthog-inc/flaky-tests" target="_blank">
+                            Trunk
+                        </Link>
+                        .
                     </p>
                 </div>
                 <LemonSegmentedButton

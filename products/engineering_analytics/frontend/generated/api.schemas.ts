@@ -186,15 +186,15 @@ export interface FlakyTestItemApi {
     nodeid: string
     /** Runnable pytest selector, e.g. 'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess. */
     selector: string
-    /** confirmed_flake: one commit both failed and passed the test, so it is provably nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
+    /** confirmed_flake: an in-job retry recovered the test in the same run, so it is provably nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break. Trunk, not this queue, is the authority on which tests are flaky.
      *
      * * `confirmed_flake` - CONFIRMED_FLAKE
      * * `suspected_regression` - SUSPECTED_REGRESSION
      * * `quarantined` - QUARANTINED */
     classification: FlakyTestItemClassificationEnumApi
-    /** Runs where one commit both failed and passed the test: a later run attempt going green, or an in-job pytest retry. A pass in a different run is a different commit and proves nothing, so it is not counted here. Above zero is the only proof of flakiness this data carries. */
+    /** Runs where an in-job pytest retry recovered the test after it failed. Above zero is the only proof of flakiness this data carries, and it reaches only tests hand-marked @pytest.mark.flaky(reruns=N), since Backend CI runs without --reruns so failures reach Trunk raw. */
     same_commit_recovery_run_count: number
-    /** Distinct CI runs whose recorded outcome was failed or error. A run counts once however many attempts or matrix legs it failed in. */
+    /** Distinct CI runs whose recorded outcome was failed or error. A run counts once however many matrix legs it failed in. */
     failed_run_count: number
     /** Distinct pull requests among the failed runs. Failures on master or unattributed branches carry no PR number and are excluded here (still in failed_run_count). */
     failed_pr_count: number
@@ -947,7 +947,7 @@ export interface TeamCIActivityApi {
 export interface TeamCIHealthItemApi {
     /** Owning team slug (the CODEOWNERS handle minus '@PostHog/', e.g. 'team-replay'), or the literal 'unowned' for tests whose spans carry no ownership stamp. */
     owner_team: string
-    /** Owned tests one commit was seen both failing and passing in the window: the same proof, and the same word, that flaky_tests calls a confirmed_flake. Compare with flaky_test_count_prior for the delta. */
+    /** Owned tests an in-job retry recovered in the window: the same proof, and the same word, that flaky_tests calls a confirmed_flake. Compare with flaky_test_count_prior for the delta. */
     flaky_test_count: number
     /** Same count over the equal-length window immediately before date_from. */
     flaky_test_count_prior: number
@@ -959,7 +959,7 @@ export interface TeamCIHealthItemApi {
     failed_run_count: number
     /** Same count over the prior window. */
     failed_run_count_prior: number
-    /** Runs where one commit both failed and passed an owned test: a re-run attempt going green, or an in-job pytest retry. */
+    /** Runs where an in-job pytest retry recovered an owned test after it failed. */
     same_commit_recovery_run_count: number
     /** Same count over the prior window. */
     same_commit_recovery_run_count_prior: number

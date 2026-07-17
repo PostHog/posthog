@@ -498,12 +498,13 @@ class CIFailureLogs:
 FLAKY_TEST_SIGNAL_CAVEAT = (
     "Counts are absolute, never rates: CI emits a span for every failure but only for passes slow "
     "enough to clear the emitter's duration threshold, so there is no execution denominator. "
-    "'suspected_regression' means no same-commit recovery was recorded, not that none exists."
+    "'suspected_regression' means no recovery was recorded, not that the test never flakes: Trunk "
+    "is the authority on that, across every suite."
 )
 
 
 class FlakyTestClassification(StrEnum):
-    # One commit both failed and passed the test.
+    # An in-job retry recovered the test in the same run.
     CONFIRMED_FLAKE = "confirmed_flake"
     # Only failures recorded, which is absence of proof, not proof of a regression.
     SUSPECTED_REGRESSION = "suspected_regression"
@@ -515,8 +516,9 @@ class FlakyTestClassification(StrEnum):
 class FlakyTestItem:
     """One test in the active test-health queue, aggregated from the per-test CI spans in the Traces store.
 
-    Evidence is counted per CI run, never per span or run attempt: a re-run re-reports the shards it
-    did not re-execute, so only the run grain counts one failure once. See
+    Ranked by blast radius, which is the question Trunk does not answer. Trunk owns flake detection
+    across every suite; this queue only sees Backend CI. Evidence is counted per CI run, never per
+    span: one run fans a test across matrix legs, so only the run grain counts one failure once. See
     ``FLAKY_TEST_SIGNAL_CAVEAT`` for why every figure is an absolute count.
     """
 
@@ -526,8 +528,9 @@ class FlakyTestItem:
     # reporter stamped it; reconstructed from the nodeid (file/class boundary guessed) for older spans.
     selector: str
     classification: FlakyTestClassification
-    # Runs where one commit both failed and passed: a later attempt going green, or an in-job retry.
-    # A pass in a different run is a different commit and proves nothing, hence the name.
+    # Runs where an in-job pytest retry recovered the test after it failed. Only tests hand-marked
+    # @pytest.mark.flaky(reruns=N) can reach this: Backend CI runs without --reruns so failures
+    # reach Trunk raw.
     same_commit_recovery_run_count: int
     failed_run_count: int
     # Master/branch failures carry no PR number and don't count here.

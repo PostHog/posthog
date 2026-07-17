@@ -245,7 +245,7 @@ export const getEngineeringAnalyticsFlakyTestsUrl = (
 }
 
 /**
- * The active test-health queue: backend tests worth acting on now, from the per-test CI spans, over a window (default -7d, maximum 30 days). Evidence is counted per CI run, not per span or run attempt. A test is a 'confirmed_flake' when one commit both failed and passed it (a re-run attempt going green, or an in-job retry); 'quarantined' when it fails while masked as xfail; otherwise 'suspected_regression'. It qualifies on any recovery, any master/main failure, an xfail, or failures on at least min_failed_prs distinct PRs. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no same-commit recovery was recorded, not that none exists.
+ * The active test-health queue: backend tests worth acting on now, from the per-test CI spans, over a window (default -7d, maximum 30 days). Evidence is counted per CI run, not per span or run attempt. A test is a 'confirmed_flake' when one commit both failed and passed it (a re-run attempt going green, or an in-job retry); 'quarantined' when it fails while masked as xfail; otherwise 'suspected_regression'. It qualifies on any recovery, any master/main failure, an xfail, or failures on at least min_failed_prs distinct PRs. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no recovery was recorded, not that the test never flakes: Trunk is the authority on that, across every suite.
  */
 export const engineeringAnalyticsFlakyTests = async (
     projectId: string,
@@ -674,7 +674,7 @@ export const getEngineeringAnalyticsTeamCiActivityUrl = (
 }
 
 /**
- * One owning team's CI test activity: per-test current-vs-prior signal pairs (the before/after comparison) over the window and its equal-length prior twin. Signal = failed + error + pass-on-retry spans on the team's owned tests. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no same-commit recovery was recorded, not that none exists.
+ * One owning team's CI test activity: per-test current-vs-prior signal pairs (the before/after comparison) over the window and its equal-length prior twin. Signal = failed + error + pass-on-retry spans on the team's owned tests. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no recovery was recorded, not that the test never flakes: Trunk is the authority on that, across every suite.
  */
 export const engineeringAnalyticsTeamCiActivity = async (
     projectId: string,
@@ -707,7 +707,7 @@ export const getEngineeringAnalyticsTeamCiHealthUrl = (
 }
 
 /**
- * Per-owning-team rollup of the CI test surfaces each team owns, over the same run evidence as flaky_tests and with the same meaning of flaky: flaky_test_count is owned tests a commit was seen both failing and passing, regression_test_count is owned tests that failed with no such proof and still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*\/product.yaml + CODEOWNERS); unstamped spans aggregate under the literal team 'unowned', and a re-stamped test lands under its latest owner only. Teams are organizational owners of code surfaces, never authors. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no same-commit recovery was recorded, not that none exists.
+ * Per-owning-team rollup of the CI test surfaces each team owns, over the same run evidence as flaky_tests and with the same meaning of flaky: flaky_test_count is owned tests a commit was seen both failing and passing, regression_test_count is owned tests that failed with no such proof and still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*\/product.yaml + CODEOWNERS); unstamped spans aggregate under the literal team 'unowned', and a re-stamped test lands under its latest owner only. Teams are organizational owners of code surfaces, never authors. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no recovery was recorded, not that the test never flakes: Trunk is the authority on that, across every suite.
  */
 export const engineeringAnalyticsTeamCiHealth = async (
     projectId: string,

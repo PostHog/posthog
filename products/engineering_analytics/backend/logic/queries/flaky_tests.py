@@ -1,9 +1,14 @@
 """HogQL aggregation of per-test CI run evidence into the active test-health queue.
 
 Groups ``_test_spans.run_evidence()`` (the one definition of the grain and of what a run proves)
-by nodeid. A test is a confirmed flake only where that evidence shows a same-commit recovery;
-failures without one prove nothing about determinism, so they qualify on blast radius instead and
-are reported as a suspected regression.
+by nodeid, and ranks by blast radius: how many PRs a test broke and how often it broke master.
+That is the question this surface answers, and the one Trunk does not.
+
+Trunk is the flake authority. It watches every suite and quarantines on its own, so this queue does
+not try to out-detect it: a test is a ``confirmed_flake`` only where the evidence already carries
+proof (an in-job retry recovered it), and every other failure is an honest ``suspected_regression``
+rather than a guess dressed up as one. The old bar, "failed on enough distinct PRs", proved only
+that a failure was not the PR's fault, which labelled real regressions flaky.
 
 Every figure is an absolute count: the emitter drops sub-threshold passes, so there is no
 denominator to divide by.
