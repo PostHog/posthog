@@ -1,6 +1,10 @@
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
+    PartitionFormat,
+    PartitionMode,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Reports for recent days change until archiving completes, so incremental
@@ -33,6 +37,12 @@ class MatomoEndpointConfig:
     method: str
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
+    # Delta partitioning for this endpoint. Left unset (None) means the table is written
+    # unpartitioned — correct for the tiny per-day report tables. `visits` sets a datetime
+    # scheme so merges only touch recent partitions instead of one partition per row.
+    partition_mode: Optional[PartitionMode] = None
+    partition_keys: Optional[list[str]] = None
+    partition_format: Optional[PartitionFormat] = None
 
 
 MATOMO_ENDPOINTS: dict[str, MatomoEndpointConfig] = {
@@ -51,6 +61,12 @@ MATOMO_ENDPOINTS: dict[str, MatomoEndpointConfig] = {
                 "field_type": IncrementalFieldType.Numeric,
             },
         ],
+        # Bucket by ISO week of the visit's server timestamp. idVisit is an incrementing
+        # integer, so without this the pipeline auto-selects numerical mode and (with the old
+        # partition_size=1) created one Delta partition per visit.
+        partition_mode="datetime",
+        partition_keys=["serverTimestamp"],
+        partition_format="week",
     ),
     # Per-day aggregate reports, date-partitioned via period=day&date=...
     # with the day injected as `_date`.
