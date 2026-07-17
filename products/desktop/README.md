@@ -63,8 +63,10 @@ Local and PR builds are unsigned: `scripts/after-pack.cjs` applies an ad-hoc sig
 Because of that, macOS quarantines a downloaded unsigned app.
 To open it: right-click the app › Open, or run `xattr -d com.apple.quarantine /Applications/PostHog.app`.
 
-CI builds the DMG for every PR that touches `products/desktop/` (`.github/workflows/build-desktop-app.yml`) and uploads it as the `posthog-desktop-macos-arm64` artifact on the workflow run.
-On master pushes and manual dispatches, the build is signed with a Developer ID certificate and notarized (org secrets `DESKTOP_MACOS_SIGNING_CERT`, `DESKTOP_MACOS_SIGNING_CERT_PASSWORD`, `DESKTOP_APPLE_API_KEY`, `DESKTOP_APPLE_API_KEY_ID`, `DESKTOP_APPLE_API_ISSUER`), so that DMG opens without any quarantine workarounds.
+CI builds installers for every PR that touches `products/desktop/` (`.github/workflows/build-desktop-app.yml`):
+the frontend is built once on Linux and shared as an artifact, then per-OS jobs package it and upload the macOS DMG (`posthog-desktop-macos-arm64`) and the Windows NSIS installer (`posthog-desktop-windows-x64`) as workflow-run artifacts.
+On master pushes and manual dispatches, the macOS build is signed with the PostHog Inc. Developer ID certificate and notarized — the same org secrets PostHog Code releases with (`APPLE_CODESIGN_CERT_BASE64`, `APPLE_CODESIGN_CERT_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`) — so that DMG opens without any quarantine workarounds.
 If the secrets are absent the non-PR build degrades to unsigned rather than failing.
+The Windows installer is always unsigned for now (no Windows code-signing cert), so SmartScreen warns on first run: "More info" › "Run anyway".
 
 See [TODO.md](./TODO.md) for what's done and what's next.
