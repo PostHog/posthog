@@ -124,10 +124,14 @@ pub fn anonymize_event(allow: &AllowLists, event: &mut Value<'_>) -> Result<bool
 }
 
 /// True when the event's `cv` marker means "compressed" (present and non-null).
+#[doc(hidden)]
 pub fn is_compressed_marker(v: Option<&Value<'_>>) -> bool {
     matches!(v, Some(v) if !matches!(v, Value::Static(StaticNode::Null)))
 }
 
+/// Internal routing shared by the entry points — consume [`anonymize_event`] or
+/// [`anonymize_line`] instead; this may change signature in any release.
+#[doc(hidden)]
 pub fn route_event(ctx: &Ctx<'_>, event: &mut Value<'_>) -> Result<bool> {
     let Some(obj) = as_object_mut(event) else {
         return Ok(false);
@@ -143,6 +147,7 @@ pub fn route_event(ctx: &Ctx<'_>, event: &mut Value<'_>) -> Result<bool> {
 /// Scrubs an event's `data` value in place given its routing shape (`type` + `cv` marker). This is the
 /// single routing implementation shared by the tree walk and the streaming span-splice path: everything
 /// the anonymizer changes lives inside `data`, so both paths agree by construction.
+#[doc(hidden)]
 pub fn route_data(
     ctx: &Ctx<'_>,
     ty: Option<u8>,

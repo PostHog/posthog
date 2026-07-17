@@ -13,24 +13,45 @@
 //! `catch_unwind` obligation on consumers. Caveat: under `panic = "abort"` the backstop cannot run
 //! and a panic still kills the process; builds that must fail closed need `panic = "unwind"` (the
 //! Node addon enforces this at compile time).
+//!
+//! # Supported API
+//!
+//! The stable crates.io surface is what this page documents: [`AllowLists`], [`Ctx`], the event
+//! entry points ([`anonymize_message`], [`anonymize_event`], [`anonymize_line`] and friends), the
+//! byte-buffer snapshot pipeline ([`anonymize_kafka_payload`] and friends), and the rrweb routing
+//! constants in [`event`]. Everything `#[doc(hidden)]` stays `pub` only for this workspace (the
+//! Node addon, the parity tests) — it is internal and may change or disappear in any release.
 
 pub mod allow_lists;
+#[doc(hidden)]
 pub mod assets;
+#[doc(hidden)]
 pub mod blur;
+#[doc(hidden)]
 pub mod bytewalk;
+#[doc(hidden)]
 pub mod canvas;
 pub mod context;
+#[doc(hidden)]
 pub mod css;
+#[doc(hidden)]
 pub mod cv;
+#[doc(hidden)]
 pub mod dom;
 pub mod event;
+#[doc(hidden)]
 pub mod gzip;
+#[doc(hidden)]
 pub mod json;
+#[doc(hidden)]
 pub mod scan;
 pub mod snapshot;
+#[doc(hidden)]
 pub mod text;
 mod unwind;
+#[doc(hidden)]
 pub mod url;
+#[doc(hidden)]
 pub mod value;
 
 pub use allow_lists::AllowLists;
