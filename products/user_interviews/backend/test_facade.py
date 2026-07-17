@@ -4,7 +4,7 @@ from parameterized import parameterized
 
 from products.user_interviews.backend.facade.api import has_replied, parse_interviewee_identifier
 from products.user_interviews.backend.facade.contracts import IntervieweeIdentity
-from products.user_interviews.backend.models import UserInterview, UserInterviewTopic
+from products.user_interviews.backend.models import UserInterview, UserInterviewClassification, UserInterviewTopic
 
 
 class TestParseIntervieweeIdentifier(APIBaseTest):
@@ -48,6 +48,21 @@ class TestHasReplied(APIBaseTest):
             topic=topic,
         )
         assert has_replied(team_id=self.team.id, topic_id=topic.id, interviewee_identifier="alex@example.com")
+
+    def test_abandoned_reply_does_not_count(self) -> None:
+        # An accidental refresh mid-call leaves an abandoned partial behind. Treating that as
+        # "replied" would lock the interviewee out of ever finishing — so it must not count.
+        topic = self._create_topic()
+        UserInterview.objects.create(
+            team=self.team,
+            created_by=self.user,
+            interviewee_emails=["alex@example.com"],
+            interviewee_identifier="alex@example.com",
+            transcript="",
+            topic=topic,
+            classifications=[UserInterviewClassification.ABANDONED],
+        )
+        assert not has_replied(team_id=self.team.id, topic_id=topic.id, interviewee_identifier="alex@example.com")
 
     def test_scoped_by_team(self) -> None:
         topic = self._create_topic()

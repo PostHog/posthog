@@ -49,6 +49,16 @@ class UserInterview(UUIDTModel, CreatedMetaFields):
         related_name="interviews",
     )
     interviewee_identifier = models.CharField(max_length=400, blank=True, default="")
+    # Set for responses collected via a non-personalised (shared) topic link, where every
+    # visit is a new self-identifying respondent. Empty for invited (personalised) interviews.
+    respondent_name = models.CharField(max_length=400, blank=True, default="", db_default="")
+    # Stable per-browser key (localStorage) for a shared-link respondent. Used to collapse the
+    # abandoned partial a refresh leaves behind into the respondent's eventual real response.
+    respondent_key = models.CharField(max_length=64, blank=True, default="", db_default="")
+    # Best-effort links back to the PostHog person/session that opened a shared link. Supplied as
+    # query params on a public, unauthenticated page — untrusted, never used for access control.
+    distinct_id = models.CharField(max_length=400, blank=True, default="", db_default="")
+    session_id = models.CharField(max_length=400, blank=True, default="", db_default="")
     recording_url = models.URLField(blank=True, default="", max_length=2048)
     call_metadata = models.JSONField(default=dict, blank=True)
 

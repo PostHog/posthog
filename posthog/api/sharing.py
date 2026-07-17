@@ -186,6 +186,7 @@ SHARING_RESOURCE_EDIT_CHECKS: dict[str, SharingResourceEditCheck | None] = {
     "notebook": _require_resource_editor("notebook", "You don't have edit permissions for this notebook."),
     # Materialized by the user-interviews link-generation flow, never via SharingConfigurationViewSet.
     "interviewee_context": None,
+    "user_interview_topic": None,
 }
 
 
@@ -840,6 +841,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "notebook",
                         "interviewee_context",
                         "interviewee_context__topic",
+                        "user_interview_topic",
                     )
                     .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
                     .get(access_token=access_token)
@@ -1214,6 +1216,28 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "user_name": user_name,
                         "topic": topic.topic,
                         "already_replied": already_replied,
+                        "shared": False,
+                    },
+                }
+            )
+        elif isinstance(resource, SharingConfiguration) and resource.user_interview_topic:
+            # Non-personalised (shared) topic link: every visitor is a new anonymous respondent, so
+            # there's no fixed interviewee and never an "already replied" gate. The viewer collects a
+            # name before starting; agent_context/questions/Vapi creds stay off the HTML (fetched at
+            # /start_call/), same as the personalised branch above.
+            topic = resource.user_interview_topic
+            asset_title = topic.topic or "User interview"
+            asset_description = "PostHog AI user interview"
+            exported_data.update(
+                {
+                    "type": "interview",
+                    "interview": {
+                        "topic_id": str(topic.id),
+                        "interviewee_identifier": "",
+                        "user_name": "",
+                        "topic": topic.topic,
+                        "already_replied": False,
+                        "shared": True,
                     },
                 }
             )

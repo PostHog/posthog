@@ -703,6 +703,42 @@ class InterviewLinkSerializer(serializers.Serializer):
     )
 
 
+class SharedInterviewLinkSerializer(serializers.Serializer):
+    interview_url = serializers.URLField(
+        help_text=(
+            "Public, unauthenticated URL any respondent can open to start a new interview for this "
+            "topic. Backed by a topic-level SharingConfiguration access token — not tied to any "
+            "specific interviewee. Each visit is a new anonymous respondent who self-identifies with "
+            "a name; `distinct_id` and `session_id` query params on the URL are captured as "
+            "best-effort person/session linkage."
+        ),
+    )
+
+
+def _ensure_shared_link_for_topic(*, topic: UserInterviewTopic, team: Team) -> SharingConfiguration:
+    """Get-or-create the single enabled topic-level (non-personalised) SharingConfiguration for a
+    topic. Unlike the per-invitee links, this token is not tied to any IntervieweeContext — every
+    visitor who opens it becomes a new anonymous respondent.
+
+    Locks the topic row so two concurrent calls don't mint duplicate shared configs for the topic.
+    """
+    with transaction.atomic():
+        UserInterviewTopic.objects.select_for_update().get(pk=topic.pk)
+        sharing_config = (
+            SharingConfiguration.objects.filter(team=team, user_interview_topic=topic, enabled=True)
+            .filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now()))
+            .order_by("-created_at")
+            .first()
+        )
+        if sharing_config is None:
+            sharing_config = SharingConfiguration.objects.create(
+                team=team,
+                user_interview_topic=topic,
+                enabled=True,
+            )
+    return sharing_config
+
+
 def _dogfood_identifier(caller: User) -> str:
     """Identifier for the calling user's personal dogfood interviewee context.
 
@@ -966,6 +1002,7 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "patch",
         "destroy",
         "generate_links",
+        "shared_link",
         "links_csv",
         "send_invites",
         "add_interviewee",
@@ -1025,6 +1062,24 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for r in results
         ]
         return response.Response(InterviewLinkSerializer(payload, many=True).data)
+
+    @extend_schema(
+        request=None,
+        responses={200: OpenApiResponse(response=SharedInterviewLinkSerializer)},
+        description=(
+            "Get-or-create a single non-personalised (shared) interview link for this topic. Unlike "
+            "generate_links, the returned URL is not tied to a specific interviewee — every visitor "
+            "becomes a new anonymous respondent who self-identifies with a name. Idempotent: repeated "
+            "calls return the same active link. `distinct_id` and `session_id` query params appended "
+            "to the URL are captured as best-effort person/session linkage."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="shared_link")
+    def shared_link(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        topic = self.get_object()
+        sharing_config = _ensure_shared_link_for_topic(topic=topic, team=self.team)
+        payload = {"interview_url": absolute_uri(f"/interview/{sharing_config.access_token}")}
+        return response.Response(SharedInterviewLinkSerializer(payload).data)
 
     @extend_schema(
         request=None,

@@ -10,7 +10,11 @@ import re
 from uuid import UUID
 
 from products.user_interviews.backend.facade.contracts import IntervieweeIdentity
-from products.user_interviews.backend.models import EmailWithDisplayNameValidator, UserInterview
+from products.user_interviews.backend.models import (
+    EmailWithDisplayNameValidator,
+    UserInterview,
+    UserInterviewClassification,
+)
 
 
 def parse_interviewee_identifier(identifier: str) -> IntervieweeIdentity:
@@ -38,9 +42,18 @@ def parse_interviewee_identifier(identifier: str) -> IntervieweeIdentity:
 
 
 def has_replied(*, team_id: int, topic_id: UUID, interviewee_identifier: str) -> bool:
-    """Whether an interviewee has already completed an interview for this topic."""
-    return UserInterview.objects.filter(
-        team_id=team_id,
-        topic_id=topic_id,
-        interviewee_identifier=interviewee_identifier,
-    ).exists()
+    """Whether an interviewee has already completed an interview for this topic.
+
+    Abandoned interviews don't count: an accidental refresh mid-call leaves an abandoned
+    partial behind, and treating that as "replied" would lock the interviewee out of ever
+    finishing. Only a non-abandoned response gates the personalised link.
+    """
+    return (
+        UserInterview.objects.filter(
+            team_id=team_id,
+            topic_id=topic_id,
+            interviewee_identifier=interviewee_identifier,
+        )
+        .exclude(classifications__contains=[UserInterviewClassification.ABANDONED])
+        .exists()
+    )
