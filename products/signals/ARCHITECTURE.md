@@ -355,6 +355,15 @@ potential → candidate → in_progress → ready
 # triggering a new summary run that reuses the previous repo selection and findings for
 # already-seen signals. Suppressed once signal_count > RERESEARCH_MAX_SIGNALS (see Re-research cap).
 ready → candidate
+resolved → candidate
+
+# Resolve: a report is marked resolved when the requested work is done. Two paths:
+# - automatic: the tasks GitHub webhook resolves a report when its linked implementation PR merges
+# - user-driven: the state API accepts state='resolved' (single + bulk) so a user or MCP agent
+#   can resolve directly — useful for PR-less fixes (skill-body changes, NO_REPO reports) that the
+#   webhook could never reach. Restricted to the same statuses the machine allows below.
+ready | pending_input → resolved
+suppressed → resolved (restore an archived, already-researched report straight to resolved)
 
 # Transitions enforced by SignalReport.transition_to():
 # - deleted is terminal (no transitions out; excluded from API via queryset)
@@ -750,7 +759,7 @@ Read + delete + state transitions. Uses `IsAuthenticated` + `APIScopePermission`
 | GET    | `signals/reports/`                     | List reports. Excludes `deleted` always and excludes `suppressed` by default. Supports `?status=`, `?search=`, `?source_product=`, `?suggested_reviewers=`, `?task_id=` (resolved through `task_run` artefacts), and `?ordering=`.                                                                                                  |
 | GET    | `signals/reports/{id}/`                | Retrieve a single report                                                                                                                                                                                                                                                                                                            |
 | DELETE | `signals/reports/{id}/`                | Soft-delete a report and its signals. Starts `SignalReportDeletionWorkflow`. On success returns `202`. If the workflow is already running, returns `200 {"status": "already_running"}`. The API immediately transitions the Postgres report to `deleted` to hide it from list results while ClickHouse cleanup runs asynchronously. |
-| POST   | `signals/reports/{id}/state/`          | Transition report state. Body: `{ "state": "suppressed" \| "potential", ...transition_to kwargs }`. Only `suppressed` and `potential` are exposed via API. Returns `409` on invalid transitions and `400` on invalid arguments.                                                                                                     |
+| POST   | `signals/reports/{id}/state/`          | Transition report state. Body: `{ "state": "suppressed" \| "potential" \| "resolved", ...transition_to kwargs }`. `suppressed`, `potential`, and `resolved` are exposed via API (`resolved` for user-driven "work is done"; the model still gates which statuses may resolve). Returns `409` on invalid transitions and `400` on invalid arguments.                                                                                                     |
 | POST   | `signals/reports/{id}/reingest/`       | Delete a report and re-ingest its signals. Starts `SignalReportReingestionWorkflow`. On success returns `202`. If already running, returns `200 {"status": "already_running"}`. Same team access as other report endpoints; personal API keys need `task:write`.                                                                    |
 | GET    | `signals/reports/{id}/artefacts/`      | List **all** artefacts for a report, ordered by `-created_at`                                                                                                                                                                                                                                                                       |
 | GET    | `signals/reports/{id}/signals/`        | Fetch all signals for a report from ClickHouse, including full metadata                                                                                                                                                                                                                                                             |

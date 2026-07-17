@@ -207,6 +207,25 @@ def first_billable_pr_run_at(report_id: str | uuid.UUID) -> datetime | None:
     return run.created_at if run else None
 
 
+def report_has_merged_pr(report_id: str | uuid.UUID) -> bool:
+    """Whether an implementation run for this report has a merged GitHub PR.
+
+    Reads `output.pr_merged`, the flag the tasks GitHub webhook persists when a PR merges — the
+    factual record of a merge, independent of report status. A report can now reach RESOLVED without
+    a merged PR (a user or agent can resolve it directly), so status alone no longer attests a merge.
+    Same fail-closed team-agreement guards as `_bridges_with_pr_run`: the merge flag and the team
+    checks resolve against the same `TaskRun` row.
+    """
+    return SignalReportTask.objects.filter(
+        relationship=_IMPLEMENTATION,
+        report_id=report_id,
+        task__team_id=F("team_id"),
+        report__team_id=F("team_id"),
+        task__runs__team_id=F("team_id"),
+        task__runs__output__pr_merged=True,
+    ).exists()
+
+
 def annotate_first_billable_pr_run_at(queryset: QuerySet[SignalReport]) -> QuerySet[SignalReport]:
     """Annotate each report with `first_billable_pr_run_at` (its billable moment, batched form of
     `first_billable_pr_run`), NULL when it never shipped a billable PR run. Applies the same

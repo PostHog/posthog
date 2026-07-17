@@ -273,12 +273,51 @@ class TestSignalReportRefundAPI(APIBaseTest):
         assert properties["pr_merged"] is False
         assert properties["days_since_pr"] == 5
 
+    @parameterized.expand(
+        [
+            # A merged PR (output.pr_merged) reports pr_merged=True whatever the report status.
+            (
+                "merged_pr",
+                SignalReport.Status.READY,
+                {"pr_url": "https://github.com/x/y/pull/1", "pr_merged": True},
+                True,
+            ),
+            # Resolved without a merged PR must NOT report a merge: status alone can't attest one.
+            (
+                "resolved_without_merge",
+                SignalReport.Status.RESOLVED,
+                {"pr_url": "https://github.com/x/y/pull/1"},
+                False,
+            ),
+        ]
+    )
+    @freeze_time(_NOW)
+    def test_analytics_pr_merged_reflects_merge_flag_not_status(self, _flag, _name, report_status, output, expected):
+        report = _make_report(self.team, status=report_status)
+        _make_pr_run(self.team, report, created_at=datetime(2026, 6, 10, tzinfo=UTC), output=output)
+        with patch("products.signals.backend.views.report_user_action") as mock_report:
+            assert self._refund(report).status_code == status.HTTP_200_OK
+        assert mock_report.call_args.kwargs["properties"]["pr_merged"] is expected
+
     @freeze_time(_NOW)
     def test_restore_of_refunded_report_is_blocked(self, _flag):
         report = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, tzinfo=UTC))
         assert self._refund(report).status_code == status.HTTP_200_OK
 
         response = self.client.post(self._state_url(str(report.id)), {"state": "potential"}, format="json")
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["error"] == "Refunded reports can't be restored."
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+
+    @freeze_time(_NOW)
+    def test_resolve_of_refunded_report_is_blocked(self, _flag):
+        # A refunded report is suppressed; resolving would pull it back out and it can re-promote on
+        # new signals, so the refund guard must cover resolve too (not just restore to potential).
+        report = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, tzinfo=UTC))
+        assert self._refund(report).status_code == status.HTTP_200_OK
+
+        response = self.client.post(self._state_url(str(report.id)), {"state": "resolved"}, format="json")
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json()["error"] == "Refunded reports can't be restored."
         report.refresh_from_db()

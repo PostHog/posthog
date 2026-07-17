@@ -1293,6 +1293,17 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 "wontfix_irrelevant",
                 "snoozing for now",
             ),
+            (
+                "resolve_with_reason_and_note",
+                {
+                    "state": "resolved",
+                    "dismissal_reason": "already_fixed",
+                    "dismissal_note": "shipped a fix by hand",
+                },
+                SignalReport.Status.RESOLVED,
+                "already_fixed",
+                "shipped a fix by hand",
+            ),
         ]
     )
     def test_state_transition_with_dismissal(self, _name, body, expected_final_status, expected_reason, expected_note):
@@ -1452,6 +1463,30 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         report.refresh_from_db()
         assert report.status == SignalReport.Status.POTENTIAL
+
+    @parameterized.expand(
+        [
+            # initial status, expected HTTP code, expected status after the call.
+            # Resolve is allowed only from a researched status or a suppressed (restore) report;
+            # every other status keeps returning 409 (the model state machine is not loosened).
+            ("ready", SignalReport.Status.READY, status.HTTP_200_OK, SignalReport.Status.RESOLVED),
+            ("pending_input", SignalReport.Status.PENDING_INPUT, status.HTTP_200_OK, SignalReport.Status.RESOLVED),
+            ("suppressed", SignalReport.Status.SUPPRESSED, status.HTTP_200_OK, SignalReport.Status.RESOLVED),
+            ("candidate", SignalReport.Status.CANDIDATE, status.HTTP_409_CONFLICT, SignalReport.Status.CANDIDATE),
+            ("in_progress", SignalReport.Status.IN_PROGRESS, status.HTTP_409_CONFLICT, SignalReport.Status.IN_PROGRESS),
+            ("potential", SignalReport.Status.POTENTIAL, status.HTTP_409_CONFLICT, SignalReport.Status.POTENTIAL),
+        ]
+    )
+    def test_resolve_state_transition_by_status(self, _name, initial_status, expected_code, expected_status):
+        report = self._create_report(report_status=initial_status)
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "resolved"}),
+            content_type="application/json",
+        )
+        assert response.status_code == expected_code, response.json()
+        report.refresh_from_db()
+        assert report.status == expected_status
 
     @parameterized.expand(
         [
@@ -1697,6 +1732,28 @@ class TestSignalReportBulkStateAPI(APIBaseTest):
         assert response.json()["transitioned_count"] == 1
         report.refresh_from_db()
         assert report.status == SignalReport.Status.READY
+
+    def test_bulk_resolve_mixed_statuses(self):
+        ready = self._create_report(report_status=SignalReport.Status.READY)
+        pending = self._create_report(report_status=SignalReport.Status.PENDING_INPUT)
+        # candidate can't resolve, so it comes back skipped while the rest still go through.
+        candidate = self._create_report(report_status=SignalReport.Status.CANDIDATE)
+
+        response = self._post({"ids": [str(ready.id), str(pending.id), str(candidate.id)], "state": "resolved"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["transitioned_count"] == 2
+        assert body["skipped_count"] == 1
+        outcomes = {row["id"]: row["outcome"] for row in body["results"]}
+        assert outcomes[str(ready.id)] == "transitioned"
+        assert outcomes[str(pending.id)] == "transitioned"
+        assert outcomes[str(candidate.id)] == "skipped"
+
+        ready.refresh_from_db()
+        candidate.refresh_from_db()
+        assert ready.status == SignalReport.Status.RESOLVED
+        assert candidate.status == SignalReport.Status.CANDIDATE
 
     @parameterized.expand(
         [

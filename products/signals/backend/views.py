@@ -80,6 +80,7 @@ from products.signals.backend.billing import (
     first_billable_pr_run,
     period_billable_credits_for_org,
     refund_ineligibility_reason,
+    report_has_merged_pr,
 )
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
@@ -449,9 +450,11 @@ SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
 _DISMISSAL_REASON_HELP_TEXT = (
     "Optional canonical reason code for the dismissal. Must be one of: already_fixed, "
     "report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match "
-    "the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' "
-    "is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if "
-    "the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code."
+    "the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work "
+    "this report asked for is done, the honest transition is state='resolved' (the reason/note records "
+    "why). Reserve 'already_fixed' with state='potential' (snooze/restore) for \"fixed by something "
+    "else / might recur\" cases, so the report reappears if the issue comes back. Use 'other' together "
+    "with a dismissal_note for anything that doesn't fit a code."
 )
 
 
@@ -467,10 +470,12 @@ class SignalReportBulkStateOutcome(models.TextChoices):
 
 class SignalReportStateRequestSerializer(serializers.Serializer):
     state = serializers.ChoiceField(
-        choices=[("suppressed", "suppressed"), ("potential", "potential")],
+        choices=[("suppressed", "suppressed"), ("potential", "potential"), ("resolved", "resolved")],
         help_text=(
             "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, "
-            "or 'potential' to snooze/reopen it for later review."
+            "'potential' to snooze/reopen it for later review, or 'resolved' when the work this report "
+            "asked for has been done. Resolving is only allowed from a researched status (ready or "
+            "pending_input) or a suppressed report; other statuses return 409 (skipped in bulk)."
         ),
     )
     dismissal_reason = serializers.ChoiceField(
@@ -1483,8 +1488,8 @@ class SignalReportViewSet(
         so internal transition_to kwargs (reset_weight, error, ...) can't be injected.
 
         Body: {
-            "state": "suppressed" | "potential",
-            # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
+            "state": "suppressed" | "potential" | "resolved",
+            # Optional dismissal feedback (honored when state == "suppressed", "potential", or "resolved"):
             "dismissal_reason": "<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>",
             "dismissal_note": "free-form text",
             # Optional, only honored for state == "potential":
@@ -1545,11 +1550,19 @@ class SignalReportViewSet(
         # held before suppression when that was a researched, user-visible report, instead of always
         # dropping back to potential. snooze_for is irrelevant here and ignored by transition_to.
         target_status = SignalReport.Status(target)
+
+        # Refund guard: a refunded report can never be billed again (see billing.py), so pulling it
+        # back out of SUPPRESSED would be repeatable free work — both POTENTIAL (restore/snooze) and
+        # RESOLVED can re-promote to candidate on new signals and spawn a fresh PR. The refund is
+        # final, so any un-archive of a refunded report is refused.
+        if (
+            report.status == SignalReport.Status.SUPPRESSED
+            and target_status in (SignalReport.Status.POTENTIAL, SignalReport.Status.RESOLVED)
+            and getattr(report, "refund", None) is not None
+        ):
+            return SignalReportBulkStateOutcome.SKIPPED, "Refunded reports can't be restored."
+
         if report.status == SignalReport.Status.SUPPRESSED and target_status == SignalReport.Status.POTENTIAL:
-            # Restore guard: a refunded report can never be billed again (see billing.py), so
-            # refund → restore → new PR would be repeatable free work. The refund is final.
-            if getattr(report, "refund", None) is not None:
-                return SignalReportBulkStateOutcome.SKIPPED, "Refunded reports can't be restored."
             target_status = report.restore_target_status()
 
         effective_snooze_for = snooze_for if target == "potential" else None
@@ -1568,8 +1581,9 @@ class SignalReportViewSet(
 
             # Persist the dismissal feedback as its own artefact so it survives status changes
             # and so multiple dismissals (with different rationales) can stack over time.
-            # Captured for both suppress and snooze (transition to potential) flows.
-            if target in ("suppressed", "potential") and (dismissal_reason or dismissal_note):
+            # Captured for suppress, snooze (transition to potential), and resolve flows — on a
+            # resolve it records why the report was resolved with user attribution.
+            if target in ("suppressed", "potential", "resolved") and (dismissal_reason or dismissal_note):
                 user = self.request.user
                 is_authenticated = getattr(user, "is_authenticated", False)
                 user_uuid = getattr(user, "uuid", None) if is_authenticated else None
@@ -1770,7 +1784,9 @@ class SignalReportViewSet(
             # the next UTC day), so the report can simply be excluded from usage; anything later
             # must go through a billing-service credit. Decided once, stored, never recomputed.
             now = timezone.now()
-            pr_merged = SignalReport.Status.RESOLVED in (report.status, report.status_before_suppression)
+            # Derived from the persisted merge flag, not the report status: a report can be resolved
+            # manually without a merged PR, so RESOLVED no longer implies the PR shipped.
+            pr_merged = report_has_merged_pr(report.id)
             billing_path = (
                 SignalReportRefund.BillingPath.EXCLUDED
                 if billable_run.created_at.astimezone(UTC).date() == now.astimezone(UTC).date()
@@ -1799,9 +1815,10 @@ class SignalReportViewSet(
                     raise
                 return self._refund_response(existing, already_refunded=True)
 
-            # Refund doubles as archive: suppress unless the report is resolved (stays resolved —
-            # the merged PR shipped) or already suppressed. The dismissal artefact records the
-            # rationale like any other dismissal; the structured truth lives on the refund row.
+            # Refund doubles as archive: suppress unless the report is already resolved (a terminal
+            # state stays put — whether it was resolved by a merged PR or directly) or already
+            # suppressed. The dismissal artefact records the rationale like any other dismissal; the
+            # structured truth lives on the refund row.
             if report.status not in (SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED):
                 updated_fields = report.transition_to(SignalReport.Status.SUPPRESSED)
                 report.save(update_fields=updated_fields)
