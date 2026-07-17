@@ -87,7 +87,6 @@ from products.data_warehouse.backend.facade.api import (
     is_cdc_enabled_for_team,
     is_custom_source_ai_builder_enabled_for_team,
     is_multi_schema_capable_sql_source,
-    reconcile_github_repositories,
     source_namespace_is_blank,
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
