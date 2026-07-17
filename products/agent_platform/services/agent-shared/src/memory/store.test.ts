@@ -13,7 +13,15 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { serializeMemoryDoc } from './format'
 import { S3MemoryStore } from './s3-store'
 import { searchMemory } from './search'
-import { keyFor, MemoryConflictError, MemoryNotFoundError, MemoryScope, prefixFor, validateMemoryPath } from './store'
+import {
+    keyFor,
+    MemoryConflictError,
+    MemoryNotFoundError,
+    MemoryScope,
+    prefixFor,
+    validateMemoryPath,
+    validateMemorySpaceSlug,
+} from './store'
 import { buildTestStore, newTestPrefix, wipeTestPrefix } from './test-helpers'
 
 const scopeA: MemoryScope = { teamId: 42, applicationId: 'app-triager' }
@@ -63,6 +71,29 @@ describe('keyFor + prefixFor', () => {
 
     it('rejects a sub-prefix containing ..', () => {
         expect(() => prefixFor(scopeA, 'agent_memory', '../escape/')).toThrow()
+    })
+})
+
+describe('keyFor + prefixFor — shared memory spaces', () => {
+    const spaceScope: MemoryScope = { teamId: 42, applicationId: 'app-triager', space: 'team-runbooks' }
+
+    it('keys a shared space under team/<id>/space/<slug>/ (not the agent prefix)', () => {
+        expect(keyFor(spaceScope, 'a/b.md', 'agent_memory')).toBe('agent_memory/team/42/space/team-runbooks/a/b.md')
+        expect(prefixFor(spaceScope, 'agent_memory')).toBe('agent_memory/team/42/space/team-runbooks/')
+    })
+
+    it('teamId always comes from the scope, so a space slug is team-local', () => {
+        const otherTeam: MemoryScope = { ...spaceScope, teamId: 7 }
+        expect(keyFor(otherTeam, 'x.md', 'agent_memory')).toBe('agent_memory/team/7/space/team-runbooks/x.md')
+    })
+
+    it('validates the space slug and rejects a traversing/bad slug', () => {
+        expect(validateMemorySpaceSlug('team-runbooks_1')).toBe('team-runbooks_1')
+        for (const bad of ['Bad Slug', '../escape', 'a/b', 'UPPER', '', '-leading']) {
+            expect(() => validateMemorySpaceSlug(bad)).toThrow()
+        }
+        // keyFor routes through the validator, so a bad slug can't compose a key.
+        expect(() => keyFor({ ...spaceScope, space: 'a/b' }, 'x.md', 'agent_memory')).toThrow()
     })
 })
 
