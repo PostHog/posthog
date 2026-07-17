@@ -7,7 +7,7 @@
   <script nonce="{{ request.csp_nonce }}">
     window.addEventListener("DOMContentLoaded", () => {
         document.getElementById("roll_key_button")?.addEventListener("click", (event) => {
-            const url = window.prompt("Enter the URL where the key was exposed (optional). This will be included in the email sent to the user.");
+            const url = window.prompt("Enter the URL where the key was exposed (optional). This will be included in the notification email.");
             if (url === null) {
                 // action was aborted
                 event.preventDefault();
