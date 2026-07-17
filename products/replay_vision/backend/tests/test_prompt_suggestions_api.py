@@ -16,18 +16,24 @@ from products.replay_vision.backend.models.replay_scanner_prompt_suggestion impo
     ReplayScannerPromptSuggestion,
     SuggestionStatus,
 )
-from products.replay_vision.backend.prompt_suggestions import _LlmPromptSuggestion, refresh_prompt_suggestion_if_stale
+from products.replay_vision.backend.prompt_suggestions import (
+    generate_prompt_suggestion,
+    refresh_prompt_suggestion_if_stale,
+)
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 
 class TestPromptSuggestions(_VisionAPITestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.scanner = self._create_scanner()
-        self.canned = _LlmPromptSuggestion(
-            suggested_prompt="Did the user place an order? Only answer yes on an order confirmation.",
-            rationale="Tightened the yes condition using the rated sessions.",
+        self.scanner = self._create_scanner(
+            scanner_config={"prompt": "did the user check out?", "allow_inconclusive": False}
         )
+        self.canned: dict[str, Any] = {
+            "suggested_prompt": "Did the user place an order? Only answer yes on an order confirmation.",
+            "allow_inconclusive": True,
+            "rationale": "Tightened the yes condition using the rated sessions.",
+        }
         # The agentic loop has its own tests. API tests mock it out, along with its single-shot fallback.
         self.agentic_patcher = patch(
             "products.replay_vision.backend.prompt_suggestions._generate_agentic", side_effect=self._agentic
@@ -38,10 +44,10 @@ class TestPromptSuggestions(_VisionAPITestCase):
         )
         self.mock_generate = self.generate_patcher.start()
 
-    def _agentic(self, **_kwargs) -> _LlmPromptSuggestion:
+    def _agentic(self, **_kwargs) -> dict[str, Any]:
         return self.canned
 
-    def _single_shot(self, **_kwargs) -> _LlmPromptSuggestion:
+    def _single_shot(self, **_kwargs) -> dict[str, Any]:
         return self.canned
 
     def tearDown(self) -> None:
@@ -52,9 +58,11 @@ class TestPromptSuggestions(_VisionAPITestCase):
     def _suggestions_url(self, suffix: str = "") -> str:
         return f"{self.scanners_url}{self.scanner.id}/prompt_suggestions/{suffix}"
 
-    def _create_rated_observation(self, session_id: str, is_correct: bool, feedback: str = "") -> ReplayObservation:
+    def _create_rated_observation(
+        self, session_id: str, is_correct: bool, feedback: str = "", *, scanner: ReplayScanner | None = None
+    ) -> ReplayObservation:
         observation = ReplayObservation.objects.create(
-            scanner=self.scanner,
+            scanner=scanner or self.scanner,
             team=self.team,
             session_id=session_id,
             status=ObservationStatus.SUCCEEDED,
@@ -173,7 +181,7 @@ class TestPromptSuggestions(_VisionAPITestCase):
 
     def test_apply_rejects_prompt_failing_scanner_config_validation(self) -> None:
         self._create_rated_observation("sess-1", False, "should be yes")
-        self.canned = _LlmPromptSuggestion(suggested_prompt="x" * 20_001, rationale="too long")
+        self.canned = {"suggested_prompt": "x" * 20_001, "allow_inconclusive": False, "rationale": "too long"}
         suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
         prompt_before = ReplayScanner.objects.get(id=self.scanner.id).scanner_config.get("prompt")
 
@@ -195,14 +203,43 @@ class TestPromptSuggestions(_VisionAPITestCase):
 
     def test_generate_marks_no_change_when_model_returns_current_prompt(self) -> None:
         self._create_rated_observation("sess-1", True)
-        self.canned = _LlmPromptSuggestion(
-            suggested_prompt="did the user check out?",
-            rationale="The prompt already handles the rated sessions well.",
-        )
+        self.canned = {
+            "suggested_prompt": "did the user check out?",
+            "allow_inconclusive": False,
+            "rationale": "The prompt already handles the rated sessions well.",
+        }
 
         resp = self.client.post(self._suggestions_url("generate/"))
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual(resp.json()["status"], "no_change")
+
+    def test_monitor_generation_persists_config_and_shim(self) -> None:
+        scanner = self._create_scanner(
+            name="monitor-config", scanner_type="monitor", scanner_config={"prompt": "old", "allow_inconclusive": False}
+        )
+        self._create_rated_observation("sess-1", False, "should be yes", scanner=scanner)
+        self._create_rated_observation("sess-2", True, scanner=scanner)
+        self.canned = {"suggested_prompt": "new", "allow_inconclusive": True, "rationale": "r"}
+
+        suggestion = generate_prompt_suggestion(scanner)
+
+        self.assertEqual(suggestion.suggested_config, {"prompt": "new", "allow_inconclusive": True})
+        self.assertEqual(suggestion.suggested_prompt, "new")  # shim still populated
+        self.assertTrue(any(c["kind"] == "flag" for c in suggestion.changes))
+
+    def test_classifier_generation_persists_tag_changes(self) -> None:
+        scanner = self._create_scanner(
+            name="classifier-config", scanner_type="classifier", scanner_config={"prompt": "p", "tags": ["a"]}
+        )
+        self._create_rated_observation("sess-1", False, "should be yes", scanner=scanner)
+        self._create_rated_observation("sess-2", True, scanner=scanner)
+        self.canned = {"suggested_prompt": "p", "tag_ops": [{"op": "add", "tag": "b"}], "rationale": "r"}
+
+        suggestion = generate_prompt_suggestion(scanner)
+
+        assert suggestion.suggested_config is not None
+        self.assertEqual(suggestion.suggested_config["tags"], ["a", "b"])
+        self.assertTrue(any(c["kind"] == "tags" and c["op"] == "add" for c in suggestion.changes))
 
     def test_dismissed_rewrites_feed_the_next_generation(self) -> None:
         self._create_rated_observation("sess-1", False, "should be yes")
