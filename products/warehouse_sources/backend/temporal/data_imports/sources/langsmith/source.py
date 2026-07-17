@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LangSmithSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import (
     DEFAULT_BASE_URL,
+    REPEATED_CURSOR_ERROR,
     LangSmithResumeConfig,
     langsmith_source,
     normalize_base_url,
@@ -99,6 +100,7 @@ Leave the **Host** field blank for the US cloud (`api.smith.langchain.com`). Set
         return {
             "401 Client Error": "Your LangSmith API key is invalid or has been revoked. Create a new API key in your LangSmith settings, then reconnect.",
             "403 Client Error": "Your LangSmith API key does not have access to this workspace. Check the key's workspace scope, then reconnect.",
+            REPEATED_CURSOR_ERROR: "LangSmith kept returning the same pagination cursor, so the import was stopped to avoid looping. This usually means the host is misconfigured — check the Host field, then reconnect.",
         }
 
     def get_schemas(

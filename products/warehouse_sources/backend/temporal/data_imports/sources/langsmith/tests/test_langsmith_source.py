@@ -4,7 +4,10 @@ from unittest import mock
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LangSmithSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import LangSmithResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import (
+    REPEATED_CURSOR_ERROR,
+    LangSmithResumeConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.source import LangSmithSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -52,7 +55,7 @@ class TestLangSmithSource:
         assert schema.supports_append is expected_incremental
         assert schema.detected_primary_keys == ["id"]
 
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
+    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error", REPEATED_CURSOR_ERROR])
     def test_auth_errors_are_non_retryable(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
 

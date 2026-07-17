@@ -1,4 +1,5 @@
 import re
+import json
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -29,6 +30,26 @@ HOST_NOT_ALLOWED_ERROR = "LangSmith host is not allowed"
 # Returned when a cloud connection would send the API key over plaintext HTTP.
 INSECURE_SCHEME_ERROR = "LangSmith host must use https"
 
+# Raised (and registered non-retryable) when the host loops the runs cursor. A host that returns a
+# cursor we've already paged is stuck or hostile; retrying re-hits the same cursor, so fail for good.
+REPEATED_CURSOR_ERROR = "LangSmith returned a repeated pagination cursor"
+
+# Cap the decoded body of any single LangSmith response. `host` is user-controlled, so a hostile
+# server could otherwise stream an unbounded body and exhaust a shared import worker's memory. Set
+# well above any realistic page (runs pages carry full LLM inputs/outputs) so it only trips on a
+# genuinely abnormal response.
+MAX_RESPONSE_BYTES = 256 * 1024 * 1024
+
+# How much of an error-response body to keep for the log line (bounded for the same reason).
+MAX_ERROR_BODY_BYTES = 8 * 1024
+
+# Bound how many pages one activity attempt walks. A hostile host can otherwise return a full page
+# with a fresh cursor/offset forever and hold a worker until the week-long activity timeout. On the
+# cap we persist the resume checkpoint and raise, so the attempt ends but a legitimate oversized
+# import continues from the checkpoint on the next attempt. Generous: the runs rate limits alone
+# make hitting this in one attempt take days.
+MAX_PAGES_PER_RUN = 50_000
+
 
 class LangSmithRetryableError(Exception):
     pass
@@ -38,6 +59,37 @@ class LangSmithHostNotAllowedError(Exception):
     """The resolved host is blocked (SSRF guard) or tried to redirect the authenticated request."""
 
     pass
+
+
+class LangSmithResponseTooLargeError(Exception):
+    """The host returned a body larger than `MAX_RESPONSE_BYTES` — refused before buffering it all."""
+
+    pass
+
+
+class LangSmithPageLimitError(Exception):
+    """One activity attempt walked `MAX_PAGES_PER_RUN` pages. Retryable: resume from the checkpoint."""
+
+    pass
+
+
+class LangSmithRepeatedCursorError(Exception):
+    """The host looped the runs cursor. Non-retryable (see REPEATED_CURSOR_ERROR) — retrying re-loops."""
+
+    pass
+
+
+def _read_capped_body(response: requests.Response, cap: int = MAX_RESPONSE_BYTES) -> bytes:
+    """Read at most `cap` decoded bytes from a streamed response, refusing an oversized body.
+
+    Requests are made with `stream=True` so the body isn't materialised until this read. We read one
+    byte past the cap to detect an oversized body without buffering the whole thing — a hostile host
+    could otherwise return an unbounded 2xx body and OOM a shared worker.
+    """
+    raw = response.raw.read(cap + 1, decode_content=True)
+    if len(raw) > cap:
+        raise LangSmithResponseTooLargeError(f"LangSmith API returned an oversized response (> {cap} bytes)")
+    return raw
 
 
 @dataclasses.dataclass
@@ -167,22 +219,28 @@ def validate_credentials(api_key: str, host: str | None, team_id: int | None = N
     try:
         # Redact the key, never follow a redirect off the validated host, and keep the response out
         # of HTTP sample capture — LangSmith payloads carry LLM prompts/outputs that can embed
-        # secrets or personal data the name-based scrubber won't recognize.
+        # secrets or personal data the name-based scrubber won't recognize. `stream=True` so a
+        # hostile host can't make us buffer an unbounded body: we only read the status code, then
+        # close the connection without ever pulling the body.
         response = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False).get(
-            url, headers=_get_headers(api_key), timeout=10
+            url, headers=_get_headers(api_key), timeout=10, stream=True
         )
+        try:
+            status_code = response.status_code
+        finally:
+            response.close()
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
-    if response.status_code == 200:
+    if status_code == 200:
         return True, None
-    if response.status_code == 401:
+    if status_code == 401:
         return False, "Invalid or revoked LangSmith API key"
-    if response.status_code == 403:
+    if status_code == 403:
         return False, "This LangSmith API key does not have access to the workspace"
-    if response.status_code == 404:
+    if status_code == 404:
         return False, "LangSmith API not found at this host. Check the host field."
-    return False, f"LangSmith API returned status {response.status_code}"
+    return False, f"LangSmith API returned status {status_code}"
 
 
 @retry(
@@ -205,29 +263,37 @@ def _fetch_page(
     logger: FilteringBoundLogger,
     json_body: dict[str, Any] | None = None,
 ) -> Any:
-    """GET the URL, or POST `json_body` to it when given (the runs/query endpoint)."""
+    """GET the URL, or POST `json_body` to it when given (the runs/query endpoint).
+
+    `stream=True` so the body isn't buffered until we read it under `MAX_RESPONSE_BYTES` — `host` is
+    user-controlled, so an unbounded body could otherwise exhaust the worker's memory.
+    """
     if json_body is not None:
-        response = session.post(url, headers=headers, json=json_body, timeout=60)
+        response = session.post(url, headers=headers, json=json_body, timeout=60, stream=True)
     else:
-        response = session.get(url, headers=headers, timeout=60)
+        response = session.get(url, headers=headers, timeout=60, stream=True)
 
-    # 429 and transient 5xx are retryable (runs/query rate limits are tight: 10 req/10s on windows
-    # up to 7 days, 3 req/10s beyond); auth/permission errors below are not.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise LangSmithRetryableError(f"LangSmith API error (retryable): status={response.status_code}, url={url}")
+    with response:
+        # 429 and transient 5xx are retryable (runs/query rate limits are tight: 10 req/10s on
+        # windows up to 7 days, 3 req/10s beyond); auth/permission errors below are not.
+        if response.status_code == 429 or response.status_code >= 500:
+            raise LangSmithRetryableError(f"LangSmith API error (retryable): status={response.status_code}, url={url}")
 
-    # Redirects are disabled as an SSRF boundary; a 3xx means the host tried to bounce the
-    # authenticated request elsewhere, so fail instead of parsing (or following) it.
-    if 300 <= response.status_code < 400:
-        raise LangSmithHostNotAllowedError(
-            f"LangSmith API returned an unexpected redirect: status={response.status_code}, url={url}"
-        )
+        # Redirects are disabled as an SSRF boundary; a 3xx means the host tried to bounce the
+        # authenticated request elsewhere, so fail instead of parsing (or following) it.
+        if 300 <= response.status_code < 400:
+            raise LangSmithHostNotAllowedError(
+                f"LangSmith API returned an unexpected redirect: status={response.status_code}, url={url}"
+            )
 
-    if not response.ok:
-        logger.error(f"LangSmith API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
+        if not response.ok:
+            # Truncate (don't cap-and-raise) so a large error body still surfaces the real HTTP error.
+            body = response.raw.read(MAX_ERROR_BODY_BYTES, decode_content=True).decode("utf-8", errors="replace")
+            logger.error(f"LangSmith API error: status={response.status_code}, body={body}, url={url}")
+            response.raise_for_status()
 
-    return response.json()
+        raw = _read_capped_body(response)
+        return json.loads(raw) if raw else None
 
 
 def _get_runs_rows(
@@ -268,6 +334,8 @@ def _get_runs_rows(
     if window_start:
         body["start_time"] = window_start
 
+    seen_cursors: set[str] = set()
+    pages = 0
     while True:
         page_cursor = cursor
         page_body = {**body, "cursor": page_cursor} if page_cursor else dict(body)
@@ -292,6 +360,22 @@ def _get_runs_rows(
 
         if not next_cursor:
             break
+
+        # A host that hands back a cursor it already gave us (or the one we just sent) is looping;
+        # retrying would re-hit it, so fail for good instead of spinning until the activity timeout.
+        if next_cursor == page_cursor or next_cursor in seen_cursors:
+            raise LangSmithRepeatedCursorError(REPEATED_CURSOR_ERROR)
+        seen_cursors.add(next_cursor)
+
+        pages += 1
+        if pages >= MAX_PAGES_PER_RUN:
+            # Checkpoint the next page and end this attempt; the resume path picks it up so a
+            # legitimate oversized import continues without one attempt monopolising a worker.
+            resumable_source_manager.save_state(LangSmithResumeConfig(cursor=next_cursor, window_start=window_start))
+            raise LangSmithPageLimitError(
+                f"LangSmith runs import hit the {MAX_PAGES_PER_RUN}-page per-attempt limit; resuming from checkpoint"
+            )
+
         cursor = next_cursor
 
 
@@ -322,6 +406,7 @@ def _get_offset_rows(
     if config.window_param and window_start:
         params[config.window_param] = window_start
 
+    pages = 0
     while True:
         page_offset = offset
         url = f"{base_url}{config.path}?{urlencode({**params, 'offset': page_offset})}"
@@ -346,6 +431,16 @@ def _get_offset_rows(
         if is_last_page:
             break
         offset = page_offset + config.page_size
+
+        pages += 1
+        if pages >= MAX_PAGES_PER_RUN:
+            # A host that returns a full page at every offset forever would page without end;
+            # checkpoint the next offset and end this attempt so the resume path continues a real
+            # oversized import without one attempt holding a worker until the activity timeout.
+            resumable_source_manager.save_state(LangSmithResumeConfig(offset=offset, window_start=window_start))
+            raise LangSmithPageLimitError(
+                f"LangSmith {config.name} import hit the {MAX_PAGES_PER_RUN}-page per-attempt limit; resuming from checkpoint"
+            )
 
 
 def get_rows(

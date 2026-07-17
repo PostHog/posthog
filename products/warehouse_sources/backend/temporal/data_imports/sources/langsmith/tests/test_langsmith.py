@@ -8,7 +8,12 @@ import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import (
     LangSmithHostNotAllowedError,
+    LangSmithPageLimitError,
+    LangSmithRepeatedCursorError,
+    LangSmithResponseTooLargeError,
     LangSmithResumeConfig,
+    _fetch_page,
+    _read_capped_body,
     _resolve_window_start,
     get_rows,
     normalize_base_url,
@@ -29,6 +34,7 @@ _IS_CLOUD = "products.warehouse_sources.backend.temporal.data_imports.sources.la
 _MAKE_SESSION = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith.make_tracked_session"
 )
+_MAX_PAGES = "products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith.MAX_PAGES_PER_RUN"
 
 
 class FakeManager:
@@ -230,6 +236,80 @@ class TestOffsetPagination:
 
         assert "offset=200" in urls[0]
         assert "min_created_at=2026-01-01T00%3A00%3A00.000000Z" in urls[0]
+
+
+class TestPaginationAbuseGuards:
+    def test_repeated_runs_cursor_raises(self):
+        # A host that hands back a cursor it already gave us would loop forever; the walk must bail
+        # instead of spinning until the week-long activity timeout.
+        manager = FakeManager()
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            return {"runs": [_run("a")], "cursors": {"next": "loop"}}
+
+        with mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+            with pytest.raises(LangSmithRepeatedCursorError):
+                _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
+
+    def test_runs_page_limit_checkpoints_and_raises(self):
+        # A host returning an endless stream of full pages with fresh cursors must not monopolise a
+        # worker: the attempt ends at the cap after checkpointing so the resume path continues it.
+        manager = FakeManager()
+        counter = {"n": 0}
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            counter["n"] += 1
+            return {"runs": [_run(f"r{counter['n']}")], "cursors": {"next": f"c{counter['n']}"}}
+
+        with mock.patch(_MAX_PAGES, 3), mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+            with pytest.raises(LangSmithPageLimitError):
+                _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
+
+        assert manager.saved[-1].cursor is not None
+
+    def test_offset_page_limit_checkpoints_and_raises(self):
+        # Same guard on offset endpoints, where a host can return exactly page_size rows forever.
+        manager = FakeManager()
+        page_size = LANGSMITH_ENDPOINTS["projects"].page_size
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            return [{"id": f"x{i}"} for i in range(page_size)]
+
+        with mock.patch(_MAX_PAGES, 3), mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+            with pytest.raises(LangSmithPageLimitError):
+                _collect(get_rows("key", BASE_URL, "projects", logger, manager, 1))  # type: ignore[arg-type]
+
+        assert manager.saved[-1].offset is not None
+
+
+class TestResponseSizeCap:
+    def test_read_capped_body_rejects_oversized(self):
+        response = mock.MagicMock()
+        response.raw.read.return_value = b"x" * 11
+        with pytest.raises(LangSmithResponseTooLargeError):
+            _read_capped_body(response, cap=10)
+
+    def test_read_capped_body_returns_body_within_cap(self):
+        response = mock.MagicMock()
+        response.raw.read.return_value = b'{"ok": true}'
+        assert _read_capped_body(response, cap=1024) == b'{"ok": true}'
+
+    def test_fetch_page_streams_and_parses_body(self):
+        # The body must be pulled through the streamed/capped reader, never buffered eagerly by
+        # requests — dropping stream=True would reintroduce the unbounded-buffering vector.
+        response = mock.MagicMock()
+        response.status_code = 200
+        response.ok = True
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
+        response.raw.read.return_value = b'{"runs": [{"id": "a"}]}'
+        session = mock.MagicMock()
+        session.post.return_value = response
+
+        result = _fetch_page(session, f"{BASE_URL}/api/v1/runs/query", {}, logger, json_body={"limit": 1})
+
+        assert result == {"runs": [{"id": "a"}]}
+        assert session.post.call_args.kwargs["stream"] is True
 
 
 class TestHostSafety:
