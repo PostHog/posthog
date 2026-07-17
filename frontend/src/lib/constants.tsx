@@ -158,6 +158,7 @@ export const RETENTION_FIRST_EVER_OCCURRENCE = 'retention_first_ever_occurrence'
 export const FEATURE_FLAGS = {
     // Eternal feature flags, shouldn't be removed, helpful for debugging/maintenance reasons
     BILLING_FORECASTING_ISSUES: 'billing-forecasting-issues', // owner: #team-billing, see `Billing.tsx`, used to raise a warning when billing is having problems
+    COMING_SOON_WAITLIST_SURVEYS: 'coming-soon-waitlist-surveys', // owner: #team-growth, see `FeaturePreviews.tsx`, swaps concept-stage one-click for an email waitlist survey
     HOG: 'hog', // owner: #team-data-tools, see `DebugScene.tsx` and also insights
     NAV_PANEL_CAMPAIGN: 'nav-panel-campaign', // owner: #team-growth, sidebar promotional campaign, payload-driven. See NavPanelAdvertisement.tsx
     QUERY_TIMINGS: 'query-timings', // owner: #team-analytics-platform, usage: see `dataTableLogic.ts`
@@ -445,6 +446,7 @@ export const FEATURE_FLAGS = {
     PROJECT_SECRET_API_KEYS: 'project-secret-api-keys', // owner: #team-platform-features
     PROMOTED_EVENT_PROPERTIES_EDIT: 'promoted-event-properties-edit', // owner: @pauldambra #team-product-analytics, gates the primary-property picker on the event definition edit page (flag slug kept as `promoted-event-properties-edit` to avoid migrating teams that already toggled it on)
     PROPERTY_ACCESS_CONTROL: 'property-access-control', // owner: @reecejones #team-platform-features
+    PULSE: 'pulse', // owner: #team-analytics-platform
     QUICK_START_PULSE_INDICATOR: 'quick-start-pulse-indicator', // owner: @fercgomes #team-growth multivariate=control,test
     QUILL_CHART_STYLE_REFRESH: 'quill-chart-style-refresh', // owner: #team-product-analytics, gates refreshed quill chart styling (monotone curves, axis lines + tick marks, faint dashed grid, crosshair)
     QUILL_DATE_PICKER: 'quill-date-picker', // owner: @pauldambra, flips the lib/components/DatePicker seam from LemonUI to Quill
@@ -481,6 +483,7 @@ export const FEATURE_FLAGS = {
     SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON: 'show-replay-filters-feedback-button', // owner: @ksvat #team-replay
     SIGNUP_AA_TEST_4_WAY: 'signup-aa-test-4-way', // owner: @andehen #team-experiments multivariate=control,test-1,test-2,test-3
     SLACK_DWH: 'slack-dwh', // owner: @MarconLP #team-warehouse-sources
+    SQL_EDITOR_QUERY_HISTORY: 'sql-editor-query-history', // owner: @annaszell #team-data-tools
     SQL_EDITOR_VIM_MODE: 'sql-editor-vim-mode', // owner: @arthurdedeus
     SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-analytics-platform
     SUBSCRIPTION_AI_PROMPT: 'ai-subscriptions', // owner: #team-analytics-platform, gates AI prompt-based subscriptions

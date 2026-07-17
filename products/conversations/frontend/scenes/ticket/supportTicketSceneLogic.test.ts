@@ -212,3 +212,40 @@ describe('getEmailReplyBlockedReason', () => {
         expect(getEmailReplyBlockedReason(ticket, settings)).toBe(expected)
     })
 })
+
+describe('supportTicketSceneLogic replyRecipientDescription', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+    })
+
+    // This string is shown in the draft-mode "This will send to ..." confirmation. Regressions
+    // that swap email_from (customer) for email_to (our sending identity), drop cc recipients, or
+    // mislabel a channel would tell the agent they're sending somewhere they aren't.
+    test.each<[string, Partial<Ticket>, string]>([
+        [
+            'email uses the customer address, not our sending identity',
+            { channel_source: 'email', email_from: 'customer@example.com', email_to: 'support@example.com' },
+            'customer@example.com',
+        ],
+        [
+            'email includes cc participants',
+            {
+                channel_source: 'email',
+                email_from: 'customer@example.com',
+                cc_participants: ['cc1@example.com', 'cc2@example.com'],
+            },
+            'customer@example.com, cc1@example.com, cc2@example.com',
+        ],
+        ['slack', { channel_source: 'slack' }, 'the linked Slack thread'],
+        ['teams', { channel_source: 'teams' }, 'the linked Microsoft Teams channel'],
+        ['github', { channel_source: 'github' }, 'the linked GitHub issue'],
+        ['widget', { channel_source: 'widget' }, 'the customer'],
+    ])('%s', (_name, overrides, expected) => {
+        logic.actions.setTicket({ ...makeTicket(), ...overrides })
+        expect(logic.values.replyRecipientDescription).toBe(expected)
+    })
+})

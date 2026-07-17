@@ -82,6 +82,7 @@ class Product(StrEnum):
     SDK_HEALTH = "sdk_health"
     SESSION_SUMMARY = "session_summary"
     SIGNALS = "signals"
+    SQL_EDITOR = "sql_editor"
     SURVEYS = "surveys"
     USER_INTERVIEWS = "user_interviews"
     WAREHOUSE = "warehouse"
