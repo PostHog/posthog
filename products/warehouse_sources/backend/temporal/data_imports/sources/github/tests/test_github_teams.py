@@ -211,6 +211,35 @@ def test_org_permission_probe_reports_missing_grant(status_code: int) -> None:
 
 
 @pytest.mark.parametrize(
+    "api_version_kwarg,expected_header",
+    [
+        # The pin resolved by the source class must reach the outgoing X-GitHub-Api-Version header for
+        # each supported version; a broken thread-through would silently sync every source on one version.
+        ({"api_version": "2022-11-28"}, "2022-11-28"),
+        ({"api_version": "2026-03-10"}, "2026-03-10"),
+        # Omitted (creation-time paths carry no pin) falls back to the legacy default.
+        ({}, "2022-11-28"),
+    ],
+)
+def test_get_rows_sends_pinned_api_version_header(api_version_kwarg: dict[str, str], expected_header: str) -> None:
+    with mock.patch.object(
+        github, "_fetch_page", side_effect=_fetch_page_by_url({"/repos/acme/widgets": _response([])})
+    ) as fetch:
+        list(
+            github.get_rows(
+                personal_access_token="tok",
+                repository="acme/widgets",
+                endpoint="issues",
+                logger=mock.Mock(),
+                resumable_source_manager=_no_resume(),
+                **api_version_kwarg,
+            )
+        )
+
+    assert fetch.call_args.args[1]["X-GitHub-Api-Version"] == expected_header
+
+
+@pytest.mark.parametrize(
     "request_behavior",
     [
         pytest.param({"return_value": mock.Mock(status_code=200, headers={}, text="")}, id="ok"),

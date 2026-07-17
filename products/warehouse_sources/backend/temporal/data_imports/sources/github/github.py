@@ -40,6 +40,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.set
 
 GITHUB_BASE_URL = "https://api.github.com"
 
+# GitHub's date-based REST API versions are sent in the X-GitHub-Api-Version header. The header is
+# the only version-dependent part for the endpoints we sync — response shapes are compatible across
+# these versions. Creation-time paths (credential validation, webhook management) run with no row
+# pin and stay on the legacy version; the sync path threads the source's resolved pin instead.
+GITHUB_DEFAULT_API_VERSION = "2022-11-28"
+
 # Managing repo webhooks needs the `admin:repo_hook` scope on a classic token, or the
 # "Repository webhooks: read and write" permission on a fine-grained token. Name both so
 # the error/setup guidance doesn't mislead whichever token type the user connected.
@@ -184,11 +190,13 @@ def _resolve_sort_mode(
     return "asc"
 
 
-def _get_headers(access_token: str, endpoint: str = "") -> dict[str, str]:
+def _get_headers(
+    access_token: str, endpoint: str = "", api_version: str = GITHUB_DEFAULT_API_VERSION
+) -> dict[str, str]:
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
+        "X-GitHub-Api-Version": api_version,
     }
     # Stargazers needs this Accept header to include the starred_at timestamp.
     if endpoint == "stargazers":
@@ -270,7 +278,7 @@ def validate_credentials(personal_access_token: str, repository: str) -> tuple[b
     headers = {
         "Authorization": f"Bearer {personal_access_token}",
         "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
+        "X-GitHub-Api-Version": GITHUB_DEFAULT_API_VERSION,
     }
 
     try:
@@ -621,6 +629,7 @@ def _fan_out_get_rows(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> Iterator[Any]:
     """Single-hop parent->child fan-out: walk the parent endpoint and emit every child row for each
     parent, substituting the parent's field into the child path (workflow_jobs -> {run_id},
@@ -646,7 +655,7 @@ def _fan_out_get_rows(
     # org). Skip only that parent walk — a 404 on a specific team's members is not this benign case
     # and should still surface.
     parent_org_scoped = child_config.fan_out_parent in ORG_SCOPED_ENDPOINTS
-    headers = _get_headers(personal_access_token, endpoint)
+    headers = _get_headers(personal_access_token, endpoint, api_version)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
     # A parent with no incremental fields (teams) has no cursor to bound on, so walk it whole.
@@ -748,6 +757,7 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
     incremental_field: str | None = None,
     egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> Iterator[Any]:
     config = GITHUB_ENDPOINTS[endpoint]
     if config.fan_out_parent is not None:
@@ -760,10 +770,11 @@ def get_rows(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             egress_identity=egress_identity,
+            api_version=api_version,
         )
         return
 
-    headers = _get_headers(personal_access_token, endpoint)
+    headers = _get_headers(personal_access_token, endpoint, api_version)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
     actual_sort_mode = _resolve_sort_mode(
@@ -903,6 +914,7 @@ def github_source(
     webhook_source_manager: Optional[WebhookSourceManager] = None,
     egress_identity: GithubEgressIdentity | None = None,
     response_name: str | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> SourceResponse:
     endpoint_config = GITHUB_ENDPOINTS[endpoint]
 
@@ -985,6 +997,7 @@ def github_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field=incremental_field,
             egress_identity=egress_identity,
+            api_version=api_version,
         )
 
     return SourceResponse(

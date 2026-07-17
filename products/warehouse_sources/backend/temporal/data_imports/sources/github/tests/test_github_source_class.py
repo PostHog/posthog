@@ -438,6 +438,32 @@ class TestGithubSource:
         assert kwargs["endpoint"] == "issues"
         assert kwargs["response_name"] == "issues"
 
+    @pytest.mark.parametrize(
+        "pin,expected",
+        [
+            # An existing source pinned to the legacy version keeps syncing on it — the default flip
+            # must never silently move a customer to the new version.
+            ("2022-11-28", "2022-11-28"),
+            ("2026-03-10", "2026-03-10"),
+            # No pin (older rows created before versioning) resolves to the new default.
+            (None, "2026-03-10"),
+        ],
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.github.source.github_source")
+    def test_source_for_pipeline_threads_resolved_api_version(self, mock_github_source, pin, expected):
+        config = _pat_config(repository="legacy/repo", repositories=["legacy/repo"])
+        inputs = mock.MagicMock()
+        inputs.team_id = self.team_id
+        inputs.schema_name = "issues"
+        inputs.schema_metadata = None
+        inputs.s3_folder_name = "issues"
+        inputs.should_use_incremental_field = False
+        inputs.api_version = pin
+
+        self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
+
+        assert mock_github_source.call_args.kwargs["api_version"] == expected
+
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.github.source.ensure_repo_webhook")
     def test_create_webhook_shares_one_secret_across_repos(self, mock_ensure):
         from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookCreationResult

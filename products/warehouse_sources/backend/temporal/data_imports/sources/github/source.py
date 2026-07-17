@@ -87,8 +87,8 @@ class GithubSource(
     OAuthMixin,
 ):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("2022-11-28",)
-    default_version = "2022-11-28"
+    supported_versions = ("2022-11-28", "2026-03-10")
+    default_version = "2026-03-10"
     api_docs_url = "https://docs.github.com/en/rest/about-the-rest-api/api-versions"
 
     @property
@@ -695,4 +695,5 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             webhook_source_manager=webhook_source_manager,
             egress_identity=egress_identity,
             response_name=response_name,
+            api_version=self.resolve_api_version(inputs.api_version),
         )
