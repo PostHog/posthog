@@ -1,3 +1,4 @@
+import itertools
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
@@ -209,7 +210,7 @@ class TestUnpaginatedRows:
         ],
     )
     def test_single_request_list(self, endpoint, path, data_key):
-        page = _response(json_data={data_key: [{"id": "1"}, {"id": "2"}]})
+        page = _response(json_data={data_key: [{"id": "1", "orgId": "org-123"}, {"id": "2", "orgId": "org-123"}]})
         rows, session, _manager = _run_get_rows([_login_response(), page], endpoint)
 
         assert [r["id"] for r in rows] == ["1", "2"]
@@ -220,7 +221,15 @@ class TestUnpaginatedRows:
 
 class TestProjectMembershipsFanOut:
     def test_fans_out_over_projects_and_skips_forbidden(self):
-        projects = _response(json_data={"projects": [{"id": "p1"}, {"id": "p2"}, {"id": "p3"}]})
+        projects = _response(
+            json_data={
+                "projects": [
+                    {"id": "p1", "orgId": "org-123"},
+                    {"id": "p2", "orgId": "org-123"},
+                    {"id": "p3", "orgId": "org-123"},
+                ]
+            }
+        )
         memberships_p1 = _response(json_data={"memberships": [{"id": "m1", "projectId": "p1"}]})
         memberships_p2 = _response(status_code=403)
         memberships_p3 = _response(json_data={"memberships": [{"id": "m2", "projectId": "p3"}]})
@@ -240,10 +249,31 @@ class TestProjectMembershipsFanOut:
         ]
 
     def test_non_permission_error_fails_the_sync(self):
-        projects = _response(json_data={"projects": [{"id": "p1"}]})
+        projects = _response(json_data={"projects": [{"id": "p1", "orgId": "org-123"}]})
         bad_request = _response(status_code=400)
         with pytest.raises(requests.HTTPError):
             _run_get_rows([_login_response(), projects, bad_request], "project_memberships")
+
+
+class TestOrgScoping:
+    # /api/v1/projects isn't org-scoped — a machine identity shared with several orgs sees them
+    # all. Without the orgId filter, the projects table and the project_memberships fan-out would
+    # leak project and membership data from orgs other than the configured one.
+    def test_projects_table_excludes_other_orgs(self):
+        page = _response(json_data={"projects": [{"id": "p1", "orgId": "org-123"}, {"id": "p2", "orgId": "other-org"}]})
+        rows, _session, _manager = _run_get_rows([_login_response(), page], "projects")
+        assert [r["id"] for r in rows] == ["p1"]
+
+    def test_project_memberships_fan_out_skips_other_orgs(self):
+        projects = _response(
+            json_data={"projects": [{"id": "p1", "orgId": "org-123"}, {"id": "p2", "orgId": "other-org"}]}
+        )
+        memberships_p1 = _response(json_data={"memberships": [{"id": "m1", "projectId": "p1"}]})
+        rows, session, _manager = _run_get_rows([_login_response(), projects, memberships_p1], "project_memberships")
+        assert [r["id"] for r in rows] == ["m1"]
+        # Only the configured org's project is ever fetched; the foreign project is skipped.
+        paths = [urlparse(u).path for u in _get_urls(session)]
+        assert paths == ["/api/v1/projects", "/api/v1/projects/p1/memberships"]
 
 
 class TestTokenHandling:
@@ -258,7 +288,7 @@ class TestTokenHandling:
 
     def test_relogins_once_when_token_rejected_mid_sync(self):
         rejected = _response(status_code=401)
-        page = _response(json_data={"projects": [{"id": "1"}]})
+        page = _response(json_data={"projects": [{"id": "1", "orgId": "org-123"}]})
         rows, session, _manager = _run_get_rows([_login_response(), rejected, _login_response(), page], "projects")
 
         assert [r["id"] for r in rows] == ["1"]
@@ -273,7 +303,7 @@ class TestTokenHandling:
         # don't recognise. The secret is value-redacted on every session.
         data_session, auth_session = mock.MagicMock(), mock.MagicMock()
         auth_session.request.side_effect = [_login_response()]
-        data_session.request.side_effect = [_response(json_data={"projects": [{"id": "1"}]})]
+        data_session.request.side_effect = [_response(json_data={"projects": [{"id": "1", "orgId": "org-123"}]})]
         factory = mock.MagicMock(side_effect=[data_session, auth_session])
         with (
             mock.patch.object(infisical_module, "make_tracked_session", factory),
@@ -294,7 +324,7 @@ class TestTokenHandling:
                 for row in batch
             ]
 
-        assert rows == [{"id": "1"}]
+        assert rows == [{"id": "1", "orgId": "org-123"}]
         data_session_kwargs, auth_session_kwargs = (call.kwargs for call in factory.call_args_list)
         assert data_session_kwargs["capture"] is False
         assert auth_session_kwargs["capture"] is False
@@ -340,6 +370,23 @@ class TestResponseLimits:
         with mock.patch.object(infisical_module, "MAX_RESPONSE_BYTES", 1024):
             with pytest.raises(InfisicalResponseTooLargeError):
                 _run_get_rows([_login_response(), oversized], "projects")
+
+    def test_slow_drip_body_aborts_on_total_deadline(self):
+        # requests' timeout is an idle read timeout: a host that trickles bytes under the size
+        # cap without ever idling long enough to trip it would otherwise hold the worker until
+        # the activity's week-long timeout. The total-transfer deadline must abort it. A
+        # monotonic clock that advances one second per read crosses the (patched) 1s deadline
+        # within the loop regardless of any monotonic() calls tenacity makes around it.
+        response = mock.MagicMock(spec=requests.Response)
+        response.iter_content.return_value = iter([b"x", b"y", b"z"])
+        clock = itertools.count()
+        with (
+            mock.patch.object(infisical_module, "MAX_RESPONSE_SECONDS", 1),
+            mock.patch.object(infisical_module.time, "monotonic", lambda: float(next(clock))),
+        ):
+            with pytest.raises(InfisicalResponseTooLargeError):
+                infisical_module._read_capped_body(response)
+        response.close.assert_called_once()
 
     def test_pagination_stops_at_max_pages(self):
         # A host that always returns a full page would loop forever without the page cap.

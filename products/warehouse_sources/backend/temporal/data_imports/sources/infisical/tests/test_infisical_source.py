@@ -52,8 +52,10 @@ class TestInfisicalSource:
             for f in config.fields[:-1]
         )
 
-    def test_connection_host_fields_require_credential_reentry_on_base_url_change(self):
-        assert self.source.connection_host_fields == ["base_url"]
+    def test_connection_host_fields_require_credential_reentry(self):
+        # Both the host and the org selector gate the stored credential: changing either must
+        # force re-entry so an editor who can't read the secret can't repoint it.
+        assert self.source.connection_host_fields == ["base_url", "organization_id"]
 
     @pytest.mark.parametrize(
         "expected_key",

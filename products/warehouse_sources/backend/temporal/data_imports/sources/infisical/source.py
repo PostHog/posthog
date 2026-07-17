@@ -45,9 +45,11 @@ class InfisicalSource(ResumableSource[InfisicalSourceConfig, InfisicalResumeConf
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # `base_url` is where the stored client secret is sent; retargeting it must re-require
-        # the credentials.
-        return ["base_url"]
+        # `base_url` is where the stored client secret is sent, and `organization_id` selects
+        # which org the credential is used against. Retargeting either must re-require the
+        # credentials so an editor who can't see the stored secret can't repoint it at a
+        # different host or org the machine identity can also reach.
+        return ["base_url", "organization_id"]
 
     @property
     def get_source_config(self) -> SourceConfig:

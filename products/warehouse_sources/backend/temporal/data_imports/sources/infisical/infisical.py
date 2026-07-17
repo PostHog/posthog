@@ -33,6 +33,12 @@ TOKEN_EXPIRY_MARGIN_SECONDS = 60
 # import worker. Both bounds are far above any legitimate Infisical response.
 MAX_RESPONSE_BYTES = 128 * 1024 * 1024
 RESPONSE_CHUNK_BYTES = 1024 * 1024
+# Total wall-clock a single response body may take to drain. requests' timeout is an idle
+# read timeout, not a transfer deadline, so a customer-controlled host could drip one byte
+# just often enough to dodge it — never idling, never hitting the byte cap — and hold an
+# import-worker thread for the activity's (week-long) lifetime. This bounds the whole
+# transfer regardless of chunk cadence; it's far above any legitimate Infisical response.
+MAX_RESPONSE_SECONDS = 300
 MAX_PAGES = 100_000
 # Cap how much of an error response body reaches the logs — the host is untrusted.
 ERROR_BODY_LOG_LIMIT = 500
@@ -145,7 +151,15 @@ def _read_capped_body(response: requests.Response) -> None:
     """
     total = 0
     chunks: list[bytes] = []
+    deadline = time.monotonic() + MAX_RESPONSE_SECONDS
     for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
+        # A slow-drip host can stay under the byte cap and never trip the idle read timeout,
+        # so bound the total transfer time as well.
+        if time.monotonic() > deadline:
+            response.close()
+            raise InfisicalResponseTooLargeError(
+                f"Infisical response did not finish within {MAX_RESPONSE_SECONDS}s; aborting"
+            )
         if not chunk:
             continue
         total += len(chunk)
@@ -443,12 +457,25 @@ def _get_offset_paginated_rows(
             logger.warning(f"Infisical: hit MAX_PAGES={MAX_PAGES} for {config.name}, stopping pagination")
 
 
+def _list_org_projects(client: InfisicalClient, organization_id: str) -> list[dict[str, Any]]:
+    """List the configured org's projects.
+
+    ``/api/v1/projects`` isn't scoped by org — it returns every project the machine identity
+    can read across all orgs it belongs to. Keep only the configured org so an identity shared
+    with several orgs can't pull project (or, via the fan-out, membership) data from orgs other
+    than the one this source is configured for.
+    """
+    projects = client.get("/api/v1/projects").json().get("projects") or []
+    return [p for p in projects if p.get("orgId") == organization_id]
+
+
 def _get_project_fan_out_rows(
     client: InfisicalClient,
     config: InfisicalEndpointConfig,
+    organization_id: str,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    projects = client.get("/api/v1/projects").json().get("projects") or []
+    projects = _list_org_projects(client, organization_id)
 
     for project in projects:
         project_id = project.get("id")
@@ -496,7 +523,15 @@ def get_rows(
     organization_id = organization_id.strip()
 
     if config.fan_out_over_projects:
-        yield from _get_project_fan_out_rows(client, config, logger)
+        yield from _get_project_fan_out_rows(client, config, organization_id, logger)
+        return
+
+    if endpoint == "projects":
+        # /api/v1/projects isn't org-scoped, so filter to the configured org rather than
+        # syncing every project the machine identity can see across all its orgs.
+        projects = _list_org_projects(client, organization_id)
+        if projects:
+            yield projects
         return
 
     if endpoint == "audit_logs":
