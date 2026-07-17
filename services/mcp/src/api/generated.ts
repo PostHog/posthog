@@ -33158,6 +33158,8 @@ export namespace Schemas {
       /** Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents. */
       outline: LLMPromptOutlineEntry[];
       version: number;
+      /** The label this prompt was fetched by. Only present when fetching with the label parameter. */
+      label?: string;
       created_at: string;
       updated_at: string;
       deleted: boolean;
@@ -68151,6 +68153,12 @@ export namespace Schemas {
      */
     content?: EnvironmentsLlmPromptsNameRetrieveContent;
     /**
+     * Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version.
+     * @minLength 1
+     * @maxLength 128
+     */
+    label?: string;
+    /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
@@ -75858,6 +75866,12 @@ export namespace Schemas {
      * @minLength 1
      */
     content?: LlmPromptsNameRetrieveContent;
+    /**
+     * Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version.
+     * @minLength 1
+     * @maxLength 128
+     */
+    label?: string;
     /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
