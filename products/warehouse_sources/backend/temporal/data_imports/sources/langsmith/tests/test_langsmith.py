@@ -7,6 +7,7 @@ from unittest import mock
 import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import (
+    MAX_CURSOR_BYTES,
     LangSmithHostNotAllowedError,
     LangSmithPageLimitError,
     LangSmithRepeatedCursorError,
@@ -249,6 +250,19 @@ class TestPaginationAbuseGuards:
 
         with mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
             with pytest.raises(LangSmithRepeatedCursorError):
+                _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
+
+    def test_oversized_runs_cursor_raises(self):
+        # An attacker-controlled cursor near the response-size limit must never be echoed back or
+        # retained; a cursor beyond MAX_CURSOR_BYTES is rejected outright.
+        manager = FakeManager()
+        big_cursor = "x" * (MAX_CURSOR_BYTES + 1)
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            return {"runs": [_run("a")], "cursors": {"next": big_cursor}}
+
+        with mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+            with pytest.raises(LangSmithResponseTooLargeError):
                 _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
 
     def test_runs_page_limit_checkpoints_and_raises(self):

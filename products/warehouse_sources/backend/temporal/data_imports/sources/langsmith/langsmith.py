@@ -1,5 +1,6 @@
 import re
 import json
+import hashlib
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -42,6 +43,10 @@ MAX_RESPONSE_BYTES = 256 * 1024 * 1024
 
 # How much of an error-response body to keep for the log line (bounded for the same reason).
 MAX_ERROR_BODY_BYTES = 8 * 1024
+
+# A real pagination cursor is a short opaque token. A host handing back anything larger is broken or
+# hostile — reject it rather than echo it back in the next request body or hold it in memory.
+MAX_CURSOR_BYTES = 8 * 1024
 
 # Bound how many pages one activity attempt walks. A hostile host can otherwise return a full page
 # with a fresh cursor/offset forever and hold a worker until the week-long activity timeout. On the
@@ -334,7 +339,10 @@ def _get_runs_rows(
     if window_start:
         body["start_time"] = window_start
 
-    seen_cursors: set[str] = set()
+    # Digests, not the cursors themselves: `next_cursor` is attacker-controlled and can be nearly as
+    # large as a whole response, so retaining the raw values would let a stream of unique cursors
+    # grow this set without bound. A fixed-size digest is all cycle detection needs.
+    seen_cursors: set[bytes] = set()
     pages = 0
     while True:
         page_cursor = cursor
@@ -361,11 +369,18 @@ def _get_runs_rows(
         if not next_cursor:
             break
 
+        # Reject an absurdly large cursor before it's echoed back or remembered.
+        if len(next_cursor.encode()) > MAX_CURSOR_BYTES:
+            raise LangSmithResponseTooLargeError(
+                f"LangSmith returned an oversized pagination cursor (> {MAX_CURSOR_BYTES} bytes)"
+            )
+
         # A host that hands back a cursor it already gave us (or the one we just sent) is looping;
         # retrying would re-hit it, so fail for good instead of spinning until the activity timeout.
-        if next_cursor == page_cursor or next_cursor in seen_cursors:
+        cursor_digest = hashlib.sha256(next_cursor.encode()).digest()
+        if next_cursor == page_cursor or cursor_digest in seen_cursors:
             raise LangSmithRepeatedCursorError(REPEATED_CURSOR_ERROR)
-        seen_cursors.add(next_cursor)
+        seen_cursors.add(cursor_digest)
 
         pages += 1
         if pages >= MAX_PAGES_PER_RUN:
