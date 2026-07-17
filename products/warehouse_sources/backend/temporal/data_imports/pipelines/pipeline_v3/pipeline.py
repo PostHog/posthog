@@ -515,9 +515,7 @@ class PipelineV3(Generic[ResumableData]):
 
         await advance_xmin_state(self._resource, self._schema, self._logger, log_prefix="V3 Pipeline: ")
 
-        # initial_sync_complete (and the CDC snapshot→streaming flip inside it) is set by the
-        # loader's post-load, not here: extraction finishing only means the batches are enqueued,
-        # and CDC streaming must not start until the snapshot's data has landed in Delta.
+        # initial_sync_complete is set by the loader's post-load after data lands in Delta.
 
         await self._logger.ainfo(
             f"V3 Pipeline: Extraction complete",

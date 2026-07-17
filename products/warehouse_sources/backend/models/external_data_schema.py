@@ -851,7 +851,7 @@ def mark_initial_sync_complete(schema_id: str | uuid.UUID, team_id: int) -> None
             schema.sync_type_config = config
             update_fields.append("sync_type_config")
 
-        schema.save(update_fields=update_fields)
+        schema.save(update_fields=update_fields, skip_activity_log=True)
 
 
 def get_all_schemas_for_source_id(source_id: str, team_id: int):
