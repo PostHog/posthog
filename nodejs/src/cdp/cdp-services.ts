@@ -394,6 +394,10 @@ export function createCdpCoreServices(
     const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
     const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
     const messageAssetsService = new MessageAssetsService(outputs)
+    // Constructed here (rather than below with the other messaging services) so it can be threaded
+    // into EmailService — the pre-send suppression check lives there so every send path shares one
+    // choke point regardless of whether the invocation came from a workflow action or a hog function.
+    const emailSuppressionService = new EmailSuppressionService(deps.postgres)
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -406,6 +410,7 @@ export function createCdpCoreServices(
         config.ENCRYPTION_SALT_KEYS,
         config.SITE_URL,
         trackingCodeSigner,
+        emailSuppressionService,
         messageAssetsService
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
@@ -446,7 +451,6 @@ export function createCdpCoreServices(
     )
 
     const recipientsManager = new RecipientsManagerService(deps.postgres)
-    const emailSuppressionService = new EmailSuppressionService(deps.postgres)
     const recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService)
     // MX verdicts live on the dedicated SES Valkey (same instance as the SES rate
     // limiter, separate pool). The pool is created by the server only on pods

@@ -2,7 +2,7 @@ from django.db.models import F
 from django.db.models.functions import Coalesce, Now
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
@@ -39,6 +39,17 @@ class MessageSuppressionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class PaginatedMessageSuppressionSerializer(serializers.Serializer):
+    """OpenAPI shape for the paginated suppressions response. Declared so drf-spectacular emits
+    the {count, next, previous, results} envelope on the generated client, rather than a bare
+    array — which the frontend actually receives at runtime."""
+
+    count = serializers.IntegerField(help_text="Total number of suppressed recipients for the team.")
+    next = serializers.URLField(allow_null=True, help_text="URL for the next page, or null on the last page.")
+    previous = serializers.URLField(allow_null=True, help_text="URL for the previous page, or null on the first page.")
+    results = MessageSuppressionSerializer(many=True)
+
+
 class AddSuppressionRequestSerializer(serializers.Serializer):
     identifier = serializers.CharField(
         max_length=512,
@@ -61,7 +72,11 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     serializer_class = _FallbackSerializer
 
     @extend_schema(
-        responses={200: MessageSuppressionSerializer(many=True)},
+        parameters=[
+            OpenApiParameter(name="page", type=int, location=OpenApiParameter.QUERY, required=False),
+            OpenApiParameter(name="page_size", type=int, location=OpenApiParameter.QUERY, required=False),
+        ],
+        responses={200: PaginatedMessageSuppressionSerializer},
         summary="List suppressed email addresses for the team",
     )
     @action(detail=False, methods=["get"])
@@ -139,7 +154,10 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         identifier = serializer.validated_data["identifier"].strip().lower()
 
         # Soft-delete and un-suppress. Reset the bounce counter so a previously-dead address that
-        # a user deliberately re-enables starts from a clean slate.
+        # a user deliberately re-enables starts from a clean slate. `source` is reset to BOUNCE so
+        # a future auto-suppression can re-suppress this row — the node upserts skip rows with
+        # source='MANUAL' (to protect user-managed entries), so a removed MANUAL row would otherwise
+        # be permanently invisible to the bounce-driven write path.
         updated = (
             MessageSuppression.objects.for_team(self.team_id)
             .filter(identifier=identifier)
@@ -147,6 +165,7 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 suppressed=False,
                 deleted=True,
                 transient_bounce_count=0,
+                source=SuppressionSource.BOUNCE,
                 updated_at=timezone.now(),
             )
         )

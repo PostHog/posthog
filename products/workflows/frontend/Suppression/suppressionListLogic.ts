@@ -169,25 +169,28 @@ export const suppressionListLogic = kea<suppressionListLogicType>([
             loadSuppressions: async (): Promise<PaginatedSuppressions> => {
                 try {
                     return await api.messaging.getSuppressions(1)
-                } catch {
+                } catch (e) {
                     lemonToast.error('Failed to load suppression list')
-                    return EMPTY_SUPPRESSIONS
+                    // Rethrow so kea-loaders emits loadSuppressionsFailure and the currentPage reducer
+                    // (which only advances on *Success) stays put — otherwise a failed page fetch would
+                    // still tick currentPage and skip pages permanently.
+                    throw e
                 }
             },
             loadNextPage: async (): Promise<PaginatedSuppressions> => {
                 try {
                     return await api.messaging.getSuppressions(values.currentPage + 1)
-                } catch {
+                } catch (e) {
                     lemonToast.error('Failed to load next page')
-                    return values.suppressions
+                    throw e
                 }
             },
             loadPreviousPage: async (): Promise<PaginatedSuppressions> => {
                 try {
                     return await api.messaging.getSuppressions(Math.max(1, values.currentPage - 1))
-                } catch {
+                } catch (e) {
                     lemonToast.error('Failed to load previous page')
-                    return values.suppressions
+                    throw e
                 }
             },
         },

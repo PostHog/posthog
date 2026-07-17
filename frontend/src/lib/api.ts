@@ -1966,18 +1966,17 @@ export class ApiRequest {
     }
 
     public messagingSuppressions(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_suppressions').addPathComponent('suppressions')
+        // messaging_suppressions is registered under routers.projects only (not the dual-route
+        // shim), so the URL prefix must be /api/projects/... not /api/environments/...
+        return this.projects().current().addPathComponent('messaging_suppressions').addPathComponent('suppressions')
     }
 
     public messagingSuppressionsAdd(): ApiRequest {
-        return this.environments()
-            .current()
-            .addPathComponent('messaging_suppressions')
-            .addPathComponent('add_suppression')
+        return this.projects().current().addPathComponent('messaging_suppressions').addPathComponent('add_suppression')
     }
 
     public messagingSuppressionsRemove(): ApiRequest {
-        return this.environments()
+        return this.projects()
             .current()
             .addPathComponent('messaging_suppressions')
             .addPathComponent('remove_suppression')

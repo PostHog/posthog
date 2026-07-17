@@ -21,8 +21,15 @@ export function SuppressionList(): JSX.Element {
         addSuppression,
         removeSuppression,
     } = useActions(suppressionListLogic)
-    const { suppressions, suppressionsLoading, currentPage, showAddModal, addSuppressionLoading, newIdentifier } =
-        useValues(suppressionListLogic)
+    const {
+        suppressions,
+        suppressionsLoading,
+        currentPage,
+        showAddModal,
+        addSuppressionLoading,
+        removeSuppressionLoading,
+        newIdentifier,
+    } = useValues(suppressionListLogic)
 
     const columns: LemonTableColumns<SuppressionEntry> = [
         {
@@ -65,6 +72,8 @@ export function SuppressionList(): JSX.Element {
                                 status="danger"
                                 icon={<IconTrash />}
                                 onClick={() => removeSuppression(entry.identifier)}
+                                loading={removeSuppressionLoading}
+                                disabledReason={removeSuppressionLoading ? 'Removing…' : undefined}
                                 fullWidth
                             >
                                 Remove
@@ -144,7 +153,13 @@ export function SuppressionList(): JSX.Element {
                         <LemonButton
                             type="primary"
                             loading={addSuppressionLoading}
-                            disabled={!newIdentifier.trim()}
+                            disabledReason={
+                                addSuppressionLoading
+                                    ? 'Adding…'
+                                    : !newIdentifier.trim()
+                                      ? 'Enter an email address'
+                                      : undefined
+                            }
                             onClick={() => addSuppression(newIdentifier.trim())}
                         >
                             Add address
@@ -163,7 +178,9 @@ export function SuppressionList(): JSX.Element {
                         onChange={setNewIdentifier}
                         autoFocus
                         onPressEnter={() => {
-                            if (newIdentifier.trim()) {
+                            // Guard against a second Enter mid-flight firing a duplicate POST — the
+                            // footer button already disables while loading; mirror that here.
+                            if (newIdentifier.trim() && !addSuppressionLoading) {
                                 addSuppression(newIdentifier.trim())
                             }
                         }}

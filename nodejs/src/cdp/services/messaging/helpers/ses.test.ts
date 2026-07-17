@@ -243,14 +243,48 @@ describe('SesWebhookHandler', () => {
             },
         ]
         const result = await handler.handleWebhook({ body, headers: {} })
-        // No metric or log entry recorded for the test send, but the hard bounce still triggers an opt-out.
+        // No metric or log entry recorded for the test send, but the hard bounce still triggers an opt-out
+        // (pre-existing behavior, kept unchanged for backward compat).
         expect(result.metrics).toEqual([])
         expect(result.logEntries).toEqual([])
         expect(result.optOutRecipients).toEqual([{ teamId: '1', emailAddresses: ['to@example.com'] }])
-        // Consistent with the opt-out path: a hard bounce is a hard bounce, test send or not.
-        expect(result.hardBounceRecipients).toEqual([
-            { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'bad' },
-        ])
+        // Suppression writes are NOT populated for test sends — editor "Run test" traffic shouldn't be
+        // able to suppress a production address just by targeting a bad recipient.
+        expect(result.hardBounceRecipients).toEqual([])
+    })
+
+    it.each([
+        [
+            'Transient bounce',
+            {
+                eventType: 'Bounce',
+                bounce: {
+                    bounceType: 'Transient',
+                    bouncedRecipients: [{ emailAddress: 'to@example.com', diagnosticCode: 'temp' }],
+                    timestamp: '2025-10-03T12:04:00Z',
+                },
+            },
+            'transientBounceRecipients' as const,
+        ],
+        [
+            'Delivery',
+            {
+                eventType: 'Delivery',
+                delivery: { timestamp: '2025-10-03T12:04:00Z', recipients: ['to@example.com'] },
+            },
+            'deliveredRecipients' as const,
+        ],
+    ])('does not populate %s suppression writes for test sends', async (_label, eventFields, arrayKey) => {
+        // Same guarantee as the permanent-bounce test above but for the counter-driving events:
+        // a "Run test" from the editor must not push into the suppression counter (transient) or
+        // reset it (delivery), which could otherwise perturb production suppression state.
+        const testMail = {
+            ...baseMail,
+            headers: [{ name: TRACKING_CODE_HEADER, value: signer.generate(baseInvocation, true) }],
+            tags: { ph_id: [signer.generateShort(baseInvocation)] },
+        }
+        const result = await handler.handleWebhook({ body: [{ mail: testMail, ...eventFields }], headers: {} })
+        expect(result[arrayKey]).toEqual([])
     })
 
     it('parses a raw Delivery event', async () => {

@@ -16,8 +16,10 @@ import type {
     MessageSuppressionApi,
     MessageTemplateApi,
     MessagingCategoriesListParams,
+    MessagingSuppressionsSuppressionsRetrieveParams,
     MessagingTemplatesListParams,
     PaginatedMessageCategoryListApi,
+    PaginatedMessageSuppressionApi,
     PaginatedMessageTemplateListApi,
     PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
@@ -442,22 +444,41 @@ export const messagingSuppressionsRemoveSuppressionCreate = async (
     })
 }
 
-export const getMessagingSuppressionsSuppressionsListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/messaging_suppressions/suppressions/`
+export const getMessagingSuppressionsSuppressionsRetrieveUrl = (
+    projectId: string,
+    params?: MessagingSuppressionsSuppressionsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/messaging_suppressions/suppressions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging_suppressions/suppressions/`
 }
 
 /**
  * List suppressed recipients for the team, most recently updated first.
  * @summary List suppressed email addresses for the team
  */
-export const messagingSuppressionsSuppressionsList = async (
+export const messagingSuppressionsSuppressionsRetrieve = async (
     projectId: string,
+    params?: MessagingSuppressionsSuppressionsRetrieveParams,
     options?: RequestInit
-): Promise<MessageSuppressionApi[]> => {
-    return apiMutator<MessageSuppressionApi[]>(getMessagingSuppressionsSuppressionsListUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<PaginatedMessageSuppressionApi> => {
+    return apiMutator<PaginatedMessageSuppressionApi>(
+        getMessagingSuppressionsSuppressionsRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getMessagingTemplatesListUrl = (projectId: string, params?: MessagingTemplatesListParams) => {

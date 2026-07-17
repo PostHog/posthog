@@ -48,6 +48,16 @@ const toKey = (teamId: number, identifier: string): string => `${teamId}:${ident
  * and flips it to suppressed once the count crosses the threshold; `recordDeliveries` resets the
  * count on any successful delivery so a one-off outage never accumulates into a suppression.
  * Manual entries (added via the API/UI) are never touched by the bounce/delivery bookkeeping.
+ *
+ * Cache invalidation window (v1):
+ *   The LazyLoader cache is per-process. `clear()` only fires on the Node process that performed
+ *   the write, so manual add/remove via the Django API (which never touches Node) and bounce writes
+ *   handled by a different worker won't invalidate other workers' caches immediately. Effect:
+ *   suppression state can be stale for up to LazyLoader's refresh window (~5 minutes) on other pods.
+ *   The pre-send check may allow a send to a just-suppressed address, or block a send to a
+ *   just-removed one, for that window. Acceptable for v1 given the low rate of state changes; a
+ *   follow-up should propagate invalidations via pubsub (see `IntegrationManagerService` for the
+ *   pattern) if the staleness becomes a support issue.
  */
 export class EmailSuppressionService {
     private readonly threshold: number

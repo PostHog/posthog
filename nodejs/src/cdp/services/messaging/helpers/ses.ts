@@ -626,6 +626,11 @@ export class SesWebhookHandler {
             // carrier is only used for engagement metrics/log entries above.
             const codeIsTrusted = parsedCode?.format === 'signed'
 
+            // Suppression writes (below) skip test sends — editor "Run test" traffic must not be
+            // able to perturb production suppression state by targeting a bad recipient. The
+            // pre-existing opt-out push stays ungated for backward compat.
+            const suppressionAllowed = teamId && codeIsTrusted && !isTest
+
             // Opt out recipients on permanent bounces. Dual-write: also mirror into the suppression
             // list with the SMTP diagnostic so a unified deliverability view exists before the
             // opt-out path is retired (see phase 2 of the suppression rollout).
@@ -633,13 +638,15 @@ export class SesWebhookHandler {
                 const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
                 const diagnostic = rec.bounce.bouncedRecipients.find((r) => r.diagnosticCode)?.diagnosticCode
                 optOutRecipients.push({ teamId, emailAddresses: emails })
-                hardBounceRecipients.push({ teamId, emailAddresses: emails, diagnostic })
+                if (!isTest) {
+                    hardBounceRecipients.push({ teamId, emailAddresses: emails, diagnostic })
+                }
             }
 
             // Count soft (Transient) bounces toward suppression. These are recipient-side failures
             // (server unreachable, mailbox full, greylisting); one is harmless but a persistent run
             // of them means the address can't receive mail.
-            if (teamId && codeIsTrusted && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Transient') {
+            if (suppressionAllowed && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Transient') {
                 const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
                 const diagnostic = rec.bounce.bouncedRecipients.find((r) => r.diagnosticCode)?.diagnosticCode
                 transientBounceRecipients.push({ teamId, emailAddresses: emails, diagnostic })
@@ -648,7 +655,7 @@ export class SesWebhookHandler {
             // Successful delivery resets an address's soft-bounce counter — but only if newer than the
             // last-recorded bounce (checked at the SQL layer), so an out-of-order delivery from an
             // older send can't erase a fresh bounce.
-            if (teamId && codeIsTrusted && rec.eventType === 'Delivery') {
+            if (suppressionAllowed && rec.eventType === 'Delivery') {
                 const emails = rec.delivery.recipients ?? rec.mail.destination ?? []
                 if (emails.length > 0) {
                     deliveredRecipients.push({ teamId, emailAddresses: emails, timestamp: rec.delivery.timestamp })
