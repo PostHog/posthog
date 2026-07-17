@@ -6,11 +6,14 @@ from posthog.test.base import BaseTest
 from django.conf import settings
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -104,6 +107,27 @@ class TestLazyJoins(BaseTest):
         assert [warning.message for warning in context.warnings] == [
             'SAMPLE clause ignored: the "sessions" table is computed on the fly and cannot be sampled'
         ]
+
+    @parameterized.expand(
+        [
+            # A lazy table mounted under a namespace is keyed in scope by its reference chain
+            # (`posthog__error_tracking_fingerprint_issue_state`), which differs from its printed long
+            # name (`error_tracking_fingerprint_issue_state`). The resolver used to assume the long name
+            # was the scope key and raised an unhandled KeyError; it must expand the table instead.
+            ("error_tracking", "SELECT fingerprint FROM posthog.error_tracking_fingerprint_issue_state"),
+            (
+                "info_schema_and_error_tracking",
+                "SELECT fingerprint, (SELECT count() FROM system.information_schema.tables) AS table_count "
+                "FROM posthog.error_tracking_fingerprint_issue_state",
+            ),
+        ]
+    )
+    def test_namespace_mounted_lazy_table_is_expanded(self, _name: str, query: str) -> None:
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=HogQLQueryModifiers())
+        node = prepare_ast_for_printing(parse_select(query), context, "clickhouse")
+        assert node is not None
+        # The namespaced lazy table must be expanded into an aggregating subquery, not left as a bare table.
+        assert isinstance(node.select_from.table, ast.SelectQuery)
 
     def _print_select(self, select: str, modifiers: HogQLQueryModifiers | None = None):
         expr = parse_select(select)
