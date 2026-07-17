@@ -133,6 +133,86 @@ describe('exec tool', () => {
         })
     })
 
+    describe('skills-first gate', () => {
+        const guideCatalog = (): ExecLearnCatalog =>
+            new ExecLearnCatalog(
+                [{ id: 'analytics', title: 'Analytics', description: 'Guidance.', content: 'Use the tools.' }],
+                { posthog: undefined }
+            )
+
+        function makeSkillsSession(): {
+            session: NonNullable<ExecToolOptions['skillsSession']>
+            state: { learnedAt?: number; ackAt?: number }
+        } {
+            const state: { learnedAt?: number; ackAt?: number } = {}
+            return {
+                state,
+                session: {
+                    hasLearned: async () => state.learnedAt !== undefined,
+                    markLearned: async () => {
+                        state.learnedAt = Date.now()
+                    },
+                    hasAcknowledgedNoSkills: async () => state.ackAt !== undefined,
+                    markAcknowledgedNoSkills: async () => {
+                        state.ackAt = Date.now()
+                    },
+                },
+            }
+        }
+
+        it('rejects an un-learned call and passes it after a learn load', async () => {
+            const { session } = makeSkillsSession()
+            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: session })
+
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toThrow(
+                'No skills loaded this session'
+            )
+
+            await exec.handler(mockContext, { command: 'learn analytics' })
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
+        })
+
+        it('does not open the gate for a bare search', async () => {
+            const { session } = makeSkillsSession()
+            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: session })
+
+            await exec.handler(mockContext, { command: 'learn -s bot traffic' })
+
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toThrow(
+                'No skills loaded this session'
+            )
+        })
+
+        it('call --no-skills acknowledges once and opens the gate for the session', async () => {
+            const { session } = makeSkillsSession()
+            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: session })
+
+            await expect(exec.handler(mockContext, { command: 'call --no-skills mock-tool {}' })).resolves.toBeDefined()
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
+        })
+
+        it('opens the gate when the session store fails', async () => {
+            const failing: NonNullable<ExecToolOptions['skillsSession']> = {
+                hasLearned: async () => {
+                    throw new Error('redis down')
+                },
+                markLearned: async () => {
+                    throw new Error('redis down')
+                },
+                hasAcknowledgedNoSkills: async () => {
+                    throw new Error('redis down')
+                },
+                markAcknowledgedNoSkills: async () => {
+                    throw new Error('redis down')
+                },
+            }
+            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: failing })
+
+            await expect(exec.handler(mockContext, { command: 'learn analytics' })).resolves.toBe('Use the tools.')
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
+        })
+    })
+
     describe('call command', () => {
         it('returns TOON-formatted output by default', async () => {
             const exec = createExec()
@@ -239,14 +319,14 @@ describe('exec tool', () => {
         it('throws usage error for bare call', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call' })).rejects.toThrow(
-                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
             )
         })
 
         it('throws usage error for call --json with no tool name', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call --json' })).rejects.toThrow(
-                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
             )
         })
 

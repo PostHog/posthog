@@ -61,7 +61,7 @@ export class ProjectSkillCatalog {
             query: { query },
         })
 
-        return response.results.map((skill) => ({
+        const results = response.results.map((skill) => ({
             identifier: `project:${skill.name}`,
             description: skill.description,
             snippets: skill.matches.map((match) => ({
@@ -77,6 +77,22 @@ export class ProjectSkillCatalog {
                 skill.matches.map((match) => match.matched_field)
             ),
         }))
+        if (results.length > 0) {
+            return results
+        }
+        // The backend matches the whole query via icontains, so a natural multi-word
+        // query returns nothing even when a skill matches on individual tokens. Rank
+        // the memoized listing locally so the cross-source merge still sees project
+        // skills — no extra API round-trip beyond the (memoized) list fetch.
+        const { skills } = await this.list()
+        return skills
+            .map((skill) => ({
+                identifier: `project:${skill.name}`,
+                description: skill.description,
+                snippets: [],
+                score: scoreProjectSearchResult(query, skill.name, skill.description, []),
+            }))
+            .filter((result) => result.score > 0)
     }
 
     async read(name: string, path?: string): Promise<string> {
