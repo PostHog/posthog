@@ -236,6 +236,28 @@ class TestPromptSuggestions(_VisionAPITestCase):
         scanner.refresh_from_db()
         self.assertEqual(scanner.scanner_config["prompt"], "new")
 
+    def test_monitor_end_to_end_unchanged(self) -> None:
+        # Realistic legacy monitor: scanner_config has no allow_inconclusive key at all.
+        # generate -> current -> apply must still land a config behaviorally identical to today's
+        # prompt-only flow, proving the config-generic path is a no-op for this case.
+        scanner = self._create_scanner(name="legacy-monitor", scanner_config={"prompt": "old"})
+        version_before = scanner.scanner_version
+        self._create_rated_observation("sess-1", False, "should be yes", scanner=scanner)
+        self._create_rated_observation("sess-2", True, scanner=scanner)
+        self.canned = {"suggested_prompt": "new", "allow_inconclusive": False, "rationale": "r"}
+
+        url_prefix = f"{self.scanners_url}{scanner.id}/prompt_suggestions/"
+        generate_resp = self.client.post(f"{url_prefix}generate/")
+        self.assertEqual(generate_resp.status_code, 200, generate_resp.json())
+
+        current = self.client.get(f"{url_prefix}current/").json()["suggestion"]
+        apply_resp = self.client.post(f"{url_prefix}{current['id']}/apply/")
+        self.assertEqual(apply_resp.status_code, 200, apply_resp.json())
+
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.scanner_config, {"prompt": "new", "allow_inconclusive": False})
+        self.assertEqual(scanner.scanner_version, version_before + 1)
+
     @parameterized.expand(
         [
             (
