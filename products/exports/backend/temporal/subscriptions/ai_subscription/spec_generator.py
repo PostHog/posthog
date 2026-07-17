@@ -36,6 +36,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.schemas imp
 )
 
 from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 
 logger = structlog.get_logger(__name__)
 
@@ -52,6 +53,9 @@ def generation_callback_config(
         distinct_id=str(user.distinct_id),
         properties={"feature": "ai_subscription", "stage": stage, "ai_product": "posthog_ai", "team_id": team.id},
         trace_id=str(trace_correlation_id) if trace_correlation_id is not None else f"ai_subscription_{uuid.uuid4()}",
+        # Honour the org's AI privacy mode, like ee/hogai/core/runner.py — otherwise enabling capture
+        # here would start recording prompt/response content for orgs that opted out.
+        privacy_mode=is_privacy_mode_enabled(team),
     )
     return {"callbacks": [handler]}
 
