@@ -3,6 +3,7 @@ import datetime as dt
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -139,6 +140,13 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])
 
         assert self._runner(query).validate_query_runner_access(self.user) is True
+
+    def test_validate_query_runner_access_denied_without_feature_flag(self) -> None:
+        query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])
+
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            with pytest.raises(UserAccessControlError):
+                self._runner(query).validate_query_runner_access(self.user)
 
     def test_validate_query_runner_access_denied_without_resource_access(self) -> None:
         AccessControl.objects.create(team=self.team, resource="metrics", access_level="none")

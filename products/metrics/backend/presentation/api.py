@@ -34,6 +34,7 @@ from products.metrics.backend.facade.api import (
 )
 from products.metrics.backend.facade.contracts import (
     MAX_CLAUSES_PER_QUERY,
+    METRICS_FEATURE_FLAG,
     MetricFilter,
     MetricGroupBy,
     MetricQueryClause,
@@ -553,7 +554,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # Metrics is in private alpha: gate the API behind the `metrics` flag so only
     # PostHog and directly-added teams can reach it. Added to the mixin's default
     # permissions (team/org/access-control), not replacing them.
-    posthog_feature_flag = "metrics"
+    posthog_feature_flag = METRICS_FEATURE_FLAG
     permission_classes = [PostHogFeatureFlagPermission]
 
     @extend_schema(responses={200: _HasMetricsResponseSerializer})

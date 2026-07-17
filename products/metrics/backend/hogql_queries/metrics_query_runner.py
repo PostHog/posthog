@@ -24,10 +24,17 @@ from posthog.hogql import ast
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.permissions import posthog_feature_flag_enabled
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 
 from products.metrics.backend.facade.api import run_metric_query
-from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryClause, MetricQueryRequest
+from products.metrics.backend.facade.contracts import (
+    METRICS_FEATURE_FLAG,
+    MetricFilter,
+    MetricGroupBy,
+    MetricQueryClause,
+    MetricQueryRequest,
+)
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 
 if TYPE_CHECKING:
@@ -44,7 +51,17 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
 
     def validate_query_runner_access(self, user: "User") -> bool:
         user_access_control = UserAccessControl(user=user, team=self.team)
-        return user_access_control.assert_access_level_for_resource("metrics", "viewer")
+        user_access_control.assert_access_level_for_resource("metrics", "viewer")
+        # Private alpha: RBAC alone isn't enough — mirror MetricsViewSet's flag gate here,
+        # or POST /query with a MetricsQuery bypasses it.
+        if not posthog_feature_flag_enabled(
+            METRICS_FEATURE_FLAG,
+            str(user.distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+        ):
+            raise UserAccessControlError("metrics", "viewer")
+        return True
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         raise NotImplementedError(
