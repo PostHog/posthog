@@ -478,3 +478,23 @@ class TestRequestBodyCap:
         assert RESPONSE_LIMIT_ERROR in str(exc.value)
         assert started.is_set()
         assert session.request.call_count == 1
+
+    def test_request_slot_bound_rejects_when_saturated(self) -> None:
+        # Threads pinned by a header drip can't be cancelled, so concurrency is bounded to stop a
+        # hostile host accumulating threads/sockets without limit. With every slot held, a new
+        # request is rejected before it opens an outbound connection.
+        session = MagicMock()
+        session.request.return_value = _streamed_response(chunks=[b"{}"])
+
+        with pytest.raises(JfrogArtifactoryResponseTooLargeError) as exc:
+            with pytest.MonkeyPatch.context() as mp:
+                mp.setattr(jfrog_artifactory, "_request_slots", threading.BoundedSemaphore(1))
+                mp.setattr(jfrog_artifactory, "MAX_TRANSFER_SECONDS", 0.05)
+                jfrog_artifactory._request_slots.acquire()  # the only slot is held by an in-flight request
+                try:
+                    _request(session, "GET", "https://acme.jfrog.io/api/x", {}, MagicMock())
+                finally:
+                    jfrog_artifactory._request_slots.release()
+
+        assert RESPONSE_LIMIT_ERROR in str(exc.value)
+        assert session.request.call_count == 0

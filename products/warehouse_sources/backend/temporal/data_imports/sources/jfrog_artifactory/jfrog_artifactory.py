@@ -33,11 +33,22 @@ MAX_RETRY_ATTEMPTS = 5
 # The platform URL is user-supplied, so a hostile host could stream an arbitrarily large (or
 # highly compressed) body and OOM the import worker. Cap how much we buffer before decoding JSON,
 # and how long a single exchange may run, on both the sync path and the reachability probe.
-MAX_RESPONSE_BYTES = 512 * 1024 * 1024
+# A legitimate response is one AQL page (AQL_PAGE_SIZE rows of small metadata) or a REST listing
+# (repositories), i.e. a few MB at most, so keep the cap well below the point where json.loads could
+# expand compact JSON into enough Python objects to exhaust the worker.
+MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 MAX_TRANSFER_SECONDS = 600
 PROBE_DEADLINE_SECONDS = 60
 RESPONSE_CHUNK_BYTES = 1024 * 1024
 RESPONSE_LIMIT_ERROR = "JFrog response exceeded a transfer limit"
+
+# Cap concurrent in-flight request threads. A host that dribbles response *header* bytes can pin a
+# worker thread we cannot cancel until its per-read timeout (REQUEST_TIMEOUT_SECONDS) reaps it, so
+# without a bound, repeated probes/syncs against such a host would accumulate threads and sockets
+# until the process is exhausted. With a bound, at most this many can ever be stuck at once, and each
+# self-reaps once its read times out.
+MAX_INFLIGHT_REQUESTS = 8
+_request_slots = threading.BoundedSemaphore(MAX_INFLIGHT_REQUESTS)
 
 
 class JfrogArtifactoryRetryableError(Exception):
@@ -64,8 +75,16 @@ def _call_with_deadline(
     is stuck. ``work`` records its response in ``response_holder`` as soon as one exists so we can
     close the socket on timeout and release a body- or post-header read promptly; a pure header-phase
     drip has no socket to close yet, so that abandoned thread unwinds once its per-read timeout trips.
-    Any exception ``work`` raises is re-raised on the calling thread so retry handling is unchanged.
+    A bounded semaphore caps how many such threads can be in flight (and thus stuck) at once, so a
+    hostile host cannot accumulate threads/sockets without limit. Any exception ``work`` raises is
+    re-raised on the calling thread so retry handling is unchanged.
     """
+    started = time.monotonic()
+    if not _request_slots.acquire(timeout=deadline_seconds):
+        raise JfrogArtifactoryResponseTooLargeError(
+            f"{RESPONSE_LIMIT_ERROR}: {url} timed out waiting for a free request slot"
+        )
+
     result: dict[str, Any] = {}
     error: dict[str, BaseException] = {}
     done = threading.Event()
@@ -77,9 +96,14 @@ def _call_with_deadline(
             error["exc"] = exc
         finally:
             done.set()
+            # Released by the worker, not the caller: on a deadline the caller abandons this thread,
+            # and the slot must stay held until the thread actually unwinds so the bound reflects the
+            # sockets still open.
+            _request_slots.release()
 
     threading.Thread(target=_runner, name="jfrog-request", daemon=True).start()
-    if not done.wait(timeout=deadline_seconds):
+    remaining = deadline_seconds - (time.monotonic() - started)
+    if not done.wait(timeout=max(0.0, remaining)):
         response = response_holder.get("response")
         if response is not None:
             response.close()
