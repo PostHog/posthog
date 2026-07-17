@@ -250,6 +250,9 @@
             "auth": {
                 "provider": "posthog"
             },
+            "headers": {
+                "x-posthog-mcp-mode": "tools"
+            },
             "default_tool_approval": "deny",
             "tools": [
                 { "name": "agent-applications-list", "level": "allow" },

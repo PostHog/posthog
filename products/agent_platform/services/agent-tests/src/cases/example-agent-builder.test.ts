@@ -180,7 +180,7 @@ describe('example: agent-builder bundle', () => {
             await closeSharedPool()
         })
 
-        it('rejects service-only auth and forwards accepted chat and MCP bearers to the nested MCP', async () => {
+        it('rejects service-only auth and opens the nested MCP in direct tools mode', async () => {
             const { spec, files } = await loadBundle()
             await cluster.deployAgent({ slug: 'agent-builder-auth', spec, files })
 
@@ -257,7 +257,13 @@ describe('example: agent-builder bundle', () => {
             expect(userMcpContinuation.body.error).toBeUndefined()
             await cluster.drain()
             expect(mcpTargets).toHaveLength(3)
-            expect(mcpTargets.every((target) => target.headers.Authorization === `Bearer ${userBearer}`)).toBe(true)
+            expect(
+                mcpTargets.every(
+                    (target) =>
+                        target.headers.Authorization === `Bearer ${userBearer}` &&
+                        target.headers['x-posthog-mcp-mode'] === 'tools'
+                )
+            ).toBe(true)
         })
     })
 
