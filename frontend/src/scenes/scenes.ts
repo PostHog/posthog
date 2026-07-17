@@ -696,7 +696,7 @@ export const redirects: Record<
 
     '/events/actions': urls.actions(),
     '/events/properties': urls.propertyDefinitions(),
-    '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
+    '/events/properties/:id': ({ id }) => urls.propertyDefinition(decodeURIComponent(id)),
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
     // The scene lives at /feature_flags (underscore); catch the hyphenated variant so it doesn't 404

@@ -9,16 +9,10 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { getFilterLabel } from '~/taxonomy/helpers'
+import { getFilterLabel, getFirstFilterTypeFor, getVirtualPropertyDefinition } from '~/taxonomy/helpers'
 import { Breadcrumb, Definition, EventDefinitionMetrics, ObjectMediaPreview, PropertyDefinition } from '~/types'
 
-import type {
-    PropertyDefinitionType,
-    PropertyType,
-    SchemaEnforcementMode,
-    UserBasicType,
-    WarehousePropertyOrigin,
-} from '../../../types'
+import type { SchemaEnforcementMode, UserBasicType } from '../../../types'
 import { DataManagementTab } from '../DataManagementScene'
 import { eventDefinitionsTableLogic } from '../events/eventDefinitionsTableLogic'
 import { propertyDefinitionsTableLogic } from '../properties/propertyDefinitionsTableLogic'
@@ -130,6 +124,7 @@ export interface definitionLogicActions {
     }
     loadDefinitionSuccess: (
         definition:
+            | PropertyDefinition
             | {
                   created_at?: string | undefined
                   default_columns?: string[] | undefined
@@ -151,34 +146,13 @@ export interface definitionLogicActions {
                   verified?: boolean | undefined
                   verified_at?: string | undefined
                   verified_by?: string | undefined
-              }
-            | {
-                  created_at?: string | undefined
-                  description?: string | undefined
-                  example?: string | undefined
-                  hidden?: boolean | undefined
-                  id: string
-                  is_action?: boolean | undefined
-                  is_numerical?: boolean | undefined
-                  is_seen_on_filtered_events?: boolean | undefined
-                  last_seen_at?: string | undefined
-                  name: string
-                  property_type?: PropertyType | undefined
-                  tags?: string[] | undefined
-                  type?: PropertyDefinitionType | undefined
-                  updated_at?: string | undefined
-                  updated_by?: UserBasicType | null | undefined
-                  verified?: boolean | undefined
-                  verified_at?: string | undefined
-                  verified_by?: string | undefined
-                  virtual?: boolean | undefined
-                  warehouse_origin?: WarehousePropertyOrigin | null | undefined
               },
         payload?: {
             id: string
         }
     ) => {
         definition:
+            | PropertyDefinition
             | {
                   created_at?: string | undefined
                   default_columns?: string[] | undefined
@@ -200,28 +174,6 @@ export interface definitionLogicActions {
                   verified?: boolean | undefined
                   verified_at?: string | undefined
                   verified_by?: string | undefined
-              }
-            | {
-                  created_at?: string | undefined
-                  description?: string | undefined
-                  example?: string | undefined
-                  hidden?: boolean | undefined
-                  id: string
-                  is_action?: boolean | undefined
-                  is_numerical?: boolean | undefined
-                  is_seen_on_filtered_events?: boolean | undefined
-                  last_seen_at?: string | undefined
-                  name: string
-                  property_type?: PropertyType | undefined
-                  tags?: string[] | undefined
-                  type?: PropertyDefinitionType | undefined
-                  updated_at?: string | undefined
-                  updated_by?: UserBasicType | null | undefined
-                  verified?: boolean | undefined
-                  verified_at?: string | undefined
-                  verified_by?: string | undefined
-                  virtual?: boolean | undefined
-                  warehouse_origin?: WarehousePropertyOrigin | null | undefined
               }
         payload?: {
             id: string
@@ -351,6 +303,13 @@ export const definitionLogic = kea<definitionLogicType>([
                     (merge ? { ...values.definition, ...definition } : definition) as Definition,
                 loadDefinition: async ({ id }, breakpoint) => {
                     let definition = { ...values.definition }
+                    if (values.isProperty) {
+                        // Virtual properties have no database row to fetch, so resolve them from the taxonomy
+                        const virtualDefinition = getVirtualPropertyDefinition(id)
+                        if (virtualDefinition) {
+                            return virtualDefinition
+                        }
+                    }
                     try {
                         if (values.isEvent) {
                             // Event Definition
@@ -439,6 +398,11 @@ export const definitionLogic = kea<definitionLogicType>([
         breadcrumbs: [
             (s) => [s.definition, s.isEvent],
             (definition: Definition, isEvent: boolean): Breadcrumb[] => {
+                // Virtual properties can live in the person or group taxonomy, so look up their label across groups
+                const propertyLabelGroup =
+                    'virtual' in definition && definition.virtual
+                        ? (getFirstFilterTypeFor(definition.name) ?? TaxonomicFilterGroupType.EventProperties)
+                        : TaxonomicFilterGroupType.EventProperties
                 return [
                     {
                         key: Scene.DataManagement,
@@ -458,9 +422,7 @@ export const definitionLogic = kea<definitionLogicType>([
                             definition?.id !== 'new'
                                 ? getFilterLabel(
                                       definition?.name,
-                                      isEvent
-                                          ? TaxonomicFilterGroupType.Events
-                                          : TaxonomicFilterGroupType.EventProperties
+                                      isEvent ? TaxonomicFilterGroupType.Events : propertyLabelGroup
                                   ) || 'Untitled'
                                 : 'Untitled',
                         iconType: isEvent ? 'event_definition' : 'property_definition',
@@ -471,6 +433,15 @@ export const definitionLogic = kea<definitionLogicType>([
     }),
     listeners(({ actions, values }) => ({
         loadDefinitionSuccess: () => {
+            // Virtual definitions are taxonomy-defined and read-only, so bounce off the edit page
+            if (
+                'virtual' in values.definition &&
+                values.definition.virtual &&
+                router.values.location.pathname.endsWith('/edit')
+            ) {
+                router.actions.replace(urls.propertyDefinition(values.definition.id))
+                return
+            }
             if (values.isEvent && values.definition.id && values.definition.id !== 'new') {
                 actions.loadPreviews()
             }

@@ -65,5 +65,21 @@ describe('definitionLogic', () => {
                     definition: createNewDefinition(false),
                 })
         })
+
+        it('resolves virtual property definitions from the taxonomy instead of the API', async () => {
+            router.actions.push(urls.propertyDefinition('$builtin_$virt_bot_name'))
+            logic = definitionLogic({ id: '$builtin_$virt_bot_name' })
+            logic.mount()
+            await expectLogic(logic)
+                .toDispatchActions(['loadDefinition', 'loadDefinitionSuccess'])
+                .toMatchValues({
+                    definition: expect.objectContaining({
+                        id: '$builtin_$virt_bot_name',
+                        name: '$virt_bot_name',
+                        virtual: true,
+                    }),
+                    definitionMissing: false,
+                })
+        })
     })
 })

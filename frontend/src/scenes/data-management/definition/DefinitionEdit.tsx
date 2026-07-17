@@ -46,13 +46,15 @@ import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/Def
 export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionEdit,
     logic: definitionLogic,
-    paramsToProps: ({ params: { id } }) => ({ id }),
+    paramsToProps: ({ params: { id } }) => ({ id: id ? decodeURIComponent(id) : id }),
 }
 
-export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
+export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
+    // The app renders scene components with raw route params, so decode the id like paramsToProps does
+    const props = { ...rawProps, id: rawProps.id ? decodeURIComponent(rawProps.id) : rawProps.id }
     const logic = definitionEditLogic(props)
     const definitionLogicInstance = definitionLogic(props)
-    const { definitionLoading, definitionMissing, isProperty } = useValues(definitionLogicInstance)
+    const { definitionLoading, definitionMissing, isProperty, singular } = useValues(definitionLogicInstance)
     const { editDefinition } = useValues(logic)
     const { saveDefinition } = useActions(logic)
     const { tags, tagsLoading } = useValues(tagsModel)
@@ -80,7 +82,7 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
     const mediaPreviewDragTarget = createRef<HTMLDivElement>()
 
     if (definitionMissing) {
-        return <NotFound object="event" />
+        return <NotFound object={singular} />
     }
     return (
         <Form logic={definitionEditLogic} props={props} formKey="editDefinition">
