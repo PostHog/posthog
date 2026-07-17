@@ -1380,9 +1380,7 @@ def get_teams_with_ai_event_count_in_period(
             {"begin": begin, "end": end, "ai_events": AI_EVENTS},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
-            # AI events live on the satellite AI-observability cluster, which the billing
-            # user does not read completely — routing this count through it drops low-volume
-            # teams to zero. Use the default reader, which resolves the satellite shim fully.
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
