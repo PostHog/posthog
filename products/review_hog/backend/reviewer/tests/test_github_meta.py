@@ -22,6 +22,9 @@ class TestParseGithubPrUrl:
                 "repo.with-dots_and-dashes",
                 9999,
             ),
+            ("trailing_path", "https://github.com/owner/repo/pull/123/files", "owner", "repo", 123),
+            ("query_string", "https://github.com/owner/repo/pull/123?w=1", "owner", "repo", 123),
+            ("fragment", "https://github.com/owner/repo/pull/123#discussion_r1", "owner", "repo", 123),
         ]
     )
     def test_parse_valid_url(self, _name: str, url: str, owner: str, repo: str, number: int) -> None:
@@ -34,6 +37,8 @@ class TestParseGithubPrUrl:
             ("missing_protocol", "github.com/owner/repo/pull/123"),
             ("missing_repo", "https://github.com/owner/pull/123"),
             ("non_numeric_pr", "https://github.com/owner/repo/pull/abc"),
+            # A typo'd suffix must not silently parse as the numeric prefix and review PR 123.
+            ("digits_then_junk", "https://github.com/owner/repo/pull/123abc"),
             ("missing_pr_number", "https://github.com/owner/repo/pull/"),
             ("not_a_url", "not-a-url"),
         ]

@@ -438,7 +438,10 @@ jobs:
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  ./bin/hogli db:restore-test-db
+                  if ! ./bin/hogli db:restore-test-db; then
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — manage.py migrate will run from scratch"
+                      exit 0
+                  fi
                   # The dump is produced by ci-backend.yml, where TEST=1 activates
                   # ProductDBRouter and routes the apps in products/db_routing.yaml to
                   # separate databases: their tables are absent from the dump, but
