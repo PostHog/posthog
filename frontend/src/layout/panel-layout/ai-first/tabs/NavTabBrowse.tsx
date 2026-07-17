@@ -27,6 +27,7 @@ import { LinkListItem } from 'lib/ui/LinkListItem/LinkListItem'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
@@ -160,6 +161,7 @@ export function NavTabBrowse(): JSX.Element {
         activePanelIdentifierFromUrlAiFirst,
         pathname,
     } = useValues(panelLayoutLogic)
+    const { firstTabIsActive } = useValues(sceneLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
     const { isEditMode, checkedTools } = useValues(editToolsLogic)
@@ -181,7 +183,9 @@ export function NavTabBrowse(): JSX.Element {
 
     return (
         <ScrollableShadows
-            className="flex-1"
+            className={cn('flex-1', {
+                'rounded-tr': !isLayoutPanelVisible && !firstTabIsActive,
+            })}
             innerClassName="overflow-y-auto overflow-x-hidden px-2 focus-visible:outline-accent -outline-offset-2"
             direction="vertical"
             styledScrollbars

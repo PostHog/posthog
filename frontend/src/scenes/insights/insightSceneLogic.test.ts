@@ -299,11 +299,13 @@ describe('insightSceneLogic', () => {
             { logic: insightSceneLogic, component: () => null as any },
             Scene.Insight,
             'insightNew',
+            sceneLogic.values.activeTabId || '',
             { params: {}, searchParams: {}, hashParams: {} }
         )
         sceneLogic.actions.setScene(
             Scene.Insight,
             'insightNew',
+            sceneLogic.values.activeTabId || '',
             { params: {}, searchParams: {}, hashParams: {} },
             false
         )
@@ -410,11 +412,13 @@ describe('insightSceneLogic', () => {
             { logic: insightSceneLogic, component: () => null as any },
             Scene.Insight,
             'insightView',
+            sceneLogic.values.activeTabId || '',
             { params: {}, searchParams: {}, hashParams: {} }
         )
         sceneLogic.actions.setScene(
             Scene.Insight,
             'insightView',
+            sceneLogic.values.activeTabId || '',
             { params: {}, searchParams: {}, hashParams: {} },
             false
         )
@@ -450,11 +454,13 @@ describe('insightSceneLogic', () => {
                 { logic: insightSceneLogic, component: () => null as any },
                 Scene.Insight,
                 'insightSubcriptions',
+                sceneLogic.values.activeTabId || '',
                 { params: {}, searchParams: {}, hashParams: {} }
             )
             sceneLogic.actions.setScene(
                 Scene.Insight,
                 'insightSubcriptions',
+                sceneLogic.values.activeTabId || '',
                 { params: {}, searchParams: {}, hashParams: {} },
                 false
             )

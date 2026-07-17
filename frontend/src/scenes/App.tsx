@@ -120,8 +120,13 @@ export function App(): JSX.Element | null {
 
 function AppScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const { activeSceneId, activeExportedScene, activeSceneComponentParams, activeSceneLogicProps, sceneConfig } =
-        useValues(sceneLogic)
+    const {
+        activeSceneId,
+        activeExportedScene,
+        activeSceneComponentParamsWithTabId,
+        activeSceneLogicPropsWithTabId,
+        sceneConfig,
+    } = useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -157,8 +162,8 @@ function AppScene(): JSX.Element | null {
     if (activeExportedScene?.component) {
         const { component: SceneComponent } = activeExportedScene
         sceneElement = (
-            <SceneAnimationRoot key={`scene-${activeSceneId}`}>
-                <SceneComponent user={user} {...activeSceneComponentParams} />
+            <SceneAnimationRoot key={`scene-${activeSceneId}-${activeSceneLogicPropsWithTabId.tabId}`}>
+                <SceneComponent user={user} {...activeSceneComponentParamsWithTabId} />
             </SceneAnimationRoot>
         )
     } else {
@@ -166,7 +171,11 @@ function AppScene(): JSX.Element | null {
     }
 
     const sceneContent = activeExportedScene?.logic ? (
-        <BindLogic key={`bind-${activeSceneId}`} logic={activeExportedScene.logic} props={activeSceneLogicProps}>
+        <BindLogic
+            key={`bind-${activeSceneLogicPropsWithTabId.tabId}`}
+            logic={activeExportedScene.logic}
+            props={activeSceneLogicPropsWithTabId}
+        >
             {sceneElement}
         </BindLogic>
     ) : (
@@ -174,7 +183,10 @@ function AppScene(): JSX.Element | null {
     )
 
     const wrappedSceneElement = (
-        <ErrorBoundary key={`error-${activeSceneId}`} exceptionProps={{ feature: activeSceneId }}>
+        <ErrorBoundary
+            key={`error-${activeSceneLogicPropsWithTabId.tabId}`}
+            exceptionProps={{ feature: activeSceneId }}
+        >
             {/* Keep chunk-load failures out of the scene error reporter so stale assets reload once instead. */}
             <ChunkLoadErrorBoundary>{sceneContent}</ChunkLoadErrorBoundary>
         </ErrorBoundary>

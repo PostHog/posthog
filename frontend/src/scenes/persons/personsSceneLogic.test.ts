@@ -24,6 +24,9 @@ describe('personsSceneLogic', () => {
         })
         initKeaTests()
         sceneLogic({ scenes }).mount()
+        sceneLogic.actions.setTabs([
+            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
+        ])
         logic = personsSceneLogic()
         logic.mount()
     })

@@ -240,6 +240,7 @@ export interface SceneExport<T = SceneProps> {
 // we use an untyped SceneProps to satisfy the types
 export interface LoadedScene extends SceneExport<SceneProps> {
     id: string
+    tabId?: string
     sceneParams: SceneParams
 }
 

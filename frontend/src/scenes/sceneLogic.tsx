@@ -12,8 +12,9 @@ import {
     reducers,
     selectors,
 } from 'kea'
-import { router, urlToAction } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
@@ -64,7 +65,7 @@ import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
 
-interface MountedSceneLogic {
+interface MountedTabLogic {
     logic: SceneExport['logic']
     logicProps: Record<string, any>
     sceneId: string
@@ -75,25 +76,58 @@ interface MountedSceneLogic {
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
 
 /**
- * Homepage tab snapshot for JSON persistence: strips `sceneParams` (deep/cyclic routing state),
- * ensures an id, and marks it pinned + inactive. Every other `SceneTab` field is kept so new fields
- * aren't forgotten; if a future field holds non-plain data, omit it here explicitly.
+ * Snapshot for JSON / structuredClone. Strips only `sceneParams` (deep/cyclic routing state); everything
+ * else on `SceneTab` is kept so new fields are not forgotten. If a future field holds non-plain data,
+ * omit it here explicitly.
  */
-const tabToPersistableSnapshot = (tab: SceneTab): SceneTab => {
+const tabToPersistableSnapshot = (tab: SceneTab, overrides: Partial<SceneTab> = {}): SceneTab => {
     const { sceneParams: _omitSceneParams, ...rest } = tab
     return {
         ...rest,
         id: tab.id || generateTabId(),
-        pinned: true,
-        active: false,
+        ...overrides,
     }
+}
+
+/** Plain tab snapshots for browser history (`structuredClone` in initKea); excludes `sceneParams`. */
+export const getTabsSnapshotForHistory = (tabs: SceneTab[]): SceneTab[] => tabs.map((t) => tabToPersistableSnapshot(t))
+
+const sanitizeTabForPersistence = (tab: SceneTab): SceneTab => {
+    return tabToPersistableSnapshot(tab, { pinned: true, active: false })
 }
 
 // Bootstrapped by Django into APP_CONTEXT so the configured homepage is known on first paint,
 // before any async fetch — otherwise urlToAction runs with a null homepage and /home can't redirect.
 const getBootstrappedHomepage = (): SceneTab | null => {
     const homepage = getAppContext()?.homepage
-    return homepage ? tabToPersistableSnapshot(homepage) : null
+    return homepage ? sanitizeTabForPersistence(homepage) : null
+}
+
+const partitionTabs = (tabs: SceneTab[]): { pinned: SceneTab[]; unpinned: SceneTab[] } => {
+    const pinned: SceneTab[] = []
+    const unpinned: SceneTab[] = []
+    for (const tab of tabs) {
+        if (tab.pinned) {
+            pinned.push({ ...tab, pinned: true })
+        } else {
+            unpinned.push({ ...tab, pinned: false })
+        }
+    }
+    return { pinned, unpinned }
+}
+
+const sortTabsPinnedFirst = (tabs: SceneTab[]): SceneTab[] => {
+    const { pinned, unpinned } = partitionTabs(tabs)
+    return [...pinned, ...unpinned]
+}
+
+const ensureActiveTab = (tabs: SceneTab[]): SceneTab[] => {
+    if (!tabs.some((tab) => tab.active)) {
+        if (tabs.length > 0) {
+            tabs = tabs.map((tab, index) => ({ ...tab, active: index === 0 }))
+        }
+    }
+    return tabs
 }
 
 const pathPrefixesOnboardingNotRequiredFor = [
@@ -152,13 +186,17 @@ const DelayedLoadingSpinner = (): JSX.Element => {
     return <>{show ? <Spinner /> : null}</>
 }
 
-const scrollMainContentToTop = (): void => {
-    const element = document.getElementById('main-content')
+const getMainContentElement = (): HTMLElement | null => document.getElementById('main-content')
+const restoreMainContentScrollTop = (scrollTop: number, onlyIfTabId?: string): void => {
+    const element = getMainContentElement()
     if (!element) {
         return
     }
+    if (onlyIfTabId && sceneLogic.findMounted()?.values.activeTabId !== onlyIfTabId) {
+        return
+    }
     window.requestAnimationFrame(() => {
-        element.scrollTo({ top: 0 })
+        element.scrollTo({ top: scrollTop })
     })
 }
 
@@ -358,39 +396,56 @@ export const sceneLogic = kea<sceneLogicType>([
 
     connect(() => ({
         logic: [router, userLogic, preflightLogic],
-        actions: [router, ['locationChanged'], inviteLogic, ['hideInviteModal']],
+        actions: [router, ['locationChanged', 'push'], inviteLogic, ['hideInviteModal']],
         values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     afterMount(({ cache }) => {
-        cache.mountedSceneLogic = null as MountedSceneLogic | null
-        cache.lastTrackedScene = null as { sceneId?: string; sceneKey?: string } | null
+        cache.mountedTabLogic = {} as Record<string, MountedTabLogic>
+        cache.lastTrackedSceneByTab = {} as Record<string, { sceneId?: string; sceneKey?: string }>
+        cache.initialNavigationTabCreated = false
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
         else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
-        openScene: (sceneId: string, sceneKey: string | undefined, params: SceneParams, method: string) => ({
+        openScene: (
+            sceneId: string,
+            sceneKey: string | undefined,
+            tabId: string,
+            params: SceneParams,
+            method: string
+        ) => ({
             sceneId,
             sceneKey,
             params,
             method,
+            tabId,
         }),
         // 2. Start loading the scene's Javascript and mount any logic, then calls (3) `setScene`
-        loadScene: (sceneId: string, sceneKey: string | undefined, params: SceneParams, method: string) => ({
+        loadScene: (
+            sceneId: string,
+            sceneKey: string | undefined,
+            tabId: string,
+            params: SceneParams,
+            method: string
+        ) => ({
             sceneId,
             sceneKey,
             params,
             method,
+            tabId,
         }),
         // 3. Set the `scene` reducer
         setScene: (
             sceneId: string,
             sceneKey: string | undefined,
+            tabId: string,
             params: SceneParams,
             scrollToTop: boolean = false,
             exportedScene?: SceneExport
         ) => ({
             sceneId,
             sceneKey,
+            tabId,
             params,
             scrollToTop,
             exportedScene,
@@ -399,37 +454,81 @@ export const sceneLogic = kea<sceneLogicType>([
             exportedScene: SceneExport,
             sceneId: string,
             sceneKey: string | undefined,
+            tabId: string,
             params: SceneParams
         ) => ({
             exportedScene,
             sceneId,
             sceneKey,
+            tabId,
             params,
         }),
         reloadBrowserDueToImportError: true,
 
+        newTab: (href?: string | null, options?: { activate?: boolean; skipNavigate?: boolean; id?: string }) => {
+            const tabId = options?.id ?? generateTabId()
+            return {
+                href,
+                options,
+                tabId,
+            }
+        },
+        setTabs: (tabs: SceneTab[]) => ({ tabs }),
+        applyTitleAndIcon: (title: string, iconType: FileSystemIconType | 'loading' | 'blank') => ({
+            title,
+            iconType,
+        }),
         setHomepage: (tab: SceneTab | null) => ({ tab }),
+        setTabScrollDepth: (tabId: string, scrollTop: number) => ({ tabId, scrollTop }),
     }),
     reducers({
-        sceneId: [
-            null as string | null,
+        // We store all state in "tabs". This allows us to have multiple tabs open, each with its own scene and parameters.
+        tabs: [
+            [] as SceneTab[],
             {
-                setScene: (_, { sceneId }) => sceneId,
-                setExportedScene: (_, { sceneId }) => sceneId,
-            },
-        ],
-        sceneKey: [
-            null as string | null,
-            {
-                setScene: (_, { sceneKey }) => sceneKey ?? null,
-                setExportedScene: (_, { sceneKey }) => sceneKey ?? null,
-            },
-        ],
-        sceneParams: [
-            emptySceneParams as SceneParams,
-            {
-                setScene: (_, { params }) => params,
-                setExportedScene: (_, { params }) => params,
+                setTabs: (_, { tabs }) => ensureActiveTab(sortTabsPinnedFirst(tabs)),
+                newTab: (state, { href, options, tabId }) => {
+                    const activate = options?.activate ?? true
+                    const { pathname, search, hash } = combineUrl(href || '/new')
+                    const baseTabs = activate
+                        ? state.map((tab) => (tab.active ? { ...tab, active: false } : tab))
+                        : state
+                    const newTab: SceneTab = {
+                        id: tabId,
+                        active: activate,
+                        pathname: addProjectIdIfMissing(pathname),
+                        search,
+                        hash,
+                        title: 'Search',
+                        iconType: 'search',
+                        pinned: false,
+                    }
+                    return sortTabsPinnedFirst([...baseTabs, newTab])
+                },
+                setScene: (state, { sceneId, sceneKey, tabId, params }) => {
+                    return state.map((tab) =>
+                        tab.id === tabId
+                            ? {
+                                  ...tab,
+                                  sceneId: sceneId,
+                                  sceneKey: sceneKey ?? undefined,
+                                  sceneParams: params,
+                              }
+                            : tab
+                    )
+                },
+                setExportedScene: (state, { sceneId, sceneKey, tabId, params }) => {
+                    return state.map((tab) =>
+                        tab.id === tabId
+                            ? {
+                                  ...tab,
+                                  sceneId: sceneId,
+                                  sceneKey: sceneKey,
+                                  sceneParams: params,
+                              }
+                            : tab
+                    )
+                },
             },
         ],
         exportedScenes: [
@@ -458,11 +557,33 @@ export const sceneLogic = kea<sceneLogicType>([
         lastSetScenePayload: [
             {} as Record<string, any>,
             {
-                setScene: (_, { sceneId, sceneKey, params }) => ({
+                setScene: (_, { sceneId, sceneKey, tabId, params }) => ({
                     sceneId,
                     sceneKey,
+                    tabId,
                     params,
                 }),
+            },
+        ],
+        tabScrollDepths: [
+            {} as Record<string, number>,
+            {
+                setTabScrollDepth: (state, { tabId, scrollTop }) => ({
+                    ...state,
+                    [tabId]: scrollTop,
+                }),
+                setTabs: (state, { tabs }) => {
+                    // remove those no longer present
+                    return tabs.reduce(
+                        (acc, tab) => {
+                            if (state[tab.id] !== undefined) {
+                                acc[tab.id] = state[tab.id]
+                            }
+                            return acc
+                        },
+                        {} as Record<string, number>
+                    )
+                },
             },
         ],
     }),
@@ -472,11 +593,23 @@ export const sceneLogic = kea<sceneLogicType>([
         homepage: [
             getBootstrappedHomepage(),
             {
-                setHomepage: (_, { tab }) => (tab ? tabToPersistableSnapshot(tab) : null),
+                setHomepage: (_, { tab }) => (tab ? sanitizeTabForPersistence(tab) : null),
             },
         ],
     })),
     selectors({
+        activeTab: [
+            (s) => [s.tabs],
+            (tabs: SceneTab[]): SceneTab | null => {
+                return tabs.find((tab) => tab.active) || tabs[0] || null
+            },
+        ],
+        activeTabId: [
+            (s) => [s.activeTab],
+            (activeTab: SceneTab | null): string | null => (activeTab ? activeTab.id : null),
+        ],
+        sceneId: [(s) => [s.activeTab], (activeTab) => activeTab?.sceneId],
+        sceneKey: [(s) => [s.activeTab], (activeTab) => activeTab?.sceneKey],
         sceneConfig: [
             (s) => [s.sceneId],
             (sceneId: Scene): SceneConfig | null => {
@@ -484,6 +617,12 @@ export const sceneLogic = kea<sceneLogicType>([
                 return config
             },
             { resultEqualityCheck: equal },
+        ],
+        sceneParams: [
+            (s) => [s.activeTab],
+            (activeTab): SceneParams => {
+                return activeTab?.sceneParams || { params: {}, searchParams: {}, hashParams: {} }
+            },
         ],
         activeSceneId: [
             (s) => [s.sceneId, teamLogic.selectors.isCurrentTeamUnavailable],
@@ -527,49 +666,54 @@ export const sceneLogic = kea<sceneLogicType>([
             { resultEqualityCheck: (a, b) => a === b },
         ],
         activeLoadedScene: [
-            (s) => [s.activeSceneId, s.activeExportedScene, s.sceneParams],
+            (s) => [s.activeSceneId, s.activeExportedScene, s.sceneParams, s.activeTabId],
             (
                 activeSceneId: string | null,
                 activeExportedScene: SceneExport<import('scenes/sceneTypes').SceneProps> | null,
-                sceneParams: SceneParams
+                sceneParams: SceneParams,
+                activeTabId: string | null
             ): LoadedScene | null => {
                 return {
                     ...(activeExportedScene ?? { component: DelayedLoadingSpinner }),
                     id: activeSceneId ?? Scene.Error404,
+                    tabId: activeTabId ?? undefined,
                     sceneParams: sceneParams,
                 }
             },
         ],
-        activeSceneComponentParams: [
-            (s) => [s.sceneParams],
-            (sceneParams: SceneParams): Record<string, any> => {
+        activeSceneComponentParamsWithTabId: [
+            (s) => [s.sceneParams, s.activeTabId],
+            (sceneParams: SceneParams, activeTabId: string | null): Record<string, any> => {
                 return {
                     ...sceneParams.params,
+                    tabId: activeTabId,
                 }
             },
             { resultEqualityCheck: equal },
         ],
-        activeSceneLogicProps: [
-            (s) => [s.activeExportedScene, s.sceneParams],
+        activeSceneLogicPropsWithTabId: [
+            (s) => [s.activeExportedScene, s.sceneParams, s.activeTabId],
             (
                 activeExportedScene: SceneExport<import('scenes/sceneTypes').SceneProps> | null,
-                sceneParams: SceneParams
+                sceneParams: SceneParams,
+                activeTabId: string | null
             ): Record<string, any> => {
                 return {
                     ...activeExportedScene?.paramsToProps?.(sceneParams),
+                    tabId: activeTabId,
                 }
             },
             { resultEqualityCheck: equal },
         ],
         activeSceneLogic: [
-            (s) => [s.activeExportedScene, s.activeSceneLogicProps],
+            (s) => [s.activeExportedScene, s.activeSceneLogicPropsWithTabId],
             (
                 activeExportedScene: SceneExport<import('scenes/sceneTypes').SceneProps> | null,
-                activeSceneLogicProps: Record<string, any>
+                activeSceneLogicPropsWithTabId: Record<string, any>
             ): BuiltLogic | null => {
                 if (activeExportedScene?.logic) {
                     try {
-                        return activeExportedScene.logic.build(activeSceneLogicProps)
+                        return activeExportedScene.logic.build(activeSceneLogicPropsWithTabId)
                     } catch (e) {
                         // Building a keyed logic with undefined key (e.g. during a scene
                         // transition before paramsToProps has resolved) throws
@@ -595,6 +739,19 @@ export const sceneLogic = kea<sceneLogicType>([
         hashParams: [
             (s) => [s.sceneParams],
             (sceneParams: SceneParams): Record<string, any> => sceneParams.hashParams || {},
+        ],
+
+        tabIds: [
+            (s) => [s.tabs],
+            (tabs: SceneTab[]): Record<string, boolean> => {
+                return tabs.reduce(
+                    (acc, tab) => {
+                        acc[tab.id] = true
+                        return acc
+                    },
+                    {} as Record<string, boolean>
+                )
+            },
         ],
 
         titleAndIcon: [
@@ -635,6 +792,12 @@ export const sceneLogic = kea<sceneLogicType>([
                 titleAndIcon as { title: string; iconType: FileSystemIconType | 'loading' | 'blank' },
             { resultEqualityCheck: equal },
         ],
+        firstTabIsActive: [
+            (s) => [s.activeTabId, s.tabs],
+            (activeTabId, tabs): boolean => {
+                return activeTabId === tabs[0]?.id
+            },
+        ],
         activeSceneProductKey: [
             (s) => [s.activeExportedScene],
             (activeExportedScene: SceneExport | null): ProductKey | null => {
@@ -643,18 +806,107 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
+        applyTitleAndIcon: ({ title, iconType }) => {
+            if (!title || title === '...' || title === 'Loading...') {
+                // When the tab is loading, don't flicker between the loaded title and the new one
+                return
+            }
+            const activeIndex = values.tabs.findIndex((t) => t.active)
+            if (activeIndex !== -1) {
+                actions.setTabs(
+                    values.tabs.map((tab, i) => (i === activeIndex ? { ...tab, title, iconType, badge: false } : tab))
+                )
+            }
+            if (!process?.env?.STORYBOOK) {
+                // Persists the changed tab titles in location.history without a replace/push action.
+                // Outside the action's event loop to avoid race conditions with subscribing.
+                // Somehow it messes up Storybook, so disabled for it.
+                window.setTimeout(() => router.actions.refreshRouterState(), 1)
+            }
+        },
+        newTab: ({ href, options }) => {
+            if (!(options?.skipNavigate ?? false)) {
+                router.actions.push(href || urls.newTab())
+            }
+        },
         setHomepage: ({ tab }) => {
             if (isSharedView()) {
                 return
             }
             api.update('api/user_home_settings/@me/', {
-                homepage: tab ? tabToPersistableSnapshot(tab) : null,
+                homepage: tab ? sanitizeTabForPersistence(tab) : null,
             }).catch((error) => {
                 console.error('Failed to persist homepage', error)
             })
         },
-        locationChanged: ({ pathname, search, hash }) => {
+        push: ({ url, hashInput, searchInput }) => {
+            let { pathname, search, hash } = combineUrl(url, searchInput, hashInput)
             pathname = addProjectIdIfMissing(pathname)
+
+            const activeTabIndex = values.tabs.findIndex((tab) => tab.active)
+            if (activeTabIndex !== -1) {
+                const newTabs = values.tabs.map((tab, i) =>
+                    i === activeTabIndex
+                        ? { ...tab, active: true, pathname, search, hash }
+                        : tab.active
+                          ? {
+                                ...tab,
+                                active: false,
+                            }
+                          : tab
+                )
+                actions.setTabs(newTabs)
+            } else {
+                actions.setTabs([
+                    ...values.tabs,
+                    {
+                        id: generateTabId(),
+                        active: true,
+                        pathname,
+                        search,
+                        hash,
+                        title: 'Loading...',
+                        iconType: 'loading',
+                        pinned: false,
+                    },
+                ])
+            }
+        },
+        locationChanged: ({ pathname, search, hash, routerState, method }) => {
+            pathname = addProjectIdIfMissing(pathname)
+            if (routerState?.tabs && method === 'POP') {
+                actions.setTabs(routerState.tabs)
+                return
+            }
+            const activeTabIndex = values.tabs.findIndex((tab) => tab.active)
+            if (activeTabIndex !== -1) {
+                actions.setTabs(
+                    values.tabs.map((tab, i) =>
+                        i === activeTabIndex
+                            ? { ...tab, active: true, pathname, search, hash }
+                            : tab.active
+                              ? {
+                                    ...tab,
+                                    active: false,
+                                }
+                              : tab
+                    )
+                )
+            } else {
+                actions.setTabs([
+                    ...values.tabs,
+                    {
+                        id: generateTabId(),
+                        active: true,
+                        pathname,
+                        search,
+                        hash,
+                        title: 'Loading...',
+                        iconType: 'loading',
+                        pinned: false,
+                    },
+                ])
+            }
 
             // Remove trailing slash from the address bar. Route matching itself is handled
             // upstream via `pathFromWindowToRoutes` in initKea.ts so the scene loads even
@@ -664,10 +916,11 @@ export const sceneLogic = kea<sceneLogicType>([
                 router.actions.replace(stripped, search, hash)
             }
         },
-        setScene: ({ sceneKey, sceneId, exportedScene, params, scrollToTop }, _, __, previousState) => {
+        setScene: ({ tabId, sceneKey, sceneId, exportedScene, params, scrollToTop }, _, __, previousState) => {
             const {
                 sceneId: lastSceneId,
                 sceneKey: lastSceneKey,
+                tabId: lastTabId,
                 params: lastParams,
             } = selectors.lastSetScenePayload(previousState)
 
@@ -675,6 +928,7 @@ export const sceneLogic = kea<sceneLogicType>([
             if (
                 lastSceneId !== sceneId ||
                 lastSceneKey !== sceneKey ||
+                lastTabId !== tabId ||
                 !equal(lastParams.params, params.params) ||
                 JSON.stringify(lastParams.searchParams) !== JSON.stringify(params.searchParams) // `equal` crashes here
             ) {
@@ -682,20 +936,27 @@ export const sceneLogic = kea<sceneLogicType>([
                 posthog.capture('$pageview', productKey ? { product_key: productKey } : undefined)
             }
 
-            const previousScene = selectors.sceneId(previousState)
-            if (scrollToTop && sceneId !== previousScene) {
-                // Forward navigation (link click) scrolls to top. There is no back/forward scroll
-                // restoration: #main-content is an inner scroll container the browser won't restore.
-                scrollMainContentToTop()
+            if (tabId !== lastTabId) {
+                const scrollTop = values.tabScrollDepths[tabId] ?? 0
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 1)
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 10)
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 100)
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 300)
+            } else {
+                // if we clicked on a link, scroll to top
+                const previousScene = selectors.sceneId(previousState)
+                if (scrollToTop && sceneId !== previousScene) {
+                    restoreMainContentScrollTop(0)
+                }
             }
 
             let newLogicErrored = false
             if (exportedScene?.logic) {
                 try {
-                    const builtLogicProps = { ...exportedScene?.paramsToProps?.(params) }
-                    const mountedLogic = cache.mountedSceneLogic
-                    // Re-applying the same scene should not remount its logic.
-                    // Child logics attach to this scene root to keep draft state alive.
+                    const builtLogicProps = { tabId, ...exportedScene?.paramsToProps?.(params) }
+                    const mountedLogic = cache.mountedTabLogic[tabId]
+                    // Re-activating an existing internal tab should not remount its scene logic.
+                    // Child logics attach to this scene root to keep draft state alive while inactive.
                     const canKeepMountedLogic =
                         mountedLogic?.logic === exportedScene.logic &&
                         mountedLogic?.sceneId === sceneId &&
@@ -709,11 +970,12 @@ export const sceneLogic = kea<sceneLogicType>([
                             try {
                                 mountedLogic.unmount()
                             } catch (error) {
-                                console.error('Error unmounting previous scene logic:', error)
+                                console.error('Error unmounting previous tab logic:', error)
                             }
+                            delete cache.mountedTabLogic[tabId]
                         }
 
-                        cache.mountedSceneLogic = {
+                        cache.mountedTabLogic[tabId] = {
                             logic: exportedScene.logic,
                             logicProps: builtLogicProps,
                             sceneId,
@@ -725,33 +987,34 @@ export const sceneLogic = kea<sceneLogicType>([
                     // Scene logic builders (e.g. dashboardLogic.key()) can throw on malformed
                     // route params like `/dashboard/abc`. Capture so regressions surface, then
                     // route to Error404 so the user sees a proper 404 instead of a blank crash.
-                    posthog.captureException(error, { extra: { sceneId, sceneKey } })
+                    posthog.captureException(error, { extra: { sceneId, sceneKey, tabId } })
                     newLogicErrored = true
                 }
             } else {
-                const mountedLogic = cache.mountedSceneLogic
+                const mountedLogic = cache.mountedTabLogic[tabId]
                 if (mountedLogic) {
                     try {
                         mountedLogic.unmount()
                     } catch (error) {
-                        console.error('Error unmounting previous scene logic:', error)
+                        console.error('Error unmounting previous tab logic:', error)
                     }
-                    cache.mountedSceneLogic = null
+                    delete cache.mountedTabLogic[tabId]
                 }
             }
 
             if (newLogicErrored) {
-                actions.loadScene(Scene.Error404, undefined, emptySceneParams, 'REPLACE')
+                actions.loadScene(Scene.Error404, undefined, tabId, emptySceneParams, 'REPLACE')
                 return
             }
 
-            const lastTracked = cache.lastTrackedScene
+            const trackingKey = tabId || '__default__'
+            const lastTracked = cache.lastTrackedSceneByTab?.[trackingKey]
             if (!lastTracked || lastTracked.sceneId !== sceneId || lastTracked.sceneKey !== sceneKey) {
                 trackFileSystemLogView({ type: 'scene', ref: sceneId })
-                cache.lastTrackedScene = { sceneId, sceneKey }
+                cache.lastTrackedSceneByTab[trackingKey] = { sceneId, sceneKey }
             }
         },
-        openScene: ({ sceneId, sceneKey, params, method }) => {
+        openScene: ({ tabId, sceneId, sceneKey, params, method }) => {
             const sceneConfig = sceneConfigurations[sceneId] || {}
             const { user } = userLogic.values
             const { preflight } = preflightLogic.values
@@ -845,12 +1108,12 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
             }
 
-            actions.loadScene(sceneId, sceneKey, params, method)
+            actions.loadScene(sceneId, sceneKey, tabId, params, method)
         },
-        loadScene: async ({ sceneId, sceneKey, params, method }, breakpoint) => {
+        loadScene: async ({ sceneId, sceneKey, tabId, params, method }, breakpoint) => {
             const clickedLink = method === 'PUSH'
             if (values.sceneId === sceneId && values.exportedScenes[sceneId]) {
-                actions.setScene(sceneId, sceneKey, params, clickedLink, values.exportedScenes[sceneId])
+                actions.setScene(sceneId, sceneKey, tabId, params, clickedLink, values.exportedScenes[sceneId])
                 return
             }
 
@@ -858,6 +1121,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 actions.setScene(
                     Scene.Error404,
                     undefined,
+                    tabId,
                     emptySceneParams,
                     clickedLink,
                     values.exportedScenes[sceneId]
@@ -870,7 +1134,7 @@ export const sceneLogic = kea<sceneLogicType>([
 
             if (!exportedScene) {
                 // if we can't load the scene in a second, show a spinner
-                const timeout = window.setTimeout(() => actions.setScene(sceneId, sceneKey, params, true), 500)
+                const timeout = window.setTimeout(() => actions.setScene(sceneId, sceneKey, tabId, params, true), 500)
                 let importedScene
                 try {
                     window.ESBUILD_LOAD_CHUNKS?.(sceneId)
@@ -886,7 +1150,7 @@ export const sceneLogic = kea<sceneLogicType>([
                             parseInt(String(values.lastReloadAt)) > new Date().valueOf() - 20000
                         ) {
                             console.error('App assets regenerated. Showing error page.')
-                            actions.setScene(Scene.ErrorNetwork, undefined, emptySceneParams, clickedLink)
+                            actions.setScene(Scene.ErrorNetwork, undefined, tabId, emptySceneParams, clickedLink)
                         } else {
                             console.error('App assets regenerated. Reloading this page.')
                             actions.reloadBrowserDueToImportError()
@@ -923,16 +1187,66 @@ export const sceneLogic = kea<sceneLogicType>([
                         console.error('There are multiple exports for this scene. Showing 404 instead.')
                     }
                 }
-                actions.setExportedScene(exportedScene, sceneId, sceneKey, params)
+                actions.setExportedScene(exportedScene, sceneId, sceneKey, tabId, params)
             }
-            actions.setScene(sceneId, sceneKey, params, clickedLink || wasNotLoaded, exportedScene)
+            actions.setScene(sceneId, sceneKey, tabId, params, clickedLink || wasNotLoaded, exportedScene)
         },
         reloadBrowserDueToImportError: () => {
             window.location.reload()
         },
     })),
 
-    urlToAction(({ actions, values }) => {
+    // keep this above subscriptions
+    afterMount(({ actions, cache, values }) => {
+        // Always start with at least one tab pointing at the current location.
+        cache.tabsLoaded = true
+        if (values.tabs.length === 0) {
+            const { currentLocation } = router.values
+            actions.setTabs([
+                {
+                    id: generateTabId(),
+                    active: true,
+                    pathname: currentLocation.pathname,
+                    search: currentLocation.search,
+                    hash: currentLocation.hash,
+                    title: 'Loading...',
+                    iconType: 'loading',
+                    pinned: false,
+                },
+            ])
+            cache.initialNavigationTabCreated = true
+        }
+    }),
+
+    urlToAction(({ actions, values, cache }) => {
+        const ensureNavigationTabId = (): string => {
+            const activeTab = values.activeTab
+            const location = router.values.currentLocation
+            const hrefString = location ? `${location.pathname}${location.search ?? ''}${location.hash ?? ''}` : ''
+            const href = hrefString || undefined
+
+            const createNavigationTab = (): string => {
+                const tabId = generateTabId()
+                actions.newTab(href, { id: tabId, skipNavigate: true, activate: true })
+                cache.initialNavigationTabCreated = true
+                return tabId
+            }
+
+            if (values.tabs.length === 0) {
+                return createNavigationTab()
+            }
+
+            if (activeTab?.pinned && !cache.initialNavigationTabCreated) {
+                return createNavigationTab()
+            }
+
+            if (!activeTab?.id) {
+                return createNavigationTab()
+            }
+
+            return activeTab.id
+        }
+
         type RouteHandler = (
             params: Params,
             searchParams: Params,
@@ -954,7 +1268,13 @@ export const sceneLogic = kea<sceneLogicType>([
                     return handler(params, searchParams, hashParams, payload)
                 } catch (error) {
                     posthog.captureException(error, { extra: { source: 'sceneLogic.urlToAction' } })
-                    actions.loadScene(Scene.Error404, undefined, emptySceneParams, payload.method)
+                    actions.loadScene(
+                        Scene.Error404,
+                        undefined,
+                        ensureNavigationTabId(),
+                        emptySceneParams,
+                        payload.method
+                    )
                 }
             }
 
@@ -1012,9 +1332,11 @@ export const sceneLogic = kea<sceneLogicType>([
                 if (path === projectHomepagePath && redirectToConfiguredHomepage(searchParams)) {
                     return
                 }
+                const tabId = ensureNavigationTabId()
                 actions.openScene(
                     scene,
                     sceneKey,
+                    tabId,
                     {
                         params,
                         searchParams,
@@ -1026,9 +1348,81 @@ export const sceneLogic = kea<sceneLogicType>([
         }
 
         mapping['/*'] = (_, __, { method }) => {
-            return actions.loadScene(Scene.Error404, undefined, emptySceneParams, method)
+            const tabId = ensureNavigationTabId()
+            return actions.loadScene(Scene.Error404, undefined, tabId, emptySceneParams, method)
         }
 
         return mapping
+    }),
+
+    subscriptions(({ actions, values, cache }) => {
+        return {
+            titleAndIcon: ({ title, iconType }) => {
+                const activeIndex = values.tabs.findIndex((t) => t.active)
+                if (activeIndex === -1) {
+                    const { currentLocation } = router.values
+                    actions.setTabs([
+                        {
+                            id: generateTabId(),
+                            active: true,
+                            pathname: currentLocation.pathname,
+                            search: currentLocation.search,
+                            hash: currentLocation.hash,
+                            title: title || 'Loading...',
+                            iconType,
+                        },
+                    ])
+                    if (!process?.env?.STORYBOOK) {
+                        window.setTimeout(() => router.actions.refreshRouterState(), 1)
+                    }
+                } else {
+                    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+                        cache.pendingTitleAndIcon = { title, iconType }
+                        return
+                    }
+                    cache.pendingTitleAndIcon = null
+                    actions.applyTitleAndIcon(title, iconType)
+                }
+            },
+            tabs: () => {
+                cache.initialNavigationTabCreated =
+                    cache.initialNavigationTabCreated || values.tabs.some((tab) => !tab.pinned)
+                const { tabIds } = values
+                for (const id of Object.keys(cache.mountedTabLogic)) {
+                    if (!tabIds[id]) {
+                        const mountedLogic = cache.mountedTabLogic[id]
+                        if (mountedLogic) {
+                            try {
+                                mountedLogic.unmount()
+                            } catch (error) {
+                                console.error('Error unmounting tab logic:', error)
+                            }
+                        }
+                        delete cache.mountedTabLogic[id]
+                        if (cache.lastTrackedSceneByTab) {
+                            delete cache.lastTrackedSceneByTab[id]
+                        }
+                    }
+                }
+            },
+        }
+    }),
+
+    afterMount(({ actions, cache }) => {
+        cache.disposables.add(
+            () => {
+                const onVisibilityChange = (): void => {
+                    if (document.visibilityState === 'visible' && cache.pendingTitleAndIcon) {
+                        const { title, iconType } = cache.pendingTitleAndIcon
+                        cache.pendingTitleAndIcon = null
+                        actions.applyTitleAndIcon(title, iconType)
+                    }
+                }
+                document.addEventListener('visibilitychange', onVisibilityChange)
+                return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+            },
+            'titleAndIconVisibilitySync',
+            { pauseOnPageHidden: false }
+        )
     }),
 ])

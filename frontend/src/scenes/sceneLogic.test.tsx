@@ -46,6 +46,8 @@ describe('sceneLogic', () => {
         featureFlagLogic.mount()
         router.actions.push(urls.eventDefinitions())
         logic = sceneLogic.build({ scenes: testScenes })
+        // Simulate a fresh mount so that stored tabs are read from localStorage.
+        logic.cache.tabsLoaded = false
         logic.mount()
         await expectLogic(logic).delay(1)
     })
@@ -151,6 +153,8 @@ describe('sceneLogic', () => {
                 featureFlagLogic.mount()
                 router.actions.push(urls.eventDefinitions())
                 const bootstrappedLogic = sceneLogic.build({ scenes: testScenes })
+                // Simulate a fresh mount the same way the suite's beforeEach does.
+                bootstrappedLogic.cache.tabsLoaded = false
                 bootstrappedLogic.mount()
                 // homepage is populated synchronously from APP_CONTEXT — no setHomepage / API round-trip needed.
                 bootstrappedHomepagePathname = removeProjectIdIfPresent(

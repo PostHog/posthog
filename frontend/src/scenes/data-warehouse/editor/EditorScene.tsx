@@ -14,7 +14,6 @@ import { SQLEditorMode } from './sqlEditorModes'
 
 export const scene: SceneExport = {
     logic: editorSceneLogic,
-    paramsToProps: ({ params }) => ({ tabId: params.tabId ?? 'default' }),
     component: EditorScene,
 }
 

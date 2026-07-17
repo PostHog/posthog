@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import { IconBook } from '@posthog/icons'
 
@@ -10,7 +11,8 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
 import { objectsEqual } from 'lib/utils/objects'
-import { Scene } from 'scenes/sceneTypes'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene, SceneTab } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -134,6 +136,18 @@ function handleCommandString(options: string, actions: maxLogicType['actions'], 
 
 const CHAT_TITLE_NEW = 'New chat'
 const CHAT_TITLE_HISTORY = 'Chat history'
+
+function updateInactiveTab(tabId: string, props: Partial<SceneTab>): void {
+    const scene = sceneLogic.findMounted()
+    if (!scene) {
+        return
+    }
+    const { tabs } = scene.values
+    const tab = tabs.find((t) => t.id === tabId)
+    if (tab && !tab.active) {
+        scene.actions.setTabs(tabs.map((t) => (t.id === tabId ? { ...t, ...props } : t)))
+    }
+}
 
 // Fixed panelId for the floating side panel chat, which is not a scene tab.
 export const SIDE_PANEL_PANEL_ID = 'sidepanel'
@@ -702,6 +716,23 @@ export const maxLogic = kea<maxLogicType>([
                 actions.setChatDraftForTab(tabId, question)
             }
         },
+        incrActiveStreamingThreads: () => {
+            const tabId = sceneTabId(props.panelId, props.syncUrl)
+            if (tabId) {
+                updateInactiveTab(tabId, { iconType: 'loading', badge: false })
+            }
+        },
+        decrActiveStreamingThreads: () => {
+            // Reducer runs before listener, so activeStreamingThreads is already decremented.
+            // If still > 0, other streams are active — don't show badge yet.
+            if (values.activeStreamingThreads > 0) {
+                return
+            }
+            const tabId = sceneTabId(props.panelId, props.syncUrl)
+            if (tabId) {
+                updateInactiveTab(tabId, { iconType: 'chat', badge: true })
+            }
+        },
         // Listen for when the side panel state changes and check for initial prompt
         [sidePanelStateLogic.actionTypes.openSidePanel]: ({ tab, options }) => {
             if (tab === SidePanelTab.Max && options && typeof options === 'string') {
@@ -825,6 +856,17 @@ export const maxLogic = kea<maxLogicType>([
             const tabId = sceneTabId(props.panelId, props.syncUrl)
             if (tabId) {
                 actions.setChatDraftForTab(tabId, '')
+            }
+        },
+    })),
+
+    // Active tab titles are updated by sceneLogic's titleAndIcon subscription (reads breadcrumbs).
+    // This subscription covers inactive tabs, which titleAndIcon doesn't reach.
+    subscriptions(({ props }) => ({
+        chatTitle: (title: string | null) => {
+            const tabId = sceneTabId(props.panelId, props.syncUrl)
+            if (title && title !== CHAT_TITLE_NEW && title !== CHAT_TITLE_HISTORY && tabId) {
+                updateInactiveTab(tabId, { title })
             }
         },
     })),
