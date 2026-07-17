@@ -159,7 +159,7 @@ tools:
         operation: conversations_views_list
         enabled: true
         scopes:
-            - conversation:read
+            - ticket:read
         annotations:
             readOnly: true
             destructive: false

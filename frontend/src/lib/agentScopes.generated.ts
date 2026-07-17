@@ -26,7 +26,6 @@ export const AGENT_USE_CASE_SCOPES = [
     'cohort:read',
     'cohort:write',
     'comment:read',
-    'conversation:read',
     'dashboard:read',
     'dashboard:write',
     'early_access_feature:read',
