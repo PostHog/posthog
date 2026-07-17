@@ -55,6 +55,7 @@ class PageNumberPaginatorConfig(PaginatorTypeConfig, total=False):
     page_param: Optional[str]
     total_path: Optional[TJsonPath]
     maximum_page: Optional[int]
+    param_location: Optional[str]  # "query" (default) or "json" (POST-body pagination)
 
 
 class OffsetPaginatorConfig(PaginatorTypeConfig, total=False):
@@ -63,7 +64,9 @@ class OffsetPaginatorConfig(PaginatorTypeConfig, total=False):
     offset_param: Optional[str]
     limit_param: Optional[str]
     total_path: Optional[TJsonPath]
+    total_header: Optional[str]
     maximum_offset: Optional[int]
+    param_location: Optional[str]  # "query" (default) or "json" (POST-body pagination)
 
 
 class HeaderLinkPaginatorConfig(PaginatorTypeConfig, total=False):
@@ -77,6 +80,7 @@ class JSONResponsePaginatorConfig(PaginatorTypeConfig, total=False):
 class JSONResponseCursorPaginatorConfig(PaginatorTypeConfig, total=False):
     cursor_path: Optional[TJsonPath]
     cursor_param: Optional[str]
+    param_location: Optional[str]  # "query" (default) or "json" (POST-body pagination)
 
 
 PaginatorConfig = (
