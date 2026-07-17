@@ -817,7 +817,9 @@ class CircleciInsightsSourceConfig(config.Config):
 
 @config.config
 class CiscoDuoSourceConfig(config.Config):
-    pass
+    api_hostname: str
+    integration_key: str
+    secret_key: str
 
 
 @config.config
