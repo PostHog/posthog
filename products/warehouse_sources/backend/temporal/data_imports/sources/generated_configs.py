@@ -4322,7 +4322,7 @@ class TrackPMSSourceConfig(config.Config):
 
 @config.config
 class TravisCISourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
