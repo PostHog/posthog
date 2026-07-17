@@ -1,16 +1,25 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import type { BriefConfigApi, ProductBriefListApi } from './generated/api.schemas'
-import { BRIEF_ALREADY_GENERATING_MESSAGE, MAX_CONSECUTIVE_POLL_FAILURES, pulseLogic } from './pulseLogic'
+import {
+    BRIEF_ALREADY_GENERATING_MESSAGE,
+    MAX_CONSECUTIVE_POLL_FAILURES,
+    pulseLogic,
+    WRITE_CONFIG_RESTRICTION_REASON,
+} from './pulseLogic'
 
 const generatingBrief = {
     id: 'brief-1',
@@ -252,6 +261,40 @@ describe('pulseLogic', () => {
             expect(logic.values.selectedConfigId).toEqual(endpoint === 'post' ? 'cfg-new' : null)
         }
     )
+
+    it.each<[AccessControlLevel, string | null]>([
+        [AccessControlLevel.Admin, null],
+        [AccessControlLevel.Member, WRITE_CONFIG_RESTRICTION_REASON],
+    ])('only project admins may write configs (%s access)', async (accessLevel, expectedReason) => {
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, user_access_level: accessLevel })
+        await expectLogic(logic).toMatchValues({ writeConfigsDisabledReason: expectedReason })
+    })
+
+    it('surfaces a permission error inline instead of raising it when a config write is rejected', async () => {
+        const errorSpy = jest.spyOn(lemonToast, 'error')
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException')
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/brief_configs/': () => [
+                    403,
+                    { type: 'authentication_error', code: 'permission_denied', detail: 'nope', attr: null },
+                ],
+            },
+        })
+
+        logic.actions.openConfigModal(null)
+        logic.actions.setConfigFormValues({ name: 'New config' })
+        await expectLogic(logic, () => {
+            logic.actions.submitConfigForm()
+        })
+            .toFinishAllListeners()
+            .toNotHaveDispatchedActions(['configSaved'])
+            // The modal stays open so the user keeps their input after the rejection.
+            .toMatchValues({ configModalOpen: true })
+
+        expect(errorSpy).toHaveBeenCalledWith(WRITE_CONFIG_RESTRICTION_REASON)
+        expect(captureExceptionSpy).not.toHaveBeenCalled()
+    })
 
     it('keeps the config and clears the deleting state when delete fails', async () => {
         const errorSpy = jest.spyOn(lemonToast, 'error')

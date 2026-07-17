@@ -30,7 +30,7 @@ const PULSE_DESCRIPTION =
 
 export function PulseScene(): JSX.Element {
     const isEnabled = useFeatureFlag('PULSE')
-    const { briefConfigs, selectedConfigId, showAiConsentBanner } = useValues(pulseLogic)
+    const { briefConfigs, selectedConfigId, showAiConsentBanner, writeConfigsDisabledReason } = useValues(pulseLogic)
     const { selectConfig, openConfigModal } = useActions(pulseLogic)
 
     if (!isEnabled) {
@@ -45,7 +45,12 @@ export function PulseScene(): JSX.Element {
                 resourceType={{ type: 'default_icon_type', forceIcon: <IconPulse /> }}
                 actions={
                     <>
-                        <LemonButton type="secondary" icon={<IconPlusSmall />} onClick={() => openConfigModal(null)}>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlusSmall />}
+                            disabledReason={writeConfigsDisabledReason}
+                            onClick={() => openConfigModal(null)}
+                        >
                             New config
                         </LemonButton>
                         <RunBriefButton />
@@ -87,7 +92,7 @@ export function PulseScene(): JSX.Element {
 }
 
 function SelectedConfigActions({ selectedConfigId }: { selectedConfigId: string }): JSX.Element | null {
-    const { briefConfigs, configIdBeingDeleted } = useValues(pulseLogic)
+    const { briefConfigs, configIdBeingDeleted, writeConfigsDisabledReason } = useValues(pulseLogic)
     const { openConfigModal, deleteConfig } = useActions(pulseLogic)
 
     const selectedConfig = briefConfigs.find((config) => config.id === selectedConfigId)
@@ -102,6 +107,7 @@ function SelectedConfigActions({ selectedConfigId }: { selectedConfigId: string 
                 size="small"
                 icon={<IconPencil />}
                 tooltip="Edit config"
+                disabledReason={writeConfigsDisabledReason}
                 onClick={() => openConfigModal(selectedConfig)}
             />
             <LemonButton
@@ -110,7 +116,7 @@ function SelectedConfigActions({ selectedConfigId }: { selectedConfigId: string 
                 icon={<IconTrash />}
                 tooltip="Delete config"
                 loading={isDeleting}
-                disabledReason={isDeleting ? 'Deleting…' : undefined}
+                disabledReason={isDeleting ? 'Deleting…' : writeConfigsDisabledReason}
                 onClick={() =>
                     LemonDialog.open({
                         title: `Delete "${selectedConfig.name}"?`,
