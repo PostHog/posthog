@@ -2190,8 +2190,10 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         # Persisted on the artifact so Slack delivery can compose the chart card:
         # image_url lets Slack's image proxy fetch the rendered PNG from us (no
         # files:write scope needed), posthog_url powers the "Open in PostHog" button.
+        # The delivery-purposed token works for orgs that disallow publicly shared
+        # resources, same as subscription images.
         url = self._chart_url(query, asset)
-        chart_metadata: dict = {"image_url": asset.get_public_content_url()}
+        chart_metadata: dict = {"image_url": asset.get_subscription_delivery_content_url()}
         if url:
             chart_metadata["posthog_url"] = url
         artifact, error = tasks_facade.create_task_run_living_artifact(

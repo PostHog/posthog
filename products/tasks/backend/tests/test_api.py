@@ -7340,7 +7340,9 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.presentation.views.api.render_png_export")
     def test_renders_and_registers_artifact_with_both_scopes(self, mock_render, mock_create):
         mock_asset = MagicMock(id=321, exception=None)
-        mock_asset.get_public_content_url.return_value = "https://app.dev/exporter/export-1.png?token=abc"
+        mock_asset.get_subscription_delivery_content_url.return_value = (
+            "https://app.dev/exporter/export-1.png?token=abc"
+        )
         mock_render.return_value = (mock_asset, b"png-bytes")
         mock_create.return_value = (self._artifact_response(), None)
         response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})

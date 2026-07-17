@@ -870,12 +870,12 @@ def deliver_pending_slack_file_artifacts(
         # Only cards that actually reached the thread are delivered — an unposted image
         # is invisible (it uploaded with no channel share), so marking it delivered
         # would lose it permanently instead of leaving it pending for the next relay.
-        for artifact, version_payload, file_id, file_response in delivered_cards:
+        for artifact, version_payload, card_file_id, card_file_response in delivered_cards:
             if _mark_slack_file_artifact_delivered(
                 artifact=artifact,
                 version_number=int(version_payload.get("version") or artifact.current_version or 0),
-                file_id=file_id,
-                file_response=file_response,
+                file_id=card_file_id,
+                file_response=card_file_response,
             ):
                 result.delivered_count += 1
     elif answer_sections is not None:
