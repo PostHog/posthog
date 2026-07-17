@@ -13,9 +13,13 @@ def test_registry_returns_monitor_and_classifier() -> None:
     assert get_proposer("classifier").scanner_type == "classifier"
 
 
+def test_registry_returns_scorer() -> None:
+    assert get_proposer("scorer").scanner_type == "scorer"
+
+
 def test_registry_rejects_unknown_type() -> None:
     with pytest.raises(KeyError):
-        get_proposer("scorer")  # scorer proposer lands in Phase 2
+        get_proposer("summarizer")  # summarizer proposer is not registered yet
 
 
 def test_config_change_to_dict_roundtrip() -> None:
@@ -48,6 +52,48 @@ def test_monitor_no_flag_change_when_equal() -> None:
     llm = {"suggested_prompt": "new", "allow_inconclusive": False, "rationale": "x"}
     suggested = proposer.to_config_patch(llm, base)
     assert all(c.field != "allow_inconclusive" for c in proposer.to_changes(base, suggested, llm))
+
+
+def test_scorer_patch_and_changes() -> None:
+    proposer = get_proposer("scorer")
+    base = {"prompt": "rate frustration", "scale": {"min": 1.0, "max": 5.0, "label": "frustration"}}
+    llm = {
+        "suggested_prompt": "rate frustration 1-5 with explicit anchors",
+        "scale": {"min": 1.0, "max": 10.0, "label": "frustration"},
+        "rationale": "widened the range",
+    }
+    suggested = proposer.to_config_patch(llm, base)
+    assert suggested["scale"] == {"min": 1.0, "max": 10.0, "label": "frustration"}
+    changes = proposer.to_changes(base, suggested, llm)
+    kinds = {(c.kind, c.field) for c in changes}
+    assert ("prompt", "prompt") in kinds
+    assert ("scale", "scale") in kinds
+
+
+def test_scorer_no_scale_change_when_equal() -> None:
+    proposer = get_proposer("scorer")
+    base = {"prompt": "p", "scale": {"min": 0.0, "max": 1.0, "label": None}}
+    llm = {"suggested_prompt": "p2", "scale": {"min": 0.0, "max": 1.0, "label": None}, "rationale": "r"}
+    suggested = proposer.to_config_patch(llm, base)
+    assert all(c.field != "scale" for c in proposer.to_changes(base, suggested, llm))
+
+
+def test_scorer_patch_defends_against_missing_scale_fields() -> None:
+    # A schema-noncompliant response must fall back to the base scale, not raise.
+    proposer = get_proposer("scorer")
+    base = {"prompt": "p", "scale": {"min": 1.0, "max": 5.0, "label": "x"}}
+    suggested = proposer.to_config_patch({"suggested_prompt": "p2", "rationale": "r"}, base)
+    assert suggested["scale"] == {"min": 1.0, "max": 5.0, "label": "x"}
+
+
+def test_scorer_keeps_a_proposed_zero_bound() -> None:
+    # A genuine 0.0 bound must be kept, not treated as missing. A `.get(...) or base` fallback would
+    # discard it because 0.0 is falsy, so this pins the is-not-none behavior against that regression.
+    proposer = get_proposer("scorer")
+    base = {"prompt": "p", "scale": {"min": 2.0, "max": 5.0, "label": None}}
+    llm = {"suggested_prompt": "p2", "scale": {"min": 0.0, "max": 5.0, "label": None}, "rationale": "r"}
+    suggested = proposer.to_config_patch(llm, base)
+    assert suggested["scale"]["min"] == 0.0
 
 
 def test_classifier_patch_applies_tag_ops() -> None:
