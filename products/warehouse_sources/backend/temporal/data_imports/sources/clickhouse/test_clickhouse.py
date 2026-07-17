@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     _build_query,
     _get_client,
     _get_incremental_row_count,
+    _get_partition_settings,
     _has_duplicate_primary_keys,
     _is_transient_connect_drop,
     _parse_mv_target,
@@ -1037,6 +1038,40 @@ class TestGetIncrementalRowCount:
         result.result_rows = [(None,)]
         client.query.return_value = result
         assert _get_incremental_row_count(client, "db", "t", "id", 0, self._logger()) is None
+
+
+class TestGetPartitionSettings:
+    def _logger(self):
+        return MagicMock()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "HTTPDriver for https://example.invalid:443 returned response code 429",
+            "HTTPDriver for https://example.invalid:443 returned response code 502",
+            "HTTPDriver for https://example.invalid:443 returned response code 503",
+            "HTTPDriver for https://example.invalid:443 returned response code 504",
+        ],
+    )
+    def test_transient_http_response_not_captured(self, error_msg):
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError(error_msg)
+
+        with patch.object(ch_module, "capture_exception") as mock_capture:
+            # Falls back to default partitioning without adding error-tracking
+            # noise — the source rate-limiting us isn't actionable on our side.
+            assert _get_partition_settings(client, "db", "t", self._logger()) is None
+
+        mock_capture.assert_not_called()
+
+    def test_unexpected_error_is_captured(self):
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError("Code: 62. DB::Exception: Syntax error")
+
+        with patch.object(ch_module, "capture_exception") as mock_capture:
+            assert _get_partition_settings(client, "db", "t", self._logger()) is None
+
+        mock_capture.assert_called_once()
 
 
 class TestGetRowsBatching:
