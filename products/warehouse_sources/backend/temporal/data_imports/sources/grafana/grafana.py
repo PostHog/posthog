@@ -47,6 +47,14 @@ BASIC_AUTH = "basic"
 # filter's millisecond granularity in a bounded number of requests.
 MIN_ANNOTATION_WINDOW_MS = 60 * 1000
 
+# Per-run request budgets. A customer-controlled host can keep returning full pages (or saturated
+# annotation windows) forever, so an unbounded loop would occupy an import worker indefinitely.
+# Both walks are resumable, so on hitting the budget we persist the next position and return — the
+# next scheduled sync continues from there instead of any one run running without end. Sized well
+# above what a real Grafana instance needs in a single sync.
+MAX_PAGES_PER_RUN = 10_000
+MAX_ANNOTATION_REQUESTS_PER_RUN = 10_000
+
 # Loopback hosts where plaintext HTTP carries no network-exposure risk (local dev / self-hosted on
 # the same box). Every other host is forced to HTTPS so credentials never traverse a network in
 # cleartext.
@@ -459,6 +467,7 @@ def _get_paged_rows(
     if page > 1:
         logger.debug(f"Grafana: resuming {config.name} from page {page}")
 
+    pages_this_run = 0
     while True:
         params = {**config.params, config.page_size_param: DEFAULT_PAGE_SIZE, "page": page}
         data = fetch(f"{base_url}{config.path}?{urlencode(params)}")
@@ -471,9 +480,19 @@ def _get_paged_rows(
             break
 
         page += 1
+        pages_this_run += 1
         # Save AFTER yielding so a crash re-yields the last page (merge dedupes on the primary
         # key) rather than skipping it.
         resumable_source_manager.save_state(GrafanaResumeConfig(next_page=page))
+
+        if pages_this_run >= MAX_PAGES_PER_RUN:
+            # A host returning full pages forever would otherwise loop without end; the resume state
+            # saved above lets the next sync pick up from this page.
+            logger.warning(
+                f"Grafana: {config.name} hit the {MAX_PAGES_PER_RUN}-page per-run limit; "
+                f"resuming from page {page} on the next sync"
+            )
+            return
 
 
 def _get_annotation_rows(
@@ -512,10 +531,20 @@ def _get_annotation_rows(
     # LIFO stack of [from, to] windows with the oldest on top, so rows stream oldest-window-first
     # and the resume boundary only ever moves forward.
     windows: list[tuple[int, int]] = [(start_ms, now_ms)]
+    requests_this_run = 0
     while windows:
+        if requests_this_run >= MAX_ANNOTATION_REQUESTS_PER_RUN:
+            # A host that saturates every window would otherwise fan out without end; the resume
+            # boundary saved below lets the next sync continue from the last completed window.
+            logger.warning(
+                f"Grafana: annotations hit the {MAX_ANNOTATION_REQUESTS_PER_RUN}-request per-run limit; "
+                "resuming from the last saved boundary on the next sync"
+            )
+            return
         window_from, window_to = windows.pop()
         params = {**config.params, "from": window_from, "to": window_to, "limit": ANNOTATIONS_LIMIT}
         items = _extract_items(fetch(f"{base_url}{config.path}?{urlencode(params)}"), config.data_key)
+        requests_this_run += 1
 
         if len(items) >= ANNOTATIONS_LIMIT:
             if window_to - window_from > MIN_ANNOTATION_WINDOW_MS:

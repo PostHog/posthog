@@ -385,6 +385,15 @@ class TestPagedRows:
         assert session.get.call_count == 1
         assert "page" not in _query(session.get.call_args.args[0])
 
+    def test_stops_at_per_run_page_budget(self):
+        # A host returning full pages forever must not loop without end; the run stops at the budget
+        # and leaves resume state so the next sync continues.
+        full_page = [{"uid": f"d{i}"} for i in range(DEFAULT_PAGE_SIZE)]
+        with mock.patch.object(grafana_module, "MAX_PAGES_PER_RUN", 3):
+            batches, session, manager = self._run("dashboards", [full_page] * 6)
+        assert session.get.call_count == 3
+        assert manager.saved[-1].next_page == 4
+
 
 class TestAnnotationRows:
     def _run(
@@ -485,6 +494,17 @@ class TestAnnotationRows:
         )
         assert batches == []
         session.get.assert_not_called()
+
+    def test_stops_at_per_run_request_budget(self):
+        # A host that saturates every window would fan out without end; the run stops at the budget.
+        saturated = [{"id": i, "time": i} for i in range(ANNOTATIONS_LIMIT)]
+
+        def get(url, **kwargs):
+            return _response(status_code=200, json_data=saturated)
+
+        with mock.patch.object(grafana_module, "MAX_ANNOTATION_REQUESTS_PER_RUN", 3):
+            _, session, _ = self._run(get)
+        assert session.get.call_count == 3
 
 
 class TestGrafanaSourceResponse:
