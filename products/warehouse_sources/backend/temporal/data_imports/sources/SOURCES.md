@@ -389,6 +389,7 @@ the row lists both.
 | pypi                             | HTTP                        | requests                                                        | ✅                          |
 | qualaroo                         | HTTP                        | requests                                                        | ✅                          |
 | qualys_vmdr                      | HTTP (XML responses)        | requests                                                        | ✅                          |
+| railway                          | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | recurly                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ramp                             | HTTP                        | requests                                                        | ✅                          |
 | rapid7_insightvm                 | HTTP                        | requests                                                        | ✅                          |
@@ -842,7 +843,6 @@ doesn't conflict with concurrent PRs.
 - qonto
 - qualtrics
 - quickbooks
-- railway
 - railz
 - rapid7_insightvm
 - raygun
