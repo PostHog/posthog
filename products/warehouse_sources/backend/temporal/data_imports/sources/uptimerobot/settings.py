@@ -44,6 +44,8 @@ class UptimeRobotEndpointConfig:
     # Fan-out endpoints materialize a nested per-monitor list ("logs" / "response_times") from
     # getMonitors as one row per entry, keyed back to the monitor id.
     monitor_list_key: Optional[Literal["logs", "response_times"]] = None
+    # Redact the `value` of credential-bearing alert contacts (webhook/integration URLs and tokens).
+    redact_alert_contact_values: bool = False
 
 
 UPTIMEROBOT_ENDPOINTS: dict[str, UptimeRobotEndpointConfig] = {
@@ -92,6 +94,7 @@ UPTIMEROBOT_ENDPOINTS: dict[str, UptimeRobotEndpointConfig] = {
         name="alert_contacts",
         method="getAlertContacts",
         response_key="alert_contacts",
+        redact_alert_contact_values=True,
     ),
     "maintenance_windows": UptimeRobotEndpointConfig(
         name="maintenance_windows",

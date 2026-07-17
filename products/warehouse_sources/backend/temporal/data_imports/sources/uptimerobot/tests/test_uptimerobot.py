@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobo
     UptimeRobotRetryableError,
     _next_offset,
     _post,
+    _scrub_alert_contact,
     _to_unix_timestamp,
     get_rows,
     uptimerobot_source,
@@ -47,6 +48,42 @@ class TestToUnixTimestamp:
     )
     def test_coercion(self, _name: str, value: Any, expected: int | None) -> None:
         assert _to_unix_timestamp(value) == expected
+
+
+class TestScrubAlertContact:
+    @parameterized.expand(
+        [
+            # Credential-bearing channels: value is a URL/token that could forge notifications.
+            ("webhook", 5, "https://hooks.example.com/abc?token=s3cret", None),
+            ("slack", 11, "https://hooks.slack.com/services/T/B/xox", None),
+            ("unknown_integration", 99, "https://integration.example.com/tok", None),
+            # Fail closed when the type is missing or non-numeric.
+            ("missing_type", None, "https://hooks.example.com/abc?token=s3cret", None),
+            ("non_numeric_type", "webhook", "https://hooks.example.com/abc?token=s3cret", None),
+            # Plain destinations: kept for analytical use.
+            ("sms", 1, "+15551234567", "+15551234567"),
+            ("email", 2, "ops@example.com", "ops@example.com"),
+            ("twitter", 3, "@statuspage", "@statuspage"),
+        ]
+    )
+    def test_value_redacted_unless_plain_destination(
+        self, _name: str, contact_type: Any, value: str, expected_value: str | None
+    ) -> None:
+        row: dict[str, Any] = {"id": 1, "friendly_name": "on-call", "status": 2, "value": value}
+        if contact_type is not None:
+            row["type"] = contact_type
+
+        scrubbed = _scrub_alert_contact(row)
+
+        assert scrubbed["value"] == expected_value
+        # Non-secret metadata is always preserved.
+        assert scrubbed["id"] == 1
+        assert scrubbed["friendly_name"] == "on-call"
+        assert scrubbed["status"] == 2
+
+    def test_row_without_value_is_untouched(self) -> None:
+        row = {"id": 1, "type": 5}
+        assert _scrub_alert_contact(row) == row
 
 
 class TestNextOffset:
@@ -236,6 +273,26 @@ class TestTopLevelRows:
         rows = _collect(_FakeResumableManager(), "monitors")
 
         assert rows == [{"id": 1, "friendly_name": "prod"}]
+
+    def test_alert_contact_webhook_value_is_redacted_end_to_end(self, monkeypatch: Any) -> None:
+        # Wiring guard: the alert_contacts endpoint must apply the credential scrubber, so a webhook
+        # URL embedding a secret token never reaches the warehouse where any project member with read
+        # access could recover and abuse it. The type matrix is covered by TestScrubAlertContact.
+        def responder(method: str, data: dict) -> dict:
+            return {
+                "stat": "ok",
+                "offset": "0",
+                "limit": "50",
+                "total": "1",
+                "alert_contacts": [
+                    {"id": 1, "friendly_name": "on-call", "type": 5, "status": 2, "value": "https://h/x?t=s3cret"}
+                ],
+            }
+
+        _patch_post(monkeypatch, responder)
+        rows = _collect(_FakeResumableManager(), "alert_contacts")
+
+        assert rows == [{"id": 1, "friendly_name": "on-call", "type": 5, "status": 2, "value": None}]
 
     def test_monitors_request_includes_uptime_ratio_params(self, monkeypatch: Any) -> None:
         def responder(method: str, data: dict) -> dict:

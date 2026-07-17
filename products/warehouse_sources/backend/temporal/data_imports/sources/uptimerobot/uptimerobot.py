@@ -31,11 +31,31 @@ AUTH_ERROR_PREFIX = "UptimeRobot API key was rejected"
 # stripped from every row defensively regardless of endpoint.
 _SENSITIVE_FIELDS: frozenset[str] = frozenset({"http_username", "http_password", "custom_http_headers"})
 
+# Alert-contact channel types whose `value` is a plain destination (phone number, email address, or
+# handle) rather than a secret. Every other type — webhook (5), Slack (11), Zapier (7), Pushover
+# (9), and the growing list of integration channels — puts a URL or token in `value` that a project
+# member with warehouse read access could use to forge notifications, so we redact it. Keyed on the
+# numeric `type`; unknown or missing types fail closed (redacted).
+_ALERT_CONTACT_PLAINTEXT_VALUE_TYPES: frozenset[int] = frozenset({1, 2, 3})
+
 
 def _scrub_sensitive(row: dict[str, Any]) -> dict[str, Any]:
     if _SENSITIVE_FIELDS.isdisjoint(row):
         return row
     return {key: value for key, value in row.items() if key not in _SENSITIVE_FIELDS}
+
+
+def _scrub_alert_contact(row: dict[str, Any]) -> dict[str, Any]:
+    """Redact the `value` of credential-bearing alert contacts (webhook/integration channels)."""
+    if "value" not in row:
+        return row
+    try:
+        contact_type = int(row["type"])
+    except (KeyError, TypeError, ValueError):
+        contact_type = -1
+    if contact_type in _ALERT_CONTACT_PLAINTEXT_VALUE_TYPES:
+        return row
+    return {**row, "value": None}
 
 
 class UptimeRobotRetryableError(Exception):
@@ -176,6 +196,8 @@ def _get_top_level_rows(
         next_offset = _next_offset(payload, offset, len(raw_rows))
 
         rows = [_scrub_sensitive(row) for row in raw_rows]
+        if config.redact_alert_contact_values:
+            rows = [_scrub_alert_contact(row) for row in rows]
         if rows:
             yield rows
         if next_offset is None:
