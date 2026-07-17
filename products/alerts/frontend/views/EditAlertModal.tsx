@@ -40,7 +40,7 @@ import { isNextPlannedEvaluationStale } from '../logic/alertSchedulingStale'
 import { insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
-import { AlertHistorySection, AlertHistorySectionSkeleton } from './AlertHistorySection'
+import { AlertHistorySection } from './AlertHistorySection'
 
 interface EditAlertModalProps {
     isOpen: boolean | undefined
@@ -243,13 +243,6 @@ export function EditAlertModal({
         </div>
     )
 
-    let historySection: JSX.Element | null = null
-    if (alertId && alert) {
-        historySection = <AlertHistorySection alertId={alert.id} />
-    } else if (alertId && alertLoading) {
-        historySection = <AlertHistorySectionSkeleton />
-    }
-
     return (
         <LemonModal onClose={handleClose} isOpen={isOpen} width={900} simple title="">
             {alertLoading && !alert ? (
@@ -361,7 +354,7 @@ export function EditAlertModal({
                             />
                         </div>
 
-                        {historySection}
+                        {alertId && alert ? <AlertHistorySection alertId={alert.id} /> : null}
                     </AlertEditor>
                 </Form>
             )}
