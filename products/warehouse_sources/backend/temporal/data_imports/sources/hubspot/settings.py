@@ -1,5 +1,6 @@
 """Hubspot source settings and constants"""
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
@@ -10,18 +11,26 @@ STARTDATE = datetime(year=2000, month=1, day=1)
 
 # Vendor API version labels. HubSpot moved to date-based versioning ("YYYY-MM"); the legacy
 # "v3" pin keeps the historical /crm/v3/ (objects, properties) + /crm/v4/ (association
-# batch-read) URL split, while date versions collapse every CRM path onto the date segment.
+# batch-read) URL split. Under a date version the version segment moves to *after* the API
+# resource name, so /crm/v3/objects/... becomes /crm/objects/2026-03/... and
+# /crm/v4/associations/... becomes /crm/associations/2026-03/... .
 HUBSPOT_API_VERSION_V3 = "v3"
 HUBSPOT_API_VERSION_2026_03 = "2026-03"
 
+# Matches the leading "/crm/<v3|v4>/<resource>/" of a CRM path, capturing the resource name
+# (objects, properties, associations) so the version can be re-inserted after it.
+_CRM_VERSION_SEGMENT = re.compile(r"^/crm/v[34]/([^/]+)/")
+
 
 def apply_crm_api_version(path: str, api_version: str) -> str:
-    """Rewrite the CRM version segment of a HubSpot path (/crm/v3/, /crm/v4/) to the pinned
-    vendor API version. The legacy "v3" pin is returned unchanged so existing syncs are
-    byte-for-byte unaffected."""
+    """Rewrite a HubSpot CRM path to the pinned vendor API version. The legacy "v3" pin is
+    returned unchanged so existing syncs are byte-for-byte unaffected. For a date version the
+    version segment moves behind the resource name, e.g. /crm/v3/objects/contacts ->
+    /crm/objects/2026-03/contacts and /crm/v4/associations/a/b/batch/read ->
+    /crm/associations/2026-03/a/b/batch/read."""
     if api_version == HUBSPOT_API_VERSION_V3:
         return path
-    return path.replace("/crm/v3/", f"/crm/{api_version}/").replace("/crm/v4/", f"/crm/{api_version}/")
+    return _CRM_VERSION_SEGMENT.sub(rf"/crm/\1/{api_version}/", path)
 
 
 CONTACT = "contact"

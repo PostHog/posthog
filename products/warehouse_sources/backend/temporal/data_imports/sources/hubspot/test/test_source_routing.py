@@ -278,13 +278,14 @@ class TestApiVersion:
                 HUBSPOT_API_VERSION_V3,
                 "/crm/v4/associations/contacts/deals/batch/read",
             ),
-            # Date version: both v3 and v4 CRM segments collapse onto the date label.
-            ("/crm/v3/objects/contacts", HUBSPOT_API_VERSION_2026_03, "/crm/2026-03/objects/contacts"),
-            ("/crm/v3/properties/deals", HUBSPOT_API_VERSION_2026_03, "/crm/2026-03/properties/deals"),
+            # Date version: the version segment moves behind the resource name (objects,
+            # properties, associations), matching HubSpot's documented date-based paths.
+            ("/crm/v3/objects/contacts", HUBSPOT_API_VERSION_2026_03, "/crm/objects/2026-03/contacts"),
+            ("/crm/v3/properties/deals", HUBSPOT_API_VERSION_2026_03, "/crm/properties/2026-03/deals"),
             (
                 "/crm/v4/associations/contacts/deals/batch/read",
                 HUBSPOT_API_VERSION_2026_03,
-                "/crm/2026-03/associations/contacts/deals/batch/read",
+                "/crm/associations/2026-03/contacts/deals/batch/read",
             ),
         ],
     )

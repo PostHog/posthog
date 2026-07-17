@@ -277,7 +277,7 @@ class TestBatchReadAssociations:
         "api_version,expected_suffix",
         [
             (HUBSPOT_API_VERSION_V3, "/crm/v4/associations/contacts/deals/batch/read"),
-            (HUBSPOT_API_VERSION_2026_03, "/crm/2026-03/associations/contacts/deals/batch/read"),
+            (HUBSPOT_API_VERSION_2026_03, "/crm/associations/2026-03/contacts/deals/batch/read"),
         ],
     )
     def test_url_carries_pinned_api_version(self, api_version: str, expected_suffix: str) -> None:
@@ -530,7 +530,7 @@ class TestGetRowsViaSearch:
         "api_version,expected_suffix",
         [
             (HUBSPOT_API_VERSION_V3, "/crm/v3/objects/deals/search"),
-            (HUBSPOT_API_VERSION_2026_03, "/crm/2026-03/objects/deals/search"),
+            (HUBSPOT_API_VERSION_2026_03, "/crm/objects/2026-03/deals/search"),
         ],
     )
     def test_search_url_carries_pinned_api_version(self, api_version: str, expected_suffix: str) -> None:
