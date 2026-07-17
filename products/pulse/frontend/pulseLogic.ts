@@ -65,9 +65,16 @@ function parseSection(section: ProductBriefApiSectionsItem): BriefSection {
 
 export const BRIEF_POLL_INTERVAL_MS = 3000
 
+/** Stop polling and surface an error after this many consecutive rounds where every retrieve failed. */
+export const MAX_CONSECUTIVE_POLL_FAILURES = 5
+
+/** First page only — deliberate for alpha; load-more is a follow-up. */
+const LIST_PAGE_SIZE = 100
+
 export const BRIEF_ALREADY_GENERATING_MESSAGE = 'A brief is already being generated'
 
-/** DRF error code the generate endpoint returns when the organization has not approved AI data processing. */
+// Cross-boundary contract: must match the ValidationError code raised by the generate endpoint
+// in products/pulse/backend/api/brief.py — rename both sides together.
 const AI_CONSENT_ERROR_CODE = 'ai_consent_required'
 
 function currentProjectId(): string {
@@ -132,7 +139,7 @@ export const pulseLogic = kea<pulseLogicType>([
             [] as BriefConfigApi[],
             {
                 loadBriefConfigs: async (): Promise<BriefConfigApi[]> => {
-                    const response = await pulseBriefConfigsList(currentProjectId())
+                    const response = await pulseBriefConfigsList(currentProjectId(), { limit: LIST_PAGE_SIZE })
                     return response.results
                 },
             },
@@ -141,7 +148,7 @@ export const pulseLogic = kea<pulseLogicType>([
             [] as ProductBriefListApi[],
             {
                 loadBriefs: async (): Promise<ProductBriefListApi[]> => {
-                    const response = await pulseBriefsList(currentProjectId())
+                    const response = await pulseBriefsList(currentProjectId(), { limit: LIST_PAGE_SIZE })
                     return response.results
                 },
             },
@@ -251,9 +258,12 @@ export const pulseLogic = kea<pulseLogicType>([
             (briefs, selectedConfigId): ProductBriefListApi[] =>
                 briefs.filter((brief) => brief.config === selectedConfigId),
         ],
-        isGenerating: [
-            (s) => [s.briefs, s.generatedBriefLoading],
-            (briefs, generatedBriefLoading): boolean => generatedBriefLoading || briefs.some(isGeneratingBrief),
+        // Scoped to the selected focus: the backend locks generation per team+config, so a brief
+        // generating for another config must not disable "Run brief now" for this one.
+        isGeneratingForSelectedConfig: [
+            (s) => [s.visibleBriefs, s.generatedBriefLoading],
+            (visibleBriefs, generatedBriefLoading): boolean =>
+                generatedBriefLoading || visibleBriefs.some(isGeneratingBrief),
         ],
         briefDetailSections: [
             (s) => [s.briefDetail],
@@ -293,6 +303,7 @@ export const pulseLogic = kea<pulseLogicType>([
             }
         },
         startPolling: () => {
+            cache.pollFailureRounds = 0
             cache.disposables.add(() => {
                 const intervalId = setInterval(() => actions.pollGeneratingBriefs(), BRIEF_POLL_INTERVAL_MS)
                 return () => clearInterval(intervalId)
@@ -301,7 +312,7 @@ export const pulseLogic = kea<pulseLogicType>([
         stopPolling: () => {
             cache.disposables.dispose('briefPoll')
         },
-        pollGeneratingBriefs: async (_, breakpoint) => {
+        pollGeneratingBriefs: async () => {
             // The single stop decision: a tick with nothing left to poll ends the interval.
             const generating = values.briefs.filter(isGeneratingBrief)
             if (generating.length === 0) {
@@ -313,11 +324,26 @@ export const pulseLogic = kea<pulseLogicType>([
             }
             cache.pollInFlight = true
             try {
-                const updated = await Promise.all(
+                const results = await Promise.allSettled(
                     generating.map((brief) => pulseBriefsRetrieve(currentProjectId(), brief.id))
                 )
-                breakpoint()
-                actions.briefsRefreshed(updated)
+                const refreshed = results
+                    .filter(
+                        (result): result is PromiseFulfilledResult<ProductBriefApi> => result.status === 'fulfilled'
+                    )
+                    .map((result) => result.value)
+                if (refreshed.length > 0) {
+                    cache.pollFailureRounds = 0
+                    actions.briefsRefreshed(refreshed)
+                    return
+                }
+                // Every retrieve failed — count rounds so a persistent outage becomes legible instead
+                // of an interval spinning forever behind a "Generating…" state.
+                cache.pollFailureRounds = (cache.pollFailureRounds ?? 0) + 1
+                if (cache.pollFailureRounds >= MAX_CONSECUTIVE_POLL_FAILURES) {
+                    actions.stopPolling()
+                    lemonToast.error('Checking brief status keeps failing — reload the page to retry')
+                }
             } finally {
                 cache.pollInFlight = false
             }

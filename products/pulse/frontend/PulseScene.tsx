@@ -98,14 +98,21 @@ export function PulseScene(): JSX.Element {
 }
 
 function RunBriefButton(): JSX.Element {
-    const { isGenerating, generatedBriefLoading, selectedConfigId } = useValues(pulseLogic)
+    const { isGeneratingForSelectedConfig, generatedBriefLoading, selectedConfigId, aiConsentRequired } =
+        useValues(pulseLogic)
     const { generateBrief } = useActions(pulseLogic)
+
+    const disabledReason = aiConsentRequired
+        ? 'Approve AI data processing first'
+        : isGeneratingForSelectedConfig && !generatedBriefLoading
+          ? BRIEF_ALREADY_GENERATING_MESSAGE
+          : undefined
 
     return (
         <LemonButton
             type="primary"
             loading={generatedBriefLoading}
-            disabledReason={isGenerating && !generatedBriefLoading ? BRIEF_ALREADY_GENERATING_MESSAGE : undefined}
+            disabledReason={disabledReason}
             onClick={() => generateBrief({ configId: selectedConfigId })}
         >
             Run brief now
@@ -251,7 +258,8 @@ function BriefSectionCard({ section }: { section: BriefSection }): JSX.Element {
     return (
         <div className="border rounded p-4 flex flex-col gap-2">
             <h3 className="mb-0">{section.title}</h3>
-            <LemonMarkdown>{section.markdown}</LemonMarkdown>
+            {/* LLM-generated markdown must not auto-load arbitrary image URLs (tracking-pixel / IP-leak vector). */}
+            <LemonMarkdown disableImages>{section.markdown}</LemonMarkdown>
             {section.citations.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                     {section.citations.map((citation) => (
