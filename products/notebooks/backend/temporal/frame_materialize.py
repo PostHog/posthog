@@ -407,10 +407,11 @@ def _frame_s3_url(key: str) -> str:
     empty there → a scheme-less URL CH rejects) and mis-route dev (it may be an app-only host
     CH can't reach), which is why this has its own NOTEBOOKS_FRAME_STORE_S3_ENDPOINT knob.
     """
+    bucket = settings.NOTEBOOKS_FRAME_STORE_S3_BUCKET
     endpoint = settings.NOTEBOOKS_FRAME_STORE_S3_ENDPOINT
     if endpoint:
-        return f"{endpoint}/{settings.OBJECT_STORAGE_BUCKET}/{key}"
-    return f"https://{settings.OBJECT_STORAGE_BUCKET}.s3.{settings.OBJECT_STORAGE_REGION}.amazonaws.com/{key}"
+        return f"{endpoint}/{bucket}/{key}"
+    return f"https://{bucket}.s3.{settings.NOTEBOOKS_FRAME_STORE_S3_REGION}.amazonaws.com/{key}"
 
 
 def _insert_into_s3_sql(printed_sql: str, key: str) -> tuple[str, dict[str, object]]:

@@ -256,7 +256,7 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
         # Path-style URL uses the CH-reachable endpoint, NOT OBJECT_STORAGE_ENDPOINT.
         with self.settings(
             NOTEBOOKS_FRAME_STORE_S3_ENDPOINT="http://store:19000",
-            OBJECT_STORAGE_BUCKET="bucket",
+            NOTEBOOKS_FRAME_STORE_S3_BUCKET="bucket",
             OBJECT_STORAGE_ACCESS_KEY_ID="ke'y%s",
             OBJECT_STORAGE_SECRET_ACCESS_KEY="s'ec\\ret",
         ):
@@ -277,8 +277,8 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
         # scheme-less `/bucket/key` from concatenating an empty endpoint (which CH rejects).
         with self.settings(
             NOTEBOOKS_FRAME_STORE_S3_ENDPOINT="",
-            OBJECT_STORAGE_BUCKET="ph-frames",
-            OBJECT_STORAGE_REGION="eu-west-1",
+            NOTEBOOKS_FRAME_STORE_S3_BUCKET="ph-frames",
+            NOTEBOOKS_FRAME_STORE_S3_REGION="eu-west-1",
             OBJECT_STORAGE_ACCESS_KEY_ID="should-be-ignored",
             OBJECT_STORAGE_SECRET_ACCESS_KEY="should-be-ignored",
         ):
