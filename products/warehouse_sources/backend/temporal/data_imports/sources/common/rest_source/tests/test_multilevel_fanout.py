@@ -1,7 +1,7 @@
 from typing import Any
-from unittest.mock import patch
 
 import pytest
+from unittest.mock import patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_api_resources
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
