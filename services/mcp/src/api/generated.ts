@@ -7805,9 +7805,14 @@ export namespace Schemas {
       order?: number | null;
       deleted?: boolean;
       /**
+         *
        *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
        *         A dashboard ID for each of the dashboards that this insight is displayed on.
-       *          */
+       *         Only returned to API-token callers when `include_dashboards=true` is passed; the field
+       *         is omitted from responses otherwise.
+       *
+         * @deprecated
+         */
       dashboards?: number[];
       /**
        *     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
@@ -41208,6 +41213,7 @@ export namespace Schemas {
          */
       derived_name?: string | null;
       query?: unknown;
+      /** @deprecated */
       readonly dashboards: readonly number[];
       readonly dashboard_tiles: readonly DashboardTileBasic[];
       /**
@@ -44885,9 +44891,14 @@ export namespace Schemas {
       order?: number | null;
       deleted?: boolean;
       /**
+         *
        *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
        *         A dashboard ID for each of the dashboards that this insight is displayed on.
-       *          */
+       *         Only returned to API-token callers when `include_dashboards=true` is passed; the field
+       *         is omitted from responses otherwise.
+       *
+         * @deprecated
+         */
       dashboards?: number[];
       /**
        *     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
@@ -67074,6 +67085,10 @@ export namespace Schemas {
     favorited?: boolean;
     format?: EnvironmentsInsightsListFormat;
     /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. API-token callers no longer receive it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
+    /**
      * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
      */
     insight?: EnvironmentsInsightsListInsight;
@@ -67194,6 +67209,10 @@ export namespace Schemas {
      * When set, the specified dashboard's filters and date range override will be applied.
      */
     from_dashboard?: number;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. API-token callers no longer receive it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     /**
      *
      * Whether to refresh the insight, how aggresively, and if sync or async:
@@ -74657,6 +74676,10 @@ export namespace Schemas {
     favorited?: boolean;
     format?: InsightsListFormat;
     /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. API-token callers no longer receive it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
+    /**
      * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
      */
     insight?: InsightsListInsight;
@@ -74777,6 +74800,10 @@ export namespace Schemas {
      * When set, the specified dashboard's filters and date range override will be applied.
      */
     from_dashboard?: number;
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. API-token callers no longer receive it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean;
     /**
      *
      * Whether to refresh the insight, how aggresively, and if sync or async:

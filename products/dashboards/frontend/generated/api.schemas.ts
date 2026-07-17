@@ -8207,9 +8207,14 @@ export interface InsightApi {
     order?: number | null
     deleted?: boolean
     /**
+     *
      *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
      *         A dashboard ID for each of the dashboards that this insight is displayed on.
-     *          */
+     *         Only returned to API-token callers when `include_dashboards=true` is passed; the field
+     *         is omitted from responses otherwise.
+     *
+     * @deprecated
+     */
     dashboards?: number[]
     /**
      *     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.

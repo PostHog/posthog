@@ -288,6 +288,7 @@ const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.
             path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/${encodeURIComponent(String(params.id))}/`,
             query: {
                 filters_override: params.filters_override,
+                include_dashboards: params.include_dashboards,
                 variables_override: params.variables_override,
             },
         })
@@ -447,6 +448,7 @@ const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Sche
                 date_from: params.date_from,
                 date_to: params.date_to,
                 favorited: params.favorited,
+                include_dashboards: params.include_dashboards,
                 insight: params.insight,
                 last_viewed_date_from: params.last_viewed_date_from,
                 last_viewed_date_to: params.last_viewed_date_to,

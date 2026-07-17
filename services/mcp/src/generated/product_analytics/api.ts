@@ -109,6 +109,12 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Include this parameter (any value) to restrict results to insights marked as favorited.'),
     format: zod.enum(['csv', 'json']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. API-token callers no longer receive it by default; use `dashboard_tiles` instead.'
+        ),
     insight: zod
         .enum(['FUNNELS', 'JSON', 'LIFECYCLE', 'PATHS', 'RETENTION', 'SQL', 'STICKINESS', 'TRENDS'])
         .optional()
@@ -203,7 +209,7 @@ export const InsightsCreateBody = /* @__PURE__ */ zod
             .array(zod.number())
             .optional()
             .describe(
-                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        '
+                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        Only returned to API-token callers when `include_dashboards=true` is passed; the field\n        is omitted from responses otherwise.\n        '
             ),
         description: zod.string().max(insightsCreateBodyDescriptionMax).nullish(),
         tags: zod.array(zod.unknown()).optional(),
@@ -246,6 +252,12 @@ export const InsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "\nOnly if loading an insight in the context of a dashboard: The relevant dashboard's ID.\nWhen set, the specified dashboard's filters and date range override will be applied."
+        ),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. API-token callers no longer receive it by default; use `dashboard_tiles` instead.'
         ),
     refresh: zod
         .enum([
@@ -311,7 +323,7 @@ export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.number())
             .optional()
             .describe(
-                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        '
+                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        Only returned to API-token callers when `include_dashboards=true` is passed; the field\n        is omitted from responses otherwise.\n        '
             ),
         description: zod.string().max(insightsPartialUpdateBodyDescriptionMax).nullish(),
         tags: zod.array(zod.unknown()).optional(),
