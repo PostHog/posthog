@@ -153,6 +153,42 @@ class TestPromptEvaluation(_VisionAPITestCase):
         self.assertEqual(suggestion.evaluation["total"], 1)
         self.assertNotEqual(suggestion.evaluation["labels_fingerprint"], "")
 
+    def test_select_activity_reruns_monitor_with_suggested_config_prompt_change(self) -> None:
+        # A new-format suggestion carries suggested_config even for a prompt-only rewrite. The re-run
+        # must use that config verbatim rather than re-deriving it from suggested_prompt.
+        self._create_rated("sess-1", False)
+        self.scanner.scanner_config = {"prompt": "current prompt", "allow_inconclusive": False}
+        self.scanner.save()
+        suggestion = self._create_suggestion(
+            suggested_config={"prompt": "new prompt from suggestion", "allow_inconclusive": False}
+        )
+
+        output = select_evaluation_sessions_activity(
+            SelectEvaluationSessionsInputs(suggestion_id=suggestion.id, team_id=self.team.id)
+        )
+
+        assert output.snapshot is not None
+        self.assertEqual(output.snapshot.scanner_config, suggestion.suggested_config)
+
+    def test_select_activity_reruns_classifier_with_new_tag_vocabulary(self) -> None:
+        # A classifier suggestion that swaps tags must re-run against the NEW vocabulary, not the
+        # scanner's current tags, or a tag-vocabulary rewrite could never be evaluated correctly.
+        self.scanner.scanner_type = ScannerType.CLASSIFIER
+        self.scanner.scanner_config = {"prompt": "classify the session", "tags": ["old_tag"]}
+        self.scanner.save()
+        self._create_rated("sess-1", False)
+        suggestion = self._create_suggestion(
+            suggested_config={"prompt": "classify the session", "tags": ["new_tag_a", "new_tag_b"]}
+        )
+
+        output = select_evaluation_sessions_activity(
+            SelectEvaluationSessionsInputs(suggestion_id=suggestion.id, team_id=self.team.id)
+        )
+
+        assert output.snapshot is not None
+        self.assertEqual(output.snapshot.scanner_config, suggestion.suggested_config)
+        self.assertNotIn("old_tag", output.snapshot.scanner_config["tags"])
+
     def test_record_and_finalize_produce_summary_and_dedup_retries(self) -> None:
         observation = self._create_rated("sess-1", False, verdict="yes")
         suggestion = self._create_suggestion(evaluation={"status": "running", "results": []})

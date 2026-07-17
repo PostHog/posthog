@@ -69,6 +69,12 @@ def select_evaluation_sessions_activity(inputs: SelectEvaluationSessionsInputs) 
         )
         for o in observations
     ]
+    # New rows carry the full proposed config. Old prompt-only rows fall back to a prompt overwrite,
+    # same as apply (see api/prompt_suggestions.py).
+    if suggestion.suggested_config is not None:
+        rerun_config = dict(suggestion.suggested_config)
+    else:
+        rerun_config = {**(scanner.scanner_config or {}), "prompt": suggestion.suggested_prompt}
     # Signals stay off so a dry run can't pollute the team's feeds.
     snapshot = ScannerSnapshot(
         name=scanner.name,
@@ -77,7 +83,7 @@ def select_evaluation_sessions_activity(inputs: SelectEvaluationSessionsInputs) 
         model=scanner.model,
         provider=scanner.provider,
         emits_signals=False,
-        scanner_config={**(scanner.scanner_config or {}), "prompt": suggestion.suggested_prompt},
+        scanner_config=rerun_config,
     )
     suggestion.evaluation = build_running_evaluation(
         total=len(sessions), labels_fingerprint=labels_fingerprint(scanner)
