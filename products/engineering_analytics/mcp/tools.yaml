@@ -81,13 +81,13 @@ tools:
             are flaky": Trunk answers that, across every suite, and auto-quarantines. This data only sees Backend CI.
             Evidence is counted per CI run, never per span, because one run fans a test across matrix legs.
             classification is confirmed_flake only when an in-job pytest retry recovered the test in the same run
-            (rerun_passed_run_count > 0), which is the only proof of flakiness here and reaches only tests
-            hand-marked @pytest.mark.flaky(reruns=N). quarantined means the test fails while masked as xfail.
-            suspected_regression means only failures were recorded, which is absence of proof, not proof of a real
-            break: treat it as real and check Trunk before calling it flaky. A test qualifies on any recovery, any
-            master/main failure, an xfail, or failures on at least min_failed_prs distinct PRs (default 3). Counts are
-            absolute, never rates, because fast passing runs are not emitted. Use selector to run or quarantine the
-            test; nodeid is only the stable grouping key.
+            (rerun_passed_run_count > 0), which is the only proof of flakiness here and reaches only tests hand-marked
+            @pytest.mark.flaky(reruns=N). quarantined means the test fails while masked as xfail. suspected_regression
+            means only failures were recorded, which is absence of proof, not proof of a real break: treat it as real
+            and check Trunk before calling it flaky. A test qualifies on any recovery, any master/main failure, an
+            xfail, or failures on at least min_failed_prs distinct PRs (default 3). Counts are absolute, never rates,
+            because fast passing runs are not emitted. Use selector to run or quarantine the test; nodeid is only the
+            stable grouping key.
         feature_flag: engineering-analytics
     engineering-analytics-job-aggregates:
         operation: engineering_analytics_job_aggregates
