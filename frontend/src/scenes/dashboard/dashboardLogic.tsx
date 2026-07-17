@@ -231,6 +231,7 @@ export interface dashboardLogicValues {
     addWidgetModalOpen: boolean
     addWidgetSelectedTypes: string[]
     addWidgetTileLoading: boolean
+    advancedOverridesCount: number
     apiUrl: (
         refresh?: RefreshType | undefined,
         filtersOverride?: DashboardFilter | undefined,
@@ -320,6 +321,7 @@ export interface dashboardLogicValues {
     scrollToBottomSignal: number
     shouldReportOnAPILoad: boolean
     shouldUseStreaming: boolean
+    showAdvancedOverrides: boolean
     showApplyFiltersBanner: boolean
     showButtonTileModal: boolean
     showSubscriptions: boolean
@@ -715,6 +717,9 @@ export interface dashboardLogicActions {
     setExternalFilters: (filters: DashboardFilter) => {
         filters: DashboardFilter
     }
+    setFilterTestAccounts: (filterTestAccounts: boolean | null) => {
+        filterTestAccounts: boolean | null
+    }
     setInitialLoadResponseBytes: (responseBytes: number) => {
         responseBytes: number
     }
@@ -822,6 +827,9 @@ export interface dashboardLogicActions {
     }
     toggleAddWidgetSelectedType: (widgetType: string) => {
         widgetType: string
+    }
+    toggleAdvancedOverrides: () => {
+        value: true
     }
     togglePinned: () => {
         value: true
@@ -946,6 +954,7 @@ export interface dashboardLogicMeta {
             urlFilters: DashboardFilter,
             intermittentFilters: DashboardFilter
         ) => DashboardFilter
+        advancedOverridesCount: (effectiveEditBarFilters: DashboardFilter) => number
         effectiveRefreshFilters: (
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
             externalFilters: DashboardFilter,
@@ -1206,6 +1215,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
         setInterval: (interval: IntervalType | null) => ({ interval }),
+        setFilterTestAccounts: (filterTestAccounts: boolean | null) => ({ filterTestAccounts }),
+        toggleAdvancedOverrides: true,
         setExternalFilters: (filters: DashboardFilter) => ({ filters }),
         saveEditModeChanges: () => true,
         resetUrlFilters: () => true,
@@ -1673,6 +1684,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setProperties: () => false,
                 setBreakdownFilter: () => false,
                 setInterval: () => false,
+                setFilterTestAccounts: () => false,
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
                 applyFilters: () => true,
@@ -2153,6 +2165,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 breakdown_filter: undefined,
                 explicitDate: undefined,
                 interval: undefined,
+                filterTestAccounts: undefined,
             } as DashboardFilter,
             {
                 setDates: (state, { date_from, date_to, explicitDate }) => ({
@@ -2173,6 +2186,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ...state,
                     interval,
                 }),
+                setFilterTestAccounts: (state, { filterTestAccounts }) => ({
+                    ...state,
+                    filterTestAccounts,
+                }),
                 resetIntermittentFilters: () => ({
                     date_from: undefined,
                     date_to: undefined,
@@ -2180,7 +2197,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     breakdown_filter: undefined,
                     explicitDate: undefined,
                     interval: undefined,
+                    filterTestAccounts: undefined,
                 }),
+            },
+        ],
+        showAdvancedOverrides: [
+            false,
+            {
+                toggleAdvancedOverrides: (state) => !state,
             },
         ],
         isSavingTags: [
@@ -2353,6 +2377,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 )
                 return effectiveEditBarFilters
             },
+        ],
+        advancedOverridesCount: [
+            (s) => [s.effectiveEditBarFilters],
+            (filters: DashboardFilter): number =>
+                (filters.properties?.length ?? 0) +
+                (filters.breakdown_filter ? 1 : 0) +
+                (filters.filterTestAccounts != null ? 1 : 0),
         ],
         effectiveRefreshFilters: [
             (s) => [s.dashboard, s.externalFilters, s.urlFilters],
@@ -3996,6 +4027,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
+        setFilterTestAccounts: ({ filterTestAccounts }) => {
+            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'test_account', {
+                filter_test_accounts: filterTestAccounts,
+            })
+
+            if (values.canAutoPreview) {
+                actions.refreshDashboardItems({
+                    action: RefreshDashboardItemsAction.Preview,
+                    forceRefresh: false,
+                })
+            }
+        },
         setExternalFilters: () => {
             if (values.tiles.length > 0) {
                 actions.refreshDashboardItems({
@@ -4199,6 +4242,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const newUrlFilters: DashboardFilter = {
                 ...urlFilters,
                 interval,
+            }
+
+            return [
+                currentLocation.pathname,
+                { ...currentLocation.searchParams, ...encodeURLFilters(newUrlFilters) },
+                currentLocation.hashParams,
+            ]
+        },
+        setFilterTestAccounts: ({ filterTestAccounts }) => {
+            if (!values.canAutoPreview) {
+                return
+            }
+
+            const { currentLocation } = router.values
+
+            const urlFilters = parseURLFilters(currentLocation.searchParams)
+            const newUrlFilters: DashboardFilter = {
+                ...urlFilters,
+                filterTestAccounts,
             }
 
             return [
