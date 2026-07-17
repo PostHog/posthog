@@ -632,6 +632,8 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 'updateComparisonWindows',
                 'setFilters',
             ],
+            featureFlagLogic,
+            ['setFeatureFlags'],
         ],
     })),
 
@@ -1393,6 +1395,14 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             // One dispatch → one re-query via the setFilters listener (and one URL write in the
             // scene logic) — separate setDateRange + setFilterGroup would each run the query.
             actions.setFilters(updates)
+        },
+        // Feature flags land asynchronously (posthog.js /flags), potentially after the first
+        // runQuery. If that flip just made the heatmap visible (?chart=heatmap deep link with
+        // the flag on), fetch the data the earlier runQuery skipped.
+        setFeatureFlags: () => {
+            if (values.showHeatmap && values.rawLatencyHeatmap.length === 0 && !values.latencyHeatmapLoading) {
+                actions.fetchLatencyHeatmap()
+            }
         },
         // Overlay drags only refetch the aggregation — the sparkline canvas range stays fixed
         // while the user moves windows around within it. The compare-flame refetch (viewer UI
