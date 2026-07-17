@@ -7,6 +7,8 @@ non-terminal TaskRun), and prunes old LoopFire dedup rows so that table doesn't 
 from datetime import timedelta
 from uuid import UUID
 
+from django.db.models import F, Window
+from django.db.models.functions import RowNumber
 from django.utils import timezone as django_timezone
 
 import structlog
@@ -57,21 +59,15 @@ def sweep_loop_task_retention(retention_limit: int = LOOP_TASK_RETENTION_LIMIT) 
 def _stale_loop_task_ids(retention_limit: int) -> list[UUID]:
     """Ids of loop-spawned tasks beyond `retention_limit`, ranked newest-first per loop.
 
-    Ordering by loop then -created_at at the DB layer means each loop's tasks arrive
-    already newest-first and contiguous, so no re-sort is needed while grouping.
+    Ranked server-side with a window function so the sweep only ever materializes the stale
+    tail, not every loop-spawned task across every team.
     """
-    tasks_by_loop: dict[UUID, list[UUID]] = {}
-    for task_id, loop_id in (
-        Task.objects.filter(loop__isnull=False, deleted=False)  # nosemgrep: celery-task-team-scope-audit
-        .order_by("loop_id", "-created_at", "-id")
-        .values_list("id", "loop_id")
-    ):
-        tasks_by_loop.setdefault(loop_id, []).append(task_id)
-
-    stale_task_ids: list[UUID] = []
-    for task_ids in tasks_by_loop.values():
-        stale_task_ids.extend(task_ids[retention_limit:])
-    return stale_task_ids
+    ranked = Task.objects.filter(loop__isnull=False, deleted=False).annotate(  # nosemgrep: celery-task-team-scope-audit
+        newest_first_rank=Window(
+            RowNumber(), partition_by=[F("loop_id")], order_by=[F("created_at").desc(), F("id").desc()]
+        )
+    )
+    return list(ranked.filter(newest_first_rank__gt=retention_limit).values_list("id", flat=True))
 
 
 def prune_loop_fire_records(retention_days: int = LOOP_FIRE_RETENTION_DAYS) -> int:

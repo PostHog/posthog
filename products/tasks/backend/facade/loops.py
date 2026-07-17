@@ -664,7 +664,8 @@ def create_loop(team_id: int, user: User | None, validated_data: dict) -> LoopDT
             detail=f"A loop can have at most {MAX_TRIGGERS_PER_LOOP} triggers.",
         )
 
-    existing_loops = Loop.objects.for_team(team_id, canonical=True).filter(deleted=False).count()
+    # internal=False: backend-created internal loops must not consume the user-facing quota.
+    existing_loops = Loop.objects.for_team(team_id, canonical=True).filter(deleted=False, internal=False).count()
     if existing_loops >= MAX_LOOPS_PER_TEAM:
         raise LoopLimitError(
             code="max_loops_per_team",

@@ -18,10 +18,15 @@ from products.tasks.backend.models import LoopTrigger
 logger = structlog.get_logger(__name__)
 
 _UNSYNCED_STATUSES = (LoopTrigger.ScheduleSyncStatus.PENDING, LoopTrigger.ScheduleSyncStatus.FAILED)
+# After a Temporal outage the whole cross-team backlog goes unsynced at once; each re-sync is a
+# Temporal round trip and the Celery task has a 110s soft limit, so cap the batch per sweep and
+# let the 10-minute cadence drain the rest.
+_RECONCILE_BATCH_SIZE = 200
 
 
 def reconcile_loop_trigger_schedules() -> int:
-    """Re-sync every schedule trigger stuck in `pending`/`failed`. Returns the count re-synced.
+    """Re-sync schedule triggers stuck in `pending`/`failed`, oldest first, capped per sweep.
+    Returns the count re-synced.
 
     Cross-team janitor sweep, mirroring `sweep_loop_task_retention`. `sync_loop_trigger_schedule`
     is idempotent and swallows Temporal errors (re-recording `failed`), so a still-down Temporal
@@ -31,6 +36,7 @@ def reconcile_loop_trigger_schedules() -> int:
         LoopTrigger.objects.unscoped()
         .filter(type=LoopTrigger.TriggerType.SCHEDULE, schedule_sync_status__in=_UNSYNCED_STATUSES)
         .select_related("loop")
+        .order_by("updated_at")[:_RECONCILE_BATCH_SIZE]
     )
     for trigger in triggers:
         sync_loop_trigger_schedule(trigger)

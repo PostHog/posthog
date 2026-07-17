@@ -157,12 +157,20 @@ def pause_loop_schedules(loop: Loop) -> None:
     Best-effort per trigger: one trigger's Temporal failure doesn't stop the rest
     from being paused.
     """
-    triggers = LoopTrigger.objects.for_team(loop.team_id, canonical=True).filter(
-        loop=loop, type=LoopTrigger.TriggerType.SCHEDULE
+    triggers = list(
+        LoopTrigger.objects.for_team(loop.team_id, canonical=True).filter(
+            loop=loop, type=LoopTrigger.TriggerType.SCHEDULE
+        )
     )
+    if not triggers:
+        return
+    try:
+        temporal = sync_connect()
+    except Exception:
+        logger.exception("loop_schedule_pause_failed", extra={"loop_id": str(loop.id)})
+        return
     for trigger in triggers:
         try:
-            temporal = sync_connect()
             if schedule_exists(temporal, trigger.schedule_id):
                 pause_schedule(temporal, trigger.schedule_id, note="Loop paused")
         except Exception:
@@ -195,12 +203,20 @@ def signal_loop_run_cancelled(workflow_id: str) -> None:
 
 def resume_loop_schedules(loop: Loop) -> None:
     """Unpause (or recreate, if missing) every enabled schedule trigger's Temporal Schedule."""
-    triggers = LoopTrigger.objects.for_team(loop.team_id, canonical=True).filter(
-        loop=loop, type=LoopTrigger.TriggerType.SCHEDULE, enabled=True
+    triggers = list(
+        LoopTrigger.objects.for_team(loop.team_id, canonical=True).filter(
+            loop=loop, type=LoopTrigger.TriggerType.SCHEDULE, enabled=True
+        )
     )
+    if not triggers:
+        return
+    try:
+        temporal = sync_connect()
+    except Exception:
+        logger.exception("loop_schedule_resume_failed", extra={"loop_id": str(loop.id)})
+        return
     for trigger in triggers:
         try:
-            temporal = sync_connect()
             if schedule_exists(temporal, trigger.schedule_id):
                 unpause_schedule(temporal, trigger.schedule_id, note="Loop resumed")
             else:

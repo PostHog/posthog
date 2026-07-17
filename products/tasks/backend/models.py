@@ -193,8 +193,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
     # Loop firing that spawned this task, if any. NULL for every non-loop task. SET_NULL
     # so deleting a loop never deletes its historical runs. db_index=False here: the index
-    # is added CONCURRENTLY in the same migration that adds this column (see 0052), which
-    # is a separate DDL statement Django can't emit as part of a plain AddField.
+    # is added CONCURRENTLY in a follow-up migration (see 0062), which is a separate DDL
+    # statement Django can't emit as part of a plain AddField.
     loop = models.ForeignKey(
         "tasks.Loop",
         on_delete=models.SET_NULL,

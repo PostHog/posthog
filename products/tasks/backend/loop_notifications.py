@@ -212,7 +212,7 @@ def _disable_slack_channel(loop: Loop, error_code: str | None) -> None:
     slack_config["enabled"] = False
     notifications["slack"] = slack_config
     loop.notifications = notifications
-    loop.save(update_fields=["notifications"])
+    loop.save(update_fields=["notifications", "updated_at"])
 
     if loop.created_by_id is None:
         return
