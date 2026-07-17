@@ -931,7 +931,8 @@ class ClickUpSourceConfig(config.Config):
 
 @config.config
 class ClickhouseCloudSourceConfig(config.Config):
-    pass
+    key_id: str
+    key_secret: str
 
 
 @config.config

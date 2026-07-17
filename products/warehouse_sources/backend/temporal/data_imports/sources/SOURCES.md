@@ -146,6 +146,7 @@ the row lists both.
 | clari                            | HTTP                        | requests                                                        | ✅                          |
 | clerk                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse                       | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
+| clickhouse_cloud                 | HTTP                        | requests                                                        | ✅                          |
 | clickup                          | HTTP                        | requests                                                        | ✅                          |
 | clockify                         | HTTP                        | requests                                                        | ✅                          |
 | clockodo                         | HTTP                        | requests                                                        | ✅                          |
@@ -656,7 +657,6 @@ doesn't conflict with concurrent PRs.
 - cisco_meraki
 - clarifai
 - clazar
-- clickhouse_cloud
 - cloudbeds
 - coassemble
 - cockroachdb
