@@ -308,6 +308,27 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         }),
     }),
 
+    // Generic LLM step - mirrors the backend schema (nodejs/src/cdp/schema/hogflow.ts).
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('llm'),
+        config: z.object({
+            model: z.string(),
+            messages: z.array(
+                z.object({
+                    role: z.enum(['system', 'user', 'assistant']),
+                    content: CyclotronInputSchema,
+                })
+            ),
+            response_format: z.enum(['text', 'json_schema']).optional(),
+            json_schema: z.any().optional(),
+            temperature: z.number().optional(),
+            max_tokens: z.number().optional(),
+            tools: z.array(z.any()).optional(),
+            max_wait_duration: DURATION_STRING,
+        }),
+    }),
+
     // Exit
     z.object({
         ..._commonActionFields,

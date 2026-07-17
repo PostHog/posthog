@@ -12,6 +12,7 @@ import {
     IconLetter,
     IconNotification,
     IconPercentage,
+    IconSparkles,
     IconWebhooks,
 } from '@posthog/icons'
 
@@ -26,6 +27,7 @@ import { StepConditionalBranchConfiguration } from './StepConditionalBranch'
 import { StepDelayConfiguration } from './StepDelay'
 import { StepExitConfiguration } from './StepExit'
 import { StepFunctionConfiguration } from './StepFunction'
+import { StepLlmConfiguration } from './StepLlm'
 import { StepRandomCohortBranchConfiguration } from './StepRandomCohortBranch'
 import { StepTriggerConfiguration } from './StepTrigger'
 import { StepWaitUntilConditionConfiguration } from './StepWaitUntilCondition'
@@ -62,6 +64,12 @@ const HogFlowStepConfigs: Partial<{
         icon: () => <IconClock />,
         color: () => '#a20031',
         renderConfiguration: (node) => <StepDelayConfiguration key={node.id} node={node} />,
+    },
+    llm: {
+        type: 'llm',
+        icon: () => <IconSparkles />,
+        color: (_, isDarkModeOn) => (isDarkModeOn ? '#9D5CFF' : '#7C3AED'),
+        renderConfiguration: (node) => <StepLlmConfiguration key={node.id} node={node} />,
     },
     exit: {
         type: 'exit',
