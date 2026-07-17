@@ -8210,8 +8210,9 @@ export interface InsightApi {
      *
      *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
      *         A dashboard ID for each of the dashboards that this insight is displayed on.
-     *         Only returned to API-token callers when `include_dashboards=true` is passed; the field
-     *         is omitted from responses otherwise.
+     *         Session-authenticated (web app) requests receive this field; other callers (personal API
+     *         keys, OAuth, sharing tokens) must pass the `include_dashboards=true` query parameter to
+     *         receive it.
      *
      * @deprecated
      */

@@ -188,6 +188,12 @@ export const InsightsCreateParams = /* @__PURE__ */ zod.object({
 
 export const InsightsCreateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['csv', 'json']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. API-token callers no longer receive it by default; use `dashboard_tiles` instead.'
+        ),
 })
 
 export const insightsCreateBodyNameMax = 400
@@ -209,7 +215,7 @@ export const InsightsCreateBody = /* @__PURE__ */ zod
             .array(zod.number())
             .optional()
             .describe(
-                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        Only returned to API-token callers when `include_dashboards=true` is passed; the field\n        is omitted from responses otherwise.\n        '
+                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        Session-authenticated (web app) requests receive this field; other callers (personal API\n        keys, OAuth, sharing tokens) must pass the `include_dashboards=true` query parameter to\n        receive it.\n        '
             ),
         description: zod.string().max(insightsCreateBodyDescriptionMax).nullish(),
         tags: zod.array(zod.unknown()).optional(),
@@ -302,6 +308,12 @@ export const InsightsPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const InsightsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['csv', 'json']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. API-token callers no longer receive it by default; use `dashboard_tiles` instead.'
+        ),
 })
 
 export const insightsPartialUpdateBodyNameMax = 400
@@ -323,7 +335,7 @@ export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.number())
             .optional()
             .describe(
-                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        Only returned to API-token callers when `include_dashboards=true` is passed; the field\n        is omitted from responses otherwise.\n        '
+                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        Session-authenticated (web app) requests receive this field; other callers (personal API\n        keys, OAuth, sharing tokens) must pass the `include_dashboards=true` query parameter to\n        receive it.\n        '
             ),
         description: zod.string().max(insightsPartialUpdateBodyDescriptionMax).nullish(),
         tags: zod.array(zod.unknown()).optional(),
