@@ -886,12 +886,24 @@ mod test {
             )]
         };
         assert_ne!(
-            value(FingerprintVersion::V2, with_fn("initPriceBox__6a5a17a744e6e")),
-            value(FingerprintVersion::V2, with_fn("initPriceBox__b1c2d3e4f5061")),
+            value(
+                FingerprintVersion::V2,
+                with_fn("initPriceBox__6a5a17a744e6e")
+            ),
+            value(
+                FingerprintVersion::V2,
+                with_fn("initPriceBox__b1c2d3e4f5061")
+            ),
         );
         assert_eq!(
-            value(FingerprintVersion::V3, with_fn("initPriceBox__6a5a17a744e6e")),
-            value(FingerprintVersion::V3, with_fn("initPriceBox__b1c2d3e4f5061")),
+            value(
+                FingerprintVersion::V3,
+                with_fn("initPriceBox__6a5a17a744e6e")
+            ),
+            value(
+                FingerprintVersion::V3,
+                with_fn("initPriceBox__b1c2d3e4f5061")
+            ),
         );
     }
 
@@ -905,12 +917,24 @@ mod test {
             )]
         };
         assert_ne!(
-            value(FingerprintVersion::V2, with_mangled("initPriceBox__6a5a17a744e6e")),
-            value(FingerprintVersion::V2, with_mangled("initPriceBox__b1c2d3e4f5061")),
+            value(
+                FingerprintVersion::V2,
+                with_mangled("initPriceBox__6a5a17a744e6e")
+            ),
+            value(
+                FingerprintVersion::V2,
+                with_mangled("initPriceBox__b1c2d3e4f5061")
+            ),
         );
         assert_eq!(
-            value(FingerprintVersion::V3, with_mangled("initPriceBox__6a5a17a744e6e")),
-            value(FingerprintVersion::V3, with_mangled("initPriceBox__b1c2d3e4f5061")),
+            value(
+                FingerprintVersion::V3,
+                with_mangled("initPriceBox__6a5a17a744e6e")
+            ),
+            value(
+                FingerprintVersion::V3,
+                with_mangled("initPriceBox__b1c2d3e4f5061")
+            ),
         );
     }
 
