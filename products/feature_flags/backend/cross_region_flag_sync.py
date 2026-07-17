@@ -35,9 +35,10 @@ DOGFOOD_SELF_TEAM_ID = 2
 _FLAGS_DEFINITIONS_PATH = "/flags/definitions"
 _REQUEST_TIMEOUT_SECONDS = (3, 10)  # (connect, read)
 
-# Throttle window for capturing an unexpected failure (network error, bad JSON) to
-# PostHog error tracking, shared across the 30s schedule so a sustained outage
-# reports once per window instead of once per tick.
+# Throttle window for capturing a genuinely unexpected failure (bad JSON, an
+# unexpected request error) to PostHog error tracking, shared across the 30s schedule
+# so a sustained outage reports once per window instead of once per tick. Expected
+# transient network blips (connection/timeout/proxy errors) are logged, not captured.
 _SYNC_FAILURE_CAPTURE_THROTTLE_KEY = "cross_region_dogfood_flags_sync_capture_throttle"
 _SYNC_FAILURE_CAPTURE_THROTTLE_TTL = 300  # seconds
 
@@ -70,6 +71,12 @@ def sync_cross_region_dogfood_flags() -> None:
             headers=headers,
             timeout=_REQUEST_TIMEOUT_SECONDS,
         )
+    except (requests.ConnectionError, requests.Timeout) as e:
+        # Expected transient cross-region blips (proxy timeouts, connection resets).
+        # ProxyError subclasses ConnectionError, so it's covered here. The best-effort
+        # poll self-heals on the next 30s tick, so log without reporting to error tracking.
+        logger.warning("cross_region_dogfood_flags_sync_request_failed", error=str(e))
+        return
     except requests.RequestException as e:
         capture_exception_throttled(_SYNC_FAILURE_CAPTURE_THROTTLE_KEY, e, _SYNC_FAILURE_CAPTURE_THROTTLE_TTL)
         logger.warning("cross_region_dogfood_flags_sync_request_failed", error=str(e))
