@@ -1,13 +1,17 @@
-from collections.abc import Iterator
 from typing import Any
-from urllib.parse import quote, urlencode
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib.parse import quote
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponseCursorPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io.settings import (
     FLY_IO_ENDPOINTS,
     FlyIoEndpointConfig,
@@ -17,9 +21,6 @@ FLY_IO_BASE_URL = "https://api.machines.dev/v1"
 
 # Advisory page size for the cursor-paginated org endpoints (the API caps it at 1000).
 _PAGE_SIZE = 1000
-
-# Hard cap on pages walked per stream so a misbehaving cursor can't loop forever.
-_MAX_PAGES = 1000
 
 # A Fly machine's `config` can embed deployment secrets, so we sync only an operational
 # allowlist (the "overview" the canonical description promises) rather than the raw object.
@@ -65,10 +66,6 @@ _SAFE_METADATA_KEYS = frozenset(
 )
 
 
-class FlyIoRetryableError(Exception):
-    pass
-
-
 def _strip_headers(value: Any) -> Any:
     """Recursively drop every `headers` mapping from a nested structure. Fly service and check
     definitions can carry request headers (e.g. a health-check `Authorization`), a credential
@@ -109,149 +106,98 @@ def _sanitize_machine(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def _get_headers(api_token: str) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {api_token}",
-        "Accept": "application/json",
-    }
-
-
-def _build_url(config: FlyIoEndpointConfig, org_slug: str, params: dict[str, Any]) -> str:
-    """Build the request URL for an endpoint. Org-scoped endpoints carry the org in the path;
-    the apps endpoint takes it as a required query param instead."""
+def _endpoint_path(config: FlyIoEndpointConfig, org_slug: str) -> str:
+    """The org-scoped endpoints carry the org in the path; encode the slug so a reserved
+    character (e.g. `/`) can't retarget the request to a different API path than the one
+    credential validation checked. The apps endpoint takes org_slug as a query param instead."""
     if "{org_slug}" in config.path:
-        # Encode the slug so a reserved character (e.g. `/`) can't retarget the request to a
-        # different API path than the one credential validation checked.
-        path = config.path.format(org_slug=quote(org_slug, safe=""))
-        query = dict(params)
-    else:
-        path = config.path
-        query = {"org_slug": org_slug, **params}
-    url = f"{FLY_IO_BASE_URL}{path}"
-    if query:
-        url = f"{url}?{urlencode(query)}"
-    return url
+        return config.path.format(org_slug=quote(org_slug, safe=""))
+    return config.path
 
 
-@retry(
-    # ChunkedEncodingError is a mid-stream connection break (a truncated chunked body); it's
-    # transient like ConnectionError/ReadTimeout but not a ConnectionError subclass.
-    retry=retry_if_exception_type(
-        (
-            FlyIoRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> dict[str, Any]:
-    response = session.get(url, headers=headers, timeout=60)
-
-    # 429 (rate limited) and 5xx are transient — retry with backoff.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise FlyIoRetryableError(f"Fly.io API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Fly.io API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    data = response.json()
-    # Every list endpoint we sync wraps its rows in an object ({"apps": [...]} etc.). A bare list
-    # or scalar is an unexpected shape: fail loudly rather than silently syncing zero rows, which
-    # would look like a successful-but-empty sync if Fly.io ever changed the wrapper.
-    if not isinstance(data, dict):
-        raise ValueError(f"Fly.io API returned an unexpected response shape: {type(data).__name__}")
-    return data
+def _endpoint_params(config: FlyIoEndpointConfig, org_slug: str) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    if "{org_slug}" not in config.path:
+        params["org_slug"] = org_slug
+    if config.paginated:
+        params["limit"] = _PAGE_SIZE
+    return params
 
 
 def validate_credentials(api_token: str, org_slug: str) -> tuple[bool, str | None]:
     """Probe the apps endpoint to confirm the token is genuine and the org is reachable."""
-    url = _build_url(FLY_IO_ENDPOINTS["apps"], org_slug, {})
-    try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_token), timeout=10)
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
-
-    if response.status_code == 200:
+    url = f"{FLY_IO_BASE_URL}/apps?org_slug={quote(org_slug, safe='')}"
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_token,)),
+        url,
+        headers={"Authorization": f"Bearer {api_token}", "Accept": "application/json"},
+    )
+    if ok:
         return True, None
-    if response.status_code == 401:
+    if status == 401:
         return False, "Invalid Fly.io API token. Create a new token with `fly tokens create org` and reconnect."
-    if response.status_code in (403, 404):
+    if status in (403, 404):
         return False, f"Organization '{org_slug}' was not found or is not accessible with this token."
-
-    try:
-        message = response.json().get("error", response.text)
-    except ValueError:
-        message = response.text
-    return False, message
-
-
-def get_rows(
-    api_token: str,
-    endpoint: str,
-    org_slug: str,
-    logger: FilteringBoundLogger,
-) -> Iterator[list[dict[str, Any]]]:
-    """Yield one page of rows at a time. The org machines/volumes endpoints paginate with an
-    opaque `next_cursor`; the apps endpoint returns everything in a single response. Rows are
-    yielded in the shape the API returns them (flat objects, with nested config/organization kept
-    as-is) — the pipeline batches and writes them."""
-    config = FLY_IO_ENDPOINTS[endpoint]
-    headers = _get_headers(api_token)
-    # One session reused across pages so urllib3 keeps the connection alive between requests.
-    # A stream whose bodies can carry secrets opts out of HTTP sample capture (still logged
-    # and metered) so those secrets never land in the sample-capture pipeline.
-    session = make_tracked_session(capture=not config.redact_secrets)
-
-    params: dict[str, Any] = {"limit": _PAGE_SIZE} if config.paginated else {}
-    url = _build_url(config, org_slug, params)
-
-    pages = 0
-    while True:
-        data = _fetch_page(session, url, headers, logger)
-
-        items = data.get(config.response_data_path) or []
-        if config.redact_secrets:
-            items = [_sanitize_machine(item) for item in items]
-        if items:
-            yield items
-
-        if not config.paginated:
-            break
-
-        next_cursor = data.get("next_cursor")
-        if not next_cursor:
-            break
-
-        pages += 1
-        if pages >= _MAX_PAGES:
-            logger.warning(
-                "Fly.io: pagination cap reached; remaining pages skipped",
-                endpoint=endpoint,
-                max_pages=_MAX_PAGES,
-            )
-            break
-
-        url = _build_url(config, org_slug, {**params, "cursor": next_cursor})
+    if status is None:
+        return False, "Could not reach the Fly.io API to validate the token."
+    return False, f"Fly.io API returned an unexpected status ({status})."
 
 
 def fly_io_source(
     api_token: str,
     endpoint: str,
     org_slug: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
 ) -> SourceResponse:
+    """Build the rest_source resource for a Fly.io stream. The org machines/volumes endpoints
+    paginate with an opaque `next_cursor`; the apps endpoint returns everything in one response.
+    Rows are yielded in the shape the API returns them, except the machines stream, whose rows can
+    embed deployment secrets: those are reduced to a safe operational allowlist and the stream opts
+    out of HTTP sample capture, so secrets reach neither the warehouse nor the sample pipeline."""
     config = FLY_IO_ENDPOINTS[endpoint]
+
+    paginator = (
+        JSONResponseCursorPaginator(cursor_path="next_cursor", cursor_param="cursor")
+        if config.paginated
+        else SinglePagePaginator()
+    )
+
+    client_config: dict[str, Any] = {
+        "base_url": FLY_IO_BASE_URL,
+        # Auth (Bearer) is supplied via the framework auth config so its value is redacted from
+        # logs and raised errors; only the non-secret Accept header is set here.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "bearer", "token": api_token},
+    }
+    if config.redact_secrets:
+        # A stream whose bodies can carry secrets opts out of HTTP sample capture (still logged
+        # and metered) so those secrets never land in the sample-capture pipeline. The token is
+        # still masked in whatever remains logged.
+        client_config["session"] = make_tracked_session(capture=False, redact_values=(api_token,))
+
+    endpoint_config: dict[str, Any] = {
+        "path": _endpoint_path(config, org_slug),
+        "params": _endpoint_params(config, org_slug),
+        "paginator": paginator,
+        "data_selector": config.response_data_path,
+        # Every list endpoint wraps its rows in an object ({"apps": [...]} etc.). A 200 body that
+        # isn't that shape (a bare list, or the wrapper key gone) means the API changed — fail loud
+        # rather than silently syncing zero rows, which would look like a successful-but-empty sync.
+        "data_selector_required": True,
+    }
+
+    resource_config: dict[str, Any] = {"name": endpoint, "endpoint": endpoint_config}
+    if config.redact_secrets:
+        resource_config["data_map"] = _sanitize_machine
+
+    rest_config: RESTAPIConfig = {"client": client_config, "resources": [resource_config]}
+
+    resource = rest_api_resource(rest_config, team_id, job_id, None)
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(api_token=api_token, endpoint=endpoint, org_slug=org_slug, logger=logger),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         sort_mode="asc",
         partition_count=1,
