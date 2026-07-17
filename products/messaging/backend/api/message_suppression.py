@@ -7,6 +7,7 @@ from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -110,6 +111,14 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["get"])
     def suppressions(self, request: Request, **kwargs: Any) -> Response:
         """List suppressed recipients for the team, most recently updated first."""
+        # Resource-level check: `AccessControlPermission` only guarantees the caller has some
+        # hog_flow object access. Since this endpoint returns team-wide data (every suppressed
+        # recipient + their SMTP diagnostics) with no per-workflow object, require project-wide
+        # hog_flow viewer access — otherwise a member granted access to a single workflow could
+        # read the entire team's suppression list.
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
+            raise PermissionDenied("You need hog_flow viewer access to view the suppression list.")
+
         suppressions = (
             MessageSuppression.objects.for_team(self.team_id)
             .filter(suppressed=True, deleted=False)
@@ -133,6 +142,12 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["post"])
     def add_suppression(self, request: Request, **kwargs: Any) -> Response:
         """Manually suppress an email address so no workflow sends to it."""
+        # Team-wide mutation with no per-workflow object — require project-wide hog_flow editor
+        # access. Otherwise an editor grant on one workflow could add arbitrary addresses to the
+        # team's suppression list, blocking unrelated (including transactional) delivery.
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+            raise PermissionDenied("You need hog_flow editor access to modify the suppression list.")
+
         serializer = AddSuppressionRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -176,6 +191,10 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["post"])
     def remove_suppression(self, request: Request, **kwargs: Any) -> Response:
         """Remove an address from the suppression list so it can receive messages again."""
+        # Same rationale as add_suppression — this is a team-wide mutation.
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+            raise PermissionDenied("You need hog_flow editor access to modify the suppression list.")
+
         serializer = AddSuppressionRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
