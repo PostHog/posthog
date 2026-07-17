@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 
 import { Link } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -107,8 +106,6 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
     const logic = insightAlertsLogic(props)
 
     const { alerts, alertsLoading } = useValues(logic)
-    const hogqlAlertsEnabled = useFeatureFlag('HOGQL_INSIGHT_ALERTS')
-    const funnelAlertsEnabled = useFeatureFlag('FUNNEL_INSIGHT_ALERTS')
 
     const showDeferredListSpinner = props.deferInitialAlertsLoad && props.isOpen && alertsLoading
     const openAlert = (alertId: AlertType['id']): void => {
@@ -174,7 +171,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                     onClick={createAlert}
                     disabledReason={
                         !props.canCreateAlertForInsight
-                            ? alertsUnsupportedReason({ hogqlAlertsEnabled, funnelAlertsEnabled }, props.insightQuery)
+                            ? alertsUnsupportedReason({}, props.insightQuery)
                             : undefined
                     }
                 >

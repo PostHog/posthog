@@ -2,8 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -36,8 +35,6 @@ export interface InsightAlertsLogicProps {
 
 /** Per-kind feature-flag state threaded from call sites into the alert-support predicates. */
 export interface AlertSupportFlagOptions {
-    hogqlAlertsEnabled?: boolean
-    funnelAlertsEnabled?: boolean
     metricsAlertsEnabled?: boolean
 }
 
@@ -51,7 +48,7 @@ export const areAlertsSupportedForInsight = (
     if (isInsightVizNode(query) && isTrendsQuery(query.source)) {
         return true
     }
-    if (options.funnelAlertsEnabled && isInsightVizNode(query) && isFunnelsQuery(query.source)) {
+    if (isInsightVizNode(query) && isFunnelsQuery(query.source)) {
         // Steps and trends both alert on a conversion-rate percentage. Time-to-convert (a duration)
         // and flow (a sankey) have no conversion-rate metric, so they aren't supported.
         const vizType = query.source.funnelsFilter?.funnelVizType
@@ -61,7 +58,7 @@ export const areAlertsSupportedForInsight = (
     if (options.metricsAlertsEnabled && isMetricsQuery(query)) {
         return true
     }
-    return !!options.hogqlAlertsEnabled && containsHogQLQuery(query)
+    return containsHogQLQuery(query)
 }
 
 export const areAnomalyAlertsSupportedForInsight = (
@@ -81,14 +78,7 @@ export const areAnomalyAlertsSupportedForInsight = (
 // List only the insight types this account can actually alert on — naming a flag-gated type the
 // user doesn't have would disclose an unreleased feature.
 const alertableInsightTypesLabel = (options: AlertSupportFlagOptions): string =>
-    [
-        'trends',
-        options.hogqlAlertsEnabled && 'SQL',
-        options.funnelAlertsEnabled && 'funnel',
-        options.metricsAlertsEnabled && 'metrics',
-    ]
-        .filter(Boolean)
-        .join(', ')
+    ['trends', 'SQL', 'funnel', options.metricsAlertsEnabled && 'metrics'].filter(Boolean).join(', ')
 
 export const alertsUnsupportedReason = (
     options: AlertSupportFlagOptions,
@@ -96,7 +86,7 @@ export const alertsUnsupportedReason = (
 ): string => {
     // A funnel on a viz type without a conversion-rate metric otherwise reads as a contradiction —
     // "funnel insights are supported" while standing on a blocked funnel. Name the real reason instead.
-    if (options.funnelAlertsEnabled && query && isInsightVizNode(query) && isFunnelsQuery(query.source)) {
+    if (query && isInsightVizNode(query) && isFunnelsQuery(query.source)) {
         const vizType = query.source.funnelsFilter?.funnelVizType
         if (vizType === FunnelVizType.TimeToConvert || vizType === FunnelVizType.Flow) {
             return "Alerts track a conversion rate, which time-to-convert and flow funnels don't have. Switch to the steps or trends view to add an alert."
@@ -235,8 +225,6 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
             ['showAlertThresholdLines', 'breakdownFilter'],
             insightLogic(props.insightLogicProps),
             ['insight'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
     })),
 
@@ -364,12 +352,7 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
 
     listeners(({ actions, values }) => ({
         setQuery: ({ query }) => {
-            const hogqlAlertsEnabled = !!values.featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS]
-            const funnelAlertsEnabled = !!values.featureFlags[FEATURE_FLAGS.FUNNEL_INSIGHT_ALERTS]
-            if (
-                values.alerts.length === 0 ||
-                areAlertsSupportedForInsight(query, { hogqlAlertsEnabled, funnelAlertsEnabled })
-            ) {
+            if (values.alerts.length === 0 || areAlertsSupportedForInsight(query)) {
                 actions.setShouldShowAlertDeletionWarning(false)
             } else {
                 actions.setShouldShowAlertDeletionWarning(true)
