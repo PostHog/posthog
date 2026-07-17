@@ -85,6 +85,12 @@ pub async fn process_batch(
         }
         metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "non_historical_import")
             .increment(events.len() as u64);
+        crate::ctx_log!(
+            Level::WARN,
+            context,
+            dropped_events = events.len(),
+            "import mode dropped non-historical batch"
+        );
         return Ok(BatchResponse::build(context, &events));
     }
 
