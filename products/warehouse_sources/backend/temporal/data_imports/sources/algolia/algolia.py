@@ -158,6 +158,7 @@ def algolia_source(
             },
             "auth": {"type": "api_key", "api_key": api_key, "name": "X-Algolia-API-Key", "location": "header"},
         },
+        "resource_defaults": {},
         "resources": [{"name": endpoint, "endpoint": endpoint_config}],
     }
 

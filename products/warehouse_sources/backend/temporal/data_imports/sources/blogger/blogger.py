@@ -77,7 +77,7 @@ def _make_sanitized_session(api_key: str) -> requests.Session:
             response.url = urlsplit(response.url)._replace(query="").geturl()
         return response
 
-    session.send = send_with_sanitized_url  # type: ignore[method-assign]
+    session.send = send_with_sanitized_url  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
     return session
 
 
@@ -150,6 +150,7 @@ def blogger_source(
             "auth": {"type": "api_key", "name": "key", "api_key": api_key, "location": "query"},
             "session": _make_sanitized_session(api_key),
         },
+        "resource_defaults": {},
         "resources": [{"name": endpoint, "endpoint": endpoint_def}],
     }
 

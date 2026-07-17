@@ -115,6 +115,7 @@ def agilecrm_source(
             "auth": {"type": "http_basic", "username": email, "password": api_key},
             "paginator": AgileCRMCursorPaginator(page_size=config.page_size),
         },
+        "resource_defaults": {},
         "resources": [
             {
                 "name": endpoint,

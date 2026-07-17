@@ -103,6 +103,7 @@ def ashby_source(
             "auth": {"type": "http_basic", "username": api_key, "password": ""},
             "paginator": AshbyCursorPaginator(config.path),
         },
+        "resource_defaults": {},
         "resources": [
             {
                 "name": endpoint,

@@ -129,6 +129,7 @@ def aha_source(
                 total_path="pagination.total_pages",
             ),
         },
+        "resource_defaults": {},
         "resources": [
             {
                 "name": endpoint,
