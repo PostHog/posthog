@@ -161,8 +161,9 @@ def validate_credentials(api_key: str, base_url: str | None, path: str = "/organ
     """Probe an endpoint and return the HTTP status code (or None on transport failure)."""
     try:
         # base_url is user-supplied (self-hosted), so pin redirects off: validation and the
-        # outbound request must stay on the same target (SSRF defense-in-depth).
-        session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
+        # outbound request must stay on the same target (SSRF defense-in-depth). capture=False
+        # keeps the probe's customer-content response body out of HTTP sample storage.
+        session = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False)
         response = session.get(
             f"{_api_base(normalize_base_url(base_url))}{path}", headers=_headers(api_key), timeout=10
         )
@@ -287,7 +288,9 @@ def get_rows(
     config = FLAGSMITH_ENDPOINTS[endpoint]
     base = normalize_base_url(base_url)
     headers = _headers(api_key)
-    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
+    # capture=False: Flagsmith bodies carry customer-authored content the name-based scrubbers
+    # can't recognise — feature values, segment rules, audit records, and member PII (names/emails).
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
