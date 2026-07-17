@@ -210,7 +210,7 @@ pub async fn build_components(
     // event individually, so we should instead allow for some small multiple of our max compressed
     // body size to be unpacked. If a single event is still too big, we'll drop it at kafka send time.
     let event_payload_max_bytes = match config.capture_mode {
-        CaptureMode::Events | CaptureMode::Ai => BATCH_BODY_SIZE * 5,
+        CaptureMode::Events | CaptureMode::Ai | CaptureMode::Import => BATCH_BODY_SIZE * 5,
         CaptureMode::Recordings => config.kafka.kafka_producer_message_max_bytes as usize,
     };
 

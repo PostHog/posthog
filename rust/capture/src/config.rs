@@ -10,6 +10,12 @@ pub enum CaptureMode {
     Events,
     Recordings,
     Ai,
+    /// Analytics ingestion dedicated to historical backfills (the
+    /// batch-import-worker). Behaves exactly like `Events` except that it
+    /// never applies the global rate limiter and drops any batch not flagged
+    /// `historical_migration: true`. See `applies_global_rate_limit` and
+    /// `requires_historical_migration`.
+    Import,
 }
 
 impl CaptureMode {
@@ -18,7 +24,21 @@ impl CaptureMode {
             CaptureMode::Events => "events",
             CaptureMode::Recordings => "recordings",
             CaptureMode::Ai => "ai",
+            CaptureMode::Import => "import",
         }
+    }
+
+    /// Whether this mode subjects incoming events to the per-(token,
+    /// distinct_id) global rate limiter. `Import` opts out: historical
+    /// backfills are internal traffic that must not be throttled.
+    pub fn applies_global_rate_limit(&self) -> bool {
+        !matches!(self, CaptureMode::Import)
+    }
+
+    /// Whether this mode drops any batch not marked `historical_migration:
+    /// true`. Only `Import` does — it exclusively ingests historical data.
+    pub fn requires_historical_migration(&self) -> bool {
+        matches!(self, CaptureMode::Import)
     }
 }
 
@@ -30,6 +50,7 @@ impl std::str::FromStr for CaptureMode {
             "events" => Ok(CaptureMode::Events),
             "recordings" => Ok(CaptureMode::Recordings),
             "ai" => Ok(CaptureMode::Ai),
+            "import" => Ok(CaptureMode::Import),
             _ => Err(format!("Unknown Capture Type: {s}")),
         }
     }
@@ -484,8 +505,56 @@ pub struct KafkaConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{AiRouting, AiSinkMode};
+    use super::{AiRouting, AiSinkMode, CaptureMode};
     use std::str::FromStr;
+
+    #[test]
+    fn capture_mode_from_str_and_tag_roundtrip() {
+        // Locks the CAPTURE_MODE env contract, including the new `import` mode
+        // and case/whitespace handling, plus the tag used as a metric label.
+        let ok = [
+            ("events", CaptureMode::Events, "events"),
+            ("Recordings", CaptureMode::Recordings, "recordings"),
+            (" ai ", CaptureMode::Ai, "ai"),
+            ("import", CaptureMode::Import, "import"),
+            ("IMPORT", CaptureMode::Import, "import"),
+        ];
+        for (input, expected, tag) in ok {
+            let parsed = CaptureMode::from_str(input).unwrap();
+            assert_eq!(parsed, expected, "input={input}");
+            assert_eq!(parsed.as_tag(), tag, "input={input}");
+        }
+
+        for bad in ["", "imports", "backfill", "historical"] {
+            assert!(
+                CaptureMode::from_str(bad).is_err(),
+                "expected err for {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn capture_mode_import_policy_differs_from_events() {
+        // The whole point of Import mode: it skips the global rate limiter and
+        // drops non-historical batches, while every other mode does neither.
+        assert!(!CaptureMode::Import.applies_global_rate_limit());
+        assert!(CaptureMode::Import.requires_historical_migration());
+
+        for mode in [
+            CaptureMode::Events,
+            CaptureMode::Recordings,
+            CaptureMode::Ai,
+        ] {
+            assert!(
+                mode.applies_global_rate_limit(),
+                "{mode:?} should apply GRL"
+            );
+            assert!(
+                !mode.requires_historical_migration(),
+                "{mode:?} should not require historical_migration"
+            );
+        }
+    }
 
     #[test]
     fn ai_sink_mode_from_str() {

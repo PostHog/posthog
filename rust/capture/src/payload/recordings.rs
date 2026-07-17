@@ -126,6 +126,7 @@ pub async fn handle_recording_payload(
         historical_migration: false, // recordings don't support historical migration
         user_agent: Some(metadata.user_agent.to_string()),
         chatty_debug_enabled,
+        capture_mode: state.capture_mode,
     };
 
     // Apply all billing limit quotas and drop partial or whole

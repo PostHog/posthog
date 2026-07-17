@@ -11,7 +11,8 @@ use super::constants::{
     CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
     CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_PROCESSING_DURATION_SECONDS,
     CAPTURE_V1_RATE_LIMITER, DETAIL_EVENT_RESTRICTION_DROP, DETAIL_INVALID_OPTIONS,
-    DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
+    DETAIL_NON_HISTORICAL_DROP, DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS,
+    ILLEGAL_DISTINCT_IDS,
 };
 use super::response::BatchResponse;
 use super::types::{Batch, Event, EventResult, Options, WrappedEvent};
@@ -73,6 +74,20 @@ pub async fn process_batch(
     // the all-dropped early return so those batches are covered too.
     emit_validation_drop_warnings(state, context, &events);
 
+    // Import mode ingests only historical backfills: drop any batch not flagged
+    // `historical_migration` (a batch-level flag) by marking every event Drop and
+    // returning 200 (accept-and-discard) so the batch-import-worker doesn't retry.
+    if state.capture_mode.requires_historical_migration() && !context.historical_migration {
+        for ev in events.iter_mut() {
+            ev.result = EventResult::Drop;
+            ev.destination = Destination::Drop;
+            ev.details = Some(DETAIL_NON_HISTORICAL_DROP);
+        }
+        metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "non_historical_import")
+            .increment(events.len() as u64);
+        return Ok(BatchResponse::build(context, &events));
+    }
+
     // Nothing left to process — return 200 with per-event drops.
     if events.iter().all(|ev| ev.result != EventResult::Ok) {
         return Ok(BatchResponse::build(context, &events));
@@ -107,8 +122,12 @@ pub async fn process_batch(
         apply_overflow_stamping(limiter, context, &mut events);
     }
 
-    if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
-        apply_token_distinct_id_limits(limiter, context, &mut events).await;
+    // Import mode opts out of the global rate limiter entirely — historical
+    // backfills must never be throttled — so it's skipped even if one were wired.
+    if state.capture_mode.applies_global_rate_limit() {
+        if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
+            apply_token_distinct_id_limits(limiter, context, &mut events).await;
+        }
     }
 
     histogram!(
@@ -3277,6 +3296,113 @@ mod tests {
                 "all-invalid batch must return 200 with per-event drops, not 402"
             );
         }
+    }
+
+    // =========================================================================
+    // Import-mode process_batch tests — historical-only ingestion + GRL bypass
+    // =========================================================================
+
+    /// A `valid_batch` with the historical_migration flag set — the only kind
+    /// of batch Import mode accepts.
+    fn historical_batch(events: Vec<Event>) -> Batch {
+        Batch {
+            historical_migration: true,
+            ..valid_batch(events)
+        }
+    }
+
+    #[tokio::test]
+    async fn import_mode_drops_non_historical_batch_and_publishes_nothing() {
+        // Import mode exists to ingest backfills only: a batch without
+        // historical_migration must be fully dropped (200, per-event Drop) and
+        // never published — otherwise live traffic could sneak in via the
+        // import deployment.
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(crate::config::CaptureMode::Import)
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = valid_batch(vec![valid_event(), valid_event()]);
+
+        let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        assert_eq!(resp.entries().len(), 2);
+        for (_, entry) in resp.entries() {
+            assert_eq!(entry.result, EventResult::Drop);
+            assert_eq!(entry.details, Some(DETAIL_NON_HISTORICAL_DROP));
+        }
+        assert!(!resp.has_retry, "dropped batch must not signal retry");
+        ts.mock_producer
+            .with_records(|records| assert!(records.is_empty(), "nothing may be published"));
+    }
+
+    #[tokio::test]
+    async fn import_mode_publishes_historical_batch() {
+        // The happy path: a properly flagged historical batch flows through
+        // Import mode exactly like Events mode and reaches the sink.
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(crate::config::CaptureMode::Import)
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = historical_batch(vec![valid_event(), valid_event()]);
+
+        let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        assert_eq!(resp.entries().len(), 2);
+        for (_, entry) in resp.entries() {
+            assert_eq!(entry.result, EventResult::Ok);
+        }
+        ts.mock_producer.with_records(|records| {
+            assert_eq!(records.len(), 2, "both historical events must publish");
+        });
+    }
+
+    #[tokio::test]
+    async fn import_mode_skips_global_rate_limiter() {
+        // Import mode must never apply the global rate limiter, even when one is
+        // wired and the (token, distinct_id) is over its limit. If the limiter
+        // ran, the event would be flagged person_processing_disabled; here it
+        // must stay untouched. valid_event()'s distinct_id is "user-42".
+        let limiter = std::sync::Arc::new(mock_limiter(vec!["phc_test_token:user-42"]));
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(crate::config::CaptureMode::Import)
+            .with_global_rate_limiter(limiter)
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = historical_batch(vec![valid_event()]);
+
+        let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        let (_, entry) = &resp.entries()[0];
+        assert_eq!(entry.result, EventResult::Ok);
+        assert_eq!(
+            entry.details, None,
+            "GRL must be skipped in Import mode — no person_processing_disabled flag"
+        );
+    }
+
+    #[tokio::test]
+    async fn events_mode_applies_global_rate_limiter() {
+        // Control for the Import GRL-bypass test: the same over-limit key in the
+        // default Events mode flags the event, proving the limiter is genuinely
+        // hot and the Import bypass above is meaningful.
+        let limiter = std::sync::Arc::new(mock_limiter(vec!["phc_test_token:user-42"]));
+        let ts = TestStateBuilder::new()
+            .with_global_rate_limiter(limiter)
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = valid_batch(vec![valid_event()]);
+
+        let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        // A limited AnalyticsMain event is flagged and rerouted to overflow,
+        // which lands as a Warning with the person_processing_disabled detail.
+        let (_, entry) = &resp.entries()[0];
+        assert_eq!(entry.result, EventResult::Warning);
+        assert_eq!(
+            entry.details,
+            Some(DETAIL_PERSON_PROCESSING_DISABLED),
+            "Events mode must apply the GRL and flag the hot key"
+        );
     }
 
     // =========================================================================

@@ -236,6 +236,23 @@ pub async fn process_events(
     Span::current().record("request_id", &context.request_id);
     Span::current().record("is_mirror_deploy", context.is_mirror_deploy);
 
+    // Import mode ingests only historical backfills: drop any batch not
+    // flagged `historical_migration` (a batch-level flag) and return Ok so the
+    // endpoint responds 200 (accept-and-discard) — the batch-import-worker must
+    // not retry. Non-batch legacy endpoints never set the flag, so they are
+    // always dropped in Import mode, which is intended: imports only arrive via
+    // `/batch` and the v1 endpoint.
+    if context.capture_mode.requires_historical_migration() && !context.historical_migration {
+        let dropped = events.len() as u64;
+        report_dropped_events("import_non_historical", dropped);
+        warn!(
+            token = context.token,
+            dropped_events = dropped,
+            "import mode dropped non-historical batch"
+        );
+        return Ok(());
+    }
+
     // Build the processed batch one raw event at a time so we can split a
     // heatmap-carrying event into a stripped original + a `$$heatmap`
     // redirect *before* serialization happens inside `process_single_event`.
@@ -337,44 +354,48 @@ pub async fn process_events(
     }
 
     // Per-(token, distinct_id) global rate limiting: skip person processing for
-    // hot distinct_ids and reroute AnalyticsMain events to overflow.
-    if let Some(ref limiter) = global_rate_limiter {
-        let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
-        let mut limited_event_count: u64 = 0;
-        for event in events.iter_mut() {
-            let cache_key =
-                GlobalRateLimitKey::TokenDistinctId(&context.token, &event.event.distinct_id)
-                    .to_cache_key();
-            if limiter.is_limited(&cache_key, 1).await.is_some() {
-                event.metadata.skip_person_processing = true;
-                // Reroute the hot key to overflow. AnalyticsMain only: historical
-                // never overflows and only AnalyticsMain acts on overflow_reason.
-                if event.metadata.data_type == DataType::AnalyticsMain {
-                    event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
+    // hot distinct_ids and reroute AnalyticsMain events to overflow. Import mode
+    // opts out entirely — historical backfills must never be throttled — so the
+    // limiter is skipped even if one were wired.
+    if context.capture_mode.applies_global_rate_limit() {
+        if let Some(ref limiter) = global_rate_limiter {
+            let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
+            let mut limited_event_count: u64 = 0;
+            for event in events.iter_mut() {
+                let cache_key =
+                    GlobalRateLimitKey::TokenDistinctId(&context.token, &event.event.distinct_id)
+                        .to_cache_key();
+                if limiter.is_limited(&cache_key, 1).await.is_some() {
+                    event.metadata.skip_person_processing = true;
+                    // Reroute the hot key to overflow. AnalyticsMain only: historical
+                    // never overflows and only AnalyticsMain acts on overflow_reason.
+                    if event.metadata.data_type == DataType::AnalyticsMain {
+                        event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
+                    }
+                    limited_distinct_ids.insert(&event.event.distinct_id);
+                    limited_event_count += 1;
                 }
-                limited_distinct_ids.insert(&event.event.distinct_id);
-                limited_event_count += 1;
             }
-        }
-        if limited_event_count > 0 {
-            let ids: Vec<&str> = limited_distinct_ids.iter().copied().collect();
-            let preview: String = if ids.len() > 10 {
-                format!("{}...", ids[..10].join(", "))
-            } else {
-                ids.join(", ")
-            };
-            counter!(
-                "capture_events_rate_limited_token_distinctid",
-                "reason" => "global_rate_limit_token_distinctid",
-            )
-            .increment(limited_event_count);
-            warn!(
-                token = context.token,
-                limited_event_count = limited_event_count,
-                distinct_id_count = limited_distinct_ids.len(),
-                distinct_ids = %preview,
-                "events rate limited by distinct_id -- person processing disabled"
-            );
+            if limited_event_count > 0 {
+                let ids: Vec<&str> = limited_distinct_ids.iter().copied().collect();
+                let preview: String = if ids.len() > 10 {
+                    format!("{}...", ids[..10].join(", "))
+                } else {
+                    ids.join(", ")
+                };
+                counter!(
+                    "capture_events_rate_limited_token_distinctid",
+                    "reason" => "global_rate_limit_token_distinctid",
+                )
+                .increment(limited_event_count);
+                warn!(
+                    token = context.token,
+                    limited_event_count = limited_event_count,
+                    distinct_id_count = limited_distinct_ids.len(),
+                    distinct_ids = %preview,
+                    "events rate limited by distinct_id -- person processing disabled"
+                );
+            }
         }
     }
 
@@ -429,6 +450,7 @@ mod tests {
             is_mirror_deploy: false,
             historical_migration: false,
             chatty_debug_enabled: false,
+            capture_mode: crate::config::CaptureMode::Events,
         }
     }
 
@@ -1804,6 +1826,132 @@ mod tests {
         // ...but NOT rerouted to overflow.
         assert_eq!(captured[0].metadata.overflow_reason, None);
         assert!(!captured[0].metadata.force_overflow);
+    }
+
+    // ==================== Import-mode legacy path tests ======================
+
+    #[tokio::test]
+    async fn import_mode_drops_non_historical_batch() {
+        // Import mode ingests only backfills: a batch without historical_migration
+        // must be dropped (200, nothing published) so live traffic can't leak in.
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        context.capture_mode = crate::config::CaptureMode::Import;
+        // historical_migration defaults to false — this batch must be dropped.
+        let events = vec![
+            create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
+            create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
+        ];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+
+        process_events(
+            sink.clone(),
+            dropper,
+            None,
+            historical_cfg,
+            None,
+            None,
+            events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            sink.get_events().len(),
+            0,
+            "non-historical batch must be fully dropped in Import mode"
+        );
+    }
+
+    #[tokio::test]
+    async fn import_mode_processes_historical_batch() {
+        // A properly flagged historical batch flows through Import mode to the sink.
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        context.capture_mode = crate::config::CaptureMode::Import;
+        context.historical_migration = true;
+        let events = vec![create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+
+        process_events(
+            sink.clone(),
+            dropper,
+            None,
+            historical_cfg,
+            None,
+            None,
+            events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(
+            captured[0].metadata.data_type,
+            DataType::AnalyticsHistorical
+        );
+    }
+
+    #[tokio::test]
+    async fn import_mode_skips_global_rate_limiter() {
+        // Import mode must never apply the global rate limiter. Same hot key that
+        // sets skip_person_processing in Events mode (see
+        // global_rate_limit_does_not_overflow_historical_events) must leave the
+        // event untouched here. Uses a historical batch so it isn't dropped first.
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        context.capture_mode = crate::config::CaptureMode::Import;
+        context.historical_migration = true;
+        let events = vec![create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
+
+        process_events(
+            sink.clone(),
+            dropper,
+            None,
+            historical_cfg,
+            Some(global_limiter),
+            None,
+            events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 1);
+        assert!(
+            !captured[0].metadata.skip_person_processing,
+            "GRL must be skipped in Import mode — person processing must stay enabled"
+        );
+        assert_eq!(captured[0].metadata.overflow_reason, None);
     }
 
     // ============ end-to-end pipeline -> real KafkaSinkBase tests ============
