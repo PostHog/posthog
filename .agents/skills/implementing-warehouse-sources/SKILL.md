@@ -106,6 +106,21 @@ For API-backed sources, use this split:
 
 This keeps endpoint behavior declarative and easy to extend.
 
+### Source behaviour goes in the source, never in the API layer
+
+The `data_warehouse` presentation layer (`products/data_warehouse/backend/presentation/views/external_data_source.py`, `external_data_schema.py`) must stay source-agnostic.
+Do **not** add `if source_type == ExternalDataSourceType.X` / `source.is_direct_<engine>` branches there — a CI guard (`.github/scripts/check-dwh-source-agnostic.py`) blocks new ones.
+
+When a source needs behaviour the API must invoke, expose it on the source instead:
+
+- **A boolean/value the API reads** → add a flag on `_BaseSource` with a safe default (like `supports_column_selection`, `connection_host_fields`, `has_managed_hogql_schema`), and let the API branch on the flag.
+- **Methods only some sources have** (CDC, xmin, webhooks, custom manifests) → a capability mixin the source opts into; the API dispatches with `isinstance(source, <Capability>)`.
+- **Direct-query engine behaviour** (how a SQL engine resolves a table location, builds its `DataWarehouseTable`, maps columns) is keyed on the engine, not the source type — dispatch on `source.direct_engine` through the engine adapter/registry (`posthog/hogql/direct_sql/` for query concerns, the `data_warehouse` engine registry for materialization), never `source_type`.
+
+Keep source-domain semantics (how to talk to the engine, how it names things, whether filters push down) on the source; the warehouse-domain work it drives (`DataWarehouseTable` rows, managed viewsets, hog functions) stays in `data_warehouse`, keyed off what the source or adapter returns.
+Source capabilities never import `data_warehouse` types.
+See `products/data_warehouse/backend/presentation/README.md`.
+
 For REST sources that mix top-level and fan-out endpoints, keep endpoint metadata in `settings.py` and route in `{source}.py` with this priority:
 
 1. endpoint-specific custom iterators (only when required),
