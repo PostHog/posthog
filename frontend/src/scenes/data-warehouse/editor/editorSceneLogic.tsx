@@ -1,8 +1,9 @@
 import { deepEqual as equal } from 'fast-equals'
-import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { removeUndefinedAndNull } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
@@ -184,7 +185,7 @@ export type editorSceneLogicType = MakeLogicType<
 export const editorSceneLogic = kea<editorSceneLogicType>([
     path(['data-warehouse', 'editor', 'editorSceneLogic']),
     props({} as EditorSceneLogicProps),
-    key((props) => props.tabId),
+    tabAwareScene(),
     connect((props: EditorSceneLogicProps) => ({
         values: [
             sqlEditorLogic({ tabId: props.tabId }),

@@ -7,7 +7,6 @@ import {
     beforeUnmount,
     connect,
     kea,
-    key,
     listeners,
     path,
     props,
@@ -38,6 +37,7 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
@@ -1071,7 +1071,7 @@ export type sqlEditorLogicType = MakeLogicType<
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
     props({ mode: SQLEditorMode.FullScene } as SqlEditorLogicProps),
-    key((props) => props.tabId),
+    tabAwareScene(),
     connect((props: SqlEditorLogicProps) => ({
         values: [
             dataWarehouseViewsLogic,
