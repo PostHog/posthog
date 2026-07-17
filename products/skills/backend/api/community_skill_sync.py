@@ -10,6 +10,7 @@ import structlog
 from posthog.egress.github.transport import github_request
 
 from ..models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillTrustTier
+from .skill_serializers import RESERVED_SKILL_NAMES, SKILL_NAME_PATTERN
 from .skill_services import MAX_SKILL_BODY_BYTES, MAX_SKILL_FILE_BYTES, MAX_SKILL_FILE_COUNT
 
 logger = structlog.get_logger(__name__)
@@ -41,6 +42,45 @@ COMMUNITY_SKILLS_REGISTRY_URL = (
     f"https://raw.githubusercontent.com/{COMMUNITY_SKILLS_REPO}/{COMMUNITY_SKILLS_BRANCH}/registry.json"
 )
 COMMUNITY_SKILLS_SYNC_TIMEOUT_SECONDS = 30
+
+
+def _validate_entry_shape(entry: dict[str, Any]) -> None:
+    """Reject entries whose field shapes would break catalog rendering or install.
+
+    The registry is generated in a review-gated repo, but a single mistyped field (a scalar
+    ``metadata``, a non-list ``tags``, a slug that DRF's lookup regex can't route) would
+    otherwise 500 the whole list/detail page or the install copy. Raising ValueError isolates
+    the failure to the one bad entry (the sync loop's per-entry ``except`` catches it).
+    """
+    slug = entry.get("slug", "")
+    # The slug is both the catalog URL segment and the default installed-skill name, so it must
+    # satisfy the skill-name rules — lowercase alnum + single hyphens, not reserved. This also
+    # keeps DRF's default lookup regex (which rejects '.'/'/') able to route detail/install URLs,
+    # and means the default-name install can never raise an uncaught name ValidationError.
+    if (
+        not isinstance(slug, str)
+        or not SKILL_NAME_PATTERN.match(slug)
+        or "--" in slug
+        or slug.lower() in RESERVED_SKILL_NAMES
+    ):
+        raise ValueError(f"slug '{slug}' is not a valid, routable skill identifier")
+
+    metadata = entry.get("metadata")
+    if metadata is not None and not isinstance(metadata, dict):
+        raise ValueError("metadata must be an object")
+
+    tags = entry.get("tags")
+    if tags is not None and (not isinstance(tags, list) or not all(isinstance(t, str) for t in tags)):
+        raise ValueError("tags must be a list of strings")
+
+    allowed_tools = entry.get("allowed_tools")
+    if allowed_tools is not None:
+        if not isinstance(allowed_tools, list) or not all(isinstance(t, str) for t in allowed_tools):
+            raise ValueError("allowed_tools must be a list of strings")
+        # The Agent Skills spec serializes allowed-tools as one space-separated string, so a name
+        # with whitespace would silently fracture into multiple tools on export/round-trip.
+        if any(any(ch.isspace() for ch in t) for t in allowed_tools):
+            raise ValueError("allowed_tools names cannot contain whitespace")
 
 
 def _validate_entry_within_caps(entry: dict[str, Any]) -> None:
@@ -86,6 +126,7 @@ def _upsert_community_skill(entry: dict[str, Any]) -> bool:
     """Upsert a single registry entry. Returns True if the row was created or updated."""
     slug = entry["slug"]
     source_sha = entry.get("source_sha", "")
+    _validate_entry_shape(entry)
     _validate_entry_within_caps(entry)
 
     existing = CommunitySkill.objects.filter(slug=slug).first()
