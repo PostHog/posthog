@@ -61,11 +61,18 @@ describe('toolPolicy', () => {
             'experiment-partial-update',
             'update-something',
             'delete',
+            'workflows-patch-graph',
+            'workflows-patch-email-template',
         ])('%s is destructive', (sub) => expect(isPostHogDestructiveSubTool(sub)).toBe(true))
-        it.each(['experiment-get', 'feature-flag-list', 'experiment-create', 'insights-pause', 'get-updated-events'])(
-            '%s is not destructive',
-            (sub) => expect(isPostHogDestructiveSubTool(sub)).toBe(false)
-        )
+        it.each([
+            'experiment-get',
+            'feature-flag-list',
+            'experiment-create',
+            'insights-pause',
+            'get-updated-events',
+            // `patch` must match as a whole `-`-bounded segment, not as a substring.
+            'dispatch-events-list',
+        ])('%s is not destructive', (sub) => expect(isPostHogDestructiveSubTool(sub)).toBe(false))
     })
 
     describe('defaultPermissionDecision', () => {
@@ -142,6 +149,30 @@ describe('toolPolicy', () => {
                 makeRecord({ input: { command: 'call dashboard-create {"name":"My dashboard"}' } }),
                 true,
             ],
+            [
+                'dashboard-create-text-tile',
+                makeRecord({ input: { command: 'call dashboard-create-text-tile {"dashboard_id":1}' } }),
+                true,
+            ],
+            ['dashboard-tile-copy', makeRecord({ input: { command: 'call dashboard-tile-copy {"id":1}' } }), true],
+            [
+                'dashboard-widgets-batch-add',
+                makeRecord({ input: { command: 'call dashboard-widgets-batch-add {"dashboard_id":1}' } }),
+                true,
+            ],
+            [
+                'feature-flags-copy-flags-create',
+                makeRecord({ input: { command: 'call feature-flags-copy-flags-create {"key":"x"}' } }),
+                true,
+            ],
+            [
+                'scheduled-changes-create',
+                makeRecord({ input: { command: 'call scheduled-changes-create {"model_name":"FeatureFlag"}' } }),
+                true,
+            ],
+            ['survey-launch', makeRecord({ input: { command: 'call survey-launch {"id":"s1"}' } }), true],
+            ['survey-stop', makeRecord({ input: { command: 'call survey-stop {"id":"s1"}' } }), true],
+            ['workflows-create', makeRecord({ input: { command: 'call workflows-create {"name":"Flow"}' } }), true],
             // A read-only query wrapper must never be swept in by an over-broad set/match.
             ['query-trends (read-only)', makeRecord({ input: { command: 'call query-trends {}' } }), false],
             // An exec call that can't resolve to a concrete sub-tool has no `innerToolName` to match on.
