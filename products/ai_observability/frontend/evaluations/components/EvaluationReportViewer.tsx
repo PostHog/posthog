@@ -13,8 +13,8 @@ import type {
     EvaluationReportStoredMetrics,
 } from '../types'
 
-// Rewrite each cited generation_id in the content into a markdown link to the
-// trace viewer. Uses the structured citations list (not regex scanning) so:
+// Rewrite each cited generation or trace ID in the content into a markdown link
+// to the trace viewer. Uses the structured citations list (not regex scanning) so:
 // - only ids the agent explicitly cited get linked (no false positives)
 // - the trace_id for the correct URL is guaranteed available
 // - there's no ReDoS surface on arbitrary prose input
@@ -24,6 +24,13 @@ import type {
 // by a later citation. Wrapper variants (`uuid`, <uuid>, bare) are collapsed
 // in descending specificity so the wrappers themselves get absorbed into the
 // replacement rather than surviving around a link.
+const SAFE_CITATION_LABEL_RE = /^[A-Za-z0-9._~-]{1,8}$/
+
+function citationLinkLabel(citedId: string, isGenerationCitation: boolean): string {
+    const preview = citedId.slice(0, 8)
+    return SAFE_CITATION_LABEL_RE.test(preview) ? `${preview}...` : isGenerationCitation ? 'generation' : 'trace'
+}
+
 function linkifyCitations(content: string, citations: EvaluationReportCitation[]): string {
     if (citations.length === 0) {
         return content
@@ -31,18 +38,23 @@ function linkifyCitations(content: string, citations: EvaluationReportCitation[]
     const tokens: Array<{ token: string; link: string }> = []
     let out = content
     citations.forEach((c, idx) => {
-        if (!c.generation_id) {
+        const citedId = c.generation_id || c.trace_id
+        const traceId = c.trace_id || c.generation_id
+        if (!citedId || !traceId) {
             return
         }
         const token = `\0CITE${idx}\0`
-        const url = c.trace_id
-            ? urls.aiObservabilityTrace(c.trace_id, { event: c.generation_id })
-            : urls.aiObservabilityTrace(c.generation_id)
-        const link = `[\`${c.generation_id.slice(0, 8)}...\`](${url})`
+        const url = urls.aiObservabilityTrace(
+            traceId,
+            c.generation_id && c.trace_id ? { event: c.generation_id } : undefined
+        )
+        const link = `[\`${citationLinkLabel(citedId, Boolean(c.generation_id))}\`](${url})`
         const before = out
-        out = out.split(`\`${c.generation_id}\``).join(token)
-        out = out.split(`<${c.generation_id}>`).join(token)
-        out = out.split(c.generation_id).join(token)
+        out = out.split(`\`${citedId}\``).join(token)
+        out = out.split(`<${citedId}>`).join(token)
+        if (c.generation_id) {
+            out = out.split(citedId).join(token)
+        }
         if (out !== before) {
             tokens.push({ token, link })
         }
@@ -280,6 +292,7 @@ function MetricsCard({ metrics }: { metrics: EvaluationReportStoredMetrics }): J
 function DeliveryStatusBadge({ status }: { status: string }): JSX.Element {
     const statusMap: Record<string, { label: string; status: 'success' | 'warning' | 'danger' | 'muted' }> = {
         delivered: { label: 'Delivered', status: 'success' },
+        generated: { label: 'Generated', status: 'success' },
         pending: { label: 'Pending', status: 'muted' },
         partial_failure: { label: 'Partial failure', status: 'warning' },
         failed: { label: 'Failed', status: 'danger' },

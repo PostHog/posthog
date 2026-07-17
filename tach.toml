@@ -92,6 +92,7 @@ depends_on = [
     "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
+    "products.data_catalog",
     "products.data_modeling",
     "products.data_warehouse",
     "products.demo",
@@ -115,6 +116,7 @@ depends_on = [
     "products.posthog_ai",
     "products.product_analytics",
     "products.product_tours",
+    "products.pulse",
     "products.reminders",
     "products.replay",
     "products.replay_vision",
@@ -122,6 +124,7 @@ depends_on = [
     "products.review_hog",
     "products.signals",
     "products.slack_app",
+    "products.stamphog",
     "products.streamlit_apps",
     "products.surveys",
     "products.tasks",
@@ -151,6 +154,7 @@ layer = "modules"
 path = "products.agent_platform"
 depends_on = [
     "posthog",
+    "products.mcp_store",
     "products.skills",
 ]
 layer = "modules"
@@ -235,6 +239,7 @@ depends_on = [
     "products.feature_flags",
     "products.logs",
     "products.mcp_analytics",
+    "products.notifications",
     "products.product_analytics",
     "products.surveys",
 ]
@@ -347,6 +352,7 @@ depends_on = [
     "products.cohorts",
     "ee",
     "posthog",
+    "products.access_control",
     "products.actions",
     "products.approvals",
     "products.ai_observability",
@@ -488,6 +494,21 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.pulse"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.ai_observability",
+    "products.alerts",
+    "products.annotations",
+    "products.dashboards",
+    "products.experiments",
+    "products.exports",
+    "products.product_analytics",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.streamlit_apps"
 depends_on = [
     "posthog",
@@ -577,6 +598,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.cdp",
+    "products.cohorts",
     "products.exports",
     "products.signals",
 ]
@@ -1053,6 +1075,20 @@ layer = "modules"
 path = "products.field_notes"
 depends_on = ["posthog"]
 layer = "modules"
+
+[[modules]]
+path = "products.stamphog"
+depends_on = ["posthog", "products.tasks"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.stamphog",
+]
 
 [[modules]]
 path = "products.data_catalog"

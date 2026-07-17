@@ -79,6 +79,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "activity_log",
     "error_tracking",
     "logs",
+    "metrics",
     "tracing",
 )
 

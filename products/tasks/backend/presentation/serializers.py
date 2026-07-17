@@ -19,6 +19,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
+from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ips
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import (
@@ -33,6 +34,7 @@ from products.tasks.backend.facade.contracts import (
     TaskSummaryDTO,
     TaskThreadMessageDTO,
     TaskUserBasicInfo,
+    WizardCloudRunDTO,
 )
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -308,6 +310,22 @@ class TaskRunDetailSerializer(DataclassSerializer):
         ]
 
 
+class WizardCloudRunSerializer(DataclassSerializer):
+    """The team's active onboarding wizard cloud run, used to rehydrate
+    the setup-progress FAB when the run was started server-side (drop flow)."""
+
+    task_id = serializers.UUIDField(help_text="Id of the onboarding wizard task.")
+    run_id = serializers.UUIDField(help_text="Id of the task's latest run, for reconnecting to its progress stream.")
+    status = serializers.CharField(help_text="Latest run status (e.g. queued, in_progress, completed, failed).")
+    started_at = serializers.DateTimeField(
+        allow_null=True, required=False, help_text="When the run was created, for the FAB's elapsed timer."
+    )
+
+    class Meta:
+        dataclass = WizardCloudRunDTO
+        fields = ["task_id", "run_id", "status", "started_at"]
+
+
 # The relationship a client asserts between a task and a signal report when creating a task from the
 # report (e.g. PostHog Code inbox), recorded as a signals `task_run` work-log entry. This is a
 # free-form label — the same as the `task_run` artefact `(product, type)` values, which have never
@@ -329,6 +347,11 @@ class TaskSerializer(DataclassSerializer):
 
     latest_run = TaskRunDetailSerializer(allow_null=True, required=False, help_text="Latest run details for this task")
     created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+    runtime = serializers.ChoiceField(
+        choices=tasks_facade.TaskRuntime.choices,
+        read_only=True,
+        help_text="Agent protocol and harness used for this task's runs.",
+    )
 
     class Meta:
         dataclass = TaskDetailDTO
@@ -340,6 +363,7 @@ class TaskSerializer(DataclassSerializer):
             "title_manually_set",
             "description",
             "origin_product",
+            "runtime",
             "repository",
             "github_integration",
             "github_user_integration",
@@ -599,6 +623,9 @@ class TaskWriteSerializer(serializers.Serializer):
         return normalized
 
     def validate(self, attrs: dict) -> dict:
+        if "runtime" in self.initial_data and "runtime" not in self.fields:
+            raise serializers.ValidationError({"runtime": "Runtime cannot be changed after task creation."})
+
         rel = attrs.get("signal_report_task_relationship")
         if rel is not None:
             if not attrs.get("signal_report"):
@@ -617,6 +644,14 @@ class TaskWriteSerializer(serializers.Serializer):
                 {"github_user_integration": "Signal report tasks use the team GitHub integration."}
             )
         return attrs
+
+
+class TaskCreateSerializer(TaskWriteSerializer):
+    runtime = serializers.ChoiceField(
+        choices=tasks_facade.TaskRuntime.choices,
+        required=False,
+        help_text="Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.",
+    )
 
 
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):
@@ -1485,7 +1520,140 @@ class StreamReadTokenResponseSerializer(serializers.Serializer):
     )
 
 
-class TaskRunCreateRequestSerializer(serializers.Serializer):
+MAX_IMPORTED_MCP_SERVERS = 20
+MAX_IMPORTED_MCP_SERVER_NAME_LENGTH = 64
+MAX_IMPORTED_MCP_HEADER_VALUE_LENGTH = 4096
+MAX_IMPORTED_MCP_SERVERS_BYTES = 32768
+# Names already taken by servers the sandbox always gets; imported entries must not shadow them.
+RESERVED_IMPORTED_MCP_SERVER_NAMES = {"posthog"}
+
+
+def _validate_unique_unreserved_mcp_names(value: list[dict]) -> None:
+    """Reject reserved names and case-insensitive duplicates within an MCP-server list.
+
+    Shared by the imported and relayed validators; the per-field caps (count, payload size) stay
+    in each caller since they differ.
+    """
+    seen: set[str] = set()
+    for server in value:
+        name = server["name"]
+        name_key = name.lower()
+        if name_key in RESERVED_IMPORTED_MCP_SERVER_NAMES:
+            raise serializers.ValidationError(f"'{name}' is a reserved MCP server name.")
+        if name_key in seen:
+            raise serializers.ValidationError(f"Duplicate MCP server name: '{name}'.")
+        seen.add(name_key)
+
+
+class ImportedMcpServerHeaderSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=256)
+    value = serializers.CharField(
+        max_length=MAX_IMPORTED_MCP_HEADER_VALUE_LENGTH, allow_blank=True, trim_whitespace=False
+    )
+
+
+class ImportedMcpServerListSerializer(serializers.ListSerializer):
+    def to_internal_value(self, data: object) -> list[dict[str, object]]:
+        if isinstance(data, list) and len(data) > MAX_IMPORTED_MCP_SERVERS:
+            raise serializers.ValidationError(f"At most {MAX_IMPORTED_MCP_SERVERS} imported MCP servers are allowed.")
+        return cast(list[dict[str, object]], super().to_internal_value(data))
+
+
+class ImportedMcpServerSerializer(serializers.Serializer):
+    """One client-imported MCP server, in the agent server's --mcpServers entry shape."""
+
+    type = serializers.ChoiceField(choices=["http", "sse"])
+    name = serializers.CharField(max_length=MAX_IMPORTED_MCP_SERVER_NAME_LENGTH)
+    url = serializers.URLField(max_length=2048)
+    headers = ImportedMcpServerHeaderSerializer(many=True, required=False, default=list)
+
+    class Meta:
+        list_serializer_class = ImportedMcpServerListSerializer
+
+
+class ImportedMcpServersFieldMixin(serializers.Serializer):
+    """Adds the write-only imported_mcp_servers field shared by both run-creation serializers."""
+
+    imported_mcp_servers = ImportedMcpServerSerializer(
+        many=True,
+        required=False,
+        allow_null=True,
+        default=None,
+        write_only=True,
+        help_text=(
+            "Local url-based MCP servers from the creating client (PostHog Code) to make "
+            "available inside the cloud sandbox. Header values are treated as credentials: "
+            "stored encrypted and never returned by the API."
+        ),
+    )
+
+    def validate_imported_mcp_servers(self, value):
+        if not value:
+            return None
+        _validate_unique_unreserved_mcp_names(value)
+        if len(json.dumps(value)) > MAX_IMPORTED_MCP_SERVERS_BYTES:
+            raise serializers.ValidationError("Imported MCP servers payload is too large.")
+
+        resolved_ips_by_host = resolve_url_hosts_ips(server["url"] for server in value)
+        for server in value:
+            allowed, reason = is_url_allowed(server["url"], resolved_ips_by_host=resolved_ips_by_host)
+            if not allowed:
+                raise serializers.ValidationError(reason or "URL is not allowed.")
+        return value
+
+
+MAX_RELAYED_MCP_SERVERS = 20
+
+
+class RelayedMcpServerSerializer(serializers.Serializer):
+    """One desktop-only MCP server relayed into the run — a name only, never configuration."""
+
+    name = serializers.CharField(max_length=MAX_IMPORTED_MCP_SERVER_NAME_LENGTH)
+
+
+class RelayedMcpServersFieldMixin(serializers.Serializer):
+    """Adds the write-only relayed_mcp_servers field shared by both run-creation serializers."""
+
+    relayed_mcp_servers = RelayedMcpServerSerializer(
+        many=True,
+        required=False,
+        allow_null=True,
+        default=None,
+        write_only=True,
+        help_text=(
+            "Names of desktop-only MCP servers the creating client (PostHog Code) relays into the "
+            "cloud sandbox over the durable event/command channel. Names only — the server "
+            "configuration (command, env, URL, headers) never crosses the wire."
+        ),
+    )
+
+    def validate_relayed_mcp_servers(self, value):
+        if not value:
+            return None
+        if len(value) > MAX_RELAYED_MCP_SERVERS:
+            raise serializers.ValidationError(f"At most {MAX_RELAYED_MCP_SERVERS} relayed MCP servers are allowed.")
+        _validate_unique_unreserved_mcp_names(value)
+        return value
+
+
+def get_relayed_imported_mcp_name_collision_error(attrs: dict) -> str | None:
+    """Relayed and imported MCP server names must be disjoint (case-insensitively).
+
+    Both lists feed the same sandbox `mcpServers` namespace, so a shared name would make one
+    silently shadow the other. Cross-field, so it runs in each creation serializer's ``validate``.
+    """
+    relayed = attrs.get("relayed_mcp_servers") or []
+    imported = attrs.get("imported_mcp_servers") or []
+    if not relayed or not imported:
+        return None
+    imported_names = {server["name"].lower() for server in imported}
+    for server in relayed:
+        if server["name"].lower() in imported_names:
+            return f"Relayed MCP server name '{server['name']}' collides with an imported MCP server name."
+    return None
+
+
+class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpServersFieldMixin, serializers.Serializer):
     """Request body for creating a new task run"""
 
     PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]
@@ -1612,6 +1780,8 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         errors: dict[str, str] = {}
+        if collision_error := get_relayed_imported_mcp_name_collision_error(attrs):
+            errors["relayed_mcp_servers"] = collision_error
         initial_permission_mode = attrs.get("initial_permission_mode")
         runtime_adapter = attrs.get("runtime_adapter")
         if initial_permission_mode is not None:
@@ -1672,7 +1842,9 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         return attrs
 
 
-class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
+class TaskRunBootstrapCreateRequestSerializer(
+    ImportedMcpServersFieldMixin, RelayedMcpServersFieldMixin, serializers.Serializer
+):
     """Request body for creating a task run without starting execution yet."""
 
     PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]
@@ -1791,6 +1963,8 @@ class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         errors: dict[str, str] = {}
+        if collision_error := get_relayed_imported_mcp_name_collision_error(attrs):
+            errors["relayed_mcp_servers"] = collision_error
         initial_permission_mode = attrs.get("initial_permission_mode")
         runtime_adapter = attrs.get("runtime_adapter")
         if initial_permission_mode is not None:
@@ -2070,7 +2244,13 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         "close",
         "permission_response",
         "set_config_option",
+        "mcp_response",
     ]
+
+    # Cap on the serialized mcp_response params (docs/cloud-mcp-relay.md): the relayed JSON-RPC
+    # response payload plus envelope must fit in 300 KB. Params are forwarded to the sandbox
+    # verbatim and never persisted or captured — they carry data from the user's private systems.
+    MAX_MCP_RESPONSE_PARAMS_BYTES = 300_000
 
     jsonrpc = serializers.ChoiceField(
         choices=["2.0"],
@@ -2139,6 +2319,26 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         elif method == "set_config_option":
             self._require_nonempty_string(params, "configId")
             self._require_nonempty_string(params, "value")
+        elif method == "mcp_response":
+            self._require_nonempty_string(params, "requestId")
+            self._require_nonempty_string(params, "server")
+            payload = params.get("payload")
+            error = params.get("error")
+            if (payload is None) == (error is None):
+                raise serializers.ValidationError({"params": "mcp_response requires exactly one of payload or error"})
+            if payload is not None and not isinstance(payload, dict):
+                raise serializers.ValidationError({"params": "payload must be an object"})
+            if error is not None and (
+                not isinstance(error, dict)
+                or isinstance(error.get("code"), bool)
+                or not isinstance(error.get("code"), int)
+                or not isinstance(error.get("message"), str)
+            ):
+                raise serializers.ValidationError(
+                    {"params": "error must be an object with an integer code and a string message"}
+                )
+            if len(json.dumps(params)) > self.MAX_MCP_RESPONSE_PARAMS_BYTES:
+                raise serializers.ValidationError({"params": "mcp_response params exceed the 300 KB limit"})
         return attrs
 
 
