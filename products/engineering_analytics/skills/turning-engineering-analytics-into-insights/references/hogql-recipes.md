@@ -162,10 +162,9 @@ WHERE prs.state = 'open' AND ci.failing > 0
 Drafts and bots stay included here, matching the product's failing-CI card (`ci_cards` only excludes them from the stuck count); add `AND NOT prs.is_draft` only if the user explicitly wants non-draft PRs, and say the number then diverges from the dashboard.
 A `pending`-heavy result can be sync staleness, not real in-flight CI; treat pending as unsettled, never as failure.
 
-## Job-level recipes (optional table)
+## Job-level recipes
 
-`<prefix>github_workflow_jobs` may not be synced; check `engineering-analytics-sources` output or probe with a `LIMIT 1`.
-Durations and queue times are honest SQL (`started_at - created_at` is queue wait, `completed_at - started_at` is run time; all string timestamps, parse them).
+Durations and queue times are honest SQL over `<prefix>github_workflow_jobs` (`started_at - created_at` is queue wait, `completed_at - started_at` is run time; all string timestamps, parse them).
 **Do not** recompute dollar cost from labels: the runner-tier price ladder lives in product code and drifts; query the `engineering_analytics_job_costs` view instead (below), which renders that model into SQL and is parity-tested against it.
 
 ## Recipe: weekly CI cost by workflow (job_costs view)
@@ -186,10 +185,9 @@ Grain is one row per job attempt, so `sum` is correct across retries.
 Add `WHERE pr_number = <n>` for one PR's cost — it matches `engineering-analytics-pr-cost`, since the tool reads the same rendered cost SELECT.
 With several connected sources, filter `repo_owner` / `repo_name`.
 
-## Review recipes (optional table)
+## Review recipes
 
-`<prefix>github_reviews` is webhook-fed with no history backfill: rows start when the source was connected with reviews enabled, so clamp windows to the earliest `submitted_at` present.
-Pending drafts are dropped at sync; `state` is `APPROVED` / `CHANGES_REQUESTED` / `COMMENTED` / `DISMISSED`, and the injected `pr_number` joins to the PR base's `number`.
+In `<prefix>github_reviews`, pending drafts are dropped at sync; `state` is `APPROVED` / `CHANGES_REQUESTED` / `COMMENTED` / `DISMISSED`, and the injected `pr_number` joins to the PR base's `number`.
 
 Weekly time to first review:
 

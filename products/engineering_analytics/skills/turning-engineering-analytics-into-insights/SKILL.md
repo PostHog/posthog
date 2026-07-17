@@ -21,11 +21,11 @@ run curated HogQL privately: nothing in the UI or the tool output names the unde
 and the endpoints cannot themselves be saved as insights or subscribed to.
 The data, however, is queryable directly, through two substrates:
 
-- **Raw warehouse tables** — `<prefix>github_pull_requests`, `<prefix>github_workflow_runs`, and (when synced)
-  `<prefix>github_workflow_jobs` and `<prefix>github_reviews` — ordinary team-scoped tables you query with HogQL.
+- **Raw warehouse tables** — `<prefix>github_pull_requests`, `<prefix>github_workflow_runs`,
+  `<prefix>github_workflow_jobs`, and `<prefix>github_reviews` — ordinary team-scoped tables you query with HogQL.
 - **Three curated warehouse views** with fixed names — `engineering_analytics_job_costs`,
-  `engineering_analytics_ci_job_history`, `engineering_analytics_ci_failures` — provisioned per team once a GitHub
-  source has both the `workflow_runs` and `workflow_jobs` endpoints synced (they appear together or not at all).
+  `engineering_analytics_ci_job_history`, `engineering_analytics_ci_failures` — provisioned per team from the
+  connected GitHub source(s).
   Non-materialized: computed at query time, always current, and they back insights and subscriptions like any table.
 
 The views exist for exactly one reason: they render **product code** into SQL — the runner-tier cost model, the
@@ -37,8 +37,8 @@ re-derive in SQL what the three views already encode.
 | What the product shows                              | Where the data actually lives                                                         | Can it back an insight?                       |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------- |
 | PR list, merge times, CI status, workflow health    | Data warehouse tables `<prefix>github_pull_requests`, `<prefix>github_workflow_runs`  | **Yes** (SQL insight over the tables)          |
-| Reviews and approvals                               | `<prefix>github_reviews` (optional; webhook-fed, no history backfill)                 | **Yes** (SQL insight; window from first data)  |
-| Job durations, queue times, runner tiers            | `<prefix>github_workflow_jobs` (optional)                                              | **Yes**                                        |
+| Reviews and approvals                               | `<prefix>github_reviews`                                                              | **Yes**                                        |
+| Job durations, queue times, runner tiers            | `<prefix>github_workflow_jobs`                                                        | **Yes**                                        |
 | CI cost (runner-tier price ladder)                  | `engineering_analytics_job_costs` view                                                | **Yes** (query the view, never recompute cost) |
 | Per-job CI history with commit attribution          | `engineering_analytics_ci_job_history` view                                           | **Yes**                                        |
 | Grouped (fingerprinted) CI failure lines            | `engineering_analytics_ci_failures` view (reads the Logs product, short retention)    | **Yes**, for short recent windows              |
@@ -53,15 +53,12 @@ everything computed by product logic at request time stays on the MCP tools, del
 
 Warehouse table names carry a user-chosen prefix, so never hardcode them.
 Call the `engineering-analytics-sources` MCP tool: each connected GitHub source returns its `id`, `repo`, and `prefix`.
-The tables are `<prefix>github_pull_requests`, `<prefix>github_workflow_runs`, and — when the corresponding endpoint is synced — `<prefix>github_workflow_jobs` and `<prefix>github_reviews`;
+The tables are `<prefix>github_pull_requests`, `<prefix>github_workflow_runs`, `<prefix>github_workflow_jobs`, and `<prefix>github_reviews`;
 an empty prefix means the plain `github_*` names.
-The sources tool does not report which optional endpoints are synced; probe an optional table with a `LIMIT 1` query.
 With multiple sources, ask which repo the user means; each source is one repo.
 
 The three `engineering_analytics_*` views need no discovery: their names are fixed (no prefix), and each unions every
-qualifying source, carrying `repo_owner` / `repo_name` columns (`repo` on `ci_failures`) to filter down to one repo.
-If querying a view fails with an unknown table, the team's job-level source isn't synced yet — the views only exist
-alongside `<prefix>github_workflow_jobs`.
+connected source, carrying `repo_owner` / `repo_name` columns (`repo` on `ci_failures`) to filter down to one repo.
 
 ## Step 2: write HogQL that carries the curated semantics
 
@@ -77,7 +74,7 @@ Copy the base subqueries from [references/hogql-recipes.md](references/hogql-rec
 - **Bot detection**: `author_handle LIKE '%[bot]' OR author_handle IN ('dependabot', 'github-actions', 'posthog-bot', 'renovate')`. Exclude bots and drafts from throughput / merge-time metrics by default.
 - **Honest names.** `merged_at - created_at` is `open_to_merge_seconds` (it fuses draft and review time); never label an insight "cycle time" or "review time".
 - **Conclusions can be stale.** The runs sync watermarks on `created_at`; a run that completes late can show a stale conclusion. Compute rates over `status = 'completed'` rows only.
-- **Reviews have no history by default.** `github_reviews` is fed by the `pull_request_review` webhook; rows exist only from when the source was connected (with reviews enabled), unless a deliberate one-off backfill was run. Baseline any review metric's window on the earliest `submitted_at` present. `state` is `APPROVED` / `CHANGES_REQUESTED` / `COMMENTED` / `DISMISSED` (pending drafts are dropped at sync), and the injected `pr_number` joins to the PR table's `number`.
+- **Reviews join by `pr_number`.** In `github_reviews`, `state` is `APPROVED` / `CHANGES_REQUESTED` / `COMMENTED` / `DISMISSED` (pending drafts are dropped at sync), and the injected `pr_number` joins to the PR table's `number`.
 
 Test the query with the `execute-sql` MCP tool (or the SQL editor) before saving anything.
 
@@ -115,18 +112,17 @@ hand-rolled SQL versions will silently drift from what the dashboard shows.
 For a recurring report on those, create a prompt-kind AI subscription (see the `creating-ai-subscription` skill) whose prompt asks for the relevant engineering analytics reading each period,
 or just call the MCP tools (`engineering-analytics-flaky-tests`, `engineering-analytics-broken-tests`, `engineering-analytics-team-ci-health`, `engineering-analytics-ci-failure-logs`, `engineering-analytics-run-failure-logs`) ad hoc.
 
-CI **cost** used to be on this list; it no longer is. The cost model is rendered into the
+CI **cost** is not on that list because its product logic is rendered into the
 `engineering_analytics_job_costs` view (parity-tested against the product's own model, re-rendered when the model
 changes), so cost insights are plain SQL over the view — and the cost MCP tools (`engineering-analytics-pr-cost`,
-`engineering-analytics-workflow-runner-costs`) read that same rendered SELECT, so the numbers agree. What remains
-true: never recompute dollar cost from runner labels yourself.
+`engineering-analytics-workflow-runner-costs`) read that same rendered SELECT, so the numbers agree. Still: never
+recompute dollar cost from runner labels yourself.
 
 ## Caveats to carry into every insight
 
 Name these in the insight description so future readers inherit them:
 `open_to_merge_seconds` is coarse (draft + review fused);
 CI conclusions can lag until the run's webhook settles;
-reviews start at source-connect (webhook-fed, no history backfill), and deploys and PR state transitions (draft↔ready) are not in the data yet;
 `estimated_cost_usd` NULL means non-billable or still running, never zero — disambiguate via `provider` vs `completed_at`;
 `ci_failures` is pytest-only and failure-only, so its counts are absolute signal, never rates;
 bots and drafts are excluded (or not: say which).
