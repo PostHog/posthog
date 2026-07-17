@@ -189,16 +189,41 @@ def _is_transient_rate_quota_exceeded(exc: Exception) -> bool:
     return "per second" in message and "Custom quota exceeded" not in message
 
 
-def _query_job_should_retry(exc: Exception) -> bool:
+def _is_transient_queued_jobs_quota_exceeded(exc: Exception) -> bool:
+    """True for BigQuery's "maximum number of queued jobs" quota, which is transient.
+
+    When a project already has the maximum number of query jobs queued, BigQuery rejects a fresh
+    `jobs.insert` with a `Forbidden` (403, reason `quotaExceeded`, location `max_queued_jobs`) whose
+    message reads "Quota exceeded: ... exceeded quota for max number of jobs that can be queued per
+    project.". The queue drains as running jobs finish, so resubmitting a moment later succeeds — but
+    the library's own retry predicates only cover `rateLimitExceeded` / `backendError` /
+    `internalError`, not `quotaExceeded`, so the insert isn't retried and the whole sync crashes.
+    Unlike the per-second rate quota this is rejected at job creation rather than
+    `jobs.getQueryResults`, so the `retry` on `client.query()` — not just its `job_retry` — has to
+    cover it. Distinct from the administrator-set "Custom quota exceeded" daily cost cap (kept
+    non-retryable in `get_non_retryable_errors`). Matched on the stable queue-quota wording rather
+    than the volatile project/job id.
+    """
+    return "max number of jobs that can be queued" in str(exc)
+
+
+def _query_should_retry(exc: Exception) -> bool:
     # Defer to the library's own default predicate for the reasons it already covers; importing it
     # directly (rather than reading the private `Retry._predicate`) means a library rename fails
     # loudly at import instead of silently dropping that default coverage.
     return (
-        _BIGQUERY_JOB_RETRY_RECOMMENDED in str(exc) or _is_transient_rate_quota_exceeded(exc) or _job_should_retry(exc)
+        _BIGQUERY_JOB_RETRY_RECOMMENDED in str(exc)
+        or _is_transient_rate_quota_exceeded(exc)
+        or _is_transient_queued_jobs_quota_exceeded(exc)
+        or _job_should_retry(exc)
     )
 
 
-BIGQUERY_QUERY_JOB_RETRY = DEFAULT_JOB_RETRY.with_predicate(_query_job_should_retry)
+# `job_retry` recovers a failed query *job* (a retryable reason surfaced from `jobs.getQueryResults`);
+# `retry` recovers the job-*creation* API call (`jobs.insert`). BigQuery's transient queued-jobs quota
+# is rejected at insert, which `job_retry` never wraps, so the create path needs its own retry.
+BIGQUERY_QUERY_JOB_RETRY = DEFAULT_JOB_RETRY.with_predicate(_query_should_retry)
+BIGQUERY_QUERY_CREATE_RETRY = bigquery.DEFAULT_RETRY.with_predicate(_query_should_retry)
 
 
 # The Storage Read API can drop a ReadRows stream mid-flight with a transient gRPC INTERNAL error
@@ -624,7 +649,7 @@ def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) 
     """
 
     job_config = QueryJobConfig()
-    job = client.query(query, job_config=job_config, project=table.project)
+    job = client.query(query, job_config=job_config, project=table.project, retry=BIGQUERY_QUERY_CREATE_RETRY)
 
     primary_keys = []
     for row in job.result(job_retry=BIGQUERY_QUERY_JOB_RETRY):
@@ -997,7 +1022,7 @@ def _run_destination_query_with_job_retry(
     )
 
     def _run() -> None:
-        job = client.query(query, job_config=job_config, project=project)
+        job = client.query(query, job_config=job_config, project=project, retry=BIGQUERY_QUERY_CREATE_RETRY)
         job.result(job_retry=BIGQUERY_QUERY_JOB_RETRY)
 
     _with_job_not_found_retry(_run)
@@ -1020,7 +1045,7 @@ def _query_result_with_job_retry(
     """
 
     def _run() -> RowIterator:
-        job = client.query(query, job_config=job_config, project=project)
+        job = client.query(query, job_config=job_config, project=project, retry=BIGQUERY_QUERY_CREATE_RETRY)
         return job.result(page_size=page_size, job_retry=BIGQUERY_QUERY_JOB_RETRY)
 
     return _with_job_not_found_retry(_run)
