@@ -109,9 +109,12 @@ def get_workflow_run(
     team: Team,
     run_id: int,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> WorkflowRunDetail | None:
-    return logic.build_workflow_run(curated=_authorized_source(team, source_id, user_access_control), run_id=run_id)
+    return logic.build_workflow_run(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), run_id=run_id
+    )
 
 
 def list_pr_runs(
@@ -233,10 +236,11 @@ def list_author_workflow_costs(
     date_from: str | None = None,
     date_to: str | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowCost]:
     return logic.build_author_workflow_costs(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         author=author,
         date_from=date_from,
         date_to=date_to,
@@ -249,17 +253,24 @@ def list_workflow_jobs(
     run_id: int,
     run_attempt: int | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowJob]:
     return logic.build_workflow_jobs(
-        curated=_authorized_source(team, source_id, user_access_control), run_id=run_id, run_attempt=run_attempt
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        run_id=run_id,
+        run_attempt=run_attempt,
     )
 
 
 def get_ci_cards(
-    *, team: Team, source_id: str | None = None, user_access_control: "UserAccessControl | None" = None
+    *,
+    team: Team,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
 ) -> CICardSummary:
-    return logic.build_ci_cards(curated=_authorized_source(team, source_id, user_access_control))
+    return logic.build_ci_cards(curated=_authorized_source(team, source_id, user_access_control, repo=repo))
 
 
 def list_pull_requests(
@@ -268,10 +279,11 @@ def list_pull_requests(
     date_from: str | None = None,
     author: str | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> PullRequestList:
     return logic.build_pull_request_list(
-        curated=_authorized_source(team, source_id, user_access_control), date_from=date_from, author=author
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), date_from=date_from, author=author
     )
 
 
@@ -283,10 +295,11 @@ def list_workflow_health(
     branch: str | None = None,
     run_scope: str | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowHealthItem]:
     return logic.build_workflow_health(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         date_from=date_from,
         date_to=date_to,
         branch=branch,
@@ -302,10 +315,11 @@ def list_flaky_tests(
     min_failed_prs: int | None = None,
     limit: int | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> FlakyTestList:
     return logic.build_flaky_tests(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         date_from=date_from,
         date_to=date_to,
         min_failed_prs=min_failed_prs,
@@ -372,9 +386,10 @@ def get_broken_tests(
     *,
     team: Team,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> BrokenTestsResult:
-    return logic.build_broken_tests(curated=_authorized_source(team, source_id, user_access_control))
+    return logic.build_broken_tests(curated=_authorized_source(team, source_id, user_access_control, repo=repo))
 
 
 def list_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:
@@ -410,10 +425,11 @@ def get_repo_overview(
     date_to: str | None = None,
     include_series: bool = True,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> RepoOverview:
     return logic.build_repo_overview(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         date_from=date_from,
         date_to=date_to,
         include_series=include_series,
@@ -424,9 +440,12 @@ def get_current_branch_health(
     *,
     team: Team,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> CurrentBranchHealth:
-    return logic.build_current_branch_health(curated=_authorized_source(team, source_id, user_access_control))
+    return logic.build_current_branch_health(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo)
+    )
 
 
 def get_repo_run_activity(
@@ -436,10 +455,11 @@ def get_repo_run_activity(
     date_to: str | None = None,
     branch: str | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> WorkflowRunActivity:
     return logic.build_repo_run_activity(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         date_from=date_from,
         date_to=date_to,
         branch=branch,
@@ -453,10 +473,11 @@ def list_master_failures(
     date_to: str | None = None,
     branch: str | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[MasterFailureGroup]:
     return logic.build_master_failures(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         date_from=date_from,
         date_to=date_to,
         branch=branch,
@@ -468,9 +489,12 @@ def get_run_failure_logs(
     team: Team,
     run_id: int,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> RunFailureLogs:
-    return logic.build_run_failure_logs(curated=_authorized_source(team, source_id, user_access_control), run_id=run_id)
+    return logic.build_run_failure_logs(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), run_id=run_id
+    )
 
 
 def list_job_aggregates(
@@ -481,10 +505,11 @@ def list_job_aggregates(
     date_to: str | None = None,
     branch: str | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowJobAggregate]:
     return logic.build_job_aggregates(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         workflow_name=workflow_name,
         date_from=date_from,
         date_to=date_to,

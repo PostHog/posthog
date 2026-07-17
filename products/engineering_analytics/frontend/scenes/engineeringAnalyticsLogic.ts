@@ -43,6 +43,7 @@ import type {
 } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
 import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
+import { scopeToValue } from '../lib/scope'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import type { BranchHealthParams } from './engineeringAnalyticsFiltersLogic'
 
@@ -671,7 +672,9 @@ export interface engineeringAnalyticsLogicValues {
     repo: string | null
     runFailureLogsByRun: Record<number, RunFailureLogsApi>
     runFailureLogsByRunLoading: boolean
+    scopeRepo: string | null
     search: string
+    selectedScope: string | null
     showPrOnlyBrokenTests: boolean
     sourceId: string | null
     sourceOptions: {
@@ -873,6 +876,13 @@ export interface engineeringAnalyticsLogicActions {
     setRepo: (repo: string | null) => {
         repo: string | null
     }
+    setScope: (
+        sourceId: string | null,
+        scopeRepo: string | null
+    ) => {
+        scopeRepo: string | null
+        sourceId: string | null
+    }
     setSearch: (search: string) => {
         search: string
     }
@@ -990,11 +1000,20 @@ export interface engineeringAnalyticsLogicMeta {
         hiddenBrokenTestCount: (brokenTests: BrokenTestRow[]) => number
         visibleBrokenTests: (brokenTests: BrokenTestRow[], showPrOnlyBrokenTests: boolean) => BrokenTestRow[]
         hasMultipleSources: (githubSources: GitHubSourceApi[]) => boolean
-        activeSource: (githubSources: GitHubSourceApi[], sourceId: string | null) => GitHubSourceApi | null
+        activeSource: (
+            githubSources: GitHubSourceApi[],
+            sourceId: string | null,
+            scopeRepo: string | null
+        ) => GitHubSourceApi | null
         sourceOptions: (githubSources: GitHubSourceApi[]) => {
             label: string
             value: string
         }[]
+        selectedScope: (
+            githubSources: GitHubSourceApi[],
+            sourceId: string | null,
+            scopeRepo: string | null
+        ) => string | null
     }
 }
 
@@ -1027,6 +1046,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setThrashOnly: (thrash: boolean) => ({ thrash }),
             applyCardFilter: (card: CardFilter) => ({ card }),
             setSourceId: (sourceId: string | null) => ({ sourceId }),
+            // The picker selects a (source, repo) pair in one action, so both land before a single refresh.
+            setScope: (sourceId: string | null, scopeRepo: string | null) => ({ sourceId, scopeRepo }),
             resetFilters: true,
             setQuarantineSearch: (search: string) => ({ search }),
             setQuarantineLifecycleFilter: (lifecycle: QuarantineLifecycleFilter) => ({ lifecycle }),
@@ -1048,6 +1069,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadCards: async (): Promise<CardsData> => {
                         const data = await engineeringAnalyticsCiCards(projectId(), {
                             source_id: values.sourceId ?? undefined,
+                            repo: values.scopeRepo ?? undefined,
                         })
                         return {
                             openPrs: data.open_prs,
@@ -1064,6 +1086,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadPullRequests: async (): Promise<PullRequestRow[]> => {
                         const response = await engineeringAnalyticsPullRequests(projectId(), {
                             source_id: values.sourceId ?? undefined,
+                            repo: values.scopeRepo ?? undefined,
                         })
                         return response.items.map(toPullRequestRow)
                     },
@@ -1078,6 +1101,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                             date_to: values.dateTo ?? undefined,
                             ...values.branchHealthParams,
                             source_id: values.sourceId ?? undefined,
+                            repo: values.scopeRepo ?? undefined,
                         })
                         return items.map(
                             (it): WorkflowHealthRow => ({
@@ -1115,6 +1139,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadQuarantine: async (): Promise<QuarantineData> => {
                         const data = await engineeringAnalyticsQuarantine(projectId(), {
                             source_id: values.sourceId ?? undefined,
+                            repo: values.scopeRepo ?? undefined,
                         })
                         return {
                             available: data.available,
@@ -1149,6 +1174,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                             date_from: values.flakyTestWindow,
                             limit: FLAKY_TEST_LIMIT,
                             source_id: values.sourceId ?? undefined,
+                            repo: values.scopeRepo ?? undefined,
                         })
                         return {
                             rows: data.items.map(
@@ -1176,6 +1202,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadBrokenTests: async (): Promise<BrokenTestsData> => {
                         const data = await engineeringAnalyticsBrokenTests(projectId(), {
                             source_id: values.sourceId ?? undefined,
+                            repo: values.scopeRepo ?? undefined,
                         })
                         return {
                             rows: data.rows.map(toBrokenTestRow),
@@ -1204,6 +1231,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                         const result = await engineeringAnalyticsRunFailureLogs(projectId(), {
                             run_id: runId,
                             source_id: values.sourceId ?? undefined,
+                            repo: values.scopeRepo ?? undefined,
                         })
                         return { ...values.runFailureLogsByRun, [runId]: result }
                     },
@@ -1291,7 +1319,13 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 },
             ],
             // Which GitHub source to read; null = backend default (oldest connected). Synced to `?source=`.
-            sourceId: [null as string | null, { setSourceId: (_, { sourceId }) => sourceId }],
+            sourceId: [
+                null as string | null,
+                { setSourceId: (_, { sourceId }) => sourceId, setScope: (_, { sourceId }) => sourceId },
+            ],
+            // Repo scope of a multi-repo source. Cleared when the source changes on its own (the old repo
+            // belongs to the old source); the picker uses setScope to set both together.
+            scopeRepo: [null as string | null, { setScope: (_, { scopeRepo }) => scopeRepo, setSourceId: () => null }],
             cardsStatus: [
                 'ok' as LoaderStatus,
                 {
@@ -1601,18 +1635,74 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (githubSources: GitHubSourceApi[]): boolean => githubSources.length > 1,
             ],
             // The source reads resolve to: the picked one, else the backend default (oldest connected = first).
+            // Matched by (source, repo), not source alone: a multi-repo source's entries share one id,
+            // so headers and commit links reading activeSource.repo must reflect the picked repo, not
+            // the first entry with that id.
             activeSource: [
-                (s) => [s.githubSources, s.sourceId],
-                (githubSources: GitHubSourceApi[], sourceId: string | null): GitHubSourceApi | null =>
-                    (sourceId ? githubSources.find((source) => source.id === sourceId) : githubSources[0]) ?? null,
+                (s) => [s.githubSources, s.sourceId, s.scopeRepo],
+                (
+                    githubSources: GitHubSourceApi[],
+                    sourceId: string | null,
+                    scopeRepo: string | null
+                ): GitHubSourceApi | null => {
+                    if (!sourceId) {
+                        // A repo-only scope (?repo with no ?source) resolves across sources — label that
+                        // repo. Otherwise prefer the first *synced* repo, matching the repo the backend
+                        // resolves by default (it skips still-backfilling repos), else the first entry.
+                        return (
+                            (scopeRepo && githubSources.find((source) => source.repo === scopeRepo)) ||
+                            githubSources.find((source) => source.synced) ||
+                            githubSources[0] ||
+                            null
+                        )
+                    }
+                    const ofSource = githubSources.filter((source) => source.id === sourceId)
+                    // Explicit repo wins; otherwise (a bookmarked `?source=` with no `?repo`) prefer the
+                    // first synced repo of this source, matching the repo the backend resolves by default —
+                    // else the header names an unsynced repo the loaders never read.
+                    return (
+                        (scopeRepo && ofSource.find((source) => source.repo === scopeRepo)) ||
+                        ofSource.find((source) => source.synced) ||
+                        ofSource[0] ||
+                        null
+                    )
+                },
             ],
+            // One option per selectable (source, repo). The value encodes both so a multi-repo source's
+            // repos are distinct entries; the label is the repo (falling back to prefix).
             sourceOptions: [
                 (s) => [s.githubSources],
                 (githubSources: GitHubSourceApi[]): { value: string; label: string }[] =>
                     githubSources.map((source) => ({
-                        value: source.id,
+                        value: scopeToValue(source.id, source.repo),
                         label: source.repo || source.prefix || `source ${source.id.slice(0, 8)}`,
                     })),
+            ],
+            // The picker's current value: the entry matching the picked (source, repo), else that source's
+            // first entry, else null (unpicked → placeholder + backend default).
+            selectedScope: [
+                (s) => [s.githubSources, s.sourceId, s.scopeRepo],
+                (
+                    githubSources: GitHubSourceApi[],
+                    sourceId: string | null,
+                    scopeRepo: string | null
+                ): string | null => {
+                    if (!sourceId) {
+                        // A repo-only scope (?repo, no ?source) highlights that repo across sources; an
+                        // unscoped page highlights nothing (placeholder shows the default label).
+                        const byRepo = scopeRepo && githubSources.find((source) => source.repo === scopeRepo)
+                        return byRepo ? scopeToValue(byRepo.id, byRepo.repo) : null
+                    }
+                    // Mirror activeSource: with no explicit repo, prefer the synced entry so the picker
+                    // highlights the repo the loaders actually read — else it shows an unsynced repo whose
+                    // selection would flip the page to not-connected.
+                    const ofSource = githubSources.filter((source) => source.id === sourceId)
+                    const match =
+                        (scopeRepo && ofSource.find((source) => source.repo === scopeRepo)) ||
+                        ofSource.find((source) => source.synced) ||
+                        ofSource[0]
+                    return match ? scopeToValue(match.id, match.repo) : null
+                },
             ],
         }),
 
@@ -1627,6 +1717,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             },
             setFlakyTestWindow: () => actions.loadFlakyTests(),
             setSourceId: () => actions.refresh(),
+            setScope: () => actions.refresh(),
             [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
                 actions.loadWorkflowHealth()
             },
@@ -1677,31 +1768,46 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             },
         })),
 
-        actionToUrl(() => ({
-            setSourceId: ({ sourceId }) => {
+        actionToUrl(() => {
+            // Write the (source, repo) scope onto the URL. A source change without a repo drops `?repo`
+            // (the old repo belonged to the old source); setScope writes both together.
+            const writeScope = (
+                sourceId: string | null,
+                scopeRepo: string | null
+            ): [string, Record<string, string>, Record<string, string>, { replace: boolean }] => {
                 const searchParams = { ...router.values.searchParams }
                 if (sourceId) {
                     searchParams.source = sourceId
                 } else {
                     delete searchParams.source
                 }
+                if (scopeRepo) {
+                    searchParams.repo = scopeRepo
+                } else {
+                    delete searchParams.repo
+                }
                 return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
-            },
-        })),
+            }
+            return {
+                setSourceId: ({ sourceId }) => writeScope(sourceId, null),
+                setScope: ({ sourceId, scopeRepo }) => writeScope(sourceId, scopeRepo),
+            }
+        }),
 
         urlToAction(({ actions, values }) => {
             // `?q=` (branch scope) is hydrated by engineeringAnalyticsFiltersLogic, not here.
-            const applySource = (source: string | undefined): void => {
-                const next = source ?? null
-                if (next !== values.sourceId) {
-                    actions.setSourceId(next)
+            const applyScope = (source: string | undefined, repo: string | undefined): void => {
+                const nextSource = source ?? null
+                const nextRepo = repo ?? null
+                if (nextSource !== values.sourceId || nextRepo !== values.scopeRepo) {
+                    actions.setScope(nextSource, nextRepo)
                 }
             }
             return {
-                [urls.engineeringAnalytics()]: (_, searchParams) => applySource(searchParams.source),
-                [urls.engineeringAnalyticsPullRequestList()]: (_, searchParams) => applySource(searchParams.source),
-                [urls.engineeringAnalyticsWorkflows()]: (_, searchParams) => applySource(searchParams.source),
-                [urls.engineeringAnalyticsTestHealth()]: (_, searchParams) => applySource(searchParams.source),
+                [urls.engineeringAnalytics()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsPullRequestList()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsWorkflows()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsTestHealth()]: (_, s) => applyScope(s.source, s.repo),
             }
         }),
 
