@@ -435,6 +435,9 @@ class TestPromptBuilder(BaseTest):
         )
         assert "**skill authors**: created by Ben (ben@posthog.com); since edited by" in prompt
         assert self.user.email in prompt
+        # The authors line is a default, not an override — dropping the precedence hedge would
+        # set the harness up to fight a skill body that defines its own reviewer routing.
+        assert "unless your skill body defines its own reviewer routing" in prompt
 
     def _report_prompt_for(self, allowed_tools: list[str]) -> str:
         name = "signals-scout-" + "-".join(allowed_tools)
