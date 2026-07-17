@@ -90,8 +90,8 @@ agent-builder/
 
 Auth is configured **per trigger** — there is no top-level
 `spec.auth`. Each of the Agent Builder's triggers sets
-`auth.modes: [posthog, posthog_internal]` (an array), so both entry
-points map to the same effective auth:
+a user-scoped `posthog` mode for chat and `posthog` plus
+`posthog_internal` for its MCP trigger:
 
 1. **PostHog Code** — user signs into the PostHog Code app via
    PostHog OAuth; the app mints a short-lived session-principal
@@ -103,10 +103,14 @@ points map to the same effective auth:
 
 The Agent Builder holds no fallback credential.
 
-Mode order is load-bearing. `posthog` must remain first so a request carrying
-the signed-in user's bearer resolves the user-scoped `posthog_api` credential.
-`posthog_internal` is only the trusted service fallback and does not supply a
-user credential for MCP calls.
+The Agent Builder chat accepts only `posthog` auth. PostHog Code sends the
+signed-in user's short-lived bearer on `/run` and `/send`; ingress validates it
+and stores it as the session's `posthog_api` credential. The runner forwards
+that same bearer to the first-party MCP, so there is no second interactive OAuth
+flow. A browser session cookie cannot be forwarded to the MCP host, and
+`posthog_internal` authenticates only the service call, not the asking user.
+Allowing that fallback would start a session with no user credential and no MCP
+tools, so the chat trigger deliberately fails closed instead.
 
 The PostHog MCP is a first-party implementation detail of the builder, not a
 connection the user configures. MCP startup only reuses an existing trigger or
@@ -138,11 +142,10 @@ These are platform-side, not bundle-side — and they're in place:
    which carries its whole authoring surface.)
 3. **OAuth principal threading** — the session principal threads
    through every tool call, so writes attribute to the user.
-4. **The authoring tools** — the PostHog MCP serves the full curated
-   `agent-applications-*` surface. Core lifecycle operations are also mounted as
-   native `@posthog/agent-applications-*` tools so a transient MCP startup
-   failure cannot remove the builder's entire authoring surface. Both paths act
-   as the asking user; destructive verbs remain approval-gated.
+4. **The MCP authoring tools** — the `agent-applications-*` verbs
+   (including draft-edit + validate) are served by the PostHog MCP,
+   scoped by the entry's curated `tools[]` allow-list, with the
+   destructive verbs approval-gated.
 
 ## Deploying
 

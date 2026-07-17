@@ -227,14 +227,8 @@ names — do this before calling a tool whose args you're unsure of; never guess
 and `posthog__call_tool` (invoke: pass `tool_name` + `arguments`). The
 `posthog__<name>` tools named throughout this doc are those tool names — pass them
 to `call_tool` as `tool_name` (with or without the `posthog__` prefix, either is
-accepted). Core agent-authoring operations are also mounted as top-level native
-tools under `@posthog/`, for example `@posthog/agent-applications-create`.
-Prefer those native tools when present. They resolve the user's credential when
-called, so they remain usable if the PostHog MCP did not mount at session
-startup. Do not conclude that authoring is unavailable merely because the three
-`posthog__*` helpers are absent; check for native
-`@posthog/agent-applications-*` tools first. Other non-PostHog entries below
-(`@posthog/*` natives, client tools) are called directly.
+accepted). The non-PostHog entries below (`@posthog/*` natives, client tools) are
+called directly.
 
 | Class                        | Examples                                                                                                                                                                       | When you use it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

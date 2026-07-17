@@ -13,9 +13,6 @@
                         "type": "posthog",
                         "scopes": ["agents:read", "agents:write", "agent_session:read"],
                         "audience": "organization"
-                    },
-                    {
-                        "type": "posthog_internal"
                     }
                 ]
             }
@@ -64,50 +61,6 @@
         {
             "kind": "native",
             "id": "@posthog/web-search"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-list"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-retrieve"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-create"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-create"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-retrieve"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-partial-update"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-agent-md-update"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-tools-update"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-validate-create"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-freeze-create"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-promote-create"
         },
         {
             "kind": "client",

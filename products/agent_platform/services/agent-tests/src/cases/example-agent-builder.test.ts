@@ -3,8 +3,8 @@
  *
  * The Agent Builder authors + operates other agents through the PostHog MCP
  * (one `spec.mcps[]` entry authed by the `posthog` identity provider), acting
- * as the asking user. A focused set of native `@posthog/agent-applications-*`
- * tools keeps core authoring available if the MCP misses session startup. Destructive authoring ops
+ * as the asking user. It keeps only its own runtime natives (`@posthog/memory-*`
+ * plus `@posthog/web-search`) and the PostHog Code client/UI tools. Destructive authoring ops
  * (`promote` / `archive` / `destroy`) are approval-gated on the MCP `tools[]`
  * via `level: 'approve'` + `approval_policy`, so the platform — not
  * just the prompt — holds them. This case pins that wiring net; drift here
@@ -68,20 +68,15 @@ describe('example: agent-builder bundle', () => {
         expect(parsed.mcps[0].tools?.length ?? 0).toBeGreaterThan(20)
     })
 
-    it('mounts native authoring tools so MCP startup failure cannot remove the whole authoring surface', async () => {
+    it('keeps only its own runtime natives (memory + web-search) — no native agent-applications tools', async () => {
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         const nativeIds = parsed.tools.filter((t) => t.kind === 'native').map((t) => t.id)
-        expect(nativeIds).toEqual(
-            expect.arrayContaining([
-                '@posthog/agent-applications-create',
-                '@posthog/agent-applications-revisions-create',
-                '@posthog/agent-applications-revisions-agent-md-update',
-                '@posthog/agent-applications-revisions-validate-create',
-                '@posthog/agent-applications-revisions-freeze-create',
-                '@posthog/agent-applications-revisions-promote-create',
-            ])
-        )
+        // The authoring surface moved to the MCP; the only natives left are the
+        // agent's own runtime tools — S3 memory plus web search.
+        expect(nativeIds.every((id) => id.startsWith('@posthog/memory-') || id === '@posthog/web-search')).toBe(true)
+        expect(nativeIds.some((id) => id.startsWith('@posthog/agent-applications-'))).toBe(false)
+        // Whatever natives remain must still resolve in the catalog.
         const catalog = new Set(listNativeTools().map((t) => t.id))
         for (const id of nativeIds) {
             expect(catalog.has(id), `${id} should be a known native tool`).toBe(true)
@@ -130,14 +125,14 @@ describe('example: agent-builder bundle', () => {
         ])
     })
 
-    it('tries the user PostHog bearer before the internal fallback', async () => {
+    it('requires the user PostHog bearer for chat instead of silently losing MCP credentials', async () => {
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         const modesFor = (type: string): string[] => {
             const t = parsed.triggers.find((x) => x.type === type)
             return t && 'auth' in t && t.auth ? (t.auth.modes?.map((m) => m.type) ?? []) : []
         }
-        expect(modesFor('chat')).toEqual(['posthog', 'posthog_internal'])
+        expect(modesFor('chat')).toEqual(['posthog'])
         expect(modesFor('mcp')).toEqual(['posthog', 'posthog_internal'])
     })
 
