@@ -41,11 +41,11 @@ class TestTracingAttributeValueSearch(ClickhouseTestMixin, APIBaseTest):
             ("promo.alt", "50ABCoff", 4, "span_attribute"),
         ]
         values_sql = ",".join(
-            f"({cls.team.id}, '{bucket}', '{bucket}', 'svc', 0, '{k}', '{v}', {c}, '{t}')" for k, v, c, t in rows
+            f"({cls.team.id}, '{bucket}', '{bucket}', 'svc', 0, '{k}', '{v}', '{t}', {c})" for k, v, c, t in rows
         )
         sync_execute(
-            "INSERT INTO trace_attributes (team_id, time_bucket, original_expiry_time_bucket, service_name, "
-            "resource_fingerprint, attribute_key, attribute_value, attribute_count, attribute_type) VALUES "
+            "INSERT INTO trace_attributes (team_id, original_expiry_time_bucket, time_bucket, service_name, "
+            "resource_fingerprint, attribute_key, attribute_value, attribute_type, attribute_count) VALUES "
             + values_sql
         )
 
