@@ -17,7 +17,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
+from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
 
@@ -240,7 +240,9 @@ def execute_process_query(
             seconds=1
         )
         QUERY_PROCESS_TIME.labels(team=team_id).observe(process_duration)
-    except CHQueryErrorTooManySimultaneousQueries:
+    except CH_TRANSIENT_ERRORS:
+        # Transient capacity errors bubble up so the task's `autoretry_for` retries instead of
+        # recording the query as permanently failed.
         raise
     except Exception as err:
         from posthog.rbac.user_access_control import UserAccessControlError

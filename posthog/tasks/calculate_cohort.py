@@ -15,14 +15,7 @@ from prometheus_client import Counter, Gauge, Histogram
 from posthog.api.monitoring import Feature
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
-from posthog.errors import (
-    CHQueryErrorCannotScheduleTask,
-    CHQueryErrorS3Error,
-    CHQueryErrorS3FileChangedDuringRead,
-    CHQueryErrorTableIsReadOnly,
-    CHQueryErrorTooManySimultaneousQueries,
-)
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -432,14 +425,7 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
     ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
     # Auto-retry for transient ClickHouse errors with exponential backoff
-    autoretry_for=(
-        CHQueryErrorTooManySimultaneousQueries,
-        CHQueryErrorCannotScheduleTask,
-        ClickHouseAtCapacity,
-        CHQueryErrorS3Error,
-        CHQueryErrorS3FileChangedDuringRead,
-        CHQueryErrorTableIsReadOnly,
-    ),
+    autoretry_for=CH_TRANSIENT_ERRORS,
     retry_backoff=60,
     retry_backoff_max=1800,
     max_retries=6,

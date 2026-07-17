@@ -21,8 +21,9 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import User
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import cleanup_alert_checks, evaluate_alert, notify_alert, prepare_alert
@@ -439,14 +440,24 @@ class TestEvaluateAlert:
         assert "2 numeric columns" in reason
         assert targets  # the subscribed owner's email
 
-    async def test_evaluate_reraises_ch_transient_error(self, alert) -> None:
-        # Transient CH errors bubble up so Temporal's retry policy handles them.
+    @pytest.mark.parametrize(
+        "transient_error",
+        [
+            # The classes actually raised when ClickHouse is over capacity — the wrapper maps
+            # TOO_MANY_SIMULTANEOUS_QUERIES / CANNOT_SCHEDULE_TASK to ClickHouseAtCapacity, and the
+            # concurrency limiter raises ConcurrencyLimitExceeded. Both must bubble up so Temporal
+            # retries instead of the activity flagging the alert ERRORED.
+            ClickHouseAtCapacity(),
+            ConcurrencyLimitExceeded("too many"),
+        ],
+    )
+    async def test_evaluate_reraises_ch_transient_error(self, alert, transient_error) -> None:
         with patch(
             "posthog.temporal.alerts.activities.check_alert_for_insight",
-            side_effect=CHQueryErrorTooManySimultaneousQueries("too many"),
+            side_effect=transient_error,
         ):
             env = ActivityEnvironment()
-            with pytest.raises(CHQueryErrorTooManySimultaneousQueries):
+            with pytest.raises(type(transient_error)):
                 await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
 
         # No AlertCheck should have been written

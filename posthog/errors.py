@@ -1007,7 +1007,15 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
 
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.
+#
+# `ClickHouseAtCapacity` and `ConcurrencyLimitExceeded` are the classes actually raised when
+# ClickHouse is over capacity: `wrap_clickhouse_query_error` maps TOO_MANY_SIMULTANEOUS_QUERIES /
+# CANNOT_SCHEDULE_TASK to `ClickHouseAtCapacity` (not the `CHQueryError*` classes below), and the
+# concurrency limiter raises `ConcurrencyLimitExceeded`. They must be in this tuple for the retry
+# guards that rely on it to actually fire.
 CH_TRANSIENT_ERRORS = (
+    ClickHouseAtCapacity,
+    ConcurrencyLimitExceeded,
     CHQueryErrorTooManySimultaneousQueries,
     CHQueryErrorCannotScheduleTask,
     CHQueryErrorS3Error,
