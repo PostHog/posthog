@@ -163,6 +163,9 @@ export function deriveTaskPurpose(content: TaskRunArtefactContent): DerivedPurpo
         if (content.type === 'repo_selection') {
             return null
         }
+        if (content.type === 'scout') {
+            return { purpose: 'other', purposeLabel: 'Scout' }
+        }
         return { purpose: 'other', purposeLabel: `Signals — ${identifierToHuman(content.type)}` }
     }
     return {
@@ -182,6 +185,7 @@ export function taskRunTypeLabel(content: TaskRunArtefactContent): string {
             research: 'Research',
             implementation: 'Implementation',
             repo_selection: 'Repo selection',
+            scout: 'Scout',
         }
         return labels[content.type] ?? identifierToHuman(content.type)
     }

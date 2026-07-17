@@ -15,6 +15,8 @@ class ResourceType(models.TextChoices):
     DASHBOARD = "dashboard"
     ANNOTATION = "annotation"
     EXPERIMENT = "experiment"
+    ALERT = "alert"
+    SUBSCRIPTION = "subscription"
     # Events have no Django model, so an event link carries only the cached columns (no FK).
     EVENT = "event"
 
@@ -181,6 +183,12 @@ class ResourceLink(PulseModel):
     experiment = models.ForeignKey(
         "experiments.Experiment", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
+    alert = models.ForeignKey(
+        "alerts.AlertConfiguration", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    subscription = models.ForeignKey(
+        "exports.Subscription", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
 
     resource_type = models.CharField(max_length=20, choices=ResourceType.choices)
     # short_id (insight), id (dashboard/annotation/experiment), or event name.
@@ -196,6 +204,8 @@ class ResourceLink(PulseModel):
         ResourceType.DASHBOARD: "dashboard",
         ResourceType.ANNOTATION: "annotation",
         ResourceType.EXPERIMENT: "experiment",
+        ResourceType.ALERT: "alert",
+        ResourceType.SUBSCRIPTION: "subscription",
     }
 
     @classmethod

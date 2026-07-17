@@ -1083,6 +1083,9 @@ jobs:
             - name: Check IDOR model coverage
               run: python .github/scripts/check-idor-model-coverage.py
 
+            - name: Check DWH presentation layer stays source-agnostic
+              run: python .github/scripts/check-dwh-source-agnostic.py
+
             - name: Check operator parity
               run: python .github/scripts/check-operator-parity.py
 
@@ -3488,7 +3491,8 @@ jobs:
               if: github.run_attempt == '1'
               shell: bash
               run: |
-                  if [[ -f .github/scripts/report_test_timings.py ]]; then
+                  # tools/owners is a path dep of the reporter, so a base ref predating it can't resolve its deps.
+                  if [[ -f .github/scripts/report_test_timings.py && -d tools/owners ]]; then
                     echo "available=true" >> "$GITHUB_OUTPUT"
                   else
                     echo "available=false" >> "$GITHUB_OUTPUT"

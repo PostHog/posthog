@@ -3,6 +3,8 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 
+import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import type { PermissionRequestRecord } from '../types/streamTypes'
 import ReadonlyRunSurfaceImpl from './ReadonlyRunSurfaceImpl'
 
@@ -34,8 +36,10 @@ function setValues(overrides: Partial<{ pendingPermissionRequest: PermissionRequ
         threadItems: [{ id: 'x' }],
         pendingPermissionRequest: null,
         currentRunStatus: 'in_progress',
-        task: null,
+        task: { origin_product: 'user_created', runtime: RuntimeEnumApi.Acp },
         taskLoading: false,
+        taskError: null,
+        taskNotFound: false,
         ...overrides,
     })
 }

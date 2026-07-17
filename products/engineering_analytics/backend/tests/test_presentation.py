@@ -172,7 +172,9 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
     def test_sources_serializes(self) -> None:
         sources = [
-            contracts.GitHubSource(id="0192f000-0000-7000-8000-000000000000", repo="PostHog/posthog", prefix="older"),
+            contracts.GitHubSource(
+                id="0192f000-0000-7000-8000-000000000000", repo="PostHog/posthog", prefix="older", synced=True
+            ),
             contracts.GitHubSource(
                 id="0192f000-0000-7000-8000-000000000001", repo="PostHog/posthog.com", prefix="website"
             ),
@@ -183,7 +185,9 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert [s["id"] for s in body] == [sources[0].id, sources[1].id]
-        assert body[0] == {"id": sources[0].id, "repo": "PostHog/posthog", "prefix": "older"}
+        assert body[0] == {"id": sources[0].id, "repo": "PostHog/posthog", "prefix": "older", "synced": True}
+        # synced defaults to False when the repo isn't fully synced yet.
+        assert body[1]["synced"] is False
 
     def test_ci_signals_config_updates_the_detector_bundle(self) -> None:
         source = create_github_source(self.team)

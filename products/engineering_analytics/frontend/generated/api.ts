@@ -681,7 +681,7 @@ export const getEngineeringAnalyticsSourcesUrl = (projectId: string) => {
 }
 
 /**
- * The team's connected GitHub data warehouse sources, oldest first. Populate a source picker from this and pass a chosen `id` back as `source_id` to the other endpoints. A team can connect GitHub more than once (e.g. one source per repository); this lists them all, including any whose tables aren't fully synced yet.
+ * The team's selectable GitHub repositories, oldest source first — one entry per repository a source is configured to sync, so a source syncing several repositories appears once per repo. Populate a repo picker from this and pass a chosen entry's `id` back as `source_id` and its `repo` back as `repo` to the other endpoints. Includes repositories whose tables aren't fully synced yet.
  */
 export const engineeringAnalyticsSources = async (
     projectId: string,

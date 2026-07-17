@@ -22,6 +22,10 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 
+class InvalidCustomPropertyOptions(ValueError):
+    """Raised when a select property's options fail validation; the viewset maps it to a 400."""
+
+
 @dataclass(frozen=True)
 class AccountAssignment:
     """A user assigned to an account role (CSM, account executive, account owner)."""
