@@ -394,6 +394,40 @@ class TestPagedRows:
         assert session.get.call_count == 3
         assert manager.saved[-1].next_page == 4
 
+    def test_stops_at_wall_clock_deadline_despite_full_pages(self):
+        # The request budget alone still lets a host stall each successful response just under the
+        # socket timeout for days; the walk must stop at the wall-clock deadline and leave resume
+        # state so the next sync continues.
+        full_page = [{"uid": f"d{i}"} for i in range(DEFAULT_PAGE_SIZE)]
+        clock = {"now": 0.0}
+        session = mock.MagicMock()
+
+        def slow_get(url, **kwargs):
+            clock["now"] += grafana_module.MAX_WALK_SECONDS / 2 + 1
+            return _response(status_code=200, json_data=full_page)
+
+        session.get.side_effect = slow_get
+        manager = FakeResumableManager()
+        with (
+            _patch_session(session),
+            mock.patch.object(grafana_module, "_is_host_safe", return_value=(True, None)),
+            mock.patch.object(grafana_module.time, "monotonic", new=lambda: clock["now"]),
+        ):
+            batches = list(
+                get_rows(
+                    host="https://x.grafana.net",
+                    auth=_token_auth(),
+                    org_id=None,
+                    endpoint="dashboards",
+                    logger=mock.MagicMock(),
+                    team_id=1,
+                    resumable_source_manager=manager,  # type: ignore[arg-type]
+                )
+            )
+        assert session.get.call_count == 2
+        assert len(batches) == 2
+        assert manager.saved[-1].next_page == 3
+
 
 class TestAnnotationRows:
     def _run(
@@ -505,6 +539,21 @@ class TestAnnotationRows:
         with mock.patch.object(grafana_module, "MAX_ANNOTATION_REQUESTS_PER_RUN", 3):
             _, session, _ = self._run(get)
         assert session.get.call_count == 3
+
+    def test_stops_at_wall_clock_deadline_despite_saturated_windows(self):
+        # The request budget alone still lets a host stall each successful (saturated) response just
+        # under the socket timeout for days; the walk must stop at the wall-clock deadline.
+        saturated = [{"id": i, "time": i} for i in range(ANNOTATIONS_LIMIT)]
+        clock = {"now": 0.0}
+
+        def slow_get(url, **kwargs):
+            clock["now"] += grafana_module.MAX_WALK_SECONDS / 2 + 1
+            return _response(status_code=200, json_data=saturated)
+
+        with mock.patch.object(grafana_module.time, "monotonic", new=lambda: clock["now"]):
+            batches, session, _ = self._run(slow_get)
+        assert session.get.call_count == 2
+        assert batches == []
 
 
 class TestGrafanaSourceResponse:

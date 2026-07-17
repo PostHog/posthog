@@ -55,6 +55,13 @@ MIN_ANNOTATION_WINDOW_MS = 60 * 1000
 MAX_PAGES_PER_RUN = 10_000
 MAX_ANNOTATION_REQUESTS_PER_RUN = 10_000
 
+# Wall-clock budget for one walk. The request budgets alone still let a hostile host occupy a
+# worker for days by stalling every response just under the socket timeout (10,000 requests × ~60s
+# ≈ the one-week Temporal activity timeout), so each walk also stops at this deadline and resumes
+# from its saved position on the next sync. A real instance pages back-to-back and finishes a full
+# 10,000-request walk in well under an hour, so legitimate syncs never hit this.
+MAX_WALK_SECONDS = 2 * 60 * 60
+
 # Loopback hosts where plaintext HTTP carries no network-exposure risk (local dev / self-hosted on
 # the same box). Every other host is forced to HTTPS so credentials never traverse a network in
 # cleartext.
@@ -468,6 +475,7 @@ def _get_paged_rows(
         logger.debug(f"Grafana: resuming {config.name} from page {page}")
 
     pages_this_run = 0
+    deadline = time.monotonic() + MAX_WALK_SECONDS
     while True:
         params = {**config.params, config.page_size_param: DEFAULT_PAGE_SIZE, "page": page}
         data = fetch(f"{base_url}{config.path}?{urlencode(params)}")
@@ -485,11 +493,12 @@ def _get_paged_rows(
         # key) rather than skipping it.
         resumable_source_manager.save_state(GrafanaResumeConfig(next_page=page))
 
-        if pages_this_run >= MAX_PAGES_PER_RUN:
-            # A host returning full pages forever would otherwise loop without end; the resume state
-            # saved above lets the next sync pick up from this page.
+        if pages_this_run >= MAX_PAGES_PER_RUN or time.monotonic() > deadline:
+            # A host returning full pages forever — or stalling each response just under the socket
+            # timeout — would otherwise occupy this worker without end; the resume state saved above
+            # lets the next sync pick up from this page.
             logger.warning(
-                f"Grafana: {config.name} hit the {MAX_PAGES_PER_RUN}-page per-run limit; "
+                f"Grafana: {config.name} hit the per-run page or wall-clock budget; "
                 f"resuming from page {page} on the next sync"
             )
             return
@@ -532,12 +541,14 @@ def _get_annotation_rows(
     # and the resume boundary only ever moves forward.
     windows: list[tuple[int, int]] = [(start_ms, now_ms)]
     requests_this_run = 0
+    deadline = time.monotonic() + MAX_WALK_SECONDS
     while windows:
-        if requests_this_run >= MAX_ANNOTATION_REQUESTS_PER_RUN:
-            # A host that saturates every window would otherwise fan out without end; the resume
-            # boundary saved below lets the next sync continue from the last completed window.
+        if requests_this_run >= MAX_ANNOTATION_REQUESTS_PER_RUN or time.monotonic() > deadline:
+            # A host that saturates every window — or stalls each response just under the socket
+            # timeout — would otherwise fan out without end; the resume boundary saved below lets
+            # the next sync continue from the last completed window.
             logger.warning(
-                f"Grafana: annotations hit the {MAX_ANNOTATION_REQUESTS_PER_RUN}-request per-run limit; "
+                "Grafana: annotations hit the per-run request or wall-clock budget; "
                 "resuming from the last saved boundary on the next sync"
             )
             return
