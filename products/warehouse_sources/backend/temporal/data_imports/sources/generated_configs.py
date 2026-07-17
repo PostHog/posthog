@@ -118,6 +118,14 @@ class StripeAuthMethodConfig(config.Config):
 
 
 @config.config
+class TailscaleAuthMethodConfig(config.Config):
+    selection: Literal["oauth_client", "api_key"] = "oauth_client"
+    client_id: str | None = None
+    client_secret: str | None = None
+    api_key: str | None = None
+
+
+@config.config
 class TwilioAuthMethodConfig(config.Config):
     selection: Literal["api_key", "auth_token"] = "api_key"
     api_key_sid: str | None = None
@@ -4198,7 +4206,8 @@ class TaboolaSourceConfig(config.Config):
 
 @config.config
 class TailscaleSourceConfig(config.Config):
-    pass
+    auth_method: TailscaleAuthMethodConfig
+    tailnet: str | None = None
 
 
 @config.config
