@@ -35,6 +35,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadData', // Gracefully handled in the data table
     'loadRecordingMeta', // Gracefully handled in the recording player
     'loadSimilarIssues', // Gracefully handled in the similar issues list
+    'fetchMatchingCounts', // Gracefully handled — count is hidden in the tracing display bar on failure
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
     'loadExistingSubscription', // Background eligibility check for the dashboard subscribe nudge
     'loadTeamSubscriptionCount', // Background free-tier limit check for the dashboard subscribe nudge
