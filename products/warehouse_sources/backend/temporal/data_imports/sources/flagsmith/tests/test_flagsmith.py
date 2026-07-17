@@ -29,6 +29,9 @@ SESSION_PATH = (
 )
 BUDGET_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith.MAX_PAGES_PER_SYNC"
 PARENTS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith.MAX_FANOUT_PARENTS"
+KEY_LENGTH_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith.MAX_FANOUT_KEY_LENGTH"
+)
 
 
 def _make_manager(resume_state: FlagsmithResumeConfig | None = None) -> mock.MagicMock:
@@ -381,6 +384,25 @@ class TestGetRowsFanout:
 
         child_urls = [c.args[0] for c in mock_session.return_value.get.call_args_list if "/features/" in c.args[0]]
         assert len(child_urls) == 2  # only the first 2 of 4 projects enumerated
+
+    @mock.patch(KEY_LENGTH_PATH, 5)
+    @mock.patch(SESSION_PATH)
+    def test_oversized_parent_key_is_skipped(self, mock_session):
+        # A hostile host can return an arbitrarily long id/api_key; over-length keys must be dropped
+        # so they can't balloon the retained list or be interpolated into a child request URL.
+        def _get(url, **kwargs):
+            if url.endswith("/projects/"):
+                return _resp([{"id": "x" * 50}, {"id": 2}])
+            return _resp(_page([{"id": 100}], None))
+
+        mock_session.return_value.get.side_effect = _get
+
+        list(get_rows("key", None, "features", mock.MagicMock(), _make_manager()))
+
+        child_urls = [c.args[0] for c in mock_session.return_value.get.call_args_list if "/features/" in c.args[0]]
+        assert child_urls == [
+            f"{API_BASE}/projects/2/features/?page_size=100&sort_field=created_date&sort_direction=ASC"
+        ]
 
 
 class TestErrors:

@@ -35,10 +35,15 @@ MAX_PAGES_PER_SYNC = 10_000
 
 # Cap on how many fan-out parents (organisation ids, project ids, or environment api_keys) a single
 # sync enumerates and holds in memory before child processing begins. Even within the page budget a
-# hostile host could return enough parents to balloon this list and exhaust a warehouse worker; the
-# keys are short identifiers, so a count cap bounds the retained bytes too. Generous enough to cover
-# any real org.
+# hostile host could return enough parents to balloon this list and exhaust a warehouse worker.
+# Generous enough to cover any real org.
 MAX_FANOUT_PARENTS = 50_000
+
+# Cap on the length of a single fan-out parent key. Real ids and api_keys are short identifiers, so
+# the count cap alone doesn't bound retained bytes — a hostile host could return an arbitrarily long
+# id/api_key (up to the response byte cap) that balloons the retained list and gets interpolated into
+# child request URLs. Keys longer than this are skipped rather than trusted.
+MAX_FANOUT_KEY_LENGTH = 256
 
 
 class _PageBudget:
@@ -316,10 +321,16 @@ def _extend_capped(
 ) -> bool:
     """Append ``row[field]`` from each row of a parent listing into ``keys``, stopping once the
     retained list hits MAX_FANOUT_PARENTS so a hostile host can't balloon it and exhaust worker
-    memory. Returns True if the cap was reached (the caller should stop enumerating)."""
+    memory. Keys longer than MAX_FANOUT_KEY_LENGTH are skipped so an oversized id/api_key can't
+    balloon retained bytes or poison a child request URL. Returns True if the count cap was reached
+    (the caller should stop enumerating)."""
     for rows in listing:
         for row in rows:
-            keys.append(str(row[field]))
+            key = str(row[field])
+            if len(key) > MAX_FANOUT_KEY_LENGTH:
+                logger.warning(f"Flagsmith: skipping fan-out parent with oversized {field} ({len(key)} chars)")
+                continue
+            keys.append(key)
             if len(keys) >= MAX_FANOUT_PARENTS:
                 logger.warning(f"Flagsmith: fan-out parent cap ({MAX_FANOUT_PARENTS}) reached, truncating enumeration")
                 return True
