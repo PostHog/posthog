@@ -29,8 +29,6 @@ class TestSourceConfig:
         assert config.releaseStatus == ReleaseStatus.ALPHA
         # docsUrl slug must match the published doc filename so the website doesn't 404.
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/openfda"
-        # Still gated off until it's been exercised end-to-end.
-        assert config.unreleasedSource is True
 
     def test_api_key_field_is_optional_secret(self) -> None:
         fields: dict[str, Any] = {f.name: f for f in OpenFDASource().get_source_config.fields}

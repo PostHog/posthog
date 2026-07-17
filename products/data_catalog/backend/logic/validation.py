@@ -23,17 +23,18 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
 
-from ..facade.enums import MARKDOWN_DEFINITION_KIND
+from ..facade.enums import HOGQL_DEFINITION_KIND, MARKDOWN_DEFINITION_KIND
 
-# Query kinds a metric definition may take. Node kinds are the RFC's "event with filters"
-# single series; insight kinds are the classic viz shapes. Kept small on purpose.
+# Query kinds a metric definition may take (the facade enums are the public split). Node kinds are
+# the RFC's "event with filters" single series; insight kinds are the classic viz shapes. Kept
+# small on purpose.
 _NODE_MODELS: dict[str, type[BaseModel]] = {
     "EventsNode": EventsNode,
     "ActionsNode": ActionsNode,
     "DataWarehouseNode": DataWarehouseNode,
 }
 _INSIGHT_MODELS: dict[str, type[BaseModel]] = {"TrendsQuery": TrendsQuery, "FunnelsQuery": FunnelsQuery}
-_SUPPORTED_KINDS = {"HogQLQuery", *_NODE_MODELS, *_INSIGHT_MODELS}
+_SUPPORTED_KINDS = {HOGQL_DEFINITION_KIND, *_NODE_MODELS, *_INSIGHT_MODELS}
 
 # A markdown definition is a bounded blob; keep it small so it stays a definition, not a document.
 MAX_MARKDOWN_DEFINITION_LENGTH = 20_000

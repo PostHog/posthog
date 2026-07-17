@@ -38,6 +38,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class EasypromosSource(ResumableSource[EasypromosSourceConfig, EasypromosResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://easypromos-apiref.redoc.ly/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.EASYPROMOS
@@ -49,7 +53,6 @@ class EasypromosSource(ResumableSource[EasypromosSourceConfig, EasypromosResumeC
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Easypromos",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             keywords=["promotions", "contests", "giveaways"],
             caption="""Enter your Easypromos access token to sync your promotions data into the PostHog Data warehouse.
 

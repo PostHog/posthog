@@ -8,17 +8,16 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { RecordingsUniversalFiltersEmbed } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
+import type { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import {
     DEFAULT_RECORDING_FILTERS,
     SessionRecordingPlaylistLogicProps,
-    convertLegacyFiltersToUniversalFilters,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 
-import { FilterType, RecordingUniversalFilters, ReplayTabs } from '~/types'
+import { FilterType, RecordingUniversalFilters } from '~/types'
 
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
@@ -53,7 +52,7 @@ const Component = ({
         [playerKey, universalFilters, pinned]
     )
 
-    const { setActions, insertAfter, setMessageListeners, scrollIntoView } = useActions(notebookNodeLogic)
+    const { setActions, insertAfter, setMessageListeners } = useActions(notebookNodeLogic)
 
     const logic = sessionRecordingsPlaylistLogic(recordingPlaylistLogicProps)
     const { activeSessionRecording } = useValues(logic)
@@ -95,7 +94,6 @@ const Component = ({
             'play-replay': ({ sessionRecordingId, time }) => {
                 // IDEA: We could add the desired start time here as a param, which is picked up by the player...
                 setSelectedRecordingId(sessionRecordingId)
-                scrollIntoView()
 
                 setTimeout(() => {
                     // NOTE: This is a hack but we need a delay to give time for the player to mount
@@ -147,16 +145,6 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
         },
         pinned: {
             default: undefined,
-        },
-    },
-    pasteOptions: {
-        find: urls.replay(ReplayTabs.Home) + '(.*)',
-        getAttributes: async (match) => {
-            const url = new URL(match[0])
-            const stringifiedFilters = url.searchParams.get('filters')
-            const filters = stringifiedFilters ? JSON.parse(stringifiedFilters) : {}
-            const universalFilters = convertLegacyFiltersToUniversalFilters({}, filters)
-            return { filters, universalFilters, pinned: [] }
         },
     },
     Settings,

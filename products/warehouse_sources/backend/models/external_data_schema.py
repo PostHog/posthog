@@ -65,6 +65,11 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType, null=True, blank=True)
+    # User-managed vendor API version override for this schema. NULL (the norm) means the schema
+    # syncs on its source's pinned version; a value here wins over the source pin. Deliberately
+    # ignored by version-migration tooling — only the user changes it. Not available for
+    # webhook-sync schemas (webhook payload versions are configured per source at the vendor).
+    api_version = models.CharField(max_length=128, null=True, blank=True)
     # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str } }
     sync_type_config = models.JSONField(
         default=dict,
@@ -257,6 +262,23 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     def partition_size(self) -> int | None:
         if self.sync_type_config:
             return self.sync_type_config.get("partition_size", None)
+
+        return None
+
+    @property
+    def last_vacuum_version(self) -> int | None:
+        # Delta version of the schema's snapshot table at its last vacuum (cadence watermark).
+        if self.sync_type_config:
+            return self.sync_type_config.get("last_vacuum_version", None)
+
+        return None
+
+    @property
+    def last_vacuum_version_cdc(self) -> int | None:
+        # Same watermark for the _cdc companion table — a separate delta table whose versions
+        # are unrelated to the snapshot's, so it can't share last_vacuum_version.
+        if self.sync_type_config:
+            return self.sync_type_config.get("last_vacuum_version_cdc", None)
 
         return None
 
@@ -820,6 +842,8 @@ def sync_old_schemas_with_new_schemas(
     source_id: str,
     team_id: int,
     descriptions: dict[str, str | None] | None = None,
+    strict_name_match: bool = False,
+    schema_metadata_by_name: dict[str, dict] | None = None,
 ) -> tuple[list[str], list[str]]:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
@@ -839,7 +863,12 @@ def sync_old_schemas_with_new_schemas(
     # Discovery names a table qualified (`schema.table`) or bare (`table`) depending on config, so
     # bare and qualified mean the same table — else a live row is wrongly disabled/duplicated. Two
     # qualified names still need exact equality so same-named tables in different schemas stay distinct.
+    # `strict_name_match` disables the bare↔qualified equivalence for sources where bare and
+    # qualified rows coexist by design (GitHub keeps its legacy repo's rows bare forever, so
+    # `owner/other.issues` must NOT match the legacy bare `issues` row).
     def _same_table(a: str, b: str) -> bool:
+        if strict_name_match:
+            return a == b
         one_qualified = ("." in a) != ("." in b)
         return a == b or (one_qualified and a.rpartition(".")[2] == b.rpartition(".")[2])
 
@@ -857,6 +886,7 @@ def sync_old_schemas_with_new_schemas(
     actually_created: list[str] = []
 
     for schema in schemas_to_create:
+        seeded_metadata = (schema_metadata_by_name or {}).get(schema)
         deleted_obj = (
             ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, name=schema, deleted=True)
             .order_by("-updated_at", "-created_at")
@@ -867,7 +897,14 @@ def sync_old_schemas_with_new_schemas(
             deleted_obj.deleted_at = None
             deleted_obj.description = descriptions.get(schema) if descriptions else None
             deleted_obj.label = new_schemas.get(schema)
-            deleted_obj.save(update_fields=["deleted", "deleted_at", "description", "label", "updated_at"])
+            update_fields = ["deleted", "deleted_at", "description", "label", "updated_at"]
+            if seeded_metadata:
+                existing_config = deleted_obj.sync_type_config or {}
+                existing_metadata = existing_config.get("schema_metadata")
+                merged = {**(existing_metadata if isinstance(existing_metadata, dict) else {}), **seeded_metadata}
+                deleted_obj.sync_type_config = {**existing_config, "schema_metadata": merged}
+                update_fields.append("sync_type_config")
+            deleted_obj.save(update_fields=update_fields)
             actually_created.append(schema)
             continue
 
@@ -880,6 +917,7 @@ def sync_old_schemas_with_new_schemas(
                 "should_sync": False,
                 "description": descriptions.get(schema) if descriptions else None,
                 "label": new_schemas.get(schema),
+                **({"sync_type_config": {"schema_metadata": seeded_metadata}} if seeded_metadata else {}),
             },
         )
         if created:

@@ -18,7 +18,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 NOTION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion"
 
 
-def _make_inputs(schema_name: str = "pages") -> SourceInputs:
+def _make_inputs(schema_name: str = "pages", api_version: str | None = None) -> SourceInputs:
     return SourceInputs(
         schema_name=schema_name,
         schema_id="schema-id",
@@ -32,6 +32,7 @@ def _make_inputs(schema_name: str = "pages") -> SourceInputs:
         job_id="job-id",
         logger=structlog.get_logger(),
         reset_pipeline=False,
+        api_version=api_version,
     )
 
 
@@ -47,6 +48,30 @@ class TestNotionSource:
 
     def test_source_type(self) -> None:
         assert self.source.source_type == ExternalDataSourceType.NOTION
+
+    def test_new_sources_default_to_latest_version(self) -> None:
+        # New sources are stamped with default_version, so a regression here silently pins them to
+        # the older API. Both versions must stay supported so existing pins keep resolving.
+        assert self.source.default_version == "2026-03-11"
+        assert set(self.source.supported_versions) == {"2025-09-03", "2026-03-11"}
+
+    @parameterized.expand(
+        [
+            ("no_pin_uses_default", None, "2026-03-11"),
+            ("legacy_pin_honored", "2025-09-03", "2025-09-03"),
+            ("new_pin_honored", "2026-03-11", "2026-03-11"),
+        ]
+    )
+    def test_source_for_pipeline_threads_resolved_version(
+        self, _name: str, pin: str | None, expected_version: str
+    ) -> None:
+        inputs = _make_inputs("pages", api_version=pin)
+        manager = self.source.get_resumable_source_manager(inputs)
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.notion.source.notion_source"
+        ) as notion_source_mock:
+            self.source.source_for_pipeline(NotionSourceConfig(api_key="tok"), manager, inputs)
+        assert notion_source_mock.call_args.kwargs["api_version"] == expected_version
 
     def test_source_config_is_released_with_api_key_field(self) -> None:
         config = self.source.get_source_config

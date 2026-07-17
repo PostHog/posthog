@@ -1,0 +1,28 @@
+version: 1
+owners: []
+rules:
+    - match: '/ai_observability_usage_report.py'
+      owners: team-ai-observability
+    - match: '/alerts/'
+      owners: team-analytics-platform
+    - match: ['/calculate_cohort.py', '/early_access_feature.py']
+      owners: team-feature-flags
+    - match: ['/email.py', '/email_utils.py']
+      owners: team-platform-features
+    - match: '/split_person.py'
+      owners: team-ingestion
+    - match: '/stop_surveys_reached_target.py'
+      owners: team-surveys
+    - match: '/sync_billing.py'
+      owners: team-billing
+    - match: '/test/test_ai_observability_usage_report.py'
+      owners: team-ai-observability
+    - match:
+          - '/test/test_stop_surveys_reached_target.py'
+          - '/test/test_update_survey_adaptive_sampling.py'
+          - '/test/test_update_survey_iteration.py'
+          - '/update_survey_adaptive_sampling.py'
+          - '/update_survey_iteration.py'
+      owners: team-surveys
+    - match: '/usage_report.py'
+      owners: team-billing

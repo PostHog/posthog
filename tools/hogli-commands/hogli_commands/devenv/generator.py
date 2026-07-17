@@ -47,7 +47,10 @@ class DevenvConfig(BaseModel):
 
 
 def _get_docker_compose_base() -> str:
-    return "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml"
+    # Pin the project name so worktrees share one dev stack instead of each
+    # defaulting to its own directory name.
+    project_name = os.environ.get("COMPOSE_PROJECT_NAME") or "posthog"
+    return f"docker compose -p {shlex.quote(project_name)} -f docker-compose.dev.yml -f docker-compose.profiles.yml"
 
 
 def build_docker_compose_command(profiles: list[str], action: str = "up -d") -> str:

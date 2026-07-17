@@ -286,13 +286,21 @@ def validate_credentials(personal_access_token: str, repository: str) -> tuple[b
             return False, f"Repository '{repository}' not found or not accessible"
 
         try:
-            error_data = response.json()
-            message = error_data.get("message", response.text)
+            body = response.json()
+            message = body.get("message") if isinstance(body, dict) else None
+        except ValueError:
+            message = None
+        if message:
             return False, message
-        except Exception:
-            pass
 
-        return False, response.text
+        # A non-JSON body means GitHub returned an HTML error page (e.g. its 5xx "Unicorn!" page) —
+        # never surface that raw markup to the user.
+        if response.status_code >= 500:
+            return False, "GitHub is temporarily unavailable. Please try again in a few minutes."
+        return (
+            False,
+            f"GitHub rejected the request (status {response.status_code}). Please check your token and repository access.",
+        )
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
@@ -902,6 +910,7 @@ def github_source(
     incremental_field: str | None = None,
     webhook_source_manager: Optional[WebhookSourceManager] = None,
     egress_identity: GithubEgressIdentity | None = None,
+    response_name: str | None = None,
 ) -> SourceResponse:
     endpoint_config = GITHUB_ENDPOINTS[endpoint]
 
@@ -917,14 +926,32 @@ def github_source(
     # i.e. workflow_jobs and reviews) would otherwise deadlock a fresh webhook schema: the
     # zero-row poll never creates a table, so initial_sync_complete is never set, so
     # webhook_enabled stays False forever and queued webhook files never drain. There
-    # is no backfill to lose for these, so activate webhook mode from the first run
-    # (skip the initial_sync_complete gate), the same way the Slack source does.
-    skip_initial_sync_complete_check = endpoint_config.initial_lookback_days == 0
+    # is no backfill to lose for these, so activate webhook mode from the first run, the same
+    # way the Slack source does; being webhook-first also means a requested pipeline reset must
+    # not force the poll path or wipe the table (see handle_reset_or_full_refresh).
+    webhook_only = endpoint_config.initial_lookback_days == 0
     webhook_enabled = (
-        async_to_sync(webhook_source_manager.webhook_enabled)(skip_initial_sync_complete_check)
+        async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=webhook_only)
         if webhook_source_manager is not None
         else False
     )
+    # Effective webhook-only: the endpoint is webhook-first (zero lookback) AND this schema is
+    # actually in webhook sync mode. webhook_enabled already implies schema.is_webhook; otherwise
+    # confirm against the DB (only on the poll fallback, so no extra read when webhook is active).
+    # Gating on the schema, not just the endpoint config, keeps a legacy poll-mode workflow_runs
+    # schema correct on two fronts: it keeps polling (the poll no-op below stays off), and its
+    # SourceResponse.webhook_only stays False so a reset still wipes+rebuilds (handle_reset_or_full_refresh
+    # only preserves the table for genuinely webhook-only schemas).
+    webhook_only_schema = bool(
+        webhook_only
+        and webhook_source_manager is not None
+        and (webhook_enabled or async_to_sync(webhook_source_manager.schema_is_webhook)())
+    )
+    # A webhook-only schema whose webhook mode is inactive (no function yet, or reset_pipeline forced
+    # the poll path) yields nothing rather than crawling the full REST history — otherwise the direct
+    # workflow_runs poll ignores the zero-day marker and re-crawls all of /actions/runs. Matches the
+    # Slack/Stripe webhook-only sources.
+    webhook_only_poll_noop = webhook_only_schema and not webhook_enabled
 
     def items() -> Iterator[Any] | AsyncIterator[Any]:
         if webhook_enabled:
@@ -953,6 +980,9 @@ def github_source(
             )
             return webhook_source_manager.get_items(table_transformer=transformer)
 
+        if webhook_only_poll_noop:
+            return iter([])
+
         return get_rows(
             personal_access_token=personal_access_token,
             repository=repository,
@@ -966,7 +996,9 @@ def github_source(
         )
 
     return SourceResponse(
-        name=endpoint,
+        # The storage identity (Delta subdir / queryable folder). Repo-qualified schemas pass a
+        # normalized `owner_repo_endpoint`; legacy bare schemas default to the endpoint, today's value.
+        name=response_name or endpoint,
         items=items,
         primary_keys=_normalize_primary_key(endpoint_config.primary_key),
         sort_mode=actual_sort_mode,
@@ -975,6 +1007,7 @@ def github_source(
         partition_mode="datetime" if endpoint_config.partition_key else None,
         partition_format="week" if endpoint_config.partition_key else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        webhook_only=webhook_only_schema,
     )
 
 
@@ -1029,6 +1062,77 @@ def create_repo_webhook(
 
     return WebhookCreationResult(
         success=False, error=f"Failed to create webhook automatically: {response.status_code} {response.text}"
+    )
+
+
+def ensure_repo_webhook(
+    token: str,
+    repo: str,
+    webhook_url: str,
+    events: list[str],
+    secret: str,
+    egress_identity: GithubEgressIdentity | None = None,
+) -> WebhookCreationResult:
+    """Idempotently ensure a repo webhook pointing at ``webhook_url`` exists with ``secret``.
+
+    A hook already matching the URL is PATCHed (secret re-pinned, events unioned) instead of
+    re-created — a bare POST would 422 with "Hook already exists on this repository", which
+    matters both for retried creates and for reconciling a multi-repo source where some repos
+    already carry the hook. No match falls through to the plain create."""
+    hooks, error = _list_repo_hooks(token, repo, egress_identity)
+    if error == "permission":
+        return WebhookCreationResult(
+            success=False,
+            error=(
+                f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to create a repository webhook. "
+                "Add it and reconnect, or set up the webhook manually following the steps below."
+            ),
+        )
+    if error is not None:
+        return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {error}")
+
+    hook = _match_hook_by_url(hooks or [], webhook_url)
+    if hook is None:
+        return create_repo_webhook(token, repo, webhook_url, events, secret=secret)
+
+    merged_events = sorted(set(hook.get("events") or []) | set(events))
+    try:
+        response = github_request(
+            "PATCH",
+            f"{GITHUB_BASE_URL}/repos/{repo}/hooks/{hook['id']}",
+            source="warehouse",
+            headers=_get_headers(token),
+            installation_id=egress_identity.installation_id if egress_identity is not None else None,
+            priority=Priority.NORMAL,
+            timeout=30,
+            session=make_tracked_session(),
+            json={
+                "active": True,
+                "events": merged_events,
+                "config": {"url": webhook_url, "content_type": "json", "secret": secret},
+            },
+        )
+        raise_if_github_rate_limited(response)
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        return WebhookCreationResult(
+            success=False,
+            error="GitHub rate limit reached while updating the repository webhook; please retry shortly.",
+        )
+    except requests.exceptions.RequestException as e:
+        return WebhookCreationResult(success=False, error=f"Failed to update webhook automatically: {e}")
+
+    if response.ok:
+        return WebhookCreationResult(success=True, extra_inputs={"signing_secret": secret})
+    if _is_repo_hook_permission_error(response):
+        return WebhookCreationResult(
+            success=False,
+            error=(
+                f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to update the repository webhook. "
+                "Add it and reconnect, or set up the webhook manually following the steps below."
+            ),
+        )
+    return WebhookCreationResult(
+        success=False, error=f"Failed to update webhook automatically: {response.status_code} {response.text}"
     )
 
 

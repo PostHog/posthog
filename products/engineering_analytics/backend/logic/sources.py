@@ -12,7 +12,8 @@ and threaded down into the builders, so a request hits the warehouse models a si
 
 A team can connect GitHub more than once (e.g. one source per repository). A caller may pass
 ``source_id`` to read a specific source; otherwise the oldest connected source with both
-endpoints synced is used.
+endpoints synced is used, or — when a ``repo`` ('owner/name') is passed — the source whose
+``job_inputs.repository`` matches that repo, so a repo-scoped call reads the right source.
 """
 
 import re
@@ -20,9 +21,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from posthog.models.team import Team
+from posthog.rbac.user_access_control import NO_ACCESS_LEVEL
 
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
@@ -39,6 +41,10 @@ WORKFLOW_RUNS_SCHEMA = "workflow_runs"
 # Job-level CI (queue time, per-job duration, runner tier). Optional — the source/sync lands
 # separately, so reads must degrade gracefully (no jobs) rather than require it like the pair above.
 WORKFLOW_JOBS_SCHEMA = "workflow_jobs"
+# GitHub org team membership (login → team slug), the author→team key behind team-level merge
+# timing. Optional and off by default at the source (needs the org Members:Read grant), so reads
+# must degrade gracefully (no membership data) exactly like workflow_jobs.
+TEAM_MEMBERS_SCHEMA = "team_members"
 
 # Resolved names are interpolated into HogQL ``FROM`` clauses. Warehouse table names are
 # always plain identifiers (the prefix is validated to ``[A-Za-z0-9_]`` at connect time and
@@ -49,16 +55,24 @@ _IDENTIFIER = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*\Z")
 
 @dataclass(frozen=True)
 class GitHubTables:
-    """The per-team warehouse table names the curated builders read from."""
+    """The selected GitHub source identity and warehouse tables the curated layer reads."""
 
     pull_requests: str
     workflow_runs: str
     # Optional: present only once the job-level source is synced; None means "no jobs data".
     workflow_jobs: str | None = None
+    # Optional: present only once org team membership is synced; None means "no membership data".
+    team_members: str | None = None
+    # Used to scope cross-store reads such as CI traces to the selected source's repository.
+    repository: str = ""
 
 
 def resolve_github_tables(
-    *, team: Team, source_id: str | None = None, user_access_control: "UserAccessControl | None" = None
+    *,
+    team: Team,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
 ) -> GitHubTables:
     """Resolve the team's curated GitHub table names from its warehouse models.
 
@@ -69,15 +83,23 @@ def resolve_github_tables(
     presentation layer maps it to a 400, so the UI prompts to connect a source and an agent gets
     an actionable error), or ``ValueError`` when ``source_id`` is not a UUID.
 
+    ``repo`` ('owner/name') scopes a repo-specific call — a team with one source per repository
+    otherwise always resolves the oldest, so a repo-scoped read (e.g. ``resolve_branch``) would
+    search the wrong repo's tables. When ``repo`` is given (and ``source_id`` is not), sources
+    whose ``job_inputs.repository`` equals it (case-insensitively) are tried first; the remaining
+    sources still follow as a fallback, since the ``repository`` input can be empty and the
+    per-source data may still hold the repo.
+
     ``user_access_control`` enforces the requesting user's per-source warehouse RBAC (applied in
     ``_github_sources``): a denied ``source_id`` raises (400) and the default-oldest path skips it.
     The curated HogQL runs team-scoped with no user and HogQL does not enforce per-user ACL on
     warehouse tables, so honoring it here is the only way the read path can. ``None`` (system/
     Temporal/CLI contexts with no request user) skips filtering — team scoping still holds.
     """
-    sources = _github_sources(team, user_access_control)
+    queryset = _github_sources(team, user_access_control)
     if source_id is not None:
-        sources = sources.filter(id=_as_source_uuid(source_id))
+        queryset = queryset.filter(id=_as_source_uuid(source_id))
+    sources: list[ExternalDataSource] = _repo_first(queryset, repo) if repo and source_id is None else list(queryset)
     for source in sources:
         tables = _synced_table_names(team=team, source=source)
         pull_requests = tables.get(PULL_REQUESTS_SCHEMA)
@@ -89,11 +111,14 @@ def resolve_github_tables(
         # backfilling) instead of degrading to PRs-without-CI. Relaxing this to a graceful
         # PR-only mode (null CI columns) is a deliberate future change, not handled here.
         if pull_requests and workflow_runs:
-            # workflow_jobs is optional — included when synced, None otherwise (jobs degrade to empty).
+            # workflow_jobs / team_members are optional: included when synced, None otherwise
+            # (jobs degrade to empty, membership-keyed reads degrade to "no membership data").
             return GitHubTables(
                 pull_requests=pull_requests,
                 workflow_runs=workflow_runs,
                 workflow_jobs=tables.get(WORKFLOW_JOBS_SCHEMA),
+                team_members=tables.get(TEAM_MEMBERS_SCHEMA),
+                repository=_source_repository(source),
             )
     if source_id is not None:
         raise GitHubSourceNotConnectedError(_NO_SELECTED_SOURCE)
@@ -131,11 +156,29 @@ def list_github_sources(*, team: Team, user_access_control: "UserAccessControl |
     return [
         GitHubSource(
             id=str(source.id),
-            repo=str((source.job_inputs or {}).get("repository") or ""),
+            repo=_source_repository(source),
             prefix=source.prefix or "",
         )
         for source in _github_sources(team, user_access_control)
     ]
+
+
+def _repo_first(sources: QuerySet[ExternalDataSource], repo: str) -> list[ExternalDataSource]:
+    """Sources whose ``job_inputs.repository`` matches ``repo`` (case-insensitive), then the rest.
+
+    Both groups keep the queryset's oldest-first order, so among equal candidates the established
+    connection still wins; the non-matching tail is a fallback for sources with an empty
+    ``repository`` input whose data may still hold the repo.
+    """
+    wanted = repo.casefold()
+    matching: list[ExternalDataSource] = []
+    others: list[ExternalDataSource] = []
+    for source in sources:
+        if _source_repository(source).casefold() == wanted:
+            matching.append(source)
+        else:
+            others.append(source)
+    return matching + others
 
 
 def _github_sources(team: Team, user_access_control: "UserAccessControl | None" = None) -> QuerySet[ExternalDataSource]:
@@ -153,12 +196,35 @@ def _github_sources(team: Team, user_access_control: "UserAccessControl | None" 
     )
     if user_access_control is not None:
         sources = user_access_control.filter_queryset_by_access_level(sources)
+        if not user_access_control.has_resource_access("external_data_source"):
+            # "none" resource-level access: the platform filter drops nothing when the user holds no
+            # object grants, so fail closed here to self-created or explicitly granted sources.
+            granted_ids = [
+                source.id
+                for source in sources
+                if (level := user_access_control.access_level_for_object(source, explicit=True))
+                and level != NO_ACCESS_LEVEL
+            ]
+            sources = sources.filter(Q(created_by=user_access_control.user) | Q(id__in=granted_ids))
     return sources
 
 
 # Distinct from the no-source message: the caller picked a source that isn't a usable GitHub
 # source for this team (wrong id, another team's source, or its endpoints aren't synced).
 _NO_SELECTED_SOURCE = "The selected GitHub source isn't connected or has no synced pull_requests/workflow_runs tables."
+
+
+def _source_repository(source: ExternalDataSource) -> str:
+    """The source's configured ``owner/repo`` identity, or '' when unset.
+
+    ``job_inputs`` is an ``EncryptedJSONField`` that can hold any JSON value, so a non-dict
+    (list/str) would crash the ``.get`` below — guard it the same way ``job_logs.coordinator``
+    does, since this resolves for every engineering_analytics endpoint.
+    """
+    job_inputs = source.job_inputs
+    if not isinstance(job_inputs, dict):
+        return ""
+    return str(job_inputs.get("repository") or "").strip()
 
 
 def _as_source_uuid(source_id: str) -> UUID:
@@ -175,7 +241,7 @@ def _synced_table_names(*, team: Team, source: ExternalDataSource) -> dict[str, 
             team_id=team.pk,
             source_id=source.id,
             should_sync=True,
-            name__in=(PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA),
+            name__in=(PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA, TEAM_MEMBERS_SCHEMA),
         )
         .exclude(deleted=True)
         .select_related("table")

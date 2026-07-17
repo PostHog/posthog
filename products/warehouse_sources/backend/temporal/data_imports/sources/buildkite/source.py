@@ -38,6 +38,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BuildkiteSource(ResumableSource[BuildkiteSourceConfig, BuildkiteResumeConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://buildkite.com/docs/apis/rest-api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BUILDKITE
@@ -55,7 +60,7 @@ class BuildkiteSource(ResumableSource[BuildkiteSourceConfig, BuildkiteResumeConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Buildkite",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
+            docsUrl="https://posthog.com/docs/cdp/sources/buildkite",
             caption="""Enter your Buildkite API access token and organization slug to sync your CI/CD data into the PostHog Data warehouse.
 
 You can create an API access token in your [Buildkite account settings](https://buildkite.com/user/api-access-tokens).

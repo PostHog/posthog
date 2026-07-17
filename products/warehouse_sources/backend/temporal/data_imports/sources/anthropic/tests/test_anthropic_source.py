@@ -1,147 +1,110 @@
-from unittest import mock
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import (
+    ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import AnthropicResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source import AnthropicSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AnthropicSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
-class TestAnthropicSource:
-    def setup_method(self):
-        self.source = AnthropicSource()
-        self.team_id = 123
-        self.config = AnthropicSourceConfig(api_key="sk-ant-admin-test")
+class TestAnthropicSourceConfig:
+    def test_source_type(self) -> None:
+        assert AnthropicSource().source_type == ExternalDataSourceType.ANTHROPIC
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ANTHROPIC
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Anthropic"
-        assert config.label == "Anthropic"
+    def test_config_exposes_single_secret_api_key_field(self) -> None:
+        config = AnthropicSource().get_source_config
+        assert config.name == SchemaExternalDataSourceType.ANTHROPIC
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
-        assert config.iconPath == "/static/services/anthropic.svg"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/anthropic"
+        assert config.unreleasedSource is None
+        fields = [f for f in config.fields if isinstance(f, SourceFieldInputConfig)]
+        assert [f.name for f in fields] == ["api_key"]
+        assert fields[0].secret is True and fields[0].required is True
 
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
 
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert key_field.secret is True
-        assert key_field.required is True
+class TestAnthropicSchemas:
+    def test_all_endpoints_present(self) -> None:
+        names = {s.name for s in AnthropicSource().get_schemas(MagicMock(), team_id=1)}
+        assert names == {
+            "users",
+            "invites",
+            "workspaces",
+            "api_keys",
+            "workspace_members",
+            "usage_report",
+            "cost_report",
+        }
 
-    @parameterized.expand(
-        [
-            "401 Client Error: Unauthorized for url: https://api.anthropic.com/v1/organizations/users?limit=500",
-            "403 Client Error: Forbidden for url: https://api.anthropic.com/v1/organizations/cost_report",
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
+    @parameterized.expand([("usage_report",), ("cost_report",)])
+    def test_report_endpoints_are_incremental_on_starting_at(self, endpoint: str) -> None:
+        # Only the report endpoints have a genuine server-side time filter (starting_at).
+        schema = next(s for s in AnthropicSource().get_schemas(MagicMock(), team_id=1) if s.name == endpoint)
+        assert schema.supports_incremental is True
+        assert schema.supports_append is False  # buckets get restated; append would duplicate
+        assert [f["field"] for f in schema.incremental_fields] == ["starting_at"]
+        assert schema.default_incremental_lookback_seconds == 60 * 60 * 24
 
-    @parameterized.expand(
-        [
-            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://api.anthropic.com/v1/organizations/users",
-        ]
-    )
-    def test_non_retryable_errors_does_not_match_unrelated(self, other_vendor_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_vendor_error for key in non_retryable_errors)
+    @parameterized.expand([("users",), ("workspaces",), ("api_keys",), ("workspace_members",), ("invites",)])
+    def test_entity_endpoints_are_full_refresh_only(self, endpoint: str) -> None:
+        # No updated-since filter exists on the entity lists, so they must not advertise incremental.
+        schema = next(s for s in AnthropicSource().get_schemas(MagicMock(), team_id=1) if s.name == endpoint)
+        assert schema.supports_incremental is False
+        assert schema.supports_append is False
 
-    def test_get_schemas(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
+    def test_names_filter(self) -> None:
+        schemas = AnthropicSource().get_schemas(MagicMock(), team_id=1, names=["usage_report"])
+        assert [s.name for s in schemas] == ["usage_report"]
 
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        incremental = {schema.name for schema in schemas if schema.supports_incremental}
-        # Only the report endpoints expose a server-side starting_at filter.
-        assert incremental == {"usage_report", "cost_report"}
 
-    def test_incremental_schemas_advertise_their_fields(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert schemas["usage_report"].incremental_fields == INCREMENTAL_FIELDS["usage_report"]
-        assert schemas["cost_report"].incremental_fields == INCREMENTAL_FIELDS["cost_report"]
-        assert schemas["users"].incremental_fields == []
-        assert schemas["users"].supports_append is False
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["usage_report"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "usage_report"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    @parameterized.expand(
-        [
-            ("valid", True, True, None),
-            ("invalid", False, False, "Invalid Anthropic Admin API key"),
-        ]
-    )
-    def test_validate_credentials(self, _name, mock_return, expected_valid, expected_message):
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source.validate_anthropic_credentials"
-        ) as mock_validate:
-            mock_validate.return_value = mock_return
-
-            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
-
-            assert is_valid is expected_valid
-            assert error_message == expected_message
-            mock_validate.assert_called_once_with(self.config.api_key)
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
+class TestAnthropicResumableManager:
+    def test_manager_bound_to_resume_config(self) -> None:
+        inputs = MagicMock()
+        manager = AnthropicSource().get_resumable_source_manager(inputs)
         assert manager._data_class is AnthropicResumeConfig
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source.anthropic_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_anthropic_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "usage_report"
+
+class TestAnthropicSourceForPipeline:
+    def _response(self, endpoint: str) -> object:
+        inputs = MagicMock()
+        inputs.schema_name = endpoint
+        inputs.logger = MagicMock()
         inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-07-01T00:00:00Z"
-        manager = mock.MagicMock()
+        inputs.db_incremental_field_last_value = None
+        config = MagicMock(api_key="sk-ant-admin-test")
+        return AnthropicSource().source_for_pipeline(config, MagicMock(), inputs)
 
-        self.source.source_for_pipeline(self.config, manager, inputs)
+    @parameterized.expand(
+        [
+            ("usage_report", ["id"], "datetime"),
+            ("cost_report", ["id"], "datetime"),
+            ("users", ["id"], "datetime"),
+            ("workspace_members", ["workspace_id", "user_id"], None),
+        ]
+    )
+    def test_primary_keys_and_partitioning(
+        self, endpoint: str, primary_keys: list[str], partition_mode: str | None
+    ) -> None:
+        response = self._response(endpoint)
+        assert response.name == endpoint  # type: ignore[attr-defined]
+        assert response.primary_keys == primary_keys  # type: ignore[attr-defined]
+        assert response.sort_mode == "asc"  # type: ignore[attr-defined]
+        # workspace_members has no stable timestamp field, so it is not partitioned.
+        assert response.partition_mode == partition_mode  # type: ignore[attr-defined]
 
-        mock_anthropic_source.assert_called_once()
-        kwargs = mock_anthropic_source.call_args.kwargs
-        assert kwargs["api_key"] == "sk-ant-admin-test"
-        assert kwargs["endpoint"] == "usage_report"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-07-01T00:00:00Z"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source.anthropic_source")
-    def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_anthropic_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "users"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-07-01T00:00:00Z"
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_anthropic_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)
+class TestDocumentedTables:
+    def test_lists_tables_without_credentials(self) -> None:
+        # Static endpoint catalog => the source opts into publishing its table list to public docs.
+        assert AnthropicSource().lists_tables_without_credentials is True
+        tables = AnthropicSource().get_documented_tables()
+        names = {t["name"] for t in tables}
+        assert "usage_report" in names and "cost_report" in names
+        usage = next(t for t in tables if t["name"] == "usage_report")
+        assert "Incremental" in usage["sync_methods"]
+        assert usage["description"]  # canonical description is surfaced

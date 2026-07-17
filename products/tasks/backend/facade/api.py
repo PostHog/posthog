@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, close_old_connections, transaction
 from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
@@ -49,9 +49,10 @@ from products.tasks.backend.logic.services.image_builder import (
     is_custom_images_enabled,
     read_spec_from_builder_sandbox,
 )
-from products.tasks.backend.mentions import resolve_mentioned_user_ids
+from products.tasks.backend.mentions import format_mention_token, resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
+    ChannelFeedMessage,
     CodeInvite,
     CodeInviteRedemption,
     CodeWorkflowConfig,
@@ -78,6 +79,7 @@ logger = logging.getLogger(__name__)
 TaskRunStatus = TaskRun.Status
 TaskRunEnvironment = TaskRun.Environment
 TaskOriginProduct = Task.OriginProduct
+TaskRuntime = Task.Runtime
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
 
@@ -112,6 +114,7 @@ __all__ = [
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
     "TaskOriginProduct",
+    "TaskRuntime",
     "TaskRunEnvironment",
     "TaskRunStatus",
     "append_task_run_log",
@@ -144,6 +147,7 @@ __all__ = [
     "fail_task_run",
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
+    "get_active_wizard_cloud_run",
     "get_code_home",
     "get_code_workflow_config",
     "get_conversation_task_dtos",
@@ -189,7 +193,6 @@ __all__ = [
     "relay_task_run_message",
     "reset_code_workflow_bindings",
     "resolve_slack_thread_context",
-    "respond_to_permission_request",
     "resume_task_run_in_cloud",
     "run_task",
     "run_task_automation_now",
@@ -200,7 +203,6 @@ __all__ = [
     "set_task_run_output",
     "set_task_title",
     "signal_report_queryset",
-    "signal_task_run_permission_response",
     "signal_task_run_user_message",
     "signal_workflow_completion",
     "soft_delete_task",
@@ -210,6 +212,7 @@ __all__ = [
     "task_ids_with_pr_url_subquery",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
+    "task_runtime",
     "task_visible",
     "update_sandbox_environment",
     "update_task",
@@ -401,6 +404,7 @@ def _task_detail_to_dto(
         title_manually_set=task.title_manually_set,
         description=task.description,
         origin_product=task.origin_product,
+        runtime=task.runtime,
         repository=task.repository,
         github_integration=task.github_integration_id,
         github_user_integration=task.github_user_integration_id,
@@ -621,6 +625,51 @@ def get_latest_run_by_task(task_ids: Iterable[str | UUID]) -> dict[str, contract
         .distinct("task_id")
     )
     return {str(run.task_id): _task_run_to_dto(run) for run in runs}
+
+
+def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunDTO | None:
+    """The team's active onboarding wizard cloud run, for rehydrating the setup FAB.
+
+    The drop flow starts the wizard cloud run server-side (``create_wizard_cloud_run``),
+    so a freshly-signed-in user has no client-side handle. Returns the most recent run
+    across the team's onboarding (``ORIGIN_PRODUCT == ONBOARDING``) tasks that's still
+    running, or completed within the last day (so we can show "PostHog is wired up" +
+    the PR); otherwise ``None``. Team-scoped.
+    """
+    onboarding_task_ids = Task.objects.filter(
+        team_id=team_id, origin_product=Task.OriginProduct.ONBOARDING, archived=False
+    ).values_list("id", flat=True)
+    fresh_after = django_timezone.now() - timedelta(days=1)
+    # Scan runs newest-first and surface the first that qualifies: picking the newest task up front
+    # would let a newer onboarding task with no live run hide an older task's still-running one.
+    # Both the task set and the run are scoped by team_id so a mismatched/legacy run row can't leak
+    # another team's handle back to the requester.
+    #
+    # ``origin_product == ONBOARDING`` is caller-settable, so it alone can't tell a genuine
+    # server-started wizard run from one a project member planted through the normal task APIs.
+    # Also require the immutable markers ``create_wizard_cloud_run`` stamps: a cloud environment
+    # and the ``wizard_config`` state key (a protected key callers cannot set, see the run PATCH
+    # allowlist), so we never hand a provisioned user someone else's attacker-controlled handle.
+    runs = TaskRun.objects.filter(
+        task_id__in=onboarding_task_ids,
+        team_id=team_id,
+        environment=TaskRun.Environment.CLOUD,
+        state__has_key="wizard_config",
+    ).order_by("-created_at", "-id")
+    for run in runs:
+        # Non-terminal runs always surface; terminal ones only while the result is still
+        # fresh enough to be worth showing on first landing.
+        if run.is_terminal:
+            anchor = run.updated_at or run.created_at
+            if anchor is None or anchor < fresh_after:
+                continue
+        return contracts.WizardCloudRunDTO(
+            task_id=run.task_id,
+            run_id=run.id,
+            status=run.status,
+            started_at=run.created_at,
+        )
+    return None
 
 
 def get_stale_queued_task_run_ids(
@@ -879,6 +928,20 @@ def update_task_run_state(
 ) -> dict:
     """Atomically merge state updates into a run's ``state`` and return the new state."""
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
+
+
+def set_task_run_created_at_for_seeding(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, created_at: datetime
+) -> None:
+    """Backdate a run's ``created_at`` — DEBUG-only escape hatch for dev seeding.
+
+    Signals' billing/refund seeding needs runs whose billable moment falls on an earlier UTC
+    day; ``created_at`` is deliberately not writable through the PATCH surface, so the hatch
+    lives here rather than callers reaching into the ORM.
+    """
+    if not settings.DEBUG:
+        raise RuntimeError("set_task_run_created_at_for_seeding is DEBUG-only")
+    TaskRun.objects.filter(pk=run_id, task_id=task_id, team_id=team_id).update(created_at=created_at)
 
 
 def fail_task_run(run_id: str | UUID, error: str, error_type: str | None = None) -> bool:
@@ -1295,6 +1358,9 @@ def build_sandbox_custom_image(
         parse_image_spec_yaml,
         validate_spec_buildable,
     )
+    from products.tasks.backend.metrics import (
+        observe_custom_image_build,  # noqa: PLC0415 — keep prometheus deps off the api import path
+    )
     from products.tasks.backend.temporal.client import execute_build_sandbox_image_workflow  # noqa: PLC0415
 
     image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
@@ -1315,11 +1381,21 @@ def build_sandbox_custom_image(
         raise ValueError("The image spec is empty; add packages, commands, or env vars before building")
     validate_spec_buildable(spec, image.repository)
 
-    image.spec = spec.model_dump()
-    image.status = SandboxCustomImage.Status.SCANNING
-    image.error = ""
-    image.save(update_fields=["spec", "status", "error", "updated_at"])
+    updated = (
+        _accessible_custom_images(team_id, user_id)
+        .filter(id=image.id)
+        .exclude(status__in=(SandboxCustomImage.Status.SCANNING, SandboxCustomImage.Status.BUILDING))
+        .update(
+            spec=spec.model_dump(),
+            status=SandboxCustomImage.Status.SCANNING,
+            error="",
+            updated_at=django_timezone.now(),
+        )
+    )
+    if not updated:
+        raise ValueError("A build is already in progress for this image")
 
+    observe_custom_image_build("started")
     execute_build_sandbox_image_workflow(str(image.id), team_id)
     return _reload_image_dto(image.pk)
 
@@ -1521,8 +1597,13 @@ def _sync_automation_schedule(automation: TaskAutomation) -> None:
 #     provision an oversized or long-lived sandbox beyond what they're entitled to.
 #   - use_modal_directory_resume_snapshots is the server-side directory snapshot rollout decision;
 #     a caller could otherwise force directory snapshot creation while the feature flag is off.
+#   - use_modal_vm_sandbox is reserved for trusted server-created runs such as image builders;
+#     a caller could otherwise force the VM runtime while the feature flag or custom-image gate is off.
 #   - snapshot_external_id / snapshot_kind / snapshot_mount_path control which Modal image is
 #     restored on resume and where directory snapshots are mounted.
+#   - workflow_id is the run's Temporal workflow address (``TaskRun.workflow_id`` prefers it over
+#     the derived id); a caller could otherwise repoint their run at another team's workflow and
+#     signal or terminate-and-restart it.
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
@@ -1536,9 +1617,16 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "wizard_config",
         "wizard_head_branch",
         "use_modal_directory_resume_snapshots",
+        "use_modal_vm_sandbox",
         "snapshot_external_id",
         "snapshot_kind",
         "snapshot_mount_path",
+        "workflow_id",
+        "pending_dispatch",
+        "cancel_requested_at",
+        "cancel_requested_by_user_id",
+        "cancel_source",
+        "cancel_fallback_cleanup_complete",
     }
 )
 
@@ -1744,7 +1832,12 @@ def _send_wizard_pr_ready_email_for_pr(run: TaskRun) -> None:
 
 
 def update_task_run(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, validated_data: dict
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    validated_data: dict,
+    only_if_non_terminal: bool = False,
 ) -> contracts.TaskRunDetailDTO | None:
     """Apply a PATCH to a run: merge output/state, set completion, then dispatch side effects.
 
@@ -1778,8 +1871,10 @@ def update_task_run(
     update_fields: set[str] = set()
 
     with transaction.atomic():
-        if has_output_merge or has_state_mutation:
+        if has_output_merge or has_state_mutation or only_if_non_terminal:
             run = TaskRun.objects.select_for_update().get(pk=run.pk)
+        if only_if_non_terminal and run.is_terminal:
+            return _task_run_detail_to_dto(run)
 
         old_status = run.status
         old_environment = run.environment
@@ -2472,47 +2567,6 @@ def signal_task_run_user_message(
     return True
 
 
-def signal_task_run_permission_response(
-    run_id: str | UUID,
-    task_id: str | UUID,
-    team_id: int,
-    *,
-    request_id: str,
-    option_id: str,
-    actor_user_id: int,
-    actor_slack_user_id: str | None = None,
-    is_denial: bool = False,
-    denial_message: str | None = None,
-    broker_reason: str | None = None,
-) -> bool | None:
-    """Queue an agent permission response signal on the run's workflow.
-
-    Returns ``True`` on success, ``False`` if signalling failed, ``None`` if the run isn't found.
-    """
-    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
-        signal_task_permission_response,
-    )
-
-    run = _get_visible_run(run_id, task_id, team_id)
-    if run is None:
-        return None
-    try:
-        signal_task_permission_response(
-            run.workflow_id,
-            request_id=request_id,
-            option_id=option_id,
-            actor_user_id=actor_user_id,
-            actor_slack_user_id=actor_slack_user_id,
-            is_denial=is_denial,
-            denial_message=denial_message,
-            broker_reason=broker_reason,
-        )
-    except Exception:
-        logger.exception("Failed to signal permission response for task run %s", run.id)
-        return False
-    return True
-
-
 def get_task_run_sandbox_connection(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, user_id: int, distinct_id: str
 ) -> contracts.TaskRunSandboxConnectionDTO | None:
@@ -2639,7 +2693,6 @@ def relay_task_run_message(
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
     )
-    from products.tasks.backend.models import TaskRun  # noqa: PLC0415 — keep ORM off the api import path
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         execute_posthog_code_agent_relay_workflow,
         signal_agent_text_delta,
@@ -2661,7 +2714,7 @@ def relay_task_run_message(
 
     if bool((run.state or {}).get(AGENT_DESIGN_STATE_KEY)):
         try:
-            signal_agent_text_delta(TaskRun.get_workflow_id(str(run.task_id), str(run.id)), trimmed)
+            signal_agent_text_delta(run.workflow_id, trimmed)
         except Exception:
             logger.exception("task_run_relay_text_signal_failed", extra={"run_id": str(run.id)})
         return "skipped", None
@@ -2794,6 +2847,8 @@ def bootstrap_task_run(
     github_user_token = validated_data.get("github_user_token")
     initial_permission_mode = validated_data.get("initial_permission_mode")
     home_quick_action = validated_data.get("home_quick_action")
+    imported_mcp_servers = validated_data.get("imported_mcp_servers")
+    relayed_mcp_servers = validated_data.get("relayed_mcp_servers")
     if run_source == RunSource.SIGNAL_REPORT:
         pr_authorship_mode = PrAuthorshipMode.BOT
 
@@ -2892,6 +2947,17 @@ def bootstrap_task_run(
     )
     run = task.create_run(environment=environment, mode=mode, branch=branch, extra_state=extra_state)
 
+    if imported_mcp_servers or relayed_mcp_servers:
+        update_fields = ["updated_at"]
+        if imported_mcp_servers:
+            # Kept out of `state` (a plain JSONField) because header values carry credentials.
+            run.imported_mcp_servers = imported_mcp_servers
+            update_fields.append("imported_mcp_servers")
+        if relayed_mcp_servers:
+            run.relayed_mcp_servers = relayed_mcp_servers
+            update_fields.append("relayed_mcp_servers")
+        run.save(update_fields=update_fields)
+
     if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
         cache_github_user_token(str(run.id), github_user_token)
 
@@ -2943,6 +3009,8 @@ def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: i
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found"
+    if run.task.runtime == Task.Runtime.PI:
+        return "unsupported_runtime"
     if run.environment != TaskRun.Environment.CLOUD:
         return "not_cloud"
     if run.status not in _STARTABLE_TASK_RUN_STATUSES:
@@ -3022,6 +3090,8 @@ def resume_task_run_in_cloud(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found", None, None
+    if run.task.runtime == Task.Runtime.PI:
+        return "unsupported_runtime", None, None
 
     logger.info(
         "resume_in_cloud_called",
@@ -3194,6 +3264,15 @@ def get_conversation_task_dtos(task_ids: Sequence[str | UUID], team_id: int) -> 
     return {task.id: _task_detail_to_dto(task, include_latest_run=False) for task in tasks}
 
 
+def task_runtime(task_id: str | UUID, team_id: int, user_id: int | None, *, for_control: bool = False) -> str | None:
+    return (
+        _visible_task_qs(team_id, user_id, for_control=for_control)
+        .filter(id=task_id)
+        .values_list("runtime", flat=True)
+        .first()
+    )
+
+
 def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_control: bool = False) -> bool:
     """Whether a non-deleted task exists for the team and is visible to the user.
 
@@ -3220,9 +3299,11 @@ async def select_repository_for_message(team_id: int, user_id: int, message: str
     )
 
 
-def _list_tasks_queryset(team_id: int, user_id: int | None, *, filters: dict) -> QuerySet[Task]:
+def _list_tasks_queryset(
+    team_id: int, user_id: int | None, *, filters: dict, bypass_visibility: bool = False
+) -> QuerySet[Task]:
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
-    qs = _visible_task_qs(team_id, user_id).order_by("-created_at", "-id")
+    qs = _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility).order_by("-created_at", "-id")
 
     origin_product = filters.get("origin_product")
     if origin_product:
@@ -3400,7 +3481,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     from posthog.models import Team  # noqa: PLC0415
 
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
-        record_implementation_task,
+        record_report_task,
     )
     from products.tasks.backend.logic.services.title_generator import generate_task_title  # noqa: PLC0415
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
@@ -3479,9 +3560,9 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
             )
             return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
 
-    # Only IMPLEMENTATION is accepted; pop it so it isn't forwarded to the model. The link itself
-    # is recorded by record_implementation_task below.
-    validated_data.pop("signal_report_task_relationship", None)
+    # The relationship the client asserted (validated by the serializer, which rejects `research`).
+    # Popped so it isn't forwarded to the model; the link itself is recorded by record_report_task below.
+    signal_report_task_relationship = validated_data.pop("signal_report_task_relationship", None)
 
     if not validated_data.get("github_integration"):
         default_integration = Integration.objects.filter(team=team, kind="github").first()
@@ -3515,12 +3596,14 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     with transaction.atomic():
         task = Task.objects.create(**validated_data)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
-            # Dual-write the implementation gate row + task_run work-log artefact (see
-            # record_implementation_task) so a manually-started task matches autostarted ones.
-            record_implementation_task(
+            # Record the task↔report association + work-log artefact for the asserted relationship
+            # (defaults to implementation, which also writes the auto-start spend gate row) so a
+            # manually-started task matches autostarted ones.
+            record_report_task(
                 team_id=task.team_id,
                 report_id=str(task.signal_report_id),
                 task_id=str(task.id),
+                relationship=signal_report_task_relationship,
             )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
@@ -3960,6 +4043,12 @@ def run_task(
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
+    if task.runtime == Task.Runtime.PI:
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="detail", detail="Pi tasks cannot be run through the ACP task workflow."
+            )
+        )
 
     mode = validated_data.get("mode", "background")
     branch = validated_data.get("branch")
@@ -4017,6 +4106,8 @@ def run_task(
     reasoning_effort = validated_data.get("reasoning_effort")
     github_user_token = validated_data.get("github_user_token")
     initial_permission_mode = validated_data.get("initial_permission_mode")
+    imported_mcp_servers = validated_data.get("imported_mcp_servers")
+    relayed_mcp_servers = validated_data.get("relayed_mcp_servers")
     if run_source == RunSource.SIGNAL_REPORT:
         pr_authorship_mode = PrAuthorshipMode.BOT
 
@@ -4193,6 +4284,17 @@ def run_task(
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
     task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
 
+    if imported_mcp_servers or relayed_mcp_servers:
+        update_fields = ["updated_at"]
+        if imported_mcp_servers:
+            # Kept out of `state` (a plain JSONField) because header values carry credentials.
+            task_run.imported_mcp_servers = imported_mcp_servers
+            update_fields.append("imported_mcp_servers")
+        if relayed_mcp_servers:
+            task_run.relayed_mcp_servers = relayed_mcp_servers
+            update_fields.append("relayed_mcp_servers")
+        task_run.save(update_fields=update_fields)
+
     if pending_user_artifact_ids:
         _attach_staged_artifacts_to_run(
             task_run, task, staged_artifacts=staged_artifacts, artifact_ids=pending_user_artifact_ids
@@ -4297,7 +4399,12 @@ def _slack_repo_research_dto(
         except Exception:
             logger.exception("slack_thread_context_research_log_presign_failed", extra={"run_id": research_run_id})
             log_url = None
-    workflow_id = TaskRun.get_workflow_id(research_task_id, research_run_id)
+    # Prefer the run's actual id (prefixed dispatches persist it); fall back to derived when the row is gone.
+    workflow_id = (
+        research_run.workflow_id
+        if research_run is not None
+        else TaskRun.get_workflow_id(research_task_id, research_run_id)
+    )
     return contracts.SlackThreadContextRepoResearchDTO(
         task_id=research_task_id,
         run_id=research_run_id,
@@ -4360,7 +4467,7 @@ def resolve_slack_thread_context(
     for run in runs:
         state = run.state if isinstance(run.state, dict) else {}
         output = run.output if isinstance(run.output, dict) else {}
-        task_processing_workflow_id = TaskRun.get_workflow_id(task.id, run.id)
+        task_processing_workflow_id = run.workflow_id
         mention_workflow_id = state.get("slack_mention_workflow_id")
         try:
             presigned_log_url = object_storage.get_presigned_url(run.log_url, expiration=3600)
@@ -4712,13 +4819,36 @@ def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDT
     return [_channel_to_dto(channel) for channel in channels]
 
 
+def _emit_channel_created(channel: Channel, user_id: int | None) -> None:
+    """Announce a newly-created public channel in its own feed as a system row
+    ("Ann created this context"). Server-emitted so the announcement appears no
+    matter which client (or integration) created the channel. Best-effort — a
+    feed-write failure must never break channel creation. The fail-closed
+    ``TeamScopedManager`` raises without team context, so callers outside a
+    request (temporal, MCP) must wrap in ``team_scope()`` or the announcement
+    is swallowed here and only logged."""
+    try:
+        ChannelFeedMessage.objects.create(
+            team_id=channel.team_id,
+            channel_id=channel.id,
+            author_id=user_id,
+            author_kind=ChannelFeedMessage.AuthorKind.SYSTEM,
+            event="channel_created",
+            payload={"channel_name": channel.name},
+        )
+    except Exception:
+        logger.exception("Failed to emit channel_created feed message", extra={"channel_id": str(channel.id)})
+
+
 def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contracts.ChannelDTO | None:
-    """Resolve-or-create a public channel by (normalized) name. ``None`` for empty names."""
+    """Resolve-or-create a public channel by (normalized) name. ``None`` for empty names.
+    Emits a ``channel_created`` feed message the first time a channel is created."""
     normalized = normalize_channel_name(name)
     if not normalized:
         return None
+    created = False
     try:
-        channel, _ = Channel.objects.select_related("created_by").get_or_create(
+        channel, created = Channel.objects.select_related("created_by").get_or_create(
             team_id=team_id,
             name=normalized,
             channel_type=Channel.ChannelType.PUBLIC,
@@ -4729,6 +4859,8 @@ def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contract
         channel = Channel.objects.select_related("created_by").get(
             team_id=team_id, name=normalized, channel_type=Channel.ChannelType.PUBLIC, deleted=False
         )
+    if created:
+        _emit_channel_created(channel, user_id)
     return _channel_to_dto(channel)
 
 
@@ -4763,10 +4895,97 @@ def delete_channel(channel_id: str | UUID, team_id: int) -> str:
     return "ok"
 
 
+# Per-channel ceiling on feed rows — the feed holds rare lifecycle announcements, so the
+# cap exists to stop one member making the feed unboundedly expensive to store and read.
+CHANNEL_FEED_MAX_MESSAGES = 500
+
+
+def _channel_feed_message_to_dto(message: ChannelFeedMessage) -> contracts.ChannelFeedMessageDTO:
+    return contracts.ChannelFeedMessageDTO(
+        id=message.id,
+        channel=message.channel_id,
+        author_kind=message.author_kind,
+        event=message.event,
+        payload=message.payload or {},
+        content=message.content,
+        created_at=message.created_at,
+        author=_user_basic_info(message.author if message.author_id else None),
+    )
+
+
+def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> Channel | None:
+    """A channel the requester may read: any live public channel on the team, or their
+    own personal channel. ``None`` when it's missing or someone else's personal channel."""
+    channel = Channel.objects.select_related("created_by").filter(id=channel_id, team_id=team_id, deleted=False).first()
+    if channel is None:
+        return None
+    if channel.channel_type == Channel.ChannelType.PERSONAL and channel.created_by_id != user_id:
+        return None
+    return channel
+
+
+def list_channel_feed_messages(
+    channel_id: str | UUID, team_id: int, user_id: int | None
+) -> list[contracts.ChannelFeedMessageDTO] | None:
+    """A channel's system-announcement feed, ascending. ``None`` when the channel isn't visible.
+    Bounded to the newest ``CHANNEL_FEED_MAX_MESSAGES``: the feed holds rare lifecycle
+    events, and the write path caps a channel at the same count. Add real pagination
+    before any per-task or per-thread event lands here."""
+    if _visible_channel(channel_id, team_id, user_id) is None:
+        return None
+    messages = (
+        ChannelFeedMessage.objects.filter(channel_id=channel_id, team_id=team_id, deleted=False)
+        .select_related("author")
+        .order_by("-created_at", "-id")[:CHANNEL_FEED_MAX_MESSAGES]
+    )
+    return [_channel_feed_message_to_dto(message) for message in reversed(messages)]
+
+
+def create_channel_feed_message(
+    channel_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    event: str,
+    payload: dict,
+    created_at: datetime | None = None,
+) -> contracts.ChannelFeedMessageDTO | None | str:
+    """Post an announcement into a channel's feed as the requester. ``None`` when the
+    channel isn't visible; ``"full"`` when the channel's feed is at capacity. The row is
+    marked human-authored — ``system``/``agent`` kinds are reserved for server-side
+    writers, so a client can't forge rows other clients render as trusted. ``author``
+    records the acting user so the client can render "Adam …". ``created_at`` lets a
+    client order a burst of announcements deterministically (else the server stamps
+    ``now``)."""
+    if _visible_channel(channel_id, team_id, user_id) is None:
+        return None
+    if (
+        ChannelFeedMessage.objects.filter(channel_id=channel_id, team_id=team_id, deleted=False).count()
+        >= CHANNEL_FEED_MAX_MESSAGES
+    ):
+        return "full"
+    fields: dict = {
+        "team_id": team_id,
+        "channel_id": channel_id,
+        "author_id": user_id,
+        "author_kind": ChannelFeedMessage.AuthorKind.HUMAN,
+        "event": event,
+        "payload": payload or {},
+    }
+    if created_at is not None:
+        fields["created_at"] = created_at
+    message = ChannelFeedMessage.objects.create(**fields)
+    # Fresh row: author lazy-loads once for the DTO.
+    return _channel_feed_message_to_dto(message)
+
+
 def _thread_message_to_dto(message: TaskThreadMessage) -> contracts.TaskThreadMessageDTO:
     return contracts.TaskThreadMessageDTO(
         id=message.id,
         task=message.task_id,
+        author_kind=message.author_kind,
+        event=message.event,
+        payload=message.payload or {},
         content=message.content,
         created_at=message.created_at,
         author=_user_basic_info(message.author if message.author_id else None),
@@ -4818,7 +5037,7 @@ def _index_thread_message_mentions(message: TaskThreadMessage) -> None:
     mentioned_user_ids = resolve_mentioned_user_ids(
         User, message.content, team_id=message.team_id, author_id=message.author_id
     )
-    TaskThreadMessageMention.objects.bulk_create(
+    TaskThreadMessageMention.objects.for_team(message.team_id).bulk_create(
         [
             TaskThreadMessageMention(
                 team_id=message.team_id,
@@ -4922,31 +5141,124 @@ def forward_thread_message(
     return "ok", _thread_message_to_dto(message)
 
 
-def respond_to_permission_request(
-    run_id: str | UUID,
-    task_id: str | UUID,
-    team_id: int,
-    *,
-    request_id: str,
-    option_id: str,
-) -> contracts.PermissionResponseResult:
-    """Deliver a human permission decision (from an origin surface like a Slack approval
-    card) to a run's sandbox agent, authenticated as the task creator."""
-    from products.tasks.backend.logic.services.permission_broker import (  # noqa: PLC0415 — keep sandbox deps off the api import path
-        send_permission_response,
-    )
+# Threads are a Channels (project-bluebird) surface, so agent-authored thread
+# updates are gated on the same flag — evaluated for the task creator.
+AGENT_THREAD_UPDATES_FLAG = "project-bluebird"
 
-    run = (
-        TaskRun.objects.select_related("task", "task__created_by")
-        .filter(id=run_id, task_id=task_id, team_id=team_id)
-        .first()
-    )
-    if run is None:
-        return contracts.PermissionResponseResult(outcome="not_found")
-    if run.is_terminal:
-        return contracts.PermissionResponseResult(outcome="terminal", run_status=run.status)
+# One turn-complete post per run within the window, so an SSE relay reconnect
+# replaying the tail of the stream can't double-post the same end-of-turn.
+_TURN_COMPLETE_COOLDOWN_SECONDS = 30
 
-    result = send_permission_response(run, request_id=request_id, option_id=option_id)
-    if not result.success:
-        return contracts.PermissionResponseResult(outcome="failed", status_code=result.status_code, error=result.error)
-    return contracts.PermissionResponseResult(outcome="sent")
+# Cap the relayed final message so one agent essay can't dwarf the thread.
+_TURN_MESSAGE_MAX_CHARS = 4000
+
+
+def _create_agent_thread_message(task: Task, content: str, *, event: str, payload: dict | None = None) -> None:
+    """Write an agent-authored thread message and index its mentions.
+
+    ``content`` is the rendered text (older clients show it as-is); ``event`` +
+    ``payload`` are the structured record, mirroring ChannelFeedMessage, that
+    lets clients render agent rows natively and dedupe them against live views.
+    """
+    # for_team: callers include non-request contexts (temporal relay) where the
+    # fail-closed manager has no team scope.
+    message = TaskThreadMessage.objects.for_team(task.team_id).create(
+        team_id=task.team_id,
+        task_id=task.id,
+        author_id=None,
+        author_kind=TaskThreadMessage.AuthorKind.AGENT,
+        event=event,
+        payload=payload or {},
+        content=content,
+    )
+    try:
+        _index_thread_message_mentions(message)
+    except Exception:
+        logger.exception("Failed to index thread message mentions", extra={"message_id": str(message.id)})
+
+
+def _agent_thread_updates_enabled(creator: User | None) -> bool:
+    """Fail closed: no creator to key the flag on, or a flag-service error, means no post."""
+    if creator is None:
+        return False
+    distinct_id = creator.distinct_id or f"user_{creator.id}"
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(AGENT_THREAD_UPDATES_FLAG, distinct_id, send_feature_flag_events=False)
+        )
+    except Exception:
+        logger.warning("Agent thread update flag check failed", extra={"user_id": creator.id}, exc_info=True)
+        return False
+
+
+def post_canvas_created_thread_update(
+    task_id: str | UUID, team_id: int, *, acting_user_id: int | None, canvas_name: str, canvas_url: str | None
+) -> None:
+    """Announce a freshly created canvas in the generating task's thread.
+
+    Posts "[name](url) has been created" as an agent message. Called on a canvas's
+    first publish only — the caller owns that once-guard. ``acting_user_id`` must be
+    the task's creator: the sandbox publishes with the creator's credentials, so this
+    binds the attributed task to the caller's identity — a same-team caller can't
+    plant agent messages in someone else's task thread by naming its id. Best-effort
+    and never raises: the publish must not fail because its announcement couldn't
+    be written.
+    """
+    try:
+        task = Task.objects.select_related("created_by").filter(id=task_id, team_id=team_id).first()
+        if task is None or task.created_by_id is None or task.created_by_id != acting_user_id:
+            return
+        if not _agent_thread_updates_enabled(task.created_by):
+            return
+        # Brackets and newlines in the name would break the [label](url) token.
+        name = re.sub(r"[\[\]\n]", " ", canvas_name).strip() or "Canvas"
+        content = f"[{name}]({canvas_url}) has been created" if canvas_url else f"{name} has been created"
+        _create_agent_thread_message(
+            task,
+            content,
+            event="canvas_created",
+            payload={"canvas_name": name, "canvas_url": canvas_url},
+        )
+    except Exception:
+        logger.exception("Failed to post canvas-created thread update", extra={"task_id": str(task_id)})
+
+
+def post_turn_complete_thread_update(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, message: str | None = None
+) -> None:
+    """Post the agent's final turn message into the task's thread, @-mentioning the task creator.
+
+    Fires from the sandbox event relay on every end-of-turn of a channel task's
+    background run, so the update lands even with no client open. ``message`` is
+    the agent's closing prose for the turn; when the relay captured none, a plain
+    "Turn complete." stands in. Best-effort and never raises — a failed post must
+    not disturb the relay.
+    """
+    try:
+        if not settings.TEST:
+            close_old_connections()
+        task = Task.objects.select_related("created_by").filter(id=task_id, team_id=team_id).first()
+        # Threads hang off a task's channel feed; a channel-less task has no audience.
+        if task is None or task.channel_id is None:
+            return
+        creator = task.created_by
+        if creator is None or not _agent_thread_updates_enabled(creator):
+            return
+        from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
+
+        if not get_tasks_cache().add(f"thread_update:{run_id}:turn_complete", True, _TURN_COMPLETE_COOLDOWN_SECONDS):
+            return
+        body = (message or "").strip() or "Turn complete."
+        if len(body) > _TURN_MESSAGE_MAX_CHARS:
+            body = body[: _TURN_MESSAGE_MAX_CHARS - 1] + "…"
+        mention = format_mention_token(creator.get_full_name() or creator.email, creator.email)
+        # payload.run_id is the dedupe key: a client already rendering this run's
+        # live agent turns can suppress the durable row (or vice versa).
+        _create_agent_thread_message(
+            task,
+            f"{mention} {body}",
+            event="turn_complete",
+            payload={"run_id": str(run_id)},
+        )
+    except Exception:
+        logger.exception("Failed to post turn-complete thread update", extra={"task_id": str(task_id)})

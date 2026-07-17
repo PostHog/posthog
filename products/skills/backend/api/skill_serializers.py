@@ -10,16 +10,18 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
 
-from ..models.skills import LLMSkill, LLMSkillFile
+from ..models.skills import LLMSkill, LLMSkillFile, category_for_skill_name
 
 # Skill names that collide with reserved /skills routes and so can't be used: "new" is the create
 # form, and the rest mirror the category-tab slugs registered under /skills/<slug> in
 # products/skills/manifest.tsx — a skill with such a name would be shadowed by its tab route.
-RESERVED_SKILL_NAMES = {"new", "scouts"}
+RESERVED_SKILL_NAMES = {"new", "scouts", "review-hog"}
 # Bundled-file paths that would collide with generated artifacts in the exported skill
 # tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
 RESERVED_SKILL_FILE_PATHS = {"skill.md"}
 DEFAULT_VERSION_PAGE_SIZE = 50
+# Body-paging metadata is meaningless without the body, so the list serializer drops it alongside body/files.
+_LIST_EXCLUDED_FIELDS = ("body", "body_total_length", "body_next_offset", "files")
 MAX_SKILL_BODY_BYTES = 1_000_000
 MAX_SKILL_FILE_BYTES = 1_000_000
 MAX_SKILL_FILE_COUNT = 50
@@ -109,6 +111,25 @@ class LLMSkillFetchQuerySerializer(serializers.Serializer):
         min_value=1,
         required=False,
         help_text="Specific skill version to fetch. If omitted, the latest version is returned.",
+    )
+
+
+class LLMSkillBodyFetchQuerySerializer(LLMSkillFetchQuerySerializer):
+    """Fetch-by-name query params plus optional body paging — only the body-returning endpoint uses these."""
+
+    body_offset = serializers.IntegerField(
+        min_value=0,
+        required=False,
+        help_text="Zero-based character offset to start the returned body from. Use with body_length to page through a "
+        "large body that a client would otherwise truncate. Compare the returned body length against body_total_length "
+        "to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).",
+    )
+    body_length = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        help_text="Maximum number of characters of the body to return starting at body_offset. Omit to return the "
+        "whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to "
+        "request next.",
     )
 
 
@@ -352,6 +373,14 @@ class LLMSkillSerializer(serializers.ModelSerializer):
     outline = serializers.SerializerMethodField(
         help_text="Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents.",
     )
+    body_total_length = serializers.SerializerMethodField(
+        help_text="Total length of the full body in characters, independent of any body_offset/body_length paging. "
+        "Compare against the length of the returned body to detect a truncated response.",
+    )
+    body_next_offset = serializers.SerializerMethodField(
+        help_text="When body_length paging stops before the end of the body, the character offset to request next "
+        "(pass as body_offset). Null when the returned body reaches the end.",
+    )
 
     class Meta:
         model = LLMSkill
@@ -359,6 +388,10 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "description",
+            # Body-paging metadata is ordered before `body` so it survives a client that
+            # truncates the tail of a large response — the truncation signal stays readable.
+            "body_total_length",
+            "body_next_offset",
             "body",
             "license",
             "compatibility",
@@ -381,6 +414,8 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "id",
             "files",
             "outline",
+            "body_total_length",
+            "body_next_offset",
             "version",
             "created_by",
             "created_at",
@@ -429,6 +464,35 @@ class LLMSkillSerializer(serializers.ModelSerializer):
     def get_outline(self, instance: LLMSkill) -> list[dict[str, Any]]:
         return get_markdown_outline(instance.body)
 
+    def _body_offset(self) -> int:
+        return self.context.get("body_offset") or 0
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_body_total_length(self, instance: LLMSkill) -> int:
+        return len(instance.body or "")
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_body_next_offset(self, instance: LLMSkill) -> int | None:
+        body_length = self.context.get("body_length")
+        if body_length is None:
+            return None
+        end = self._body_offset() + body_length
+        total = len(instance.body or "")
+        return end if end < total else None
+
+    def to_representation(self, instance: LLMSkill) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        # Slice the body only when the caller asked to page through it — an ordinary
+        # fetch (no paging params) returns the whole body unchanged.
+        body = data.get("body")
+        if body is not None:
+            offset = self._body_offset()
+            body_length = self.context.get("body_length")
+            if offset or body_length is not None:
+                end = None if body_length is None else offset + body_length
+                data["body"] = body[offset:end]
+        return data
+
     def validate_name(self, value: str) -> str:
         return validate_skill_name_value(value)
 
@@ -475,10 +539,13 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
         files = validated_data.pop("files", None)
 
         with transaction.atomic():
+            # `category` is read-only on the serializer, so it can never arrive in validated_data —
+            # the server-owned prefix stamp is the only writer.
             skill = LLMSkill.objects.create(
                 team=team,
                 created_by=request.user,
                 is_latest=True,
+                category=category_for_skill_name(validated_data["name"]),
                 **validated_data,
             )
             if files:
@@ -500,8 +567,8 @@ class LLMSkillListSerializer(LLMSkillSerializer):
     """List serializer that omits body and file manifest — progressive disclosure (Level 1)."""
 
     class Meta(LLMSkillSerializer.Meta):
-        fields = [f for f in LLMSkillSerializer.Meta.fields if f not in ("body", "files")]
-        read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f not in ("body", "files")]
+        fields = [f for f in LLMSkillSerializer.Meta.fields if f not in _LIST_EXCLUDED_FIELDS]
+        read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f not in _LIST_EXCLUDED_FIELDS]
 
 
 class LLMSkillVersionSummarySerializer(serializers.ModelSerializer):

@@ -562,6 +562,50 @@ def create_hog_function_template(
         return PlaywrightHogFunctionTemplateResult(template_id=data.template_id, created=False)
 
 
+class PlaywrightOAuthApplicationData(BaseModel):
+    client_id: str = "e2e_mcp_consent_client_id"
+    name: str = "E2E MCP Consent Test App"
+    redirect_uris: str = "https://example.com/callback"
+
+
+class PlaywrightOAuthApplicationResult(BaseModel):
+    client_id: str
+    name: str
+    created: bool
+
+
+def create_oauth_application(data: PlaywrightOAuthApplicationData) -> PlaywrightOAuthApplicationResult:
+    """Seed an OAuth application for consent-page e2e tests.
+
+    OAuth apps are global (not team-scoped). Idempotent via get_or_create on client_id.
+    """
+    from posthog.models.oauth import OAuthApplication
+
+    app, created = OAuthApplication.objects.get_or_create(
+        client_id=data.client_id,
+        defaults={
+            "name": data.name,
+            "client_secret": "",
+            "client_type": OAuthApplication.CLIENT_PUBLIC,
+            "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            "redirect_uris": data.redirect_uris,
+            "algorithm": "RS256",
+        },
+    )
+    if not created:
+        update_fields: list[str] = []
+        if app.name != data.name:
+            app.name = data.name
+            update_fields.append("name")
+        if app.redirect_uris != data.redirect_uris:
+            app.redirect_uris = data.redirect_uris
+            update_fields.append("redirect_uris")
+        if update_fields:
+            app.save(update_fields=update_fields)
+
+    return PlaywrightOAuthApplicationResult(client_id=app.client_id, name=app.name, created=created)
+
+
 @dataclass(frozen=True)
 class SetupFunctionConfig:
     function: PlaywrightSetupFunction
@@ -579,5 +623,10 @@ PLAYWRIGHT_SETUP_FUNCTIONS: dict[str, SetupFunctionConfig] = {
         function=create_hog_function_template,  # type: ignore
         input_model=PlaywrightHogFunctionTemplateData,
         description="Seeds a single HogFunctionTemplate row (templates are global, not team-scoped)",
+    ),
+    "oauth_application": SetupFunctionConfig(
+        function=create_oauth_application,  # type: ignore
+        input_model=PlaywrightOAuthApplicationData,
+        description="Seeds an OAuth application for consent-page e2e tests (global, idempotent on client_id)",
     ),
 }

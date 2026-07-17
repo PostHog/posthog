@@ -23,7 +23,6 @@ class TestGuardianSource:
         assert config.name.value == "Guardian"
         assert config.label == "The Guardian"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/guardian"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

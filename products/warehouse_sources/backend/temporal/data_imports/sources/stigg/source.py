@@ -32,6 +32,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class StiggSource(ResumableSource[StiggSourceConfig, StiggResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://docs.stigg.io"
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
 
     @property
@@ -45,7 +48,6 @@ class StiggSource(ResumableSource[StiggSourceConfig, StiggResumeConfig]):
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Stigg",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Stigg server API key to pull your pricing, packaging, and monetization data into the PostHog Data warehouse.
 
 You can find your server API key under **Settings → Integrations → API keys** in [Stigg](https://app.stigg.io). The key grants read access to your customers, subscriptions, products, plans, addons, features, and coupons.

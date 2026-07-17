@@ -24,7 +24,6 @@ class TestFastlySource:
         assert config.name.value == "Fastly"
         assert config.label == "Fastly"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/fastly.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/fastly"
 

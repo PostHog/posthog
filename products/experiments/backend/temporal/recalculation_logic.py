@@ -6,7 +6,7 @@ module holds the DB-touching ``_*_sync`` implementations plus the pure helpers t
 
 import time
 import dataclasses
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.db import close_old_connections, transaction
@@ -19,8 +19,10 @@ from temporalio.exceptions import ApplicationError
 from posthog.schema import ExperimentQuery
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import groups
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
@@ -38,7 +40,9 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.temporal.metric_resolution import build_metric, find_metric_dict
 from products.experiments.backend.temporal.models import (
+    CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
     METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
+    NON_RETRYABLE_ERROR_TYPES,
     ExperimentMetricToRecalculate,
     MetricRecalculationResult,
     RecalculationProgressUpdate,
@@ -86,6 +90,7 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
         # Non-retryable so Temporal terminates promptly instead of burning retries on each activity.
         raise ApplicationError(
             f"ExperimentMetricsRecalculation {recalculation_id} not found",
+            type="recalculation_not_found",
             non_retryable=True,
         )
     return _RecalcState(
@@ -170,6 +175,7 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
         # workflow bug — fail non-retryable so Temporal terminates promptly.
         raise ApplicationError(
             "RecalculationProgressUpdate must set exactly one of mark_started or mark_completed",
+            type="invalid_input",
             non_retryable=True,
         )
 
@@ -446,6 +452,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
     except ValueError as e:
         raise ApplicationError(
             f"query_to {query_to!r} is not a valid ISO datetime string: {e}",
+            type="invalid_input",
             non_retryable=True,
         )
     state = _get_recalc_state(recalculation_id)
@@ -456,21 +463,25 @@ def _calculate_experiment_metric_for_recalculation_sync(
     if experiment_id != state.experiment_id:
         raise ApplicationError(
             f"experiment_id {experiment_id} does not match recalc.experiment_id {state.experiment_id}",
+            type="input_mismatch",
             non_retryable=True,
         )
     if metric_uuid not in state.metric_uuids:
         raise ApplicationError(
             f"metric_uuid {metric_uuid} is not in recalc {recalculation_id}'s metric set",
+            type="input_mismatch",
             non_retryable=True,
         )
     if state.query_to is None:
         raise ApplicationError(
             f"recalc {recalculation_id} has no query_to set — calculate activity ran before start activity",
+            type="invalid_state",
             non_retryable=True,
         )
     if query_to_dt != state.query_to:
         raise ApplicationError(
             f"query_to {query_to_dt.isoformat()} does not match recalc.query_to {state.query_to.isoformat()}",
+            type="input_mismatch",
             non_retryable=True,
         )
 
@@ -611,21 +622,8 @@ def _calculate_experiment_metric_for_recalculation_sync(
             )
             return _fail(recalculation_id, metric_uuid, "calculation", message)
 
-        except Exception as e:
-            # Could be transient (ClickHouse connection blip, network glitch, or other infrastructure issue).
-            # Persist the failure ONLY on the final attempt, then re-raise; on earlier attempts we re-raise
-            # without persisting so Temporal retries while the metric stays in its loading/dim state on the
-            # frontend, rather than flashing an error for a failure that may yet succeed on the next attempt.
-            # StatisticError and ZeroDivisionError are handled above as permanent and return success=False.
+        except (ConcurrencyLimitExceeded, ClickHouseAtCapacity) as e:
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
-            capture_exception(
-                e,
-                additional_properties={
-                    "experiment_id": experiment_id,
-                    "metric_uuid": metric_uuid,
-                    "recalculation_id": recalculation_id,
-                },
-            )
             if is_final_attempt:
                 _store_result(
                     experiment_id=experiment_id,
@@ -639,9 +637,6 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     query_id=client_query_id,
                 )
                 _record_failure(recalculation_id, metric_uuid, "calculation", message)
-                # Emit only on the terminal failure (retries exhausted) — the error the user actually
-                # sees. error_type mirrors the client taxonomy so it lands on the same dashboards.
-                # Earlier attempts re-raise silently to avoid double-counting a failure that may still succeed.
                 _capture_experiment_metric_event(
                     experiment,
                     metric_uuid,
@@ -655,10 +650,64 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     },
                     trigger=state.trigger,
                 )
+            logger.warning(
+                "Experiment metric recalculation deferred by ClickHouse backpressure",
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+                is_final_attempt=is_final_attempt,
+                error_class=type(e).__name__,
+            )
+            raise ApplicationError(
+                message,
+                type=type(e).__name__,
+                next_retry_delay=timedelta(seconds=CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS),
+            ) from e
+
+        except Exception as e:
+            message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
+            error_type = classify_experiment_query_error(e)
+            is_permanent = error_type in NON_RETRYABLE_ERROR_TYPES or isinstance(e, ValueError)
+            capture_exception(
+                e,
+                additional_properties={
+                    "experiment_id": experiment_id,
+                    "metric_uuid": metric_uuid,
+                    "recalculation_id": recalculation_id,
+                },
+            )
+            if is_final_attempt or is_permanent:
+                _store_result(
+                    experiment_id=experiment_id,
+                    metric_uuid=metric_uuid,
+                    recalc_fp=recalc_fp,
+                    query_from=experiment.start_date,
+                    query_to=query_to_dt,
+                    status=ExperimentMetricResult.Status.FAILED,
+                    result=None,
+                    error_message=message,
+                    query_id=client_query_id,
+                )
+                _record_failure(recalculation_id, metric_uuid, "calculation", message)
+                _capture_experiment_metric_event(
+                    experiment,
+                    metric_uuid,
+                    metric_type,
+                    metric_dict,
+                    "experiment metric error",
+                    {
+                        "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
+                        "error_type": error_type,
+                        "error_message": message,
+                    },
+                    trigger=state.trigger,
+                )
             logger.exception(
                 "Experiment metric recalculation failed",
                 experiment_id=experiment_id,
                 metric_uuid=metric_uuid,
                 is_final_attempt=is_final_attempt,
+                error_type=error_type,
             )
+            if is_permanent:
+                raise ApplicationError(message, type=error_type, non_retryable=True) from e
             raise
