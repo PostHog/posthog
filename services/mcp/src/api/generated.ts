@@ -12478,6 +12478,12 @@ export namespace Schemas {
          * @maximum 20
          */
       max_opportunities?: number;
+      /**
+         * Maximum annotations gathered as context per brief. Default 20.
+         * @minimum 1
+         * @maximum 100
+         */
+      max_annotations?: number;
     }
 
     export interface BriefConfig {

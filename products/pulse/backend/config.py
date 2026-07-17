@@ -34,8 +34,7 @@ LLM_MAX_RETRIES = 1
 # Cap on items passed into synthesis — keeps the activity payload well under Temporal's ~2 MiB cap.
 MAX_ITEMS = 50
 
-# Per-source gather caps — safety bounds on query/payload size, not per-request tuning knobs.
-MAX_ANNOTATIONS = 20
+# Per-source gather caps — safety bounds on query/payload size.
 MAX_ITEMS_PER_DETECTOR = 10
 # Mirrors posthog.caching.insight_cache.MAX_ATTEMPTS (not imported — that module pulls the celery
 # task graph onto the pulse import path). The point at which the cache updater has given up.
@@ -55,6 +54,7 @@ _RANGES: list[tuple[str, float, float, type]] = [
     ("fallback_dashboard_count", 1, 20, int),
     ("confidence_threshold", 0.0, 1.0, float),
     ("max_opportunities", 1, 20, int),
+    ("max_annotations", 1, 100, int),
 ]
 
 
@@ -69,6 +69,7 @@ class BriefSettings:
     fallback_dashboard_count: int = 3
     confidence_threshold: float = 0.6
     max_opportunities: int = 3
+    max_annotations: int = 20
 
     @classmethod
     def from_config(cls, config: BriefConfig | None) -> "BriefSettings":

@@ -11,8 +11,12 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 
 from products.annotations.backend.models import Annotation
-from products.pulse.backend.sources.annotations import MAX_ANNOTATIONS, AnnotationsSource
+from products.pulse.backend.config import DEFAULT_BRIEF_SETTINGS
+from products.pulse.backend.models import BriefConfig
+from products.pulse.backend.sources.annotations import AnnotationsSource
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType
+
+_DEFAULT_MAX_ANNOTATIONS = DEFAULT_BRIEF_SETTINGS.max_annotations
 
 
 class TestAnnotationsGather(BaseTest):
@@ -87,14 +91,23 @@ class TestAnnotationsGather(BaseTest):
         assert items == []
 
     def test_cap_keeps_newest(self) -> None:
-        for hours_ago in range(MAX_ANNOTATIONS + 3):
+        for hours_ago in range(_DEFAULT_MAX_ANNOTATIONS + 3):
             self._annotation(days_ago=hours_ago / 24, content=f"annotation {hours_ago}")
 
         items = AnnotationsSource().gather(self.team, None, lookback_days=7)
 
-        assert len(items) == MAX_ANNOTATIONS
+        assert len(items) == _DEFAULT_MAX_ANNOTATIONS
         assert items[0].title == "annotation 0"
-        assert all(item.title != f"annotation {MAX_ANNOTATIONS}" for item in items)
+        assert all(item.title != f"annotation {_DEFAULT_MAX_ANNOTATIONS}" for item in items)
+
+    def test_config_overrides_cap_per_request(self) -> None:
+        for i in range(5):
+            self._annotation(days_ago=i / 24, content=f"annotation {i}")
+
+        config = BriefConfig(team=self.team, settings={"max_annotations": 2})
+        items = AnnotationsSource().gather(self.team, config, lookback_days=7)
+
+        assert len(items) == 2
 
     def test_long_content_truncated_in_title(self) -> None:
         self._annotation(content="x" * 300)

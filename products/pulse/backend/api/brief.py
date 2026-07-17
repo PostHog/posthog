@@ -121,6 +121,12 @@ class BriefSettingsSerializer(serializers.Serializer):
         max_value=20,
         help_text="Maximum opportunities kept per brief. Default 3.",
     )
+    max_annotations = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=100,
+        help_text="Maximum annotations gathered as context per brief. Default 20.",
+    )
 
 
 class BriefConfigSerializer(serializers.ModelSerializer):
