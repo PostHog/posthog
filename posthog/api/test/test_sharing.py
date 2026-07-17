@@ -1579,6 +1579,46 @@ class TestSharedCohortInlining(APIBaseTest):
             key=lambda c: c["id"],
         )
 
+    @parameterized.expand(
+        [
+            ("dashboard at limit", "-30d", "-7d", None, True),
+            ("dashboard over limit", "-31d", "-7d", None, False),
+            ("insight over limit", None, "-31d", None, False),
+            ("short tile override", "-31d", "-31d", "-7d", False),
+            ("long tile override", "-7d", "-7d", "-31d", False),
+        ]
+    )
+    @freeze_time("2026-07-16 12:00:00")
+    @mock_exporter_template
+    def test_shared_dashboard_exports_auto_refresh_eligibility(
+        self,
+        _name: str,
+        dashboard_date_from: str | None,
+        insight_date_from: str,
+        tile_date_from: str | None,
+        expected_enabled: bool,
+    ) -> None:
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Dashboard",
+            filters={"date_from": dashboard_date_from} if dashboard_date_from else {},
+        )
+        insight = Insight.objects.create(
+            team=self.team,
+            filters=Filter(data={"date_from": insight_date_from}).to_dict(),
+        )
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+            filters_overrides={"date_from": tile_date_from} if tile_date_from else None,
+        )
+        config = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+
+        response = self.client.get(f"/shared/{config.access_token}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._parse_exported_data(response.content.decode())["dashboardAutoRefreshEnabled"] is expected_enabled
+
     @staticmethod
     def _parse_exported_data(html: str) -> dict:
         # mock_exporter_template embeds the exported_data JSON inside this <script> tag.
