@@ -1,4 +1,4 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
@@ -34,7 +34,6 @@ import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
@@ -65,9 +64,8 @@ import { SessionReplaySDKInstructions } from 'scenes/onboarding/legacy/sdks/sess
 import { SurveysSDKInstructions } from 'scenes/onboarding/legacy/sdks/surveys/SurveysSDKInstructions'
 import { WebAnalyticsSDKInstructions } from 'scenes/onboarding/legacy/sdks/web-analytics/WebAnalyticsSDKInstructions'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
-import { activeCloudRunLogic } from 'scenes/onboarding/shared/wizard-sync/activeCloudRunLogic'
-import { finishedLocalRunLogic } from 'scenes/onboarding/shared/wizard-sync/finishedLocalRunLogic'
-import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
+import { currentTaskLabel } from 'scenes/onboarding/shared/wizard-sync/helpers'
+import { InstallationProgress } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
 import { wizardSyncUiLogic } from 'scenes/onboarding/shared/wizard-sync/wizardSyncUiLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -104,6 +102,11 @@ import {
     getQuickstartTrackingProperties,
     quickstartLogic,
 } from './quickstartLogic'
+import {
+    isQuickstartProductInstalling,
+    QuickstartInstallationProgress,
+    QuickstartWizardProgress,
+} from './QuickstartWizardProgress'
 
 const QUICKSTART_LIVE_USERS_POLL_INTERVAL_MS = 1000
 
@@ -332,43 +335,10 @@ function HeaderStat({ icon, children }: { icon: JSX.Element; children: React.Rea
 }
 
 function QuickstartInstallationPrompt({ installationComplete }: { installationComplete: boolean }): JSX.Element | null {
-    const syncEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
-    const { activeCloudRun } = useValues(activeCloudRunLogic)
-    const { finishedLocalRun } = useValues(finishedLocalRunLogic)
-
-    if (syncEnabled || activeCloudRun || finishedLocalRun) {
-        return <QuickstartInstallationPromptWithRunDetection installationComplete={installationComplete} />
-    }
-
-    return installationComplete ? null : <QuickstartInstallationLink />
-}
-
-function QuickstartInstallationPromptWithRunDetection({
-    installationComplete,
-}: {
-    installationComplete: boolean
-}): JSX.Element | null {
-    useMountedLogic(wizardActiveSessionDetectorLogic)
-    const { hasActiveSession } = useValues(wizardActiveSessionDetectorLogic)
-    const { activeCloudRun } = useValues(activeCloudRunLogic)
-    const { finishedLocalRun } = useValues(finishedLocalRunLogic)
-    const { openDialog } = useActions(wizardSyncUiLogic)
-    const hasWizardStatus = !!activeCloudRun || hasActiveSession || !!finishedLocalRun
-
-    if (!hasWizardStatus) {
-        return installationComplete ? null : <QuickstartInstallationLink />
-    }
-
     return (
-        <LemonButton
-            type="primary"
-            size="small"
-            icon={<span className="inline-block size-2 rounded-full bg-accent animate-pulse" />}
-            onClick={openDialog}
-            data-attr="quickstart-installation-status"
-        >
-            Installation status
-        </LemonButton>
+        <QuickstartWizardProgress fallback={installationComplete ? null : <QuickstartInstallationLink />}>
+            {(progress) => <QuickstartInstallationProgress progress={progress} />}
+        </QuickstartWizardProgress>
     )
 }
 
@@ -488,10 +458,23 @@ function JourneyMeter({ status, productKey }: { status: QuickstartToolStatus; pr
 function ToolActivitySummary({
     product,
     status,
+    installationInProgress,
 }: {
     product: QuickstartProduct
     status: QuickstartToolStatus
+    installationInProgress: boolean
 }): JSX.Element {
+    if (installationInProgress) {
+        return (
+            <div className="flex items-center gap-1.5 min-h-5 min-w-0" data-attr="quickstart-product-installing">
+                <span className="relative flex items-center justify-center size-2">
+                    <span className="absolute size-2 rounded-full bg-accent opacity-25 animate-pulse" />
+                    <span className="relative size-1.5 rounded-full bg-accent" />
+                </span>
+                <span className="text-sm text-secondary">Installing the PostHog SDK</span>
+            </div>
+        )
+    }
     if (status.stat) {
         return (
             <div className="flex items-baseline gap-1.5 min-h-5 min-w-0">
@@ -541,43 +524,65 @@ function ToolActivitySummary({
 function ToolStatusPanel({
     status,
     productKey,
+    installationProgress,
 }: {
     status: QuickstartToolStatus
     productKey: ProductKey
+    installationProgress?: InstallationProgress
 }): JSX.Element {
     const { openTaskGuidance } = useActions(quickstartLogic)
     const nextStep = status.nextStep
+    const installationInProgress = isQuickstartProductInstalling(productKey, installationProgress)
 
     return (
         <div className="flex flex-col gap-2 border-t pt-3">
             <JourneyMeter status={status} productKey={productKey} />
             <div className="min-h-11 text-xs">
-                {nextStep && (
+                {installationInProgress && installationProgress ? (
                     <>
-                        <div className="font-medium text-secondary mb-0.5">Next improvement</div>
-                        <Link
-                            onClick={() => {
-                                captureQuickstartAction('open_recommended_task', productKey, {
-                                    step_key: nextStep.key,
-                                })
-                                openTaskGuidance(productKey, nextStep.key)
-                            }}
-                            className="font-medium text-accent whitespace-normal text-left line-clamp-2"
-                            data-attr={`quickstart-recommended-task-${productKey}`}
-                        >
-                            {nextStep.label}
-                        </Link>
+                        <div className="font-medium text-secondary mb-0.5">Setup in progress</div>
+                        <div className="font-medium text-accent line-clamp-2" data-attr="quickstart-current-task">
+                            {currentTaskLabel(installationProgress)}
+                        </div>
                     </>
+                ) : (
+                    nextStep && (
+                        <>
+                            <div className="font-medium text-secondary mb-0.5">Next improvement</div>
+                            <Link
+                                onClick={() => {
+                                    captureQuickstartAction('open_recommended_task', productKey, {
+                                        step_key: nextStep.key,
+                                    })
+                                    openTaskGuidance(productKey, nextStep.key)
+                                }}
+                                className="font-medium text-accent whitespace-normal text-left line-clamp-2"
+                                data-attr={`quickstart-recommended-task-${productKey}`}
+                            >
+                                {nextStep.label}
+                            </Link>
+                        </>
+                    )
                 )}
             </div>
         </div>
     )
 }
 
-function ProductActions({ product, compact = false }: { product: QuickstartProduct; compact?: boolean }): JSX.Element {
+function ProductActions({
+    product,
+    compact = false,
+    installationProgress,
+}: {
+    product: QuickstartProduct
+    compact?: boolean
+    installationProgress?: InstallationProgress
+}): JSX.Element {
     const { enablingProducts } = useValues(quickstartLogic)
     const { enableProduct, openToolSetupModal } = useActions(quickstartLogic)
+    const { openDialog } = useActions(wizardSyncUiLogic)
     const { status } = product
+    const installationInProgress = isQuickstartProductInstalling(product.key, installationProgress)
 
     const setUpButton = (
         <LemonButton
@@ -620,20 +625,35 @@ function ProductActions({ product, compact = false }: { product: QuickstartProdu
             Open
         </LemonButton>
     )
+    const installingButton = (
+        <LemonButton
+            type={compact ? 'secondary' : 'primary'}
+            size="small"
+            icon={<span className="inline-block size-2 rounded-full bg-accent animate-pulse" />}
+            onClick={openDialog}
+            data-attr={`quickstart-installing-${product.key}`}
+        >
+            Installing SDK
+        </LemonButton>
+    )
 
     if (compact) {
-        return status.level === 'live'
-            ? openButton
-            : status.cta === 'enable'
-              ? enableButton('secondary')
-              : status.cta === 'open'
-                ? openButton
-                : setUpButton
+        return installationInProgress
+            ? installingButton
+            : status.level === 'live'
+              ? openButton
+              : status.cta === 'enable'
+                ? enableButton('secondary')
+                : status.cta === 'open'
+                  ? openButton
+                  : setUpButton
     }
 
     return (
         <div className="flex items-center gap-2 mt-1">
-            {status.level === 'live' ? (
+            {installationInProgress ? (
+                installingButton
+            ) : status.level === 'live' ? (
                 <>
                     {openButton}
                     {/* e.g. error tracking live from a server SDK can still turn on web autocapture */}
@@ -676,8 +696,15 @@ function ProductActions({ product, compact = false }: { product: QuickstartProdu
     )
 }
 
-export function ProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
+export function ProductCard({
+    product,
+    installationProgress,
+}: {
+    product: QuickstartProduct
+    installationProgress?: InstallationProgress
+}): JSX.Element {
     const { setProductFeatured } = useActions(quickstartLogic)
+    const installationInProgress = isQuickstartProductInstalling(product.key, installationProgress)
 
     return (
         <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-4 rounded-lg border-transparent shadow-sm">
@@ -699,18 +726,38 @@ export function ProductCard({ product }: { product: QuickstartProduct }): JSX.El
             </div>
             <div className="flex flex-col gap-1">
                 <p className="text-secondary text-sm leading-relaxed mb-0">{product.description}</p>
-                <ToolActivitySummary product={product} status={product.status} />
+                <ToolActivitySummary
+                    product={product}
+                    status={product.status}
+                    installationInProgress={installationInProgress}
+                />
             </div>
-            <ToolStatusPanel status={product.status} productKey={product.key} />
-            <ProductActions product={product} />
+            <ToolStatusPanel
+                status={product.status}
+                productKey={product.key}
+                installationProgress={installationProgress}
+            />
+            <ProductActions product={product} installationProgress={installationProgress} />
         </LemonCard>
     )
 }
 
-function CompactProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
+function CompactProductCard({
+    product,
+    installationProgress,
+}: {
+    product: QuickstartProduct
+    installationProgress?: InstallationProgress
+}): JSX.Element {
     const { setProductFeatured } = useActions(quickstartLogic)
-    const statusLabel =
-        product.status.level === 'live' ? 'Live' : product.status.level === 'ready' ? 'Waiting for data' : 'Needs setup'
+    const installationInProgress = isQuickstartProductInstalling(product.key, installationProgress)
+    const statusLabel = installationInProgress
+        ? 'Installing'
+        : product.status.level === 'live'
+          ? 'Live'
+          : product.status.level === 'ready'
+            ? 'Waiting for data'
+            : 'Needs setup'
 
     return (
         <LemonCard hoverEffect={false} className="flex items-center gap-3 p-3 rounded-lg min-w-0">
@@ -723,11 +770,13 @@ function CompactProductCard({ product }: { product: QuickstartProduct }): JSX.El
                     <LemonTag
                         size="small"
                         type={
-                            product.status.level === 'live'
-                                ? 'success'
-                                : product.status.level === 'ready'
-                                  ? 'warning'
-                                  : 'muted'
+                            installationInProgress
+                                ? 'primary'
+                                : product.status.level === 'live'
+                                  ? 'success'
+                                  : product.status.level === 'ready'
+                                    ? 'warning'
+                                    : 'muted'
                         }
                         className="shrink-0"
                     >
@@ -737,7 +786,7 @@ function CompactProductCard({ product }: { product: QuickstartProduct }): JSX.El
                 <p className="text-secondary text-xs mb-0 truncate">{product.description}</p>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-                <ProductActions product={product} compact />
+                <ProductActions product={product} compact installationProgress={installationProgress} />
                 <LemonButton
                     size="small"
                     icon={<IconPin />}
@@ -748,6 +797,31 @@ function CompactProductCard({ product }: { product: QuickstartProduct }): JSX.El
                 />
             </div>
         </LemonCard>
+    )
+}
+
+function QuickstartProductCard({
+    product,
+    compact = false,
+}: {
+    product: QuickstartProduct
+    compact?: boolean
+}): JSX.Element {
+    const renderCard = (installationProgress?: InstallationProgress): JSX.Element =>
+        compact ? (
+            <CompactProductCard product={product} installationProgress={installationProgress} />
+        ) : (
+            <ProductCard product={product} installationProgress={installationProgress} />
+        )
+
+    if (product.key !== ProductKey.PRODUCT_ANALYTICS) {
+        return renderCard()
+    }
+
+    return (
+        <QuickstartWizardProgress fallback={renderCard()}>
+            {(progress) => renderCard(progress)}
+        </QuickstartWizardProgress>
     )
 }
 
@@ -1428,7 +1502,7 @@ export function Quickstart(): JSX.Element {
                 {featuredProducts.length > 0 ? (
                     <div className="grid grid-cols-1 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-3 gap-4">
                         {featuredProducts.map((product) => (
-                            <ProductCard key={product.key} product={product} />
+                            <QuickstartProductCard key={product.key} product={product} />
                         ))}
                     </div>
                 ) : (
@@ -1446,7 +1520,7 @@ export function Quickstart(): JSX.Element {
                     />
                     <div className="grid grid-cols-1 @3xl/main-content:grid-cols-2 gap-3">
                         {additionalProducts.map((product) => (
-                            <CompactProductCard key={product.key} product={product} />
+                            <QuickstartProductCard key={product.key} product={product} compact />
                         ))}
                     </div>
                 </section>

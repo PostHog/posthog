@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import { useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
@@ -46,6 +47,31 @@ const BLOG_RSS = `<?xml version="1.0" encoding="UTF-8"?>
         </item>
     </channel>
 </rss>`
+
+const sseEvent = (data: object): string => `data: ${JSON.stringify(data)}\n\n`
+const sseStep = (group: string, step: string, status: string, label: string, detail: string | null = null): string =>
+    sseEvent({
+        type: 'notification',
+        notification: { method: '_posthog/progress', params: { group, step, status, label, detail } },
+    })
+
+const TASK_RUN_STREAM_BODY = [
+    sseEvent({
+        type: 'task_run_state',
+        status: 'in_progress',
+        stage: 'work',
+        output: null,
+        branch: null,
+        error_message: null,
+        updated_at: '2026-07-15T12:00:00Z',
+        completed_at: null,
+    }),
+    sseStep('setup', 'sandbox', 'completed', 'Set up sandbox'),
+    sseStep('setup', 'clone', 'completed', 'Cloned repository'),
+    sseStep('setup', 'wizard', 'in_progress', 'Running setup wizard', 'Installing the PostHog SDK'),
+    sseStep('deliver', 'pr', 'pending', 'Opening pull request'),
+    'event: stream-end\ndata: {}\n\n',
+].join('')
 
 /** Column order of the tool-signals HogQL aggregate in quickstartLogic's loadActivationData */
 const signalsRow = (signals: Partial<QuickstartToolSignals>): number[] => [
@@ -100,6 +126,12 @@ const scenarioMocks = (signals: Partial<QuickstartToolSignals>, resources: Scena
         '/api/environments/:team_id/hog_functions/': { count: resources.errorAlerts ?? 0, results: [] },
         '/api/projects/:team_id/conversations/tickets/': { count: resources.tickets ?? 0, results: [] },
         '/api/projects/:projectId/wizard/sessions/latest/': () => [204, ''],
+        '/api/projects/:project_id/tasks/:task_id/runs/:run_id/stream': () =>
+            new Response(TASK_RUN_STREAM_BODY, {
+                status: 200,
+                headers: { 'Content-Type': 'text/event-stream' },
+            }),
+        '/api/projects/:project_id/wizard/sessions/stream': () => [404],
         'https://posthog.com/rss.xml': () =>
             new Response(BLOG_RSS, { status: 200, headers: { 'Content-Type': 'application/rss+xml' } }),
     },
@@ -236,6 +268,22 @@ export const InstallationNotStarted: Story = {
 /** Fresh account with a wizard run: progress moves into the header and the global FAB stays hidden. */
 export const InstallationRunning: Story = {
     decorators: [installationStateDecorator('running'), mswDecorator(scenarioMocks({}))],
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+    play: async () => {
+        await waitFor(
+            () => {
+                const installationProgress = document.querySelector('[data-attr="quickstart-installation-progress"]')
+                const productAnalyticsProgress = document.querySelector('[data-attr="quickstart-product-installing"]')
+                if (!installationProgress?.textContent?.includes('Installing the PostHog SDK')) {
+                    throw new Error('Quickstart installation task is not ready')
+                }
+                if (!productAnalyticsProgress?.textContent?.includes('Installing the PostHog SDK')) {
+                    throw new Error('Product analytics installation state is not ready')
+                }
+            },
+            { timeout: 8000, interval: 200 }
+        )
+    },
 }
 
 /** Installed project without a wizard run: no installation CTA is shown in the header. */
