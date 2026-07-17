@@ -7,11 +7,13 @@ tables, columns, data types, relationships, and descriptions are available witho
     SELECT * FROM system.information_schema.relationships WHERE source_table = 'events'
 
 The rows are computed at query time from the live, per-team `Database` object, so they always
-reflect the caller's own access (denied/hidden tables never appear). Descriptions are read
-uniformly from `FieldOrTable.description`; for data warehouse tables they are merged in from the
-`WarehouseColumnAnnotation` semantic layer, fetched lazily only when these tables are queried.
+reflect the caller's own access (denied/hidden tables never appear). Descriptions are resolved
+through the shared `TableDescriptions` layer — static `FieldOrTable.description`, plus the
+`WarehouseColumnAnnotation` (warehouse tables) and `DataWarehouseSavedQueryColumnAnnotation` (views)
+semantic layers — fetched lazily only when these tables are queried.
 """
 
+import json
 import hashlib
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -45,6 +47,7 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
     VirtualTable,
 )
+from posthog.hogql.database.schema.table_descriptions import TableDescriptions
 from posthog.hogql.errors import BaseHogQLError
 
 if TYPE_CHECKING:
@@ -63,6 +66,7 @@ _STRING = "string"
 _NULLABLE_STRING = "nullable_string"
 _INTEGER = "integer"
 _NULLABLE_INTEGER = "nullable_integer"
+_NULLABLE_FLOAT = "nullable_float"
 _BOOLEAN = "boolean"
 
 
@@ -86,6 +90,8 @@ def _column_expr(kind: str, index: int) -> ast.Expr:
         return ast.Call(name="toIntOrZero", args=[source])
     if kind == _NULLABLE_INTEGER:
         return ast.Call(name="accurateCastOrNull", args=[source, ast.Constant(value="Int64")])
+    if kind == _NULLABLE_FLOAT:
+        return ast.Call(name="accurateCastOrNull", args=[source, ast.Constant(value="Float64")])
     if kind == _BOOLEAN:
         return ast.Call(name="equals", args=[source, ast.Constant(value="true")])
     raise ValueError(f"Unknown information_schema column kind: {kind}")
@@ -169,47 +175,53 @@ def _classify_table(name: str, table: Table, warehouse: set[str], views: set[str
 
 
 def _visible_table_names(database: "Database") -> list[str]:
-    # `posthog.*` is an internal namespace that mostly duplicates the top-level tables — skip it
-    # to keep the catalog clean. Everything else (built-in, system, warehouse, views) is included.
-    return [n for n in database.tables.resolve_visible_table_names() if not n.startswith("posthog.")]
+    # The `posthog.*` namespace holds two kinds of tables: copies of the top-level tables
+    # (`posthog.events`, `posthog.persons`, …) and data-plane tables that live *only* there
+    # (`posthog.ai_events`, `posthog.trace_spans`, `posthog.metrics`, the web pre-aggregated
+    # tables, …). Hide the copies to keep the catalog clean, but keep the unique ones — they're
+    # queryable by their `posthog.`-qualified name (a bare `FROM ai_events` errors), so leaving
+    # them out makes them undiscoverable through the schema-discovery workflow. Everything else
+    # (built-in, system, warehouse, views) is included.
+    names = database.tables.resolve_visible_table_names()
+    root_names = {n for n in names if "." not in n}
+    return [n for n in names if not (n.startswith("posthog.") and n[len("posthog.") :] in root_names)]
+
+
+# Per-column statistics surfaced into information_schema.columns: (null_fraction, min_value, max_value).
+_ColumnStats = tuple[Optional[float], Optional[str], Optional[str]]
 
 
 def _warehouse_metadata(
     team_id: Optional[int],
-) -> tuple[dict[tuple[str, str], str], dict[str, Optional[int]], dict[str, Optional[int]]]:
-    """Lazily load warehouse semantic descriptions and row counts for the team.
+) -> tuple[dict[str, Optional[int]], dict[str, Optional[int]], dict[tuple[str, str], _ColumnStats]]:
+    """Lazily load warehouse row counts and column statistics for the team.
 
-    Returns `(descriptions, row_counts, view_row_counts)`. Descriptions are keyed by
-    `(table_id, column_name)` with `""` denoting the table-level description. `row_counts` is keyed
-    by warehouse table name, `view_row_counts` by saved-query (view) name. Only runs when an
-    information_schema table is actually queried, so it never touches the hot
-    `create_hogql_database` path. Mirrors how `serialize_database` sources counts so the catalog and
-    the SQL-editor schema agree.
+    Returns `(row_counts, view_row_counts, column_stats)`. `row_counts` is keyed by warehouse table
+    name, `view_row_counts` by saved-query (view) name. `column_stats` is keyed by
+    `(table_id, column_name)` and carries `(null_fraction, min_value, max_value)` from the Delta-log
+    profiling. Descriptions are resolved separately via `TableDescriptions`. Only runs when an
+    information_schema table is actually queried, so it never touches the hot `create_hogql_database`
+    path. Mirrors how `serialize_database` sources counts so the catalog and the SQL-editor schema
+    agree.
     """
-    descriptions: dict[tuple[str, str], str] = {}
     row_counts: dict[str, Optional[int]] = {}
     view_row_counts: dict[str, Optional[int]] = {}
+    column_stats: dict[tuple[str, str], _ColumnStats] = {}
     if team_id is None:
-        return descriptions, row_counts, view_row_counts
+        return row_counts, view_row_counts, column_stats
 
     # Inline imports: keeps the products dependency off the hogql import path (avoids an import
     # cycle, since products import hogql) and off every non-information_schema query.
     from posthog.models.scoping import team_scope  # noqa: PLC0415
 
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery  # noqa: PLC0415
-    from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
-    from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation  # noqa: PLC0415
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
+    from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
+        DataWarehouseTable,
+        WarehouseColumnStatistics,
+    )
 
     try:
         with team_scope(team_id):
-            # Key by table UUID, not name: the catalog entry's `table.name` is the source-prefixed
-            # key (e.g. `stripe.prod.charge`) while the annotation's `table__name` is the raw model
-            # name (e.g. `prod_stripe_charge`), so a name-keyed lookup never matches a synced table.
-            # `column_name=""` is the table-level description.
-            for table_id, column_name, description in WarehouseColumnAnnotation.objects.values_list(
-                "table_id", "column_name", "description"
-            ):
-                descriptions[(str(table_id), column_name)] = description
             # `DataWarehouseTable` is on the IDOR baseline (not team-scoped), so `team_scope` is a
             # no-op for it — filter by team_id explicitly or it reads every team's tables. `.queryable()`
             # (not `.objects`) drops soft-deleted tables and orphans of a soft-deleted source —
@@ -230,13 +242,25 @@ def _warehouse_metadata(
                 .values_list("name", "table__row_count")
             ):
                 view_row_counts[view_name] = row_count
+            # Per-column profiling stats (keyed by table UUID + column). Only the columns that have been
+            # profiled appear; everything else stays absent (NULL in the catalog).
+            for (
+                table_id,
+                column_name,
+                null_fraction,
+                min_value,
+                max_value,
+            ) in WarehouseColumnStatistics.objects.values_list(
+                "table_id", "column_name", "null_fraction", "min_value", "max_value"
+            ):
+                column_stats[(str(table_id), column_name)] = (null_fraction, min_value, max_value)
     except Exception:
         # Schema discovery must never fail a query because the warehouse metadata could not be read,
         # but log so a transient DB error can be told apart from a real bug in the fetch loop.
         logger.exception("information_schema: failed to load warehouse metadata", team_id=team_id)
         return {}, {}, {}
 
-    return descriptions, row_counts, view_row_counts
+    return row_counts, view_row_counts, column_stats
 
 
 def _unwrap(expr: ast.Expr) -> ast.Expr:
@@ -325,6 +349,7 @@ _KIND_TO_CLICKHOUSE: dict[str, str] = {
     _NULLABLE_STRING: "Nullable(String)",
     _INTEGER: "Int64",
     _NULLABLE_INTEGER: "Nullable(Int64)",
+    _NULLABLE_FLOAT: "Nullable(Float64)",
     # HogQL's BooleanDatabaseField maps to ClickHouse UInt8; Python bool serializes to it directly.
     _BOOLEAN: "UInt8",
 }
@@ -339,6 +364,8 @@ def _column_field(name: str, kind: str) -> DatabaseField:
         return IntegerDatabaseField(name=name, nullable=False)
     if kind == _NULLABLE_INTEGER:
         return IntegerDatabaseField(name=name, nullable=True)
+    if kind == _NULLABLE_FLOAT:
+        return FloatDatabaseField(name=name, nullable=True)
     if kind == _BOOLEAN:
         return BooleanDatabaseField(name=name, nullable=False)
     raise ValueError(f"Unknown information_schema column kind: {kind}")
@@ -419,7 +446,8 @@ class _Introspection:
         self.allowed_tables = allowed_tables
         self.warehouse = set(database.get_warehouse_table_names())
         self.views = set(database.get_view_names())
-        self.descriptions, self.row_counts, self.view_row_counts = _warehouse_metadata(context.team_id)
+        self.row_counts, self.view_row_counts, self.column_stats = _warehouse_metadata(context.team_id)
+        self.table_descriptions = TableDescriptions.load(context.team_id)
         # Resolved `SELECT * FROM <table>` scope per table, so expression columns can be typed without
         # re-resolving the table once per expression.
         self._table_scope_cache: dict[str, Optional[ast.SelectQueryType]] = {}
@@ -474,23 +502,19 @@ class _Introspection:
             return self.view_row_counts.get(name)
         return None
 
-    def _table_description(self, table: Table, table_type: str) -> Optional[str]:
-        if table.description:
-            return table.description
-        table_id = getattr(table, "table_id", None)
-        if table_type == "data_warehouse" and table_id:
-            return self.descriptions.get((str(table_id), ""))
-        return None
+    def _table_description(self, table: Table) -> Optional[str]:
+        return self.table_descriptions.for_table(table)
 
-    def _column_description(
-        self, table: Table, table_type: str, column_name: str, field: FieldOrTable
-    ) -> Optional[str]:
-        if field.description:
-            return field.description
-        table_id = getattr(table, "table_id", None)
-        if table_type == "data_warehouse" and table_id:
-            return self.descriptions.get((str(table_id), column_name))
-        return None
+    def _column_description(self, table: Table, column_name: str, field: FieldOrTable) -> Optional[str]:
+        return self.table_descriptions.for_column(table, column_name, field)
+
+    def _column_stats(self, table: Table, table_type: str, column_name: str) -> _ColumnStats:
+        """`(null_fraction, min_value, max_value)` for a warehouse column, or all-None otherwise."""
+        if table_type == "data_warehouse":
+            table_id = getattr(table, "table_id", None)
+            if table_id:
+                return self.column_stats.get((str(table_id), column_name), (None, None, None))
+        return (None, None, None)
 
     def collect(self) -> tuple[list[list[Any]], list[list[Any]], list[list[Any]]]:
         table_rows: list[list[Any]] = []
@@ -510,9 +534,7 @@ class _Introspection:
 
             table_type, table_schema = _classify_table(name, table, self.warehouse, self.views)
             row_count = self._row_count(name, table, table_type)
-            table_rows.append(
-                [name, table_schema, name, table_type, self._table_description(table, table_type), row_count]
-            )
+            table_rows.append([name, table_schema, name, table_type, self._table_description(table), row_count])
 
             self._collect_fields(name, table_schema, table_type, table, table.fields, column_rows, relationship_rows)
 
@@ -540,6 +562,7 @@ class _Introspection:
 
             if isinstance(field, DatabaseField):
                 kind = "expression" if isinstance(field, ExpressionField) else "column"
+                null_fraction, min_value, max_value = self._column_stats(table, table_type, qualified)
                 column_rows.append(
                     [
                         table_schema,
@@ -550,7 +573,10 @@ class _Introspection:
                         bool(field.is_nullable()),
                         bool(field.array),
                         kind,
-                        self._column_description(table, table_type, qualified, field),
+                        self._column_description(table, qualified, field),
+                        null_fraction,
+                        min_value,
+                        max_value,
                     ]
                 )
                 ordinal += 1
@@ -580,7 +606,20 @@ class _Introspection:
             elif isinstance(field, VirtualTable):
                 # Surface nested virtual-table columns as `parent.child` columns.
                 column_rows.append(
-                    [table_schema, table_name, qualified, ordinal, "VirtualTable", False, False, "virtual_table", None]
+                    [
+                        table_schema,
+                        table_name,
+                        qualified,
+                        ordinal,
+                        "VirtualTable",
+                        False,
+                        False,
+                        "virtual_table",
+                        None,
+                        None,
+                        None,
+                        None,
+                    ]
                 )
                 ordinal += 1
                 ordinal = self._collect_fields(
@@ -640,6 +679,9 @@ _COLUMNS_COLUMNS: list[tuple[str, str]] = [
     ("is_array", _BOOLEAN),
     ("field_kind", _STRING),
     ("description", _NULLABLE_STRING),
+    ("null_fraction", _NULLABLE_FLOAT),
+    ("min_value", _NULLABLE_STRING),
+    ("max_value", _NULLABLE_STRING),
 ]
 
 _RELATIONSHIPS_COLUMNS: list[tuple[str, str]] = [
@@ -667,6 +709,114 @@ _DATA_TYPES: list[tuple[str, str]] = [
     ("VirtualTable", "Nested group of columns sharing the parent table's storage."),
     ("Unknown", "Type could not be determined."),
 ]
+
+
+_METRICS_COLUMNS: list[tuple[str, str]] = [
+    ("id", _STRING),
+    ("name", _STRING),
+    ("display_name", _NULLABLE_STRING),
+    ("description", _STRING),
+    ("unit", _NULLABLE_STRING),
+    ("status", _STRING),
+    ("is_drifted", _BOOLEAN),
+    ("definition", _NULLABLE_STRING),
+    ("definition_kind", _NULLABLE_STRING),
+    ("owner", _NULLABLE_STRING),
+    ("confidence", _NULLABLE_FLOAT),
+    ("reasoning", _NULLABLE_STRING),
+    ("source_insight_short_id", _NULLABLE_STRING),
+    ("last_run_at", _NULLABLE_STRING),
+    ("created_at", _STRING),
+]
+
+
+def _references_denied_table(referenced_table_names: Optional[list[str]], denied: set[str]) -> bool:
+    """Whether any of a metric's referenced tables is in the caller's denied set.
+
+    `referenced_table_names` stores the surface identifier the author typed (bare `charges` or dotted
+    `stripe.charges`, any case), while `_denied_tables` holds a mix of bare names, lowercased
+    qualified warehouse keys, and `system.<name>`. Match case-insensitively and by leaf so a
+    qualified reference to a bare-denied table (or the reverse) still trips the denial — err toward
+    hiding rather than leaking a metric whose source the caller cannot read.
+    """
+    if not denied or not referenced_table_names:
+        return False
+    denied_norm = {name.lower() for name in denied}
+    denied_norm |= {name.rsplit(".", 1)[-1] for name in denied_norm}
+    for name in referenced_table_names:
+        normalized = name.lower()
+        if normalized in denied_norm or normalized.rsplit(".", 1)[-1] in denied_norm:
+            return True
+    return False
+
+
+def _can_read_catalog(context: "HogQLContext") -> bool:
+    """Whether the caller has data_catalog read access, mirroring the REST viewset's resource gate.
+
+    Metric rows carry governed definitions and free-text review context, so — like the metric-run and
+    proposal-accept endpoints — they need an explicit `data_catalog` resource check, not just team
+    scoping. Fails closed when there's no access-control context (service tokens / shared links),
+    matching warehouse-table denial.
+    """
+    access_control = context.database.user_access_control if context.database is not None else None
+    if access_control is None:
+        access_control = context.user_access_control
+    if access_control is None:
+        return False
+    return access_control.check_access_level_for_resource("data_catalog", "viewer")
+
+
+def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
+    """Load the team's catalog metrics as information_schema rows (fail-soft).
+
+    Returns nothing unless the caller has data_catalog read access; hides metrics whose definition
+    references a table the caller is denied, and computes drift in one bulk pass shared with the REST
+    serializer.
+    """
+    team_id = context.team_id
+    if team_id is None or not _can_read_catalog(context):
+        return []
+    # Deferred + facade-only imports: keep the product's (heavy) query-runner deps off this schema
+    # module's import path, and respect the data_catalog isolation boundary.
+    from products.data_catalog.backend.facade.api import compute_drift  # noqa: PLC0415
+    from products.data_catalog.backend.facade.models import Metric  # noqa: PLC0415
+
+    try:
+        denied = context.database._denied_tables if context.database is not None else set()
+        queryset = (
+            Metric.objects.for_team(team_id).filter(deleted=False).select_related("owner").order_by("-created_at")
+        )
+        if allowed is not None:
+            queryset = queryset.filter(name__in=allowed)
+        metrics = list(queryset)
+        drift = compute_drift(metrics)
+        rows: list[list[Any]] = []
+        for metric in metrics:
+            if _references_denied_table(metric.referenced_table_names, denied):
+                continue
+            rows.append(
+                [
+                    str(metric.id),
+                    metric.name,
+                    metric.display_name,
+                    metric.description,
+                    metric.unit,
+                    metric.status,
+                    drift.get(metric.id, False),
+                    json.dumps(metric.definition) if metric.definition else None,
+                    metric.definition_kind,
+                    metric.owner.email if metric.owner else None,
+                    metric.confidence,
+                    metric.reasoning,
+                    metric.source_insight_short_id,
+                    metric.last_run_at.isoformat() if metric.last_run_at else None,
+                    metric.created_at.isoformat(),
+                ]
+            )
+        return rows
+    except Exception:
+        logger.exception("information_schema: failed to load catalog metrics", team_id=team_id)
+        return []
 
 
 def _string_field(name: str, nullable: bool = False, description: Optional[str] = None) -> StringDatabaseField:
@@ -720,7 +870,8 @@ class InformationSchemaTablesTable(LazyTable):
 class InformationSchemaColumnsTable(LazyTable):
     description: str = (
         "SQL-standard catalog of every column on every visible table; one row per column. Filter by "
-        "table_name to inspect a table's columns, their types, and descriptions."
+        "table_name to inspect a table's columns, their types, descriptions, and (for data warehouse "
+        "tables) profiling statistics: null_fraction, min_value, max_value."
     )
     fields: dict[str, FieldOrTable] = {
         "table_schema": _string_field(
@@ -755,6 +906,31 @@ class InformationSchemaColumnsTable(LazyTable):
         ),
         "description": _string_field(
             "description", nullable=True, description="Human/agent-facing description of what the column holds."
+        ),
+        "null_fraction": FloatDatabaseField(
+            name="null_fraction",
+            nullable=True,
+            description=(
+                "Fraction of values that are NULL (0.0–1.0), from data warehouse column statistics. "
+                "Use it to avoid or special-case null-heavy columns. NULL for non-warehouse tables and "
+                "for warehouse columns not yet profiled."
+            ),
+        ),
+        "min_value": _string_field(
+            "min_value",
+            nullable=True,
+            description=(
+                "Minimum value observed in this column (from the Delta-log statistics), as a string. "
+                "Use it to bound range and time-window filters. NULL when unprofiled or not applicable."
+            ),
+        ),
+        "max_value": _string_field(
+            "max_value",
+            nullable=True,
+            description=(
+                "Maximum value observed in this column (from the Delta-log statistics), as a string. "
+                "Use it to bound range and time-window filters. NULL when unprofiled or not applicable."
+            ),
         ),
     }
 
@@ -831,6 +1007,67 @@ class InformationSchemaDataTypesTable(LazyTable):
         return "system__information_schema__data_types"
 
 
+class InformationSchemaMetricsTable(LazyTable):
+    description: str = (
+        "Catalog of the project's governed business metrics (the semantic layer); one row per metric. "
+        "Consult only when the user asks for a named headline business number (MRR, activation, etc.) — "
+        "only a metric with status='approved' AND NOT is_drifted is canonical; use its definition instead "
+        "of re-deriving. Usually empty; an empty result just means no governed definition, so derive "
+        "the number normally. Filter by name (equality or IN)."
+    )
+    fields: dict[str, FieldOrTable] = {
+        "id": _string_field("id", description="Stable UUID of the metric (cross-reference for the REST API)."),
+        "name": _string_field(
+            "name", description="Identifier-safe handle uniquely naming this metric within the project."
+        ),
+        "display_name": _string_field("display_name", nullable=True, description="Human-friendly label."),
+        "description": _string_field("description", description="What the metric means and how to interpret it."),
+        "unit": _string_field("unit", nullable=True, description="Unit of the result, e.g. usd, percent, cents."),
+        "status": _string_field(
+            "status", description="'proposed' or 'approved'. Never cite a proposed metric as canonical."
+        ),
+        "is_drifted": BooleanDatabaseField(
+            name="is_drifted",
+            nullable=False,
+            description="True if the definition drifted from its source insight (or the insight is gone). Do not trust a drifted metric.",
+        ),
+        "definition": _string_field(
+            "definition",
+            nullable=True,
+            description="Machine-readable query as JSON, or NULL for a name+description-only stub.",
+        ),
+        "definition_kind": _string_field(
+            "definition_kind",
+            nullable=True,
+            description="Query kind: HogQLQuery, TrendsQuery, FunnelsQuery, or an event node.",
+        ),
+        "owner": _string_field("owner", nullable=True, description="Email of the human accountable for this metric."),
+        "confidence": FloatDatabaseField(
+            name="confidence", nullable=True, description="AI author's confidence for a proposed metric, 0-1."
+        ),
+        "reasoning": _string_field("reasoning", nullable=True, description="AI author's reasoning, review context."),
+        "source_insight_short_id": _string_field(
+            "source_insight_short_id",
+            nullable=True,
+            description="Short ID of the insight this metric was created from.",
+        ),
+        "last_run_at": _string_field(
+            "last_run_at", nullable=True, description="ISO timestamp of the last run (throttled)."
+        ),
+        "created_at": _string_field("created_at", description="ISO timestamp when the metric was created."),
+    }
+
+    def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
+        allowed = _pushdown_table_filter(node, "name")
+        return _rows_select(context, "metrics", _METRICS_COLUMNS, _catalog_metrics(context, allowed), allowed)
+
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
+        return "information_schema.metrics"
+
+    def to_printed_hogql(self) -> str:
+        return "system__information_schema__metrics"
+
+
 def information_schema_node() -> TableNode:
     """The `information_schema` namespace, mounted under `system` (see `SystemTables.children`)."""
     return TableNode(
@@ -840,5 +1077,6 @@ def information_schema_node() -> TableNode:
             "columns": TableNode(name="columns", table=InformationSchemaColumnsTable()),
             "relationships": TableNode(name="relationships", table=InformationSchemaRelationshipsTable()),
             "data_types": TableNode(name="data_types", table=InformationSchemaDataTypesTable()),
+            "metrics": TableNode(name="metrics", table=InformationSchemaMetricsTable()),
         },
     )

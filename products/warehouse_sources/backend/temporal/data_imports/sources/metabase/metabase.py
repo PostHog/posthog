@@ -22,6 +22,10 @@ MAX_RETRIES = 5
 
 HOST_NOT_ALLOWED_ERROR = "Metabase host is not allowed"
 
+# Stable substring matched by MetabaseSource.get_non_retryable_errors when the session endpoint
+# returns a 2xx that isn't JSON (the Instance URL isn't a Metabase API).
+SESSION_RESPONSE_NOT_JSON_ERROR = "Metabase session response was not valid JSON"
+
 API_KEY_AUTH = "api_key"
 SESSION_AUTH = "session"
 
@@ -137,10 +141,57 @@ def _resolve_auth_headers(base_url: str, auth: MetabaseAuth, logger: FilteringBo
         logger.error(f"Metabase session error: status={response.status_code}, body={response.text}")
         raise MetabaseRetryableError(f"Metabase session error (retryable): status={response.status_code}")
 
-    token = response.json().get("id")
+    try:
+        token = response.json().get("id")
+    except requests.exceptions.JSONDecodeError as e:
+        # A 2xx with a non-JSON body means the Instance URL isn't Metabase's session API (e.g. an
+        # SSO/login page or a proxy). Deterministic, so surface it as a non-retryable auth error.
+        # Keep the stable substring first so both the non-retryable classifier and validate_credentials
+        # (which returns this message straight to the user) carry the guidance.
+        raise MetabaseAuthError(
+            f"{SESSION_RESPONSE_NOT_JSON_ERROR}. Check that the Instance URL points to your Metabase instance."
+        ) from e
     if not token:
         raise MetabaseAuthError("Metabase session response did not contain a token")
     return {"X-Metabase-Session": token, "Accept": "application/json"}
+
+
+def _connection_error_message(error: Exception) -> str:
+    """Translate a low-level requests connection failure into a short, actionable message.
+
+    requests surfaces these as host-revealing blobs (e.g. "HTTPSConnectionPool(host='<ip>',
+    port=3000): ... SSLError(... WRONG_VERSION_NUMBER ...)"). Returning that verbatim leaks the
+    customer's host/IP and tells them nothing they can act on.
+    """
+    # Match on the exception type first: substring checks against str(error) alone would misfire on
+    # a hostname that happens to contain "ssl"/"timeout" (e.g. https://sslserver.com).
+    text = str(error).lower()
+    if isinstance(error, requests.exceptions.SSLError):
+        if "wrong_version_number" in text:
+            return (
+                "Couldn't establish a secure (HTTPS) connection to your Metabase instance. "
+                "PostHog connects over HTTPS, so the instance must be served over HTTPS. Check the Instance URL."
+            )
+        return (
+            "Couldn't establish a secure (TLS) connection to your Metabase instance. "
+            "Check that the Instance URL is correct and its TLS certificate is valid."
+        )
+    if isinstance(error, requests.exceptions.Timeout):
+        return (
+            "Connecting to your Metabase instance timed out. "
+            "Check that the Instance URL is correct and reachable from the public internet."
+        )
+    if isinstance(error, requests.exceptions.ConnectionError) and (
+        "name or service not known" in text or "nodename nor servname" in text or "failed to resolve" in text
+    ):
+        return (
+            "Couldn't resolve the Metabase host. "
+            "Check that the Instance URL is spelled correctly and reachable from the public internet."
+        )
+    return (
+        "Couldn't connect to your Metabase instance. "
+        "Check that the Instance URL is correct and reachable from the public internet."
+    )
 
 
 def _extract_items(data: Any) -> list[dict[str, Any]]:
@@ -188,7 +239,7 @@ def validate_credentials(
     try:
         response = session.get(f"{base_url}/api/user/current", headers=headers, timeout=10, allow_redirects=False)
     except requests.exceptions.RequestException as e:
-        return False, str(e)
+        return False, _connection_error_message(e)
 
     if response.is_redirect or response.is_permanent_redirect:
         return False, HOST_NOT_ALLOWED_ERROR
@@ -202,11 +253,14 @@ def validate_credentials(
             return True, None
         return False, "Metabase credentials lack the required permissions"
 
-    try:
-        body = response.json()
-        return False, body.get("message", response.text)
-    except Exception:
-        return False, response.text
+    # Any other status: the host responded but not in a way we recognise — often it isn't a
+    # Metabase instance at all (e.g. a proxy or hosting-provider error page). Surface the status
+    # only; never echo the raw response body, which can carry arbitrary upstream content.
+    return (
+        False,
+        f"Metabase returned an unexpected response (HTTP {response.status_code}). "
+        "Check that the Instance URL points to your Metabase instance.",
+    )
 
 
 def get_rows(

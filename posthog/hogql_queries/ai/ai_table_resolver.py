@@ -15,6 +15,7 @@ from posthog.hogql_queries.ai.ai_column_rewriter import (
     rewrite_query_for_events_table,
 )
 from posthog.hogql_queries.ai.ai_property_rewriter import rewrite_expr_for_ai_events_table
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.ph_client import feature_enabled_or_false
 
 AI_EVENTS_QUERY_TOTAL = Counter(
@@ -124,11 +125,16 @@ def query_ai_events(
             AI_EVENTS_QUERY_TOTAL.labels(source="dedicated_table").inc()
             return result
 
+        events_schema = use_new_events_schema(team.pk)
         events_query = rewrite_query_for_events_table(query)
         events_placeholders = {k: rewrite_expr_for_events_table(v) for k, v in placeholders.items()}
         events_kwargs = {
             **kwargs,
-            "context": HogQLContext(property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES),
+            "context": HogQLContext(
+                team_id=team.pk,
+                use_new_events_schema=events_schema,
+                property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES,
+            ),
         }
 
         if fall_back_to_events:

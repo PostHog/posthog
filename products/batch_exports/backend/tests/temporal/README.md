@@ -71,9 +71,9 @@ DEBUG=1 AWS_ACCESS_KEY_ID="AAAA" AWS_SECRET_ACCESS_KEY="BBBB" AWS_REGION="region
 
 ## Testing S3 batch exports
 
-S3 batch exports are tested against a MinIO bucket available in the local development stack. However there are also unit tests that specifically target an S3 bucket (like `test_s3_export_workflow_with_s3_bucket`) and a Google Cloud Storage (GCS) bucket.
+S3 batch exports are tested against a MinIO bucket available in the local development stack. However there are also unit tests that specifically target an S3 bucket (like `test_s3_export_workflow_with_s3_bucket`), tests that target a Google Cloud Storage (GCS) bucket, and tests that run against a playground AWS account.
 
-If no environment variables are defined, then just the tests targeting MinIO will be run (the tests targeting S3/GCS will be skipped).
+If no environment variables are defined and no AWS credentials are present, then just the tests targeting MinIO will be run (the tests targeting S3/GCS will be skipped).
 
 ### Using an S3 bucket
 
@@ -115,6 +115,17 @@ DEBUG=1 GCS_TEST_BUCKET='your-test-bucket' AWS_ACCESS_KEY_ID="AAAA" AWS_SECRET_A
 ```
 
 Replace the environment variables with the values obtained from the setup steps.
+
+### Using an AWS playground account
+
+Tests in `test_activity_with_role_assumption` require an AWS playground account to run. The good news is that once we are logged in to the AWS playground account, no additional setup is required. The test suite is configured to setup every AWS resource required.
+
+Any AWS account can be a playground account, but the account used must allow chained role assumption (or rather, not block it).
+
+> [!NOTE]
+> For PostHog employees, an AWS playground account is available for you.
+
+After acquiring an AWS account, simply log in to it and run the tests like normal. No special environment variables are required. Tests clean-up after themselves once done.
 
 ## Testing Snowflake batch exports
 

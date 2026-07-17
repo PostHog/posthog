@@ -13,7 +13,7 @@ from time import perf_counter
 from typing import Any
 
 from django.core.cache import cache
-from django.http import StreamingHttpResponse
+from django.http.response import HttpResponseBase
 from django.utils import timezone
 
 import structlog
@@ -24,6 +24,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.monitoring import monitor
+from posthog.api.streaming import sse_streaming_response
 from posthog.auth import SessionAuthentication
 from posthog.event_usage import groups, report_user_action
 from posthog.rate_limit import (
@@ -67,6 +68,8 @@ PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "openrouter": "OpenRouter",
     "fireworks": "Fireworks",
     "azure_openai": "Azure OpenAI",
+    "minimax": "MiniMax",
+    "zeabur": "Zeabur AI Hub",
 }
 
 
@@ -191,18 +194,12 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 except Exception:
                     logger.exception("llm_proxy_on_complete_callback_error")
 
-    def _create_streaming_response(self, stream: Generator[bytes]) -> StreamingHttpResponse:
+    def _create_streaming_response(self, stream: Generator[bytes]) -> HttpResponseBase:
         """Creates a properly configured SSE streaming response"""
-        if SERVER_GATEWAY_INTERFACE == "ASGI":
-            astream = SyncIterableToAsync(stream)
-            response = StreamingHttpResponse(streaming_content=astream, content_type=ServerSentEventRenderer.media_type)
-        else:
-            response = StreamingHttpResponse(streaming_content=stream, content_type=ServerSentEventRenderer.media_type)
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
+        astream = SyncIterableToAsync(stream) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream
+        return sse_streaming_response(astream, endpoint="ai_observability_proxy")
 
-    def _handle_completion_request(self, request: Request) -> StreamingHttpResponse | Response:
+    def _handle_completion_request(self, request: Request) -> HttpResponseBase | Response:
         """Handler for completion requests using unified Client"""
         try:
             if not request.user or not request.user.is_authenticated:

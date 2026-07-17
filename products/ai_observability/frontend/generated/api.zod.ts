@@ -112,6 +112,10 @@ export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
 export const evaluationsCreateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsCreateBodyConditionsItemRolloutPercentageMax = 100
 
+export const evaluationsCreateBodyTargetConfigWindowSecondsDefault = 1800
+export const evaluationsCreateBodyTargetConfigWindowSecondsMin = 10
+export const evaluationsCreateBodyTargetConfigWindowSecondsMax = 7200
+
 export const evaluationsCreateBodyModelConfigurationOneModelMax = 100
 
 export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
@@ -196,6 +200,26 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
         ),
+    target: zod
+        .enum(['generation', 'trace'])
+        .describe('\* `generation` - Generation\n\* `trace` - Trace')
+        .optional()
+        .describe(
+            "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.\n\n\* `generation` - Generation\n\* `trace` - Trace"
+        ),
+    target_config: zod
+        .object({
+            window_seconds: zod
+                .number()
+                .min(evaluationsCreateBodyTargetConfigWindowSecondsMin)
+                .max(evaluationsCreateBodyTargetConfigWindowSecondsMax)
+                .default(evaluationsCreateBodyTargetConfigWindowSecondsDefault)
+                .describe(
+                    "For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight."
+                ),
+        })
+        .optional()
+        .describe("Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'."),
     model_configuration: zod
         .union([
             zod
@@ -209,23 +233,28 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                             'fireworks',
                             'azure_openai',
                             'together_ai',
+                            'minimax',
+                            'zeabur',
                         ])
                         .describe(
-                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                         ),
                     model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
                     provider_key_id: zod
                         .uuid()
                         .nullish()
                         .describe(
-                            'Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.'
+                            'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
                         ),
                     provider_key_name: zod.string().nullable(),
                 })
                 .describe('Nested serializer for model configuration.'),
             zod.null(),
         ])
-        .optional(),
+        .optional()
+        .describe(
+            'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
+        ),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -238,6 +267,10 @@ export const evaluationsUpdateBodyConditionsItemIdMax = 100
 export const evaluationsUpdateBodyConditionsItemRolloutPercentageDefault = 100
 export const evaluationsUpdateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsUpdateBodyConditionsItemRolloutPercentageMax = 100
+
+export const evaluationsUpdateBodyTargetConfigWindowSecondsDefault = 1800
+export const evaluationsUpdateBodyTargetConfigWindowSecondsMin = 10
+export const evaluationsUpdateBodyTargetConfigWindowSecondsMax = 7200
 
 export const evaluationsUpdateBodyModelConfigurationOneModelMax = 100
 
@@ -323,6 +356,26 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
         ),
+    target: zod
+        .enum(['generation', 'trace'])
+        .describe('\* `generation` - Generation\n\* `trace` - Trace')
+        .optional()
+        .describe(
+            "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.\n\n\* `generation` - Generation\n\* `trace` - Trace"
+        ),
+    target_config: zod
+        .object({
+            window_seconds: zod
+                .number()
+                .min(evaluationsUpdateBodyTargetConfigWindowSecondsMin)
+                .max(evaluationsUpdateBodyTargetConfigWindowSecondsMax)
+                .default(evaluationsUpdateBodyTargetConfigWindowSecondsDefault)
+                .describe(
+                    "For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight."
+                ),
+        })
+        .optional()
+        .describe("Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'."),
     model_configuration: zod
         .union([
             zod
@@ -336,23 +389,28 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
                             'fireworks',
                             'azure_openai',
                             'together_ai',
+                            'minimax',
+                            'zeabur',
                         ])
                         .describe(
-                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                         ),
                     model: zod.string().max(evaluationsUpdateBodyModelConfigurationOneModelMax),
                     provider_key_id: zod
                         .uuid()
                         .nullish()
                         .describe(
-                            'Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.'
+                            'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
                         ),
                     provider_key_name: zod.string().nullable(),
                 })
                 .describe('Nested serializer for model configuration.'),
             zod.null(),
         ])
-        .optional(),
+        .optional()
+        .describe(
+            'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
+        ),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -365,6 +423,10 @@ export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax = 100
+
+export const evaluationsPartialUpdateBodyTargetConfigWindowSecondsDefault = 1800
+export const evaluationsPartialUpdateBodyTargetConfigWindowSecondsMin = 10
+export const evaluationsPartialUpdateBodyTargetConfigWindowSecondsMax = 7200
 
 export const evaluationsPartialUpdateBodyModelConfigurationOneModelMax = 100
 
@@ -452,6 +514,26 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
         ),
+    target: zod
+        .enum(['generation', 'trace'])
+        .describe('\* `generation` - Generation\n\* `trace` - Trace')
+        .optional()
+        .describe(
+            "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.\n\n\* `generation` - Generation\n\* `trace` - Trace"
+        ),
+    target_config: zod
+        .object({
+            window_seconds: zod
+                .number()
+                .min(evaluationsPartialUpdateBodyTargetConfigWindowSecondsMin)
+                .max(evaluationsPartialUpdateBodyTargetConfigWindowSecondsMax)
+                .default(evaluationsPartialUpdateBodyTargetConfigWindowSecondsDefault)
+                .describe(
+                    "For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight."
+                ),
+        })
+        .optional()
+        .describe("Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'."),
     model_configuration: zod
         .union([
             zod
@@ -465,23 +547,28 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             'fireworks',
                             'azure_openai',
                             'together_ai',
+                            'minimax',
+                            'zeabur',
                         ])
                         .describe(
-                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                         ),
                     model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
                     provider_key_id: zod
                         .uuid()
                         .nullish()
                         .describe(
-                            'Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.'
+                            'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
                         ),
                     provider_key_name: zod.string().nullable(),
                 })
                 .describe('Nested serializer for model configuration.'),
             zod.null(),
         ])
-        .optional(),
+        .optional()
+        .describe(
+            'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
+        ),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -713,12 +800,10 @@ export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody = /* @__PURE__ *
 /**
  * CRUD for evaluation report configurations + report run history.
  */
-export const llmAnalyticsEvaluationReportsCreateBodyTimezoneNameMax = 64
-
 export const llmAnalyticsEvaluationReportsCreateBodyMaxSampleSizeMin = -2147483648
 export const llmAnalyticsEvaluationReportsCreateBodyMaxSampleSizeMax = 2147483647
 
-export const llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMin = 10
+export const llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMin = 100
 export const llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMax = 10000
 
 export const llmAnalyticsEvaluationReportsCreateBodyCooldownMinutesMin = 60
@@ -733,26 +818,13 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
         .describe('\* `scheduled` - Scheduled\n\* `every_n` - Every N')
         .optional()
         .describe(
-            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n\* `scheduled` - Scheduled\n\* `every_n` - Every N"
+            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.\n\n\* `scheduled` - Scheduled\n\* `every_n` - Every N"
         ),
     rrule: zod
         .string()
         .optional()
         .describe(
-            "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    starts_at: zod.iso
-        .datetime({ offset: true })
-        .nullish()
-        .describe(
-            "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    timezone_name: zod
-        .string()
-        .max(llmAnalyticsEvaluationReportsCreateBodyTimezoneNameMax)
-        .optional()
-        .describe(
-            "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America\/New_York'). Defaults to 'UTC'."
+            "RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     delivery_targets: zod
         .unknown()
@@ -767,7 +839,6 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
         .optional()
         .describe('Maximum number of evaluation runs included in each report. Defaults to 200.'),
     enabled: zod.boolean().optional().describe('Whether report delivery is active. Disabled configs do not fire.'),
-    deleted: zod.boolean().optional().describe('Set to true to soft-delete this report config.'),
     report_prompt_guidance: zod
         .string()
         .optional()
@@ -780,7 +851,7 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
         .max(llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMax)
         .nullish()
         .describe(
-            "Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'."
+            "Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'."
         ),
     cooldown_minutes: zod
         .number()
@@ -803,12 +874,10 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
 /**
  * CRUD for evaluation report configurations + report run history.
  */
-export const llmAnalyticsEvaluationReportsUpdateBodyTimezoneNameMax = 64
-
 export const llmAnalyticsEvaluationReportsUpdateBodyMaxSampleSizeMin = -2147483648
 export const llmAnalyticsEvaluationReportsUpdateBodyMaxSampleSizeMax = 2147483647
 
-export const llmAnalyticsEvaluationReportsUpdateBodyTriggerThresholdMin = 10
+export const llmAnalyticsEvaluationReportsUpdateBodyTriggerThresholdMin = 100
 export const llmAnalyticsEvaluationReportsUpdateBodyTriggerThresholdMax = 10000
 
 export const llmAnalyticsEvaluationReportsUpdateBodyCooldownMinutesMin = 60
@@ -817,32 +886,18 @@ export const llmAnalyticsEvaluationReportsUpdateBodyCooldownMinutesMax = 1440
 export const llmAnalyticsEvaluationReportsUpdateBodyDailyRunCapMax = 24
 
 export const LlmAnalyticsEvaluationReportsUpdateBody = /* @__PURE__ */ zod.object({
-    evaluation: zod.uuid().describe('UUID of the evaluation this report config belongs to.'),
     frequency: zod
         .enum(['scheduled', 'every_n'])
         .describe('\* `scheduled` - Scheduled\n\* `every_n` - Every N')
         .optional()
         .describe(
-            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n\* `scheduled` - Scheduled\n\* `every_n` - Every N"
+            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.\n\n\* `scheduled` - Scheduled\n\* `every_n` - Every N"
         ),
     rrule: zod
         .string()
         .optional()
         .describe(
-            "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    starts_at: zod.iso
-        .datetime({ offset: true })
-        .nullish()
-        .describe(
-            "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    timezone_name: zod
-        .string()
-        .max(llmAnalyticsEvaluationReportsUpdateBodyTimezoneNameMax)
-        .optional()
-        .describe(
-            "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America\/New_York'). Defaults to 'UTC'."
+            "RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     delivery_targets: zod
         .unknown()
@@ -857,7 +912,6 @@ export const LlmAnalyticsEvaluationReportsUpdateBody = /* @__PURE__ */ zod.objec
         .optional()
         .describe('Maximum number of evaluation runs included in each report. Defaults to 200.'),
     enabled: zod.boolean().optional().describe('Whether report delivery is active. Disabled configs do not fire.'),
-    deleted: zod.boolean().optional().describe('Set to true to soft-delete this report config.'),
     report_prompt_guidance: zod
         .string()
         .optional()
@@ -870,7 +924,7 @@ export const LlmAnalyticsEvaluationReportsUpdateBody = /* @__PURE__ */ zod.objec
         .max(llmAnalyticsEvaluationReportsUpdateBodyTriggerThresholdMax)
         .nullish()
         .describe(
-            "Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'."
+            "Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'."
         ),
     cooldown_minutes: zod
         .number()
@@ -893,12 +947,10 @@ export const LlmAnalyticsEvaluationReportsUpdateBody = /* @__PURE__ */ zod.objec
 /**
  * CRUD for evaluation report configurations + report run history.
  */
-export const llmAnalyticsEvaluationReportsPartialUpdateBodyTimezoneNameMax = 64
-
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyMaxSampleSizeMin = -2147483648
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyMaxSampleSizeMax = 2147483647
 
-export const llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMin = 10
+export const llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMin = 100
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMax = 10000
 
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMin = 60
@@ -907,32 +959,18 @@ export const llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMax = 
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyDailyRunCapMax = 24
 
 export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    evaluation: zod.uuid().optional().describe('UUID of the evaluation this report config belongs to.'),
     frequency: zod
         .enum(['scheduled', 'every_n'])
         .describe('\* `scheduled` - Scheduled\n\* `every_n` - Every N')
         .optional()
         .describe(
-            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n\* `scheduled` - Scheduled\n\* `every_n` - Every N"
+            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.\n\n\* `scheduled` - Scheduled\n\* `every_n` - Every N"
         ),
     rrule: zod
         .string()
         .optional()
         .describe(
-            "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    starts_at: zod.iso
-        .datetime({ offset: true })
-        .nullish()
-        .describe(
-            "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    timezone_name: zod
-        .string()
-        .max(llmAnalyticsEvaluationReportsPartialUpdateBodyTimezoneNameMax)
-        .optional()
-        .describe(
-            "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America\/New_York'). Defaults to 'UTC'."
+            "RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     delivery_targets: zod
         .unknown()
@@ -947,7 +985,6 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
         .optional()
         .describe('Maximum number of evaluation runs included in each report. Defaults to 200.'),
     enabled: zod.boolean().optional().describe('Whether report delivery is active. Disabled configs do not fire.'),
-    deleted: zod.boolean().optional().describe('Set to true to soft-delete this report config.'),
     report_prompt_guidance: zod
         .string()
         .optional()
@@ -960,7 +997,7 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
         .max(llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMax)
         .nullish()
         .describe(
-            "Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'."
+            "Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'."
         ),
     cooldown_minutes: zod
         .number()
@@ -1079,9 +1116,19 @@ export const llmAnalyticsProviderKeysCreateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
+        .enum([
+            'openai',
+            'anthropic',
+            'gemini',
+            'openrouter',
+            'fireworks',
+            'azure_openai',
+            'together_ai',
+            'minimax',
+            'zeabur',
+        ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysCreateBodyNameMax),
     api_key: zod.string().optional(),
@@ -1102,9 +1149,19 @@ export const llmAnalyticsProviderKeysUpdateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
+        .enum([
+            'openai',
+            'anthropic',
+            'gemini',
+            'openrouter',
+            'fireworks',
+            'azure_openai',
+            'together_ai',
+            'minimax',
+            'zeabur',
+        ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysUpdateBodyNameMax),
     api_key: zod.string().optional(),
@@ -1125,10 +1182,20 @@ export const llmAnalyticsProviderKeysPartialUpdateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
+        .enum([
+            'openai',
+            'anthropic',
+            'gemini',
+            'openrouter',
+            'fireworks',
+            'azure_openai',
+            'together_ai',
+            'minimax',
+            'zeabur',
+        ])
         .optional()
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysPartialUpdateBodyNameMax).optional(),
     api_key: zod.string().optional(),
@@ -1152,9 +1219,19 @@ export const llmAnalyticsProviderKeysAssignCreateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysAssignCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
+        .enum([
+            'openai',
+            'anthropic',
+            'gemini',
+            'openrouter',
+            'fireworks',
+            'azure_openai',
+            'together_ai',
+            'minimax',
+            'zeabur',
+        ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysAssignCreateBodyNameMax),
     api_key: zod.string().optional(),
@@ -1175,9 +1252,19 @@ export const llmAnalyticsProviderKeysValidateCreateBodySetAsActiveDefault = fals
 
 export const LlmAnalyticsProviderKeysValidateCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
+        .enum([
+            'openai',
+            'anthropic',
+            'gemini',
+            'openrouter',
+            'fireworks',
+            'azure_openai',
+            'together_ai',
+            'minimax',
+            'zeabur',
+        ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysValidateCreateBodyNameMax),
     api_key: zod.string().optional(),
@@ -1670,13 +1757,22 @@ export const LlmAnalyticsTranslateCreateBody = /* @__PURE__ */ zod.object({
 
 export const llmPromptsCreateBodyNameMax = 255
 
+export const llmPromptsCreateBodyVersionDescriptionMax = 400
+
 export const LlmPromptsCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
         .max(llmPromptsCreateBodyNameMax)
         .describe('Unique prompt name using letters, numbers, hyphens, and underscores only.'),
     prompt: zod.unknown().describe('Prompt payload as JSON or string data.'),
+    version_description: zod
+        .string()
+        .max(llmPromptsCreateBodyVersionDescriptionMax)
+        .nullish()
+        .describe('Optional note describing what changed in this version. Set when the version is published.'),
 })
+
+export const llmPromptsNamePartialUpdateBodyVersionDescriptionMax = 400
 
 export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
     prompt: zod
@@ -1699,9 +1795,16 @@ export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .optional()
         .describe('Latest version you are editing from. Used for optimistic concurrency checks.'),
+    version_description: zod
+        .string()
+        .max(llmPromptsNamePartialUpdateBodyVersionDescriptionMax)
+        .optional()
+        .describe('Optional note describing what changed in this version. Shown in the version history.'),
 })
 
 export const llmPromptsNameArchiveCreateBodyNameMax = 255
+
+export const llmPromptsNameArchiveCreateBodyVersionDescriptionMax = 400
 
 export const LlmPromptsNameArchiveCreateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -1709,6 +1812,11 @@ export const LlmPromptsNameArchiveCreateBody = /* @__PURE__ */ zod.object({
         .max(llmPromptsNameArchiveCreateBodyNameMax)
         .describe('Unique prompt name using letters, numbers, hyphens, and underscores only.'),
     prompt: zod.unknown().describe('Prompt payload as JSON or string data.'),
+    version_description: zod
+        .string()
+        .max(llmPromptsNameArchiveCreateBodyVersionDescriptionMax)
+        .nullish()
+        .describe('Optional note describing what changed in this version. Set when the version is published.'),
 })
 
 export const llmPromptsNameDuplicateCreateBodyNewNameMax = 255
@@ -1719,6 +1827,15 @@ export const LlmPromptsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
         .max(llmPromptsNameDuplicateCreateBodyNewNameMax)
         .describe(
             'Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.'
+        ),
+})
+
+export const LlmPromptsNameLabelsUpdateBody = /* @__PURE__ */ zod.object({
+    version: zod
+        .number()
+        .min(1)
+        .describe(
+            'Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.'
         ),
 })
 
@@ -1828,12 +1945,22 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
         .union([
             zod.object({
                 provider: zod
-                    .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
+                    .enum([
+                        'openai',
+                        'anthropic',
+                        'gemini',
+                        'openrouter',
+                        'fireworks',
+                        'azure_openai',
+                        'together_ai',
+                        'minimax',
+                        'zeabur',
+                    ])
                     .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                     )
                     .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                     ),
                 model: zod
                     .string()
@@ -1957,12 +2084,22 @@ export const TaggersUpdateBody = /* @__PURE__ */ zod.object({
         .union([
             zod.object({
                 provider: zod
-                    .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
+                    .enum([
+                        'openai',
+                        'anthropic',
+                        'gemini',
+                        'openrouter',
+                        'fireworks',
+                        'azure_openai',
+                        'together_ai',
+                        'minimax',
+                        'zeabur',
+                    ])
                     .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                     )
                     .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                     ),
                 model: zod
                     .string()
@@ -2088,12 +2225,22 @@ export const TaggersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .union([
             zod.object({
                 provider: zod
-                    .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
+                    .enum([
+                        'openai',
+                        'anthropic',
+                        'gemini',
+                        'openrouter',
+                        'fireworks',
+                        'azure_openai',
+                        'together_ai',
+                        'minimax',
+                        'zeabur',
+                    ])
                     .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                     )
                     .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                     ),
                 model: zod
                     .string()

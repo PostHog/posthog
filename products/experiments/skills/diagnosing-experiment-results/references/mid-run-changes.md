@@ -144,7 +144,7 @@ The MCP tool that performs this rewrite is `experiment-ship-variant`. It takes
 `release_to_everyone: bool` (defaults to `false` = "roll out to the experiment population"); the
 agent should confirm the release mode with the user before invoking, in addition to the variant key.
 
-Note: `activity-log-list { scope: "Experiment", item_id: <id> }` will _not_ tell you this — that
+Note: `advanced-activity-logs-list { scopes: ["Experiment"], item_ids: [<id>] }` will _not_ tell you this — that
 endpoint returns `activity: "updated"` with no change diff. Use the `feature-flags-activity-retrieve` tool.
 
 **Default to control on ambiguous ships.** If the user is unsure which variant to ship — primary
@@ -174,7 +174,7 @@ during the pause window. No new exposure events fire while paused.
 control-like behavior. Their data during the pause is mixed.
 
 **Recommend:** when interpreting results that span a pause window, surface the pause dates from
-the activity log (`activity-log-list { scope: "Experiment", item_id: <id> }`) and explain that the
+the activity log (`advanced-activity-logs-list { scopes: ["Experiment"], item_ids: [<id>] }`) and explain that the
 metric data during that window mixes test-variant users with control-like behavior. If the pause
 was long relative to the run, consider reset + relaunch over interpreting the contaminated data.
 
@@ -242,6 +242,12 @@ rather than worked around.
 case is that the metric line is rendered but the per-variant result block is empty — `metrics.primary.count`
 is non-zero, but the entry under `results[]` has no `chance_to_win`, no `credible_interval`, no
 `significant`, no `step_counts`. Exposures are fully populated; only the metric output is missing.
+
+Don't confuse this with a `data: null` row on a **non-legacy** experiment — that's usually transient
+(precompute not yet landed, or load at snapshot time) and resolves on re-pull / force-refresh. See
+"Reading metric result rows (`data: null`)" in `diagnostic-snapshot.md` to disambiguate before
+concluding anything. The legacy fingerprint here is specifically an experiment with `is_legacy: true`
+whose result block stays empty even after a force-refresh.
 
 **Verify directly** (no interview needed). In `experiment-get`'s response:
 

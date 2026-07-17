@@ -244,6 +244,31 @@ describe('rrule-helpers', () => {
                 expect(d.getTime()).toBeGreaterThan(Date.now())
             }
         })
+
+        describe("keeps today's still-pending occurrence across a timezone offset", () => {
+            afterEach(() => {
+                jest.useRealTimers()
+            })
+
+            // now=12:26 UTC; today's 9 AM Toronto occurrence is 13:00 UTC (~34 min away).
+            // The occurrence's fake-UTC value (09:00) is "before" now in raw UTC terms, so a
+            // naive comparison drops it — the real moment must be used instead.
+            it('includes the occurrence later today rather than skipping to tomorrow', () => {
+                jest.useFakeTimers().setSystemTime(new Date('2026-06-30T12:26:00Z'))
+                const state: ScheduleState = {
+                    ...DEFAULT_STATE,
+                    frequency: 'weekly',
+                    weekdays: [0, 1, 2, 3, 4], // Mon–Fri
+                    endType: 'never',
+                }
+                // 9 AM America/Toronto (EDT, UTC-4) on Mon June 22 2026 == 13:00 UTC
+                const result = computePreviewOccurrences(state, '2026-06-22T13:00:00Z', 'America/Toronto')
+
+                // First occurrence must be Tue June 30 (still pending today), not Wed July 1
+                const first = fakeUtcToReal(result[0], 'America/Toronto')
+                expect(first.tz('America/Toronto').format('YYYY-MM-DD HH:mm')).toBe('2026-06-30 09:00')
+            })
+        })
     })
 
     describe('fakeUtcToReal', () => {

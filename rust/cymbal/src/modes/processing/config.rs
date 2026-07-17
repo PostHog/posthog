@@ -46,6 +46,18 @@ pub struct ProcessingConfig {
     #[envconfig(from = "CYMBAL_CYCLOTRON_KAFKA_TLS")]
     pub cyclotron_kafka_tls: Option<bool>,
 
+    // Optional override for the brokers used to produce `clickhouse_app_metrics2`. When set,
+    // cymbal opens a dedicated producer pointed at this host list (the warpstream-ingestion VC,
+    // where ClickHouse consumes app_metrics2). When unset, app metrics go through the primary
+    // `kafka` producer — which only carries that topic where the cluster has it (e.g. local dev).
+    #[envconfig(from = "CYMBAL_APP_METRICS_KAFKA_HOSTS")]
+    pub app_metrics_kafka_hosts: Option<String>,
+
+    // Optional TLS override for the app-metrics producer. When unset, it inherits `KAFKA_TLS`
+    // from the primary kafka config.
+    #[envconfig(from = "CYMBAL_APP_METRICS_KAFKA_TLS")]
+    pub app_metrics_kafka_tls: Option<bool>,
+
     #[envconfig(default = "cdp_internal_events")]
     pub internal_events_topic: String,
 
@@ -54,6 +66,9 @@ pub struct ProcessingConfig {
 
     #[envconfig(default = "document_embeddings_input")]
     pub embedding_worker_topic: String,
+
+    #[envconfig(default = "error_tracking_ingestion_notifications")]
+    pub ingestion_notifications_topic: String,
 
     #[envconfig(default = "600")]
     pub issue_cache_ttl_seconds: u64,
@@ -98,6 +113,13 @@ pub struct ProcessingConfig {
     // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
     pub max_suppression_rule_cache_size: u64,
 
+    #[envconfig(default = "300")]
+    pub bypass_rule_cache_ttl_secs: u64,
+
+    #[envconfig(default = "100000")]
+    // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
+    pub max_bypass_rule_cache_size: u64,
+
     #[envconfig(from = "ISSUE_BUCKETS_REDIS_URL", default = "redis://localhost:6379/")]
     pub issue_buckets_redis_url: String,
 
@@ -140,10 +162,6 @@ pub struct ProcessingConfig {
     // If empty, all teams can receive alerts
     #[envconfig(default = "")]
     pub spike_alert_enabled_team_ids: String,
-
-    // Internal API for signal emission
-    #[envconfig(default = "")]
-    pub signals_api_base_url: String,
 
     // ----------------------------------------------------------------------
     // Remote resolution (cymbal.resolution.v1) — Batch 3 client integration.

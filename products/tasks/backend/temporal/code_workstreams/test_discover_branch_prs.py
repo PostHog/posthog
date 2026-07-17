@@ -3,6 +3,7 @@ import random
 import pytest
 from unittest.mock import MagicMock, patch
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.models import Integration, Organization, Team
 
 from products.tasks.backend.models import Task, TaskRun
@@ -146,3 +147,24 @@ def test_collect_candidates_requires_an_integration():
     _run_on_branch(team, "acme/widgets", "posthog-code/feature-x")
 
     assert _collect_branch_candidates(team.id) == []
+
+
+@pytest.mark.django_db(transaction=True)
+def test_discover_stops_the_cycle_when_budget_shed(activity_environment):
+    # Guards the break-on-shed seam: if GitHubEgressBudgetExhausted stops being caught here it
+    # falls into the outer except-and-continue, and a shed sweep keeps grinding through denied
+    # gate checks instead of yielding the cycle.
+    team = _make_team()
+    _run_on_branch(team, "acme/widgets", "posthog-code/feature-x")
+    _run_on_branch(team, "acme/widgets", "posthog-code/feature-y")
+
+    fake = MagicMock()
+    fake.find_pull_request_urls_for_branch.side_effect = GitHubEgressBudgetExhausted("shed")
+    with patch(_RESOLVE, return_value=fake):
+        result = activity_environment.run(
+            discover_branch_prs,
+            DiscoverBranchPrsInput(team_id=team.id, known_pr_urls=[], budget=50),
+        )
+
+    assert result.prs == []
+    fake.find_pull_request_urls_for_branch.assert_called_once()

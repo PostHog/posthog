@@ -3,9 +3,9 @@ from typing import Optional, cast
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SuggestedTable,
 )
@@ -25,22 +25,33 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+from .client import LinkedinAdsApiError, LinkedinAdsDailyRateLimitError
 from .linkedin_ads import (
+    LinkedinAdsMissingTokenError,
     LinkedInAdsResumeConfig,
+    LinkedinAdsTokenRefreshError,
     get_incremental_fields as get_linkedin_ads_incremental_fields,
     get_schemas as get_linkedin_ads_schemas,
+    linkedin_ads_client_for_integration,
     linkedin_ads_source,
 )
 
 
 @SourceRegistry.register
-class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResumeConfig]):
+class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResumeConfig], OAuthMixin):
+    api_docs_url = "https://learn.microsoft.com/en-us/linkedin/marketing/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -81,6 +92,11 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # never succeeds, so fail fast and tell the user to fix the configured Account ID. Match on
             # the stable prefix only — the offending value that follows varies per source.
             "Array parameter 'accounts' value 'urn:li:sponsoredAccount:": "The LinkedIn Ads Account ID is invalid. Please check the Account ID in your source configuration — it should be the numeric account ID from your LinkedIn Campaign Manager.",
+            # Integration.DoesNotExist raised by `_get_integration` when the stored OAuth integration
+            # row has been deleted/disconnected before the sync runs. Retrying cannot recover — the
+            # user must re-authorize. Model-specific so we don't swallow unrelated `DoesNotExist`
+            # errors from other models, which may be real bugs.
+            "Integration matching query does not exist": "Your LinkedIn Ads connection is no longer available — it may have been disconnected. Please re-authorize the LinkedIn Ads integration.",
         }
 
     @property
@@ -92,25 +108,24 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             keywords=["linkedin advertising"],
             label="LinkedIn Ads",
             caption="Ensure you have granted PostHog access to your LinkedIn Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/linkedin-ads).",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/linkedin.png",
             docsUrl="https://posthog.com/docs/cdp/sources/linkedin-ads",
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="account_id",
-                        label="Account ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="",
-                        secret=False,
-                    ),
                     SourceFieldOauthConfig(
                         name="linkedin_ads_integration_id",
                         label="LinkedIn Ads account",
                         required=True,
                         kind="linkedin-ads",
+                    ),
+                    SourceFieldOauthAccountSelectConfig(
+                        name="account_id",
+                        label="Account ID",
+                        integrationField="linkedin_ads_integration_id",
+                        integrationKind="linkedin-ads",
+                        required=True,
                     ),
                 ],
             ),
@@ -126,11 +141,63 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             ],
         )
 
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        # A member's ad accounts are few, so `search` is ignored here and the endpoint filters the list.
+        try:
+            client = linkedin_ads_client_for_integration(integration_id, team_id)
+        except Integration.DoesNotExist as e:
+            raise IntegrationAccountListingError(
+                "Your LinkedIn Ads connection is no longer available — it may have been disconnected. "
+                "Please re-authorize the LinkedIn Ads integration."
+            ) from e
+        except LinkedinAdsTokenRefreshError as e:
+            raise IntegrationAccountListingError(str(e)) from e
+        except LinkedinAdsMissingTokenError as e:
+            raise IntegrationAccountListingError(
+                "The LinkedIn Ads integration has no access token. Please re-authorize the integration."
+            ) from e
+
+        try:
+            accounts = client.get_accounts()
+        except LinkedinAdsApiError as e:
+            if e.api_status_code not in (401, 403):
+                # Any other status means we built a bad request, which the user cannot fix.
+                raise
+            raise IntegrationAccountListingError(
+                "LinkedIn rejected the credentials for this integration. Please re-authorize the "
+                "LinkedIn Ads integration and make sure the signed-in member can access your ad accounts."
+            ) from e
+        except LinkedinAdsDailyRateLimitError as e:
+            raise IntegrationAccountListingError(
+                "LinkedIn's daily API limit for this connection has been reached. "
+                "Please try again after it resets at midnight UTC."
+            ) from e
+
+        return [
+            IntegrationAccount(
+                value=str(account["id"]),
+                display_name=account.get("name") or "Unnamed account",
+                badges=(account["status"],) if account.get("status") else (),
+            )
+            for account in accounts
+        ]
+
     def validate_credentials(
         self, config: LinkedinAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         if not config.account_id or not config.linkedin_ads_integration_id:
             return False, "Account ID and LinkedIn Ads integration are required"
+
+        # LinkedIn only accepts the numeric ad account ID. A free-text value (a profile URL, a
+        # name, stray whitespace) is otherwise accepted here and only fails on the first sync, so
+        # reject it up front with the same guidance the sync-time error gives.
+        if not config.account_id.isdigit():
+            return (
+                False,
+                "The LinkedIn Ads Account ID must be the numeric account ID from your LinkedIn Campaign Manager (digits only).",
+            )
 
         try:
             Integration.objects.get(id=config.linkedin_ads_integration_id, team_id=team_id)

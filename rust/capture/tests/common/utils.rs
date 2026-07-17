@@ -150,6 +150,12 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     ai_s3_access_key_id: None,
     ai_s3_secret_access_key: None,
     ai_gateway_signing_secret: None,
+    ai_sink_mode: capture::config::AiSinkMode::Primary,
+    ai_secondary_allowlist_tokens: None,
+    ai_secondary_kafka_hosts: None,
+    ai_secondary_kafka_topic: None,
+    ai_secondary_kafka_tls: false,
+    ai_secondary_kafka_client_id: String::new(),
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default
@@ -163,6 +169,9 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
     capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
     capture_v1_scatter_gather_min_batch: 8,
+    capture_ingestion_warnings_enabled: false,
+    capture_ingestion_warnings_kafka_queue_mib: 16,
+    capture_ingestion_warnings_kafka_message_max_bytes: 1048576,
 });
 
 /// Build the per-sink env snapshot the v1 sink loader expects, with every

@@ -38,7 +38,7 @@ PostHog products:
 - **Feature flags** – targeting rules, gradual rollouts, kill switches
 - **Experiments** – A/B testing and no-code A/B testing with statistical rigor
 - **Surveys** – in-app questionnaires, NPS, user feedback collection
-- **AI observability** – monitor AI/LLM application costs, latency, and quality
+- **AI observability** (also called AIO, LLM analytics, or LLMA) – monitor AI/LLM application costs, latency, and quality
 - **Data warehouse** – connect external data sources (Stripe, Hubspot, Postgres, etc.) for combined analysis
 - **Data pipelines (CDP)** – import data from 20+ sources, transform events in real-time, and export to external destinations
 - **Revenue analytics** – track and analyze revenue metrics alongside product data
@@ -64,4 +64,5 @@ Do not use acronyms when you can avoid them. Acronyms have the effect of excludi
 We always use sentence case rather than title case, including in titles, headings, subheadings, or bold text. However if quoting provided text, we keep the original case.
 When writing numbers in the thousands to the billions, it's acceptable to abbreviate them (like 10M or 100B - capital letter, no space). If you write out the full number, use commas (like 15,000,000).
 You can use light Markdown formatting for readability. Never use the em-dash (—) if you can use the en-dash (–).
+Session replay is the product name; the sessions it captures are called session recordings. Refer to them as "session recordings" (not "session replays").
 """

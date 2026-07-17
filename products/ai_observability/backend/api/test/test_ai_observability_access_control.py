@@ -21,6 +21,13 @@ except ImportError:
     pass
 
 
+_DEFAULT_MODEL_CONFIGURATION = {
+    "provider": "openai",
+    "model": "gpt-5-mini",
+    "provider_key_id": None,
+}
+
+
 @pytest.mark.ee
 class TestAIObservabilityAccessControl(APIBaseTest):
     def setUp(self):
@@ -36,17 +43,6 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             },
         ]
         self.organization.save()
-
-        self.score_definitions_flag_patcher = patch(
-            "products.ai_observability.backend.api.score_definitions.feature_enabled_or_false", return_value=True
-        )
-        self.trace_reviews_flag_patcher = patch(
-            "products.ai_observability.backend.api.trace_reviews.feature_enabled_or_false", return_value=True
-        )
-        self.score_definitions_flag_patcher.start()
-        self.trace_reviews_flag_patcher.start()
-        self.addCleanup(self.score_definitions_flag_patcher.stop)
-        self.addCleanup(self.trace_reviews_flag_patcher.stop)
 
         AccessControl.objects.create(
             team=self.team,
@@ -252,6 +248,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {
                 "name": "New Evaluation",
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "prompt"},
                 "output_type": "boolean",
                 "output_config": {},
@@ -411,6 +408,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {
                 "name": "Editor Evaluation",
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "prompt"},
                 "output_type": "boolean",
                 "output_config": {},
@@ -646,6 +644,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {
                 "name": "Admin Evaluation",
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "prompt"},
                 "output_type": "boolean",
                 "output_config": {},

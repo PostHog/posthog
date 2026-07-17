@@ -118,7 +118,13 @@ async fn main() {
 
     let token_dropper = TokenDropper::new(&config.drop_events_by_token.unwrap_or_default());
     let token_dropper_arc = Arc::new(token_dropper);
-    let logs_service = match Service::new(kafka_sink, token_dropper_arc).await {
+    let logs_service = match Service::new(
+        kafka_sink,
+        token_dropper_arc,
+        config.max_request_body_size_bytes,
+    )
+    .await
+    {
         Ok(service) => service,
         Err(e) => {
             error!("Failed to initialize log service: {}", e);

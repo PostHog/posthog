@@ -8,7 +8,7 @@ import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { ActionStepForm, ElementRect } from '~/toolbar/types'
 import { finder } from '~/toolbar/vendor/finder'
-import { ActionStepType } from '~/types'
+import { Experiment, ActionStepType, ExperimentStatus } from '~/types'
 
 import { ActionStepPropertyKey } from './actions/ActionStep'
 
@@ -24,6 +24,7 @@ export const asNonEmptyString = (v: unknown): string | null => (typeof v === 'st
 // any non-object value into a synthetic failed response so the toolbar's OAuth chain and its
 // callers can treat it as an ordinary request failure rather than crashing.
 export async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    // nosemgrep: toolbar-no-raw-fetch - this IS the wrapper the rule points everyone to
     const response = await fetch(input, init)
     if (response && typeof response === 'object') {
         return response
@@ -174,10 +175,10 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
             tagName: (name) => !TAGS_TO_IGNORE.includes(name),
             // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
             seedMinLength: 5,
-            attr: (name) => {
+            attr: (name, value) => {
                 // preference to data attributes if they exist
                 // that aren't in the PostHog preferred list - they were returned early above
-                return name.startsWith('data-')
+                return name.startsWith('data-') && value.length < 100 && !containsUnstableGeneratedId(value)
             },
             // the combination guard tripped and cut the candidate search short -
             // the selector may degrade to a brittle positional path - record host
@@ -188,7 +189,7 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
                     levels,
                 }),
         })
-        return slashDotDataAttrUnescape(foundSelector)
+        return unescapeCssSelector(foundSelector)
     } catch (error) {
         toolbarLogger.warn('element_selector', 'Error while trying to find a selector for element')
         captureToolbarException(error, 'element_selector_computation')
@@ -655,14 +656,34 @@ export function getHeatMapHue(count: number, maxCount: number): number {
 }
 
 /*
- * KLUDGE: e.g. [data-attr="session\.recording\.preview"] is valid CSS
- * but our action matching doesn't support it
- * in order to avoid trying to write a general purpose CSS unescaper
- * we just remove the backslash in this specific pattern
- * if it matches data-attr="bla\.blah\.blah"
+ * KLUDGE: finder() builds selectors with CSS.escape, e.g. [data-attr="session\.recording\.preview"]
+ * or [data-id="base-ui-\:rg\:-viewport"]. That's valid CSS, but our action/element matching compares
+ * raw attribute values, so the escapes must be removed. This handles single-character escapes
+ * (\. -> ., \: -> :) and hex code-point escapes (\31 -> 1) without being a fully general CSS unescaper.
+ *
+ * Safety: this only works correctly because finder's wordLike gate rejects id/class tokens that
+ * contain ':', so unescaping outside quoted attribute values never produces pseudo-class collisions.
+ * If that gate is ever relaxed, this function will need to become attribute-value-aware.
  */
-export function slashDotDataAttrUnescape(foundSelector: string): string | undefined {
-    return foundSelector.replace(/\\./g, '.')
+export function unescapeCssSelector(foundSelector: string): string {
+    return foundSelector.replace(/\\([0-9a-fA-F]{1,6} ?|.)/g, (_, escaped: string) => {
+        if (/^[0-9a-fA-F]/.test(escaped)) {
+            // hex code-point escape: \31 23-foo → "123-foo", \: would not reach here
+            const codePoint = parseInt(escaped, 16)
+            // guard invalid code points (> U+10FFFF or 0) per CSS spec — fall back to U+FFFD
+            return codePoint === 0 || codePoint > 0x10ffff ? '�' : String.fromCodePoint(codePoint)
+        }
+        return escaped
+    })
+}
+
+// React's useId() emits per-render identifiers like ":r5:" (React <= 18) or "«r5»" (React 19),
+// which component libraries embed in DOM attributes (e.g. data-id="base-ui-:rg:-viewport").
+// They change between renders and deploys, so a selector built on one never matches recorded events.
+const UNSTABLE_GENERATED_ID_REGEX = /:r[0-9a-z]*:|«r[0-9a-z]*»/i
+
+export function containsUnstableGeneratedId(value: string): boolean {
+    return UNSTABLE_GENERATED_ID_REGEX.test(value)
 }
 
 export function makeNavigateWrapper(onNavigate: () => void, patchKey: string): () => () => void {
@@ -712,6 +733,47 @@ export function makeNavigateWrapper(onNavigate: () => void, patchKey: string): (
             unwrapReplaceState?.()
         }
     }
+}
+
+// Toolbar-owned copy of the app's experiment variant-split helper. Duplicated rather than
+// imported from scenes/experiments/utils, which drags 37KB and app-only modules into the
+// customer-facing bundle for this one pure function.
+export function percentageDistribution(variantCount: number): number[] {
+    const basePercentage = Math.floor(100 / variantCount)
+    const percentages = new Array(variantCount).fill(basePercentage)
+
+    // try to equally distribute `remaining` across variants
+    let remaining = 100 - basePercentage * variantCount
+    for (let i = 0; remaining > 0; i++, remaining--) {
+        percentages[i] += 1
+    }
+
+    return percentages
+}
+
+// Toolbar-owned copy of the app's experiment status helpers. Duplicated rather than imported
+// from scenes/experiments/experimentStatus so the toolbar bundle doesn't reach into the app
+// scene zone for these two pure functions.
+type ExperimentStatusInput = Pick<Experiment, 'status' | 'start_date' | 'end_date'> | null | undefined
+
+function getExperimentStatus(experiment: ExperimentStatusInput): ExperimentStatus {
+    if (!experiment) {
+        return ExperimentStatus.Draft
+    }
+    if (experiment.status) {
+        return experiment.status
+    }
+    if (experiment.end_date) {
+        return ExperimentStatus.Stopped
+    }
+    if (experiment.start_date) {
+        return ExperimentStatus.Running
+    }
+    return ExperimentStatus.Draft
+}
+
+export function isLaunched(experiment: ExperimentStatusInput): boolean {
+    return getExperimentStatus(experiment) !== ExperimentStatus.Draft
 }
 
 export function joinWithUiHost(uiHost: string, path: string): string {

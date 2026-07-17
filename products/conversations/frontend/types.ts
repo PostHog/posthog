@@ -47,6 +47,24 @@ export interface AITriage {
     finished_at?: string
     workflow_id?: string
     run_id?: string
+    ai_trace_id?: string
+    missing?: string[]
+}
+
+export type AiReplyFeedbackRating = 'good' | 'bad'
+
+export type GapSuggestionStatus = 'pending' | 'accepted' | 'dismissed'
+
+export interface KnowledgeGapSuggestion {
+    id: string
+    ticket_id: string
+    topic: string
+    normalized_topic: string
+    ticket_type: string
+    outcome: string
+    status: GapSuggestionStatus
+    resolved_source_id: string | null
+    created_at: string
 }
 
 export interface TicketViewFilters {
@@ -103,6 +121,7 @@ export interface Ticket {
     channel_source: TicketChannel
     channel_detail?: TicketChannelDetail | null
     anonymous_traits: Record<string, any>
+    identity_verified: boolean | null
     ai_resolved: boolean
     escalation_reason?: string
     created_at: string
@@ -129,6 +148,7 @@ export interface Ticket {
     cc_participants?: string[]
     github_repo?: string | null
     github_issue_number?: number | null
+    zendesk_ticket_id?: number | null
     organization_id?: string | null
     person?: TicketPerson | null
     tags?: string[]
@@ -181,6 +201,9 @@ export interface ChatMessage {
     createdAt: string
     isPrivate?: boolean
     emailDeliveryStatus?: EmailDeliveryStatus
+    /** Imported from an external tool (e.g. Zendesk). Such content is untrusted, so its Markdown
+     * is rendered with external image auto-loading disabled. */
+    fromZendesk?: boolean
 }
 
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [

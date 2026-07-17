@@ -1,14 +1,19 @@
 import json
 
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponseRedirect, JsonResponse
 from django.views.decorators.http import require_http_methods
 
 import posthoganalytics
+from loginas import settings as la_settings
 from loginas.utils import is_impersonated_session
 from loginas.views import user_login as loginas_user_login
 
 from posthog.helpers.impersonation import get_original_user_from_session
-from posthog.middleware import IMPERSONATION_READ_ONLY_SESSION_KEY, is_read_only_impersonation
+from posthog.middleware import (
+    IMPERSONATION_READ_ONLY_SESSION_KEY,
+    IMPERSONATION_REASON_SESSION_KEY,
+    is_read_only_impersonation,
+)
 from posthog.models import User
 
 
@@ -16,10 +21,28 @@ def loginas_user(request, user_id):
     staff_user = request.user
     response = loginas_user_login(request, user_id)
 
-    if is_impersonated_session(request):
+    # loginas redirects to LOGIN_REDIRECT only when the impersonation actually started; a rejected
+    # attempt (empty reason, failed CAN_LOGIN_AS) redirects back to the referer without touching the
+    # session. Gate the mutations on success so a rejected re-impersonation can't change the active
+    # session's mode or reason.
+    login_succeeded = (
+        isinstance(response, HttpResponseRedirect)
+        and response.url == la_settings.LOGIN_REDIRECT
+        and is_impersonated_session(request)
+    )
+
+    if login_succeeded:
         is_read_only = request.POST.get("read_only") != "false"
         if is_read_only:
             request.session[IMPERSONATION_READ_ONLY_SESSION_KEY] = True
+        elif IMPERSONATION_READ_ONLY_SESSION_KEY in request.session:
+            # Re-impersonating the same user keeps the existing session (Django only flushes on a
+            # user change), so clear a prior read-only flag to honor the mode requested here.
+            del request.session[IMPERSONATION_READ_ONLY_SESSION_KEY]
+
+        # Persist the reason server-side so it survives both Django-admin and in-app starts,
+        # and can be surfaced to the frontend (autofill).
+        request.session[IMPERSONATION_REASON_SESSION_KEY] = request.POST.get("reason", "")
 
         target_user = User.objects.filter(id=user_id).first()
         posthoganalytics.capture(

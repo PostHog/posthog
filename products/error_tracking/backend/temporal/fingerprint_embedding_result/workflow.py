@@ -39,8 +39,9 @@ class ErrorTrackingFingerprintEmbeddingResultWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: FingerprintEmbeddingResultInputs) -> FingerprintEmbeddingMergeResult:
-        # The embedding result can arrive before ClickHouse has consumed the embedding row.
-        await workflow.sleep(ACTIVITY_START_DELAY)
+        if inputs.embedding is None:
+            # Older workflow inputs rely on ClickHouse having consumed the embedding row.
+            await workflow.sleep(ACTIVITY_START_DELAY)
         return await workflow.execute_activity(
             merge_similar_fingerprints_activity,
             inputs,

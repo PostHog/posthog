@@ -43,6 +43,7 @@ async function testSetup(
     scope: ActivityScope,
     url: string
 ): Promise<ReturnType<typeof activityLogLogic.build>> {
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- useMocks is an MSW test helper, not a React hook
     useMocks({
         get: {
             [url]: {

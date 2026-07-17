@@ -10,6 +10,8 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
+import { InstallationStatusNavButton } from './InstallationStatusNavButton'
+
 export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: boolean }): JSX.Element {
     const isNotificationsEnabled = useFeatureFlag('REAL_TIME_NOTIFICATIONS')
 
@@ -31,6 +33,7 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
                 })}
             >
                 {isNotificationsEnabled && <NotificationsMenu iconOnly={isLayoutNavCollapsed} />}
+                <InstallationStatusNavButton iconOnly={isLayoutNavCollapsed} />
                 <Link
                     to={urls.settings('project')}
                     buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}

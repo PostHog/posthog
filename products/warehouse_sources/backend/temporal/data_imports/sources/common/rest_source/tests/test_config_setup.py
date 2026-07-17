@@ -6,6 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     APIKeyAuth,
     BearerTokenAuth,
     HttpBasicAuth,
+    OAuth2Auth,
     auth_secret_values,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
@@ -73,6 +74,28 @@ class TestCreateAuth:
     def test_http_basic_from_dict(self) -> None:
         auth = create_auth({"type": "http_basic", "username": "user", "password": "pass"})
         assert isinstance(auth, HttpBasicAuth)
+
+    def test_oauth2_from_dict(self) -> None:
+        # create_auth unpacks the dict generically, so the oauth-specific fields (and the
+        # extensibility knobs) flow into OAuth2Auth with no create_auth changes.
+        auth = create_auth(
+            {
+                "type": "oauth2",
+                "client_id": "cid",
+                "token_url": "https://auth.example.com/token",
+                "client_secret": "csecret",
+                "grant_type": "client_credentials",
+                "scopes": "read",
+                "client_auth_method": "basic",
+            }
+        )
+        assert isinstance(auth, OAuth2Auth)
+        assert auth.client_id == "cid"
+        assert auth.token_url == "https://auth.example.com/token"
+        assert auth.client_secret == "csecret"
+        assert auth.grant_type == "client_credentials"
+        assert auth.scopes == "read"
+        assert auth.client_auth_method == "basic"
 
     def test_none_returns_none(self) -> None:
         assert create_auth(None) is None

@@ -53,6 +53,120 @@ export function cornersFor(
     return corners
 }
 
+// A segment thinner than this can't visibly carry a rounded cap; skipping it stops an invisible
+// sliver (e.g. a zero-valued breakdown at the top of the stack order) from stealing the cap.
+const MIN_CAP_SEGMENT_PX = 0.5
+
+// How far a cap edge must clear the baseline to count as extending in that direction. Same value
+// as MIN_CAP_SEGMENT_PX but a distinct concept: an epsilon around the baseline, not a segment size.
+const BASELINE_TOLERANCE_PX = 0.5
+
+/** Re-resolve stacked cap rounding per band, geometrically, from the laid-out rects: within each
+ *  `dataIndex`, only the segment reaching furthest away from the baseline in each direction keeps
+ *  a rounded cap — everything else's cap is squared. Decided after layout so breakdown stacks
+ *  (whose top layer varies band to band) and diverging stacks (negative bottoms) round the actual
+ *  outer segment, not the last series in stack order. Mutates `corners` in place; baseline
+ *  corners are untouched. */
+export function roundOuterStackCaps(bars: BarRect[], isHorizontal: boolean, baselinePx: number): void {
+    const outerPositive = new Map<number, BarRect>()
+    const outerNegative = new Map<number, BarRect>()
+    for (const bar of bars) {
+        const size = isHorizontal ? bar.width : bar.height
+        if (size < MIN_CAP_SEGMENT_PX) {
+            continue
+        }
+        // The cap edge, signed so "further from the baseline" compares uniformly per direction.
+        // Vertical: smaller y is further up; horizontal: larger x+width is further right.
+        if (isHorizontal) {
+            if (bar.x + bar.width > baselinePx + BASELINE_TOLERANCE_PX) {
+                const prev = outerPositive.get(bar.dataIndex)
+                if (!prev || bar.x + bar.width >= prev.x + prev.width) {
+                    outerPositive.set(bar.dataIndex, bar)
+                }
+            }
+            if (bar.x < baselinePx - BASELINE_TOLERANCE_PX) {
+                const prev = outerNegative.get(bar.dataIndex)
+                if (!prev || bar.x <= prev.x) {
+                    outerNegative.set(bar.dataIndex, bar)
+                }
+            }
+        } else {
+            if (bar.y < baselinePx - BASELINE_TOLERANCE_PX) {
+                const prev = outerPositive.get(bar.dataIndex)
+                if (!prev || bar.y <= prev.y) {
+                    outerPositive.set(bar.dataIndex, bar)
+                }
+            }
+            if (bar.y + bar.height > baselinePx + BASELINE_TOLERANCE_PX) {
+                const prev = outerNegative.get(bar.dataIndex)
+                if (!prev || bar.y + bar.height >= prev.y + prev.height) {
+                    outerNegative.set(bar.dataIndex, bar)
+                }
+            }
+        }
+    }
+    for (const bar of bars) {
+        const isOuterPositive = outerPositive.get(bar.dataIndex) === bar
+        const isOuterNegative = outerNegative.get(bar.dataIndex) === bar
+        // Rewrite only the bar's own cap side (away from the baseline), so baseline-side rounding
+        // a caller may have applied is preserved. Same tolerance as the outer-segment classification
+        // above — a bar straddling the baseline within tolerance must resolve to the same direction
+        // it was classified under, or its rounding lands on the wrong side.
+        const positive = isHorizontal
+            ? bar.x + bar.width > baselinePx + BASELINE_TOLERANCE_PX
+            : bar.y < baselinePx - BASELINE_TOLERANCE_PX
+        const cap = isOuterPositive || isOuterNegative || undefined
+        if (isHorizontal) {
+            if (positive) {
+                bar.corners.topRight = bar.corners.bottomRight = cap
+            } else {
+                bar.corners.topLeft = bar.corners.bottomLeft = cap
+            }
+        } else if (positive) {
+            bar.corners.topLeft = bar.corners.topRight = cap
+        } else {
+            bar.corners.bottomLeft = bar.corners.bottomRight = cap
+        }
+    }
+}
+
+/** A laid-out bar paired with the axis its series scales against (`Series.yAxisId`). */
+export interface AxisBarEntry {
+    bar: BarRect
+    yAxisId?: string
+}
+
+/** The shared cap-rounding pass over laid-out bars: groups them by value axis and runs
+ *  {@link roundOuterStackCaps} per group against that axis's own zero pixel — a secondary-axis
+ *  stack (ComboChart) must not be judged against the primary baseline. Owns the layout guard:
+ *  no-op for grouped layouts (caps are per-bar) and under `roundStackEnds` (the pill clip owns
+ *  the corners), so static, hover, and cursor paths can't diverge on when the pass applies. */
+export function applyOuterStackCaps(
+    entries: readonly AxisBarEntry[],
+    scales: BarScaleSet,
+    isHorizontal: boolean,
+    layout: 'stacked' | 'grouped' | 'percent',
+    roundStackEnds: boolean = false
+): void {
+    if (layout === 'grouped' || roundStackEnds) {
+        return
+    }
+    const barsByAxis = new Map<string, BarRect[]>()
+    for (const { bar, yAxisId } of entries) {
+        const axisId = yAxisId ?? DEFAULT_Y_AXIS_ID
+        const group = barsByAxis.get(axisId)
+        if (group) {
+            group.push(bar)
+        } else {
+            barsByAxis.set(axisId, [bar])
+        }
+    }
+    for (const [axisId, bars] of barsByAxis) {
+        const valueScale = scales.yAxes?.[axisId]?.scale ?? scales.value
+        roundOuterStackCaps(bars, isHorizontal, valueScale(0))
+    }
+}
+
 function makeBarRect(
     isHorizontal: boolean,
     bandStart: number,

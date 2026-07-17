@@ -7,6 +7,7 @@ use rand::Rng;
 use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
 
+use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder};
 use crate::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
 
 /// RAII guard that tracks the number of batches currently in flight to a
@@ -58,6 +59,11 @@ pub struct HttpTransport {
     api_secret: Option<String>,
     worker_semaphores: DashMap<String, Arc<Semaphore>>,
     worker_concurrent_batches: usize,
+    /// Process-unique sender id stamped on every request, so the worker-side
+    /// feed-order sentinel can rebaseline when the consumer restarts.
+    consumer_id: String,
+    /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
+    debug_recorder: Option<Arc<DebugRecorder>>,
 }
 
 impl HttpTransport {
@@ -95,7 +101,14 @@ impl HttpTransport {
             api_secret,
             worker_semaphores,
             worker_concurrent_batches,
+            consumer_id: make_consumer_id(),
+            debug_recorder: None,
         }
+    }
+
+    /// Inject the debug UI recorder. Call before the transport is shared.
+    pub fn set_debug_recorder(&mut self, recorder: Arc<DebugRecorder>) {
+        self.debug_recorder = Some(recorder);
     }
 
     /// Get the worker's concurrency semaphore, creating it on first use so the
@@ -165,16 +178,22 @@ impl HttpTransport {
     /// here — that's the natural backpressure. The permit is released on
     /// drop, covering all return paths (success, retriable error, retries
     /// exhausted, non-retriable error).
+    /// `replay` marks a request that may repeat previously sent messages (a
+    /// deferred-flush re-route); HTTP retries within this call are marked as
+    /// replays automatically.
     pub async fn send_batch(
         &self,
         worker_url: &str,
         batch_id: &str,
         messages: Vec<SerializedKafkaMessage>,
+        replay: bool,
     ) -> Result<u32, SendError> {
         let message_count = messages.len();
-        let request = IngestBatchRequest {
+        let mut request = IngestBatchRequest {
             batch_id: batch_id.to_string(),
             messages,
+            consumer_id: self.consumer_id.clone(),
+            replay,
         };
 
         let url = format!("{worker_url}/ingest");
@@ -210,6 +229,10 @@ impl HttpTransport {
         let mut last_was_busy = false;
         for attempt in 0..=self.max_retries {
             if attempt > 0 {
+                // A retried request may repeat messages the worker already
+                // processed (e.g. a timeout after the worker finished) — mark it
+                // so the worker-side sentinel counts repeats as replays.
+                request.replay = true;
                 tokio::time::sleep(retry_backoff(attempt, last_was_busy)).await;
                 counter!(
                     "ingestion_consumer_transport_retries_total",
@@ -217,6 +240,12 @@ impl HttpTransport {
                     "reason" => if last_was_busy { "busy" } else { "error" },
                 )
                 .increment(1);
+                record_if(&self.debug_recorder, || DebugEventKind::SendRetry {
+                    worker: worker_url.to_string(),
+                    batch_id: batch_id.to_string(),
+                    attempt,
+                    reason: if last_was_busy { "busy" } else { "error" },
+                });
             }
 
             let start = std::time::Instant::now();
@@ -281,6 +310,12 @@ impl HttpTransport {
         );
         counter!("ingestion_consumer_transport_exhausted_total", "worker" => worker_url.to_string())
             .increment(1);
+        record_if(&self.debug_recorder, || DebugEventKind::SendExhausted {
+            worker: worker_url.to_string(),
+            batch_id: batch_id.to_string(),
+            messages: message_count,
+            error: err.to_string(),
+        });
         Err(SendError {
             error: err,
             messages: request.messages,
@@ -365,6 +400,17 @@ impl TransportError {
 /// that callers backing off the same worker don't retry in lockstep; other
 /// retriable errors use a short exponential backoff. `attempt` is 1-based (the
 /// first retry passes 1).
+/// Process-unique sender id: workers use it to scope feed-order baselines to
+/// one consumer incarnation.
+fn make_consumer_id() -> String {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let rand: u32 = rand::random();
+    format!("{ts:x}-{rand:08x}")
+}
+
 fn retry_backoff(attempt: u32, busy: bool) -> Duration {
     let exp = 2u64.saturating_pow(attempt.saturating_sub(1));
     if busy {

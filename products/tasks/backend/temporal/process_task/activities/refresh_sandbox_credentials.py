@@ -1,11 +1,16 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.exceptions import SandboxNotFoundError, SandboxNotRunningError, TaskNotFoundError
+from products.tasks.backend.exceptions import (
+    CredentialUnavailableError,
+    SandboxNotFoundError,
+    SandboxNotRunningError,
+    TaskNotFoundError,
+)
 from products.tasks.backend.logic.services.agent_command import send_refresh_session
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.sandbox import Sandbox
@@ -15,6 +20,11 @@ from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     DEFAULT_REFRESH_INTERVAL_SECONDS,
     build_sandbox_credentials,
+)
+from products.tasks.backend.temporal.process_task.utils import (
+    get_actor_distinct_id,
+    get_task_run_credential_user,
+    is_slack_interaction_state,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -29,10 +39,14 @@ def _notify_agent_server_of_refresh(ctx: TaskProcessingContext, task: Task, refr
     try:
         task_run = TaskRun.objects.get(id=ctx.run_id)
         auth_token = None
-        created_by = task.created_by
-        if created_by and created_by.id:
-            distinct_id = created_by.distinct_id or f"user_{created_by.id}"
-            auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
+        actor_user = get_task_run_credential_user(task, ctx.state)
+        if is_slack_interaction_state(ctx.state) and actor_user is None:
+            logger.warning("sandbox_credentials_refresh_notify_missing_slack_actor", run_id=ctx.run_id)
+            return
+        if actor_user and actor_user.id:
+            auth_token = create_sandbox_connection_token(
+                task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
+            )
         authorship = (ctx.state or {}).get("pr_authorship_mode")
         send_refresh_session(
             task_run, [], auth_token=auth_token, refreshed_credentials=refreshed_kinds, authorship=authorship
@@ -45,6 +59,7 @@ def _notify_agent_server_of_refresh(ctx: TaskProcessingContext, task: Task, refr
 class RefreshSandboxCredentialsInput:
     context: TaskProcessingContext
     sandbox_id: str
+    exclude_kinds: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -55,6 +70,8 @@ class RefreshSandboxCredentialsOutput:
     refreshed_kinds: list[str]
     # Sandbox is gone/stopped and won't refresh again — the loop should stop, not keep skipping.
     sandbox_gone: bool = False
+    orphaned_kinds: list[str] = field(default_factory=list)
+    no_credentials_left: bool = False
 
 
 @activity.defn
@@ -82,9 +99,10 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
             raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 
         refreshed_kinds: list[str] = []
+        orphaned_kinds: list[str] = []
         next_refresh = DEFAULT_REFRESH_INTERVAL_SECONDS
         intervals: list[float] = []
-        credentials = build_sandbox_credentials(ctx)
+        credentials = [c for c in build_sandbox_credentials(ctx) if c.kind not in input.exclude_kinds]
 
         try:
             sandbox = Sandbox.get_by_id(input.sandbox_id)
@@ -113,6 +131,17 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
                 next_refresh_seconds=next_refresh, refreshed_kinds=[], sandbox_gone=True
             )
 
+        if not credentials:
+            logger.info(
+                "sandbox_credentials_refresh_nothing_left",
+                sandbox_id=input.sandbox_id,
+                run_id=ctx.run_id,
+                exclude_kinds=input.exclude_kinds,
+            )
+            return RefreshSandboxCredentialsOutput(
+                next_refresh_seconds=next_refresh, refreshed_kinds=[], no_credentials_left=True
+            )
+
         sandbox_gone = False
         for index, credential in enumerate(credentials):
             try:
@@ -127,6 +156,17 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
                     increment_credential_refresh(skipped.kind, "skipped")
                 sandbox_gone = True
                 break
+            except CredentialUnavailableError:
+                logger.warning(
+                    "sandbox_credential_refresh_orphaned",
+                    kind=credential.kind,
+                    sandbox_id=input.sandbox_id,
+                    run_id=ctx.run_id,
+                    exc_info=True,
+                )
+                increment_credential_refresh(credential.kind, "orphaned")
+                orphaned_kinds.append(credential.kind)
+                continue
             except Exception:
                 logger.warning(
                     "sandbox_credential_refresh_failed",
@@ -163,5 +203,9 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
         )
 
         return RefreshSandboxCredentialsOutput(
-            next_refresh_seconds=next_refresh, refreshed_kinds=refreshed_kinds, sandbox_gone=sandbox_gone
+            next_refresh_seconds=next_refresh,
+            refreshed_kinds=refreshed_kinds,
+            sandbox_gone=sandbox_gone,
+            orphaned_kinds=orphaned_kinds,
+            no_credentials_left=len(orphaned_kinds) == len(credentials),
         )

@@ -5,6 +5,8 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.growth.backend.sdk_health import (
+    LEGACY_JAVA_MIGRATION_REASON,
+    LEGACY_JAVA_VERSION_LABEL,
     MINOR_AGE_THRESHOLD_DAYS,
     MINOR_VERSIONS_BEHIND_THRESHOLD,
     SINGLE_VERSION_GRACE_PERIOD_DAYS,
@@ -320,13 +322,22 @@ class TestAssessSdkTrafficAlerts(SimpleTestCase):
         # Primary (first) is fresh, so SDK not marked outdated
         assert result.is_outdated is False
 
-    def test_mobile_never_gets_traffic_alerts(self):
+    @parameterized.expand(
+        [
+            ("posthog-ios",),
+            ("posthog-android",),
+            ("posthog-flutter",),
+            ("posthog-react-native",),
+            ("posthog-kmp",),
+        ]
+    )
+    def test_mobile_never_gets_traffic_alerts(self, sdk_type: str):
         # Even at high traffic, mobile SDKs shouldn't trigger traffic alerts (users don't auto-update)
         entries = [
             _entry("2.0.0", 10, days_ago=5, is_latest=True),
             _entry("1.0.0", 90, days_ago=200),
         ]
-        result = assess_sdk("posthog-ios", "2.0.0", entries, now=NOW)
+        result = assess_sdk(sdk_type, "2.0.0", entries, now=NOW)
         assert result is not None
         assert result.outdated_traffic_alerts == []
 
@@ -344,6 +355,7 @@ class TestComputeSdkHealth(SimpleTestCase):
         assert report.health == "success"
         assert report.needs_updating_count == 0
         assert report.team_sdk_count == 1
+        assert report.sdks[0].migration_required is False
 
     def test_warning_when_one_of_many_outdated(self):
         # 1 of 3 outdated — below half, so warning not danger
@@ -388,6 +400,39 @@ class TestComputeSdkHealth(SimpleTestCase):
         assert report.team_sdk_count == 3
         assert report.health == "warning"
         assert report.overall_health == "needs_attention"
+
+    def test_legacy_java_is_reported_with_migration_guidance_without_a_version(self):
+        data = {
+            "posthog-java": {
+                "latest_version": "1.2.0",
+                "usage": [
+                    {
+                        "lib_version": None,
+                        "count": 42,
+                        "max_timestamp": NOW.isoformat(),
+                        "is_latest": False,
+                    }
+                ],
+            }
+        }
+
+        report = compute_sdk_health(data, now=NOW, project_id=7)
+
+        assert report.needs_updating_count == 1
+        assert report.team_sdk_count == 1
+        sdk = report.sdks[0]
+        assert sdk.lib == "posthog-java"
+        assert sdk.latest_version == "1.2.0"
+        assert sdk.migration_required is True
+        assert sdk.reason == LEGACY_JAVA_MIGRATION_REASON
+        assert sdk.banners == []
+        release = sdk.releases[0]
+        assert release.version == LEGACY_JAVA_VERSION_LABEL
+        assert release.count == 42
+        assert release.is_outdated is True
+        assert "properties.$lib = 'posthog-java'" in release.sql_query
+        assert "$lib_version" not in release.sql_query
+        assert release.activity_page_url.startswith("/project/7/activity/explore#q=")
 
     def test_danger_when_half_or_more_outdated(self):
         # 2 of 3 outdated — triggers danger

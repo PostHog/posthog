@@ -188,8 +188,8 @@ describe('funnelPersonsModalLogic', () => {
         })
 
         // There is no "dropped off before step 1": funnelStep would be -1, which the backend rejects
-        // with a ValueError. In compare mode the rescaled first bar can expose a clickable drop-off
-        // track, so this path is reachable and must no-op.
+        // with a ValueError. No UI exposes a first-step drop-off, but the listener guards against an
+        // invalid call defensively, so these must no-op rather than fire a query.
         test('openPersonsModalForSeries no-ops on the first step drop-off', async () => {
             logic.actions.openPersonsModalForSeries({
                 series: makeSeries({ order: 0, compare_label: 'current' }),

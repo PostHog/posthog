@@ -4,14 +4,19 @@ import pytest
 
 import psycopg
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill import (
+    _has_inflight_replace_run,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import (
     DUCKGRES_APPLY_TABLE,
+    DUCKGRES_LEASE_TABLE,
     DUCKGRES_STATUS_TABLE,
     DUCKGRES_STATUS_VIEW,
     DuckgresBatchQueue,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
+    LEASE_TABLE,
     STATUS_TABLE,
     STATUS_VIEW,
     BatchQueue,
@@ -49,8 +54,18 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
             is_resume BOOLEAN NOT NULL DEFAULT FALSE,
             is_first_ever_sync BOOLEAN NOT NULL DEFAULT FALSE,
             metadata JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+            latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
+            latest_attempt SMALLINT NOT NULL DEFAULT 0,
+            state_changed_at TIMESTAMPTZ,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
+    """)
+    # Self-heal pre-existing test DBs where CREATE TABLE IF NOT EXISTS is a no-op.
+    conn.execute(f"""
+        ALTER TABLE {BATCH_TABLE}
+            ADD COLUMN IF NOT EXISTS latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
+            ADD COLUMN IF NOT EXISTS latest_attempt SMALLINT NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS state_changed_at TIMESTAMPTZ
     """)
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS {STATUS_TABLE} (
@@ -101,11 +116,36 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
         FROM {DUCKGRES_STATUS_TABLE}
         ORDER BY batch_id ASC, created_at DESC, id DESC
     """)
+    # Needed so the Delta queue's claim CTE (referenced by the contract test below) can plan.
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {LEASE_TABLE} (
+            id BIGSERIAL PRIMARY KEY,
+            team_id BIGINT NOT NULL,
+            schema_id VARCHAR(200) NOT NULL,
+            owner_token VARCHAR(64) NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            acquired_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT sgl_team_schema_uniq UNIQUE (team_id, schema_id)
+        )
+    """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {DUCKGRES_LEASE_TABLE} (
+            id BIGSERIAL PRIMARY KEY,
+            team_id BIGINT NOT NULL,
+            schema_id VARCHAR(200) NOT NULL,
+            owner_token VARCHAR(64) NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            acquired_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT sdgl_team_schema_uniq UNIQUE (team_id, schema_id)
+        )
+    """)
 
 
 def _truncate_tables(conn: psycopg.Connection[Any]) -> None:
     conn.execute(
-        f"TRUNCATE {DUCKGRES_APPLY_TABLE}, {DUCKGRES_STATUS_TABLE}, {STATUS_TABLE}, {BATCH_TABLE} RESTART IDENTITY CASCADE"
+        f"TRUNCATE {DUCKGRES_APPLY_TABLE}, {DUCKGRES_STATUS_TABLE}, {STATUS_TABLE}, {BATCH_TABLE}, {LEASE_TABLE}, {DUCKGRES_LEASE_TABLE} RESTART IDENTITY CASCADE"
     )
 
 
@@ -162,10 +202,31 @@ async def conn(_db_url: str):
 @pytest.mark.django_db(transaction=True)
 class TestDuckgresBatchQueueEligibility:
     @pytest.mark.asyncio
+    async def test_failed_delta_replace_run_is_not_inflight(
+        self, conn: psycopg.AsyncConnection[Any], _db_url: str
+    ) -> None:
+        run_uuid = "failed-replace-run"
+        head_id = await _insert_batch(
+            conn,
+            run_uuid=run_uuid,
+            batch_index=0,
+            sync_type="full_refresh",
+            is_final_batch=False,
+            is_resume=False,
+        )
+        await BatchQueue.update_status(conn, batch_id=head_id, job_state="succeeded", attempt=1)
+
+        tail_id = await _insert_batch(conn, run_uuid=run_uuid, batch_index=1)
+        await BatchQueue.update_status(conn, batch_id=tail_id, job_state="failed", attempt=1)
+
+        with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
+            assert not _has_inflight_replace_run(sync_conn, team_id=1, schema_id="schema-1")
+
+    @pytest.mark.asyncio
     async def test_ignores_batches_until_delta_succeeds(self, conn):
         await _insert_batch(conn)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
         assert batches == []
 
@@ -174,7 +235,7 @@ class TestDuckgresBatchQueueEligibility:
         batch_id = await _insert_batch(conn)
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
         assert len(batches) == 1
         assert str(batches[0].id) == batch_id
@@ -185,7 +246,7 @@ class TestDuckgresBatchQueueEligibility:
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
         await DuckgresBatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
         assert batches == []
 
@@ -195,7 +256,7 @@ class TestDuckgresBatchQueueEligibility:
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
         await DuckgresBatchQueue.update_status(conn, batch_id=batch_id, job_state="waiting_retry", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
         assert len(batches) == 1
         assert batches[0].latest_attempt == 1
@@ -207,7 +268,7 @@ class TestDuckgresBatchQueueEligibility:
         await BatchQueue.update_status(conn, batch_id=first_id, job_state="succeeded", attempt=1)
         await BatchQueue.update_status(conn, batch_id=second_id, job_state="succeeded", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
         assert [batch.batch_index for batch in batches] == [0]
 
@@ -218,13 +279,13 @@ class TestDuckgresBatchQueueEligibility:
         await BatchQueue.update_status(conn, batch_id=data_id, job_state="succeeded", attempt=1)
         await BatchQueue.update_status(conn, batch_id=final_id, job_state="succeeded", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
         assert [str(batch.id) for batch in batches] == [data_id]
 
         await DuckgresBatchQueue.mark_applied(conn, batch=batches[0])
-        await DuckgresBatchQueue.unlock_for_batches(conn, batches=batches)
+        await DuckgresBatchQueue.unlock_for_batches(conn, batches=batches, owner_token="owner-a")
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
         assert [str(batch.id) for batch in batches] == [final_id]
 
     @pytest.mark.asyncio
@@ -234,7 +295,7 @@ class TestDuckgresBatchQueueEligibility:
         failed_id = await _insert_batch(conn, batch_index=1)
         await BatchQueue.update_status(conn, batch_id=failed_id, job_state="failed", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
         assert batches == []
 
@@ -246,7 +307,7 @@ class TestDuckgresBatchQueueEligibility:
         await BatchQueue.update_status(conn, batch_id=failed_id, job_state="succeeded", attempt=1)
         await DuckgresBatchQueue.update_status(conn, batch_id=failed_id, job_state="failed", attempt=3)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
         assert batches == []
 
@@ -284,7 +345,7 @@ class TestDuckgresCrossRunOrdering:
         new0 = await _insert_batch(conn, run_uuid="run-2", batch_index=0)
         await BatchQueue.update_status(conn, batch_id=new0, job_state="succeeded", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
         # Only the older run's next batch is eligible; run-2 waits behind it.
         assert [(b.run_uuid, b.batch_index) for b in batches] == [("run-1", 1)]
@@ -298,7 +359,7 @@ class TestDuckgresCrossRunOrdering:
         new0 = await _insert_batch(conn, run_uuid="run-2", batch_index=0)
         await BatchQueue.update_status(conn, batch_id=new0, job_state="succeeded", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
         assert [(b.run_uuid, b.batch_index) for b in batches] == [("run-2", 0)]
 
@@ -318,7 +379,7 @@ class TestDuckgresCrossRunOrdering:
         superseded = await DuckgresBatchQueue.supersede_replaced_runs(conn)
         assert superseded == 1  # run-1's pending batch 1
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
         assert [(b.run_uuid, b.batch_index) for b in batches] == [("run-2", 0)]
 
     @pytest.mark.asyncio
@@ -334,7 +395,7 @@ class TestDuckgresCrossRunOrdering:
         superseded = await DuckgresBatchQueue.supersede_replaced_runs(conn)
         assert superseded == 0
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
         assert [(b.run_uuid, b.batch_index) for b in batches] == [("run-1", 0)]
 
 
@@ -345,31 +406,59 @@ class TestDuckgresTeamFilterAndBacklog:
         batch_id = await _insert_batch(conn, team_id=1)
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
-        # Advisory locks are session-reentrant, so repeated fetches on one conn are fine.
-        assert await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, team_ids=[2]) == []
-        assert len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, team_ids=[1, 2])) == 1
-        assert len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, team_ids=None)) == 1
+        # The same owner re-claims its own lease, so repeated fetches are fine.
+        assert await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a", team_ids=[2]) == []
+        assert (
+            len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a", team_ids=[1, 2]))
+            == 1
+        )
+        assert (
+            len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a", team_ids=None)) == 1
+        )
 
     @pytest.mark.asyncio
     async def test_backlog_stats(self, conn):
         batch_id = await _insert_batch(conn, sync_type="incremental")
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
-        count, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(conn)
-        assert (count, blocked) == (1, 0)
+        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(conn)
+        assert (count, blocked, failing) == (1, 0, 0)
         assert oldest_age is not None and oldest_age >= 0
         assert blocked_age is None
 
         # The same batch counts as blocked (not eligible) once its schema is gated.
-        count, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(
+        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(
             conn, blocked_schema_ids=["schema-1"]
         )
-        assert (count, blocked) == (0, 1)
+        assert (count, blocked, failing) == (0, 1, 0)
         assert oldest_age is None and blocked_age is not None
 
+        # A hard-blocked schema's batches leave the pageable blocked bucket
+        # (count AND oldest-age) for the failing one — a wedged schema must not
+        # be able to trigger or mask the blocked-backlog page.
+        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(
+            conn, blocked_schema_ids=["schema-1"], failing_schema_ids=["schema-1"]
+        )
+        assert (count, blocked, failing) == (0, 0, 1)
+        assert blocked_age is None
+
+        # A failing schema whose batches are NOT blocked (still eligible) never
+        # counts in the failing bucket: failing splits the blocked set only.
+        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(
+            conn, failing_schema_ids=["schema-1"]
+        )
+        assert (count, blocked, failing) == (1, 0, 0)
+
+        # The v3 allow-list scopes the gauges too: a non-eligible schema drops
+        # out of both the eligible and blocked counts.
+        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(
+            conn, eligible_schema_ids=["other-schema"]
+        )
+        assert (count, blocked, failing) == (0, 0, 0)
+
         await _mark_applied_raw(conn, batch_id=batch_id, run_uuid="run-1", batch_index=0)
-        count, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(conn)
-        assert (count, blocked) == (0, 0)
+        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(conn)
+        assert (count, blocked, failing) == (0, 0, 0)
         assert oldest_age is None and blocked_age is None
 
 
@@ -380,8 +469,20 @@ class TestBackfillGating:
         batch_id = await _insert_batch(conn, sync_type="incremental")
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
-        assert await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["schema-1"]) == []
-        assert len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["other"])) == 1
+        assert (
+            await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+                conn, owner_token="owner-a", blocked_schema_ids=["schema-1"]
+            )
+            == []
+        )
+        assert (
+            len(
+                await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+                    conn, owner_token="owner-a", blocked_schema_ids=["other"]
+                )
+            )
+            == 1
+        )
 
     @pytest.mark.asyncio
     async def test_backfill_batches_pass_the_block(self, conn):
@@ -394,7 +495,9 @@ class TestBackfillGating:
         )
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["schema-1"])
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", blocked_schema_ids=["schema-1"]
+        )
 
         assert [b.run_uuid for b in batches] == ["duckgres-backfill-schema-1-v7"]
 
@@ -433,9 +536,9 @@ class TestBackfillQueueContracts:
         )
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
-        assert await BatchQueue.get_unprocessed_and_lock(conn) == []
+        assert await BatchQueue.get_unprocessed_and_lock(conn, owner_token="test-owner") == []
 
-        duck = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        duck = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
         assert [str(b.id) for b in duck] == [batch_id]
 
     @pytest.mark.asyncio
@@ -455,7 +558,9 @@ class TestBackfillQueueContracts:
         )
         await BatchQueue.update_status(conn, batch_id=chunk, job_state="succeeded", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["schema-1"])
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", blocked_schema_ids=["schema-1"]
+        )
         assert [str(b.id) for b in batches] == [chunk]
 
     @pytest.mark.asyncio
@@ -474,7 +579,7 @@ class TestBackfillQueueContracts:
 
         # Schema primed (not blocked) but the backfill run is older and
         # incomplete: the live batch must wait.
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
         assert [str(b.id) for b in batches] == [chunk]
 
     @pytest.mark.asyncio
@@ -513,7 +618,7 @@ class TestBackfillQueueContracts:
         # The straddling sibling is NOT lost: its head-of-line prev is satisfied
         # by the pre-apply marker, the run is not failed, and it remains the
         # schema's claimable work (post-swap it applies as a live batch).
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
         assert [str(b.id) for b in batches] == [late_b]
 
     @pytest.mark.asyncio
@@ -530,5 +635,468 @@ class TestBackfillQueueContracts:
         # Retire the plain run first so the cross-run gate isn't what hides it.
         await DuckgresBatchQueue.update_status(conn, batch_id=plain, job_state="failed", attempt=1)
 
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["schema-1"])
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", blocked_schema_ids=["schema-1"]
+        )
         assert [str(b.id) for b in batches] == [head]
+
+    @pytest.mark.asyncio
+    async def test_eligible_schema_ids_restricts_claim_to_v3_schemas(self, conn):
+        # The v3 allow-list must exclude a claimable (delta-succeeded, unblocked)
+        # batch when its schema is not v3-enabled — the default batch is
+        # full_refresh, which otherwise bypasses the unprimed block. Guards the
+        # leak where non-v3 (e.g. Postgres) batches were applied via the
+        # team-scoped claim. None = no filter (dev/tests); [] = nothing eligible.
+        batch_id = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+
+        async def claim(eligible: list[str] | None) -> list[Any]:
+            return await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+                conn, owner_token="owner-a", eligible_schema_ids=eligible
+            )
+
+        assert len(await claim(None)) == 1
+        assert len(await claim(["schema-1"])) == 1
+        assert await claim(["other-schema"]) == []
+        assert await claim([]) == []
+
+    @pytest.mark.asyncio
+    async def test_eligible_gate_excludes_replace_head_that_bypasses_block(self, conn):
+        # A full_refresh replace-head bypasses the unprimed block, but the v3
+        # allow-list must still exclude it when the schema is not v3-enabled — the
+        # eligibility gate overrides the replace-head carve-out.
+        head = await _insert_batch(conn, run_uuid="run-refresh", sync_type="full_refresh", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=head, job_state="succeeded", attempt=1)
+
+        bypasses = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", blocked_schema_ids=["schema-1"]
+        )
+        assert [str(b.id) for b in bypasses] == [head]
+
+        gated = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", blocked_schema_ids=["schema-1"], eligible_schema_ids=["other-schema"]
+        )
+        assert gated == []
+
+
+async def _insert_chunk(
+    conn: psycopg.AsyncConnection[Any],
+    *,
+    batch_index: int,
+    chunk_count: int = 3,
+    run_uuid: str = "duckgres-backfill-schema-1-v1-g00000000",
+    delta_succeeded: bool = True,
+) -> str:
+    batch_id = await _insert_batch(
+        conn,
+        run_uuid=run_uuid,
+        job_id="duckgres-backfill",
+        is_resume=True,
+        batch_index=batch_index,
+        metadata={
+            "duckgres_backfill": True,
+            "chunk_paths": [f"s3://b/c{batch_index}.parquet"],
+            "chunk_count": chunk_count,
+        },
+    )
+    if delta_succeeded:
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+    return batch_id
+
+
+@pytest.mark.django_db(transaction=True)
+class TestBackfillChunkClaiming:
+    @pytest.mark.asyncio
+    async def test_whole_backfill_run_claimable_in_one_fetch(self, conn):
+        for i in range(3):
+            await _insert_chunk(conn, batch_index=i)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+
+        # Chunks must come back in index order: the group loop applies them
+        # sequentially, so chunk 0's CREATE always lands before the inserts.
+        assert [b.batch_index for b in batches] == [0, 1, 2]
+
+    @pytest.mark.asyncio
+    async def test_chunks_blocked_behind_executing_predecessor(self, conn):
+        chunk0 = await _insert_chunk(conn, batch_index=0)
+        await _insert_chunk(conn, batch_index=1)
+        await DuckgresBatchQueue.update_status(conn, batch_id=chunk0, job_state="executing", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+
+        assert batches == []
+
+    @pytest.mark.asyncio
+    async def test_replayed_predecessor_with_newer_created_at_blocks_successor(self, conn):
+        # A reconcile replay re-inserts chunk 0 with a fresh created_at, so it
+        # sorts AFTER chunk 1; chunk 1 must stay blocked until chunk 0 applies
+        # (co-claiming it would apply before the CREATE — data loss).
+        await _insert_chunk(conn, batch_index=1, chunk_count=2)
+        chunk0 = await _insert_chunk(conn, batch_index=0, chunk_count=2)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+        assert [b.batch_index for b in batches] == [0]
+
+        await _mark_applied_raw(
+            conn, batch_id=chunk0, run_uuid="duckgres-backfill-schema-1-v1-g00000000", batch_index=0
+        )
+        await DuckgresBatchQueue.update_status(conn, batch_id=chunk0, job_state="succeeded", attempt=1)
+        await DuckgresBatchQueue.unlock_for_batches(conn, batches=batches, owner_token="owner-a")
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+        assert [b.batch_index for b in batches] == [1]
+
+    @pytest.mark.asyncio
+    async def test_chunks_blocked_behind_non_delta_succeeded_predecessor(self, conn):
+        # enqueue_chunks writes chunks pre-succeeded atomically, so this state
+        # shouldn't exist — the gate must fail closed anyway.
+        await _insert_chunk(conn, batch_index=0, delta_succeeded=False)
+        await _insert_chunk(conn, batch_index=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+
+        assert batches == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "backoff_seconds,expected_indexes",
+        [
+            (3600, []),  # predecessor inside its backoff window gates the run
+            (0, [0, 1]),  # backoff elapsed: predecessor and successor co-claim
+        ],
+    )
+    async def test_retry_backoff_gates_successor_chunks(self, conn, backoff_seconds, expected_indexes):
+        chunk0 = await _insert_chunk(conn, batch_index=0, chunk_count=2)
+        await _insert_chunk(conn, batch_index=1, chunk_count=2)
+        await DuckgresBatchQueue.update_status(conn, batch_id=chunk0, job_state="waiting_retry", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", retry_backoff_base_seconds=backoff_seconds
+        )
+
+        assert [b.batch_index for b in batches] == expected_indexes
+
+    @pytest.mark.asyncio
+    async def test_executing_insert_refuses_when_latest_status_is_failed(self, conn):
+        # A supersede landing between the retire check and the executing write
+        # must block the insert, or the new row masks the terminal 'failed'.
+        chunk0 = await _insert_chunk(conn, batch_index=0)
+
+        assert await DuckgresBatchQueue.update_status_unless_failed(conn, batch_id=chunk0, job_state="executing")
+        await DuckgresBatchQueue.update_status(conn, batch_id=chunk0, job_state="failed", attempt=0)
+
+        assert not await DuckgresBatchQueue.update_status_unless_failed(conn, batch_id=chunk0, job_state="executing")
+        assert await DuckgresBatchQueue.is_failed(conn, batch_id=chunk0)
+
+        # A reset-style revive (fresh non-failed status) reopens the path.
+        await DuckgresBatchQueue.update_status(conn, batch_id=chunk0, job_state="waiting_retry", attempt=1)
+        assert await DuckgresBatchQueue.update_status_unless_failed(conn, batch_id=chunk0, job_state="executing")
+
+    @pytest.mark.asyncio
+    async def test_is_failed_tracks_latest_status(self, conn):
+        # The mid-claim retire check must see a 'failed' written under a
+        # claimed chunk, and a later status must clear it (latest-row wins).
+        chunk0 = await _insert_chunk(conn, batch_index=0)
+        assert not await DuckgresBatchQueue.is_failed(conn, batch_id=chunk0)
+
+        await DuckgresBatchQueue.update_status(conn, batch_id=chunk0, job_state="failed", attempt=0)
+        assert await DuckgresBatchQueue.is_failed(conn, batch_id=chunk0)
+
+        await DuckgresBatchQueue.update_status(conn, batch_id=chunk0, job_state="succeeded", attempt=1)
+        assert not await DuckgresBatchQueue.is_failed(conn, batch_id=chunk0)
+
+    @pytest.mark.asyncio
+    async def test_applied_predecessor_does_not_block(self, conn):
+        chunk0 = await _insert_chunk(conn, batch_index=0)
+        await _insert_chunk(conn, batch_index=1)
+        await _mark_applied_raw(
+            conn, batch_id=chunk0, run_uuid="duckgres-backfill-schema-1-v1-g00000000", batch_index=0
+        )
+        await DuckgresBatchQueue.update_status(conn, batch_id=chunk0, job_state="succeeded", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+
+        assert [b.batch_index for b in batches] == [1]
+
+
+@pytest.mark.django_db(transaction=True)
+class TestDuckgresGroupLease:
+    @pytest.mark.asyncio
+    async def test_live_lease_blocks_other_owner_until_released(self, conn):
+        batch_id = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+        assert len(claimed) == 1
+
+        assert await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-b") == []
+
+        # A non-owner's unlock must not release owner-a's lease.
+        await DuckgresBatchQueue.unlock_for_batches(conn, batches=claimed, owner_token="owner-b")
+        assert await DuckgresBatchQueue.verify_lease(conn, team_id=1, schema_id="schema-1", owner_token="owner-a")
+
+        await DuckgresBatchQueue.unlock_for_batches(conn, batches=claimed, owner_token="owner-a")
+        assert len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-b")) == 1
+
+    @pytest.mark.asyncio
+    async def test_max_groups_caps_leased_groups_leaving_the_rest_claimable(self, conn):
+        # A pod must not lease groups it has no slot to start — every poll
+        # renews them, blocking other pods.
+        older = await _insert_batch(conn, schema_id="schema-1")
+        await BatchQueue.update_status(conn, batch_id=older, job_state="succeeded", attempt=1)
+        newer = await _insert_batch(conn, schema_id="schema-2")
+        await BatchQueue.update_status(conn, batch_id=newer, job_state="succeeded", attempt=1)
+
+        capped = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a", max_groups=1)
+        assert [str(b.id) for b in capped] == [older]
+
+        # The uncapped group carries no lease, so another owner claims it now.
+        other = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-b", max_groups=1)
+        assert [str(b.id) for b in other] == [newer]
+
+    @pytest.mark.asyncio
+    async def test_excluded_in_flight_groups_do_not_consume_the_claim_budget(self, conn):
+        # Re-claiming an in-flight group burns the max_groups budget and
+        # starves other schemas.
+        mine = await _insert_batch(conn, schema_id="schema-1")
+        await BatchQueue.update_status(conn, batch_id=mine, job_state="succeeded", attempt=1)
+        other = await _insert_batch(conn, schema_id="schema-2")
+        await BatchQueue.update_status(conn, batch_id=other, job_state="succeeded", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", max_groups=1, exclude_groups=[(1, "schema-1")]
+        )
+
+        assert [str(b.id) for b in batches] == [other]
+
+    @pytest.mark.asyncio
+    async def test_other_owners_leased_group_cannot_flood_the_candidate_limit(self, conn):
+        # Another pod's leased backfill must be filtered BEFORE the candidate
+        # LIMIT, or its chunks fill the window and hide other schemas' work.
+        for i in range(3):
+            await _insert_chunk(conn, batch_index=i)
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-b")
+        assert len(claimed) == 3  # owner-b holds the group's lease; chunks stay statusless
+
+        live = await _insert_batch(conn, schema_id="schema-2")
+        await BatchQueue.update_status(conn, batch_id=live, job_state="succeeded", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a", limit=3)
+
+        assert [str(b.id) for b in batches] == [live]
+
+    @pytest.mark.asyncio
+    async def test_expired_lease_is_reclaimable_by_another_owner(self, conn):
+        batch_id = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+        await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+        await conn.execute(f"UPDATE {DUCKGRES_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
+
+        # An expired lease is dead even for its original owner — the only way
+        # back in is the fetch's claim CTE.
+        assert not await DuckgresBatchQueue.renew_lease(conn, team_id=1, schema_id="schema-1", owner_token="owner-a")
+
+        assert len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-b")) == 1
+        assert not await DuckgresBatchQueue.renew_lease(conn, team_id=1, schema_id="schema-1", owner_token="owner-a")
+        assert await DuckgresBatchQueue.renew_lease(conn, team_id=1, schema_id="schema-1", owner_token="owner-b")
+
+    @pytest.mark.asyncio
+    async def test_requeue_is_fenced_on_live_lease_and_current_status(self, conn):
+        # The requeue write must re-check lease and status in its own snapshot,
+        # or the scan-to-write gap stamps waiting_retry into an owned group.
+        batch_id = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+        await DuckgresBatchQueue.update_status(conn, batch_id=batch_id, job_state="executing", attempt=1)
+
+        # Live lease (owner-a) → requeue and terminal failure must refuse.
+        assert not await DuckgresBatchQueue.requeue_stale_executing(
+            conn, batch=claimed[0], error_response={"error": "timed out"}, grace_seconds=0
+        )
+        assert not await DuckgresBatchQueue.fail_run_if_stale(
+            conn, batch=claimed[0], reason="timed out", grace_seconds=0
+        )
+        assert not await DuckgresBatchQueue.is_failed(conn, batch_id=batch_id)
+
+        await conn.execute(f"UPDATE {DUCKGRES_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
+        assert await DuckgresBatchQueue.requeue_stale_executing(
+            conn, batch=claimed[0], error_response={"error": "timed out"}, grace_seconds=0
+        )
+
+        # Latest is now waiting_retry: a rival sweep's second requeue is a
+        # no-op, and the fenced terminal failure no longer fires either.
+        assert not await DuckgresBatchQueue.requeue_stale_executing(
+            conn, batch=claimed[0], error_response={"error": "timed out"}, grace_seconds=0
+        )
+        assert not await DuckgresBatchQueue.fail_run_if_stale(
+            conn, batch=claimed[0], reason="timed out", grace_seconds=0
+        )
+
+    @pytest.mark.asyncio
+    async def test_fresh_executing_heartbeat_blocks_recovery_writes(self, conn):
+        # An old advisory-lock pod processes leaselessly, heartbeating fresh
+        # 'executing' rows; recovery writes must re-check the status AGE or
+        # they requeue/fail a batch that is demonstrably alive.
+        batch_id = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+        await DuckgresBatchQueue.update_status(conn, batch_id=batch_id, job_state="executing", attempt=1)
+        await conn.execute(f"UPDATE {DUCKGRES_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
+
+        assert not await DuckgresBatchQueue.requeue_stale_executing(
+            conn, batch=claimed[0], error_response={"error": "timed out"}, grace_seconds=3600
+        )
+        assert not await DuckgresBatchQueue.fail_run_if_stale(
+            conn, batch=claimed[0], reason="max retries exceeded", grace_seconds=3600
+        )
+        assert not await DuckgresBatchQueue.is_failed(conn, batch_id=batch_id)
+
+    @pytest.mark.asyncio
+    async def test_fenced_terminal_failure_fires_only_while_stale_and_unowned(self, conn):
+        batch_id = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+        await DuckgresBatchQueue.update_status(conn, batch_id=batch_id, job_state="executing", attempt=3)
+        await conn.execute(f"UPDATE {DUCKGRES_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
+
+        assert await DuckgresBatchQueue.fail_run_if_stale(
+            conn, batch=claimed[0], reason="max retries exceeded", grace_seconds=0
+        )
+        assert await DuckgresBatchQueue.is_failed(conn, batch_id=batch_id)
+
+    @pytest.mark.asyncio
+    async def test_stale_executing_visible_only_after_lease_expiry(self, conn):
+        batch_id = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+        await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+        await DuckgresBatchQueue.update_status(conn, batch_id=batch_id, job_state="executing", attempt=1)
+
+        assert await DuckgresBatchQueue.get_stale_executing(conn, grace_seconds=0) == []
+
+        await conn.execute(f"UPDATE {DUCKGRES_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
+        stale = await DuckgresBatchQueue.get_stale_executing(conn, grace_seconds=0)
+        assert [str(b.id) for b in stale] == [batch_id]
+
+
+@pytest.mark.django_db(transaction=True)
+class TestOrgConcurrencyBudget:
+    # (team_id, org_id, budget) rows: teams 1 and 2 belong to org-a, team 3 to org-b.
+    TWO_ORGS = [(1, "org-a", 2), (2, "org-a", 2), (3, "org-b", 4)]
+
+    async def _eligible_group(self, conn, *, team_id: int, schema_id: str) -> str:
+        batch_id = await _insert_batch(conn, team_id=team_id, schema_id=schema_id, run_uuid=f"run-{schema_id}")
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+        return batch_id
+
+    @pytest.mark.asyncio
+    async def test_budget_caps_groups_within_one_fetch(self, conn):
+        # A single poll must not lease an org's whole schema backlog at once —
+        # each leased group is a potential connection to the org's duckgres.
+        await self._eligible_group(conn, team_id=1, schema_id="s1")
+        await self._eligible_group(conn, team_id=1, schema_id="s2")
+        await self._eligible_group(conn, team_id=2, schema_id="s3")
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", team_org_budgets=self.TWO_ORGS
+        )
+
+        # Oldest two groups win org-a's budget of 2; the third is left unleased.
+        assert {(b.team_id, b.schema_id) for b in batches} == {(1, "s1"), (1, "s2")}
+
+    @pytest.mark.asyncio
+    async def test_other_pods_live_leases_count_toward_budget_until_expiry(self, conn):
+        await self._eligible_group(conn, team_id=1, schema_id="s1")
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="other-pod", team_org_budgets=self.TWO_ORGS
+        )
+        assert len(claimed) == 1
+
+        await self._eligible_group(conn, team_id=1, schema_id="s2")
+        await self._eligible_group(conn, team_id=2, schema_id="s3")
+
+        # other-pod's live lease occupies 1 of org-a's 2 slots fleet-wide.
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", team_org_budgets=self.TWO_ORGS
+        )
+        assert {(b.team_id, b.schema_id) for b in batches} == {(1, "s2")}
+
+        # Expired leases return their slots: the two OLDEST org-a groups claim
+        # (s1's expired lease is reclaimable, s2 re-claims), and s3 - also
+        # org-a, via team 2 - is still budget-skipped as the third-ranked group.
+        await conn.execute(f"UPDATE {DUCKGRES_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", team_org_budgets=self.TWO_ORGS
+        )
+        assert {(b.team_id, b.schema_id) for b in batches} == {(1, "s1"), (1, "s2")}
+
+    @pytest.mark.asyncio
+    async def test_saturated_org_does_not_block_other_orgs_groups(self, conn):
+        # Work-conservation: a capped org's OLDER work must be skipped, not
+        # deferred, or it head-of-line blocks the pod's max_groups budget.
+        one_slot = [(1, "org-a", 1), (3, "org-b", 4)]
+        await self._eligible_group(conn, team_id=1, schema_id="s1")
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="other-pod", team_org_budgets=one_slot
+        )
+        assert len(claimed) == 1  # org-a saturated
+
+        await self._eligible_group(conn, team_id=1, schema_id="s2")  # older than org-b's work
+        await self._eligible_group(conn, team_id=3, schema_id="s3")
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", max_groups=1, team_org_budgets=one_slot
+        )
+
+        assert {(b.team_id, b.schema_id) for b in batches} == {(3, "s3")}
+
+    @pytest.mark.asyncio
+    async def test_saturated_orgs_deep_backlog_cannot_fill_the_candidate_window(self, conn):
+        # The budget filter must apply BEFORE the candidate LIMIT, like the
+        # other-owner lease exclusion above it: a fully saturated org's deep
+        # backlog would otherwise fill the window with rows the group filter
+        # then drops, and the pod claims NOTHING while other orgs have work.
+        one_slot = [(1, "org-a", 1), (3, "org-b", 4)]
+        await self._eligible_group(conn, team_id=1, schema_id="s0")
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="other-pod", team_org_budgets=one_slot
+        )
+        assert len(claimed) == 1  # org-a saturated
+
+        for i in range(3):  # org-a backlog, all older than org-b's work
+            await self._eligible_group(conn, team_id=1, schema_id=f"s{i + 1}")
+        await self._eligible_group(conn, team_id=3, schema_id="sb")
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", limit=3, team_org_budgets=one_slot
+        )
+
+        assert {(b.team_id, b.schema_id) for b in batches} == {(3, "sb")}
+
+    @pytest.mark.asyncio
+    async def test_unmapped_team_is_uncapped(self, conn):
+        # The mapping caps; it must never act as an eligibility filter —
+        # team_ids/eligible_schema_ids own that. A team missing from the
+        # mapping (dev, or a mid-refresh race) claims freely.
+        await self._eligible_group(conn, team_id=1, schema_id="s1")
+        await self._eligible_group(conn, team_id=1, schema_id="s2")
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", team_org_budgets=[(99, "org-x", 1)]
+        )
+
+        assert {(b.team_id, b.schema_id) for b in batches} == {(1, "s1"), (1, "s2")}
+
+    @pytest.mark.asyncio
+    async def test_count_orgs_at_budget(self, conn):
+        one_each = [(1, "org-a", 1), (3, "org-b", 2)]
+        await self._eligible_group(conn, team_id=1, schema_id="s1")
+        await self._eligible_group(conn, team_id=3, schema_id="s2")
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="other-pod", team_org_budgets=one_each
+        )
+        assert len(claimed) == 2
+
+        # org-a: 1 live lease of budget 1 -> saturated; org-b: 1 of 2 -> not.
+        assert await DuckgresBatchQueue.count_orgs_at_budget(conn, team_org_budgets=one_each) == 1
+        assert await DuckgresBatchQueue.count_orgs_at_budget(conn, team_org_budgets=[]) == 0

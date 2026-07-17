@@ -99,7 +99,7 @@ class TestDeleteHashKeyOverridesForTeams(SimpleTestCase):
         assert mock_client.delete_hash_key_overrides_by_teams.call_count == 1
         req = mock_client.delete_hash_key_overrides_by_teams.call_args[0][0]
         assert list(req.team_ids) == [1, 2, 3]
-        assert req.batch_size == 10000
+        assert req.batch_size == 2000
 
     @patch(_CLIENT_PATCH)
     def test_loops_until_zero_deleted(self, mock_get_client):

@@ -23,6 +23,7 @@ import type {
     EvaluationConfigApi,
     EvaluationConfigSetActiveKeyRequestApi,
     EvaluationReportApi,
+    EvaluationReportUpdateApi,
     EvaluationRunRequestApi,
     EvaluationRunsCreate200,
     EvaluationSummaryRequestApi,
@@ -31,8 +32,10 @@ import type {
     LLMModelsListResponseApi,
     LLMPromptApi,
     LLMPromptDuplicateApi,
+    LLMPromptLabelApi,
     LLMPromptPublicApi,
     LLMPromptResolveResponseApi,
+    LLMPromptSetLabelApi,
     LLMProviderKeyApi,
     LlmAnalyticsClusteringJobsListParams,
     LlmAnalyticsEvaluationReportsListParams,
@@ -71,7 +74,7 @@ import type {
     PatchedDatasetApi,
     PatchedDatasetItemApi,
     PatchedEvaluationApi,
-    PatchedEvaluationReportApi,
+    PatchedEvaluationReportUpdateApi,
     PatchedLLMPromptPublishApi,
     PatchedLLMProviderKeyApi,
     PatchedParserRecipeApi,
@@ -139,7 +142,7 @@ export const getLlmAnalyticsPersonalSpendListUrl = (params: LlmAnalyticsPersonal
 }
 
 /**
- * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. Use `refresh=true` to bypass the 5-minute response cache.
+ * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / day / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. `by_day` returns a day-ascending spend series for the scoped product. Pass `bucket_minutes` (5, 15, 30, or 60; the window may span at most 600 buckets) to additionally get `by_bucket`, a time-ascending series with per-bucket cost split into uncached input / output / cache read / cache creation components. Use `refresh=true` to bypass the 5-minute response cache.
  */
 export const llmAnalyticsPersonalSpendList = async (
     params: LlmAnalyticsPersonalSpendListParams,
@@ -826,14 +829,14 @@ export const getLlmAnalyticsEvaluationReportsUpdateUrl = (projectId: string, id:
 export const llmAnalyticsEvaluationReportsUpdate = async (
     projectId: string,
     id: string,
-    evaluationReportApi: NonReadonly<EvaluationReportApi>,
+    evaluationReportUpdateApi?: NonReadonly<EvaluationReportUpdateApi>,
     options?: RequestInit
-): Promise<EvaluationReportApi> => {
-    return apiMutator<EvaluationReportApi>(getLlmAnalyticsEvaluationReportsUpdateUrl(projectId, id), {
+): Promise<EvaluationReportUpdateApi> => {
+    return apiMutator<EvaluationReportUpdateApi>(getLlmAnalyticsEvaluationReportsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(evaluationReportApi),
+        body: JSON.stringify(evaluationReportUpdateApi),
     })
 }
 
@@ -847,14 +850,14 @@ export const getLlmAnalyticsEvaluationReportsPartialUpdateUrl = (projectId: stri
 export const llmAnalyticsEvaluationReportsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedEvaluationReportApi?: NonReadonly<PatchedEvaluationReportApi>,
+    patchedEvaluationReportUpdateApi?: NonReadonly<PatchedEvaluationReportUpdateApi>,
     options?: RequestInit
-): Promise<EvaluationReportApi> => {
-    return apiMutator<EvaluationReportApi>(getLlmAnalyticsEvaluationReportsPartialUpdateUrl(projectId, id), {
+): Promise<EvaluationReportUpdateApi> => {
+    return apiMutator<EvaluationReportUpdateApi>(getLlmAnalyticsEvaluationReportsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedEvaluationReportApi),
+        body: JSON.stringify(patchedEvaluationReportUpdateApi),
     })
 }
 
@@ -863,7 +866,7 @@ export const getLlmAnalyticsEvaluationReportsDestroyUrl = (projectId: string, id
 }
 
 /**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ * Evaluation report configs are deleted only when their evaluation is deleted. Use PATCH enabled=false to stop delivery.
  */
 export const llmAnalyticsEvaluationReportsDestroy = async (
     projectId: string,
@@ -1963,6 +1966,41 @@ export const llmPromptsNameDuplicateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lLMPromptDuplicateApi),
+    })
+}
+
+export const getLlmPromptsNameLabelsUpdateUrl = (projectId: string, promptName: string, labelName: string) => {
+    return `/api/projects/${projectId}/llm_prompts/name/${promptName}/labels/${labelName}/`
+}
+
+export const llmPromptsNameLabelsUpdate = async (
+    projectId: string,
+    promptName: string,
+    labelName: string,
+    lLMPromptSetLabelApi: LLMPromptSetLabelApi,
+    options?: RequestInit
+): Promise<LLMPromptLabelApi> => {
+    return apiMutator<LLMPromptLabelApi>(getLlmPromptsNameLabelsUpdateUrl(projectId, promptName, labelName), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMPromptSetLabelApi),
+    })
+}
+
+export const getLlmPromptsNameLabelsDestroyUrl = (projectId: string, promptName: string, labelName: string) => {
+    return `/api/projects/${projectId}/llm_prompts/name/${promptName}/labels/${labelName}/`
+}
+
+export const llmPromptsNameLabelsDestroy = async (
+    projectId: string,
+    promptName: string,
+    labelName: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLlmPromptsNameLabelsDestroyUrl(projectId, promptName, labelName), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

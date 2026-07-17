@@ -1,8 +1,9 @@
-// Constrain the trace scene to fill the visible area below the breadcrumbs on
-// desktop, so the trace tree and event content panels can scroll independently
-// instead of sharing a single page-level scroll.
+// Constrain the trace scene to fill the visible area below the scene layout
+// header on desktop, so the trace tree and event content panels can scroll
+// independently instead of sharing a single page-level scroll. Subtracts the
+// scene layout header plus the scene padding applied above and below the wrapper.
 .AIObservabilityTraceScene__wrapper {
     @media screen and (min-width: 768px) {
-        height: calc(100vh - var(--breadcrumbs-height-full) - var(--scene-padding) - var(--scene-padding-bottom));
+        height: calc(100dvh - var(--scene-layout-header-height) - var(--scene-padding) * 2);
     }
 }

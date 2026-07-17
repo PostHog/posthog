@@ -1,5 +1,11 @@
+from typing import cast
+
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
+
+from parameterized import parameterized
+
+from posthog.schema import HogQLQuery
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -8,7 +14,11 @@ from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.access_control import build_access_control_guard
 
-from posthog.models import OrganizationMembership
+from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.models import OrganizationMembership, User
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.shared_link_user import SharedLinkUser
+from posthog.synthetic_user import SyntheticUser
 
 
 class TestAccessControlSystemTables(BaseTest):
@@ -194,6 +204,78 @@ class TestAccessControlGuard(BaseTest):
         for raw in ("dash-1", "dash-2", "dash-3"):
             assert raw not in rendered
         assert "[HIDDEN]" in rendered
+
+    def test_filtering_records_restricted_resource(self):
+        # The guard silently drops rows in SQL; recording the resource is what lets the response warn
+        # that results may be partial. Regression guard for the context recording.
+        from posthog.hogql.parser import parse_select
+
+        from posthog.constants import AvailableFeature
+
+        from ee.models import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="dash-1", access_level="none")
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
+        prepared = prepare_ast_for_printing(
+            parse_select("SELECT id FROM system.dashboards"), context=context, dialect="clickhouse"
+        )
+        assert prepared is not None
+        print_prepared_ast(prepared, context=context, dialect="clickhouse")
+
+        assert context.access_control_restricted_resources == {"dashboard"}
+
+    def test_no_warning_when_nothing_filtered(self):
+        # Admins have no deny set, so no guard and no warning - otherwise every query would nag.
+        from posthog.hogql.parser import parse_select
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
+        prepared = prepare_ast_for_printing(
+            parse_select("SELECT id FROM system.dashboards"), context=context, dialect="clickhouse"
+        )
+        assert prepared is not None
+        print_prepared_ast(prepared, context=context, dialect="clickhouse")
+
+        assert context.access_control_restricted_resources == set()
+
+    @parameterized.expand(
+        [
+            (["insight"], "Results may exclude insights you don't have access to"),
+            (["insight", "dashboard"], "Results may exclude dashboards and insights you don't have access to"),
+            (
+                ["insight", "dashboard", "notebook"],
+                "Results may exclude dashboards, insights and notebooks you don't have access to",
+            ),
+        ]
+    )
+    def test_build_access_control_warning_message(self, resources, expected_message):
+        # "may exclude", not "were excluded": the guard firing doesn't prove any row was actually
+        # dropped — the user's blocked objects may not have matched the query.
+        from posthog.hogql.printer.access_control import build_access_control_warning
+
+        warning = build_access_control_warning(resources)
+        assert warning is not None
+        assert warning.type == "access_control"
+        assert warning.resources == sorted(resources)
+        assert warning.message == expected_message
+
+    def test_build_access_control_warning_empty(self):
+        from posthog.hogql.printer.access_control import build_access_control_warning
+
+        assert build_access_control_warning(set()) is None
 
     def test_child_table_guard_filters_parent_fk_not_own_pk(self):
         # system.dashboard_tiles inherits the "dashboard" scope and sets access_control_id_field="dashboard_id".
@@ -498,6 +580,20 @@ class TestWarehouseTableAccessControl(BaseTest):
         assert "denied_table" not in database._denied_tables
         assert "allowed_table" not in database._denied_tables
 
+    def test_to_printed_hogql_bypass_prints_warehouse_table_userless(self):
+        # Guards the fail-closed fix: query runners print the response HogQL userless right after the
+        # user-scoped execute. Without the bypass, that print fails closed on a warehouse table; the param
+        # must reach the database so warehouse-backed insights don't 500 on the print.
+        from posthog.hogql.errors import QueryError
+        from posthog.hogql.parser import parse_select
+        from posthog.hogql.printer import to_printed_hogql
+
+        query = parse_select("SELECT id FROM allowed_table")
+        with self.assertRaises(QueryError):
+            to_printed_hogql(query, self.team)
+        printed = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
+        assert "allowed_table" in printed
+
     def test_denied_table_lookup_raises_access_error(self):
         from posthog.hogql.errors import QueryError
 
@@ -664,7 +760,7 @@ class TestWarehouseViewAccessControl(BaseTest):
         super().setUp()
         from posthog.constants import AvailableFeature
 
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -750,6 +846,63 @@ class TestWarehouseViewAccessControl(BaseTest):
 
         assert "denied_view" not in database._denied_tables
         assert "allowed_view" not in database._denied_tables
+
+    def test_shared_link_user_skips_warehouse_view_acl_but_hides_system_tables(self):
+        self._create_ac(
+            resource="warehouse_view",
+            resource_id=str(self.denied_view.id),
+            access_level="none",
+            member=self._membership(),
+        )
+        viewer = SharedLinkUser(SharingConfiguration(team=self.team, enabled=True))
+
+        database = Database.create_for(team=self.team, user=viewer)
+
+        # A shared-link viewer executes without warehouse access control - the deny is skipped.
+        assert "denied_view" not in database._denied_tables
+        assert "allowed_view" not in database._denied_tables
+        # But scoped system tables stay hidden, exactly like a userless build.
+        assert "system.dashboards" in database._denied_tables
+
+    def test_shared_link_user_requires_enabled_configuration(self):
+        with self.assertRaises(ValueError):
+            SharedLinkUser(SharingConfiguration(team=self.team, enabled=False))
+
+    def test_shared_link_cache_key_differs_from_denied_member(self):
+        # Resource-level deny: no per-object IDs land in the cache payload, so the restriction
+        # lists alone must keep the two principals' cache keys apart.
+        self._create_ac(resource="warehouse_objects", access_level="none")
+        query = HogQLQuery(query="SELECT id FROM denied_view")
+        shared_user = cast(User, SharedLinkUser(SharingConfiguration(team=self.team, enabled=True)))
+
+        shared_key = get_query_runner(query, self.team, user=shared_user).get_cache_key()
+        denied_key = get_query_runner(query, self.team, user=self.user).get_cache_key()
+
+        # A shared-link run executes with the warehouse bypass and writes its result to cache;
+        # if the keys collided, the denied member would be served that result on a cache hit
+        assert shared_key != denied_key
+
+        # Queries touching no access-controlled tables keep sharing one cache entry across
+        # principals - the partition must not cost public dashboards their warmed cache results
+        events_query = HogQLQuery(query="SELECT count() FROM events")
+        assert (
+            get_query_runner(events_query, self.team, user=shared_user).get_cache_key()
+            == get_query_runner(events_query, self.team, user=self.user).get_cache_key()
+        )
+
+    def test_synthetic_principal_skips_warehouse_view_acl(self):
+        self._create_ac(
+            resource="warehouse_view",
+            resource_id=str(self.denied_view.id),
+            access_level="none",
+            member=self._membership(),
+        )
+
+        database = Database.create_for(team=self.team, user=SyntheticUser(self.team, "test-token"))
+
+        # Service-token principals bypass warehouse access control by design (see Database.create_for).
+        assert "denied_view" not in database._denied_tables
+        assert "system.dashboards" in database._denied_tables
 
     def _materialize(self, view):
         """Attach a same-named backing DataWarehouseTable to a saved query, mirroring materialization."""

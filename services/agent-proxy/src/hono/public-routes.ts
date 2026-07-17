@@ -9,7 +9,7 @@
 // provisioned. Unset keeps the route open for in-cluster scrapes that have
 // no token configured.
 
-import type { Hono } from 'hono'
+import type { Env, Hono } from 'hono'
 import { createHash, timingSafeEqual } from 'node:crypto'
 
 import { register, shuttingDown as shuttingDownGauge } from './metrics.js'
@@ -26,7 +26,7 @@ function tokensMatch(provided: string, expected: string): boolean {
     return timingSafeEqual(providedDigest, expectedDigest)
 }
 
-export function registerPublicRoutes(app: Hono, lifecycle: Lifecycle, metricsToken: string): void {
+export function registerPublicRoutes<E extends Env>(app: Hono<E>, lifecycle: Lifecycle, metricsToken: string): void {
     app.get('/_health', (c) => c.json({ status: 'ok' }))
 
     app.get('/_readyz', (c) => {

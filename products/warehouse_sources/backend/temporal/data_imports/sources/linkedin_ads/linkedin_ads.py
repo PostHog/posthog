@@ -1,9 +1,10 @@
+import time
 import typing
 import datetime as dt
 import collections.abc
 from dataclasses import dataclass
 
-from django.db import close_old_connections
+from django.db import OperationalError, close_old_connections
 
 import pyarrow as pa
 import structlog
@@ -32,6 +33,15 @@ module_logger = structlog.get_logger(__name__)
 # call volume exhausts LinkedIn's per-member/app daily budget and trips the 429 DAY throttle. Cap the
 # initial lookback like the other ad-reporting sources do (mirrors Bing Ads' 5-year window).
 INITIAL_ANALYTICS_LOOKBACK_DAYS = 365 * 5
+
+
+class LinkedinAdsTokenRefreshError(Exception):
+    """The stored OAuth token expired and could not be refreshed. Its message is already user-facing
+    (see `get_non_retryable_errors`)."""
+
+
+class LinkedinAdsMissingTokenError(ValueError):
+    """Subclasses ValueError so callers that only expect a ValueError here keep working."""
 
 
 @dataclass
@@ -109,15 +119,42 @@ def get_schemas() -> dict[str, LinkedinAdsSchema]:
     return schemas
 
 
-def linkedin_ads_client(config: LinkedinAdsSourceConfig, team_id: int) -> LinkedinAdsClient:
-    """Initialize a LinkedIn Ads client with provided config."""
-    # Temporal activities run in a thread pool where Django DB connections can go
-    # stale between uses (Postgres closes the connection server-side). This is
-    # invoked lazily from inside `get_rows`, so the connection has often been idle
-    # for minutes by the time we reach it — drop any stale connection first, else
-    # the read surfaces as `OperationalError: the connection is closed`.
-    close_old_connections()
-    integration = Integration.objects.get(id=config.linkedin_ads_integration_id, team_id=team_id)
+def _backoff_sleep(attempt: int) -> None:
+    """Sleep before the next retry: linear growth capped at 30s (2s, 4s, 6s, ...)."""
+    time.sleep(min(2 * attempt, 30))
+
+
+_MAX_INTEGRATION_FETCH_ATTEMPTS = 4
+
+
+def _get_integration(integration_id: int, team_id: int) -> Integration:
+    """Fetch the OAuth ``Integration`` row, retrying a transient DB failure with backoff.
+
+    Temporal activities run in a long-lived worker that never goes through Django's request
+    cycle, so a pooled Postgres connection can be closed server-side while it sits idle, or the
+    connection pooler can reject the query with a wait timeout when the pool is saturated. Both
+    surface as a transient ``OperationalError`` and both clear once a healthy connection is used.
+    ``close_old_connections()`` evicts connections already known to be stale (and, after a failed
+    query marks one unusable, drops it), so each attempt runs on a fresh connection; the short
+    backoff also gives a saturated pool time to drain rather than retrying straight back into the
+    same wait timeout. This read is idempotent, so it is safe to repeat. ``Integration.DoesNotExist``
+    is left to propagate.
+    """
+    attempt = 0
+    while True:
+        close_old_connections()
+        try:
+            return Integration.objects.get(id=integration_id, team_id=team_id)
+        except OperationalError:
+            attempt += 1
+            if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:
+                raise
+            _backoff_sleep(attempt)
+
+
+def linkedin_ads_client_for_integration(integration_id: int, team_id: int) -> LinkedinAdsClient:
+    """Initialize a LinkedIn Ads client from an OAuth integration id."""
+    integration = _get_integration(integration_id, team_id)
 
     # LinkedIn access tokens expire (~60 days). Refresh a stale-but-refreshable token here so it gets
     # renewed instead of 401ing into a forced re-authorization. `access_token_expired` is a no-op when
@@ -126,13 +163,18 @@ def linkedin_ads_client(config: LinkedinAdsSourceConfig, team_id: int) -> Linked
     if oauth_integration.access_token_expired():
         oauth_integration.refresh_access_token()
         if integration.errors == ERROR_TOKEN_REFRESH_FAILED:
-            raise Exception(
+            raise LinkedinAdsTokenRefreshError(
                 "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration."
             )
 
     if not integration.access_token:
-        raise ValueError("LinkedIn Ads integration does not have an access token")
+        raise LinkedinAdsMissingTokenError("LinkedIn Ads integration does not have an access token")
     return LinkedinAdsClient(integration.access_token)
+
+
+def linkedin_ads_client(config: LinkedinAdsSourceConfig, team_id: int) -> LinkedinAdsClient:
+    """Initialize a LinkedIn Ads client with provided config."""
+    return linkedin_ads_client_for_integration(config.linkedin_ads_integration_id, team_id)
 
 
 def linkedin_ads_source(

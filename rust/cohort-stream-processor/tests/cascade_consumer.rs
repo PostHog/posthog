@@ -37,7 +37,9 @@ use cohort_stream_processor::producer::{
     KafkaStreamEventSink, KafkaTransferSink, MembershipSink, MembershipStatus, StreamEventSink,
     TransferSink,
 };
-use cohort_stream_processor::store::{CohortStore, StoreConfig};
+use cohort_stream_processor::store::{
+    CohortStore, OffloadConfig, OffloadMode, StoreConfig, StoreHandle,
+};
 use cohort_stream_processor::workers::{
     CascadeConfig, MergeWorkerDeps, TransferRetryPolicy, DEFAULT_MERGE_GC_SCAN_LIMIT,
 };
@@ -183,6 +185,8 @@ fn producer_kafka_config() -> KafkaConfig {
         kafka_producer_topic_metadata_refresh_interval_ms: None,
         kafka_producer_message_max_bytes: None,
         kafka_producer_sticky_partitioning_linger_ms: None,
+        kafka_producer_acks: None,
+        kafka_producer_retries: None,
     }
 }
 
@@ -459,7 +463,14 @@ async fn spawn_instance(
     let dispatcher = Arc::new(EventDispatcher::new(
         PartitionRouter::new(64),
         Arc::new(OffsetTracker::new()),
-        store,
+        StoreHandle::new(
+            store,
+            OffloadConfig {
+                mode: OffloadMode::All,
+                event_read_permits: 16,
+                maintenance_permits: 6,
+            },
+        ),
         Arc::new(catalog),
         membership_sink,
         merge_deps,

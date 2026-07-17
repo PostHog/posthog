@@ -9,6 +9,8 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
+
 type LemonTagType = ComponentProps<typeof LemonTag>['type']
 
 // The key prefix (everything before the first colon) encodes the note's *kind* — what the scout
@@ -32,11 +34,6 @@ function splitKey(key: string): { kind: string | null; body: string } {
     return idx > 0 ? { kind: key.slice(0, idx), body: key.slice(idx + 1) } : { kind: null, body: key }
 }
 
-// `signals-scout-apm` → `apm`. The fleet prefix is noise once you're inside the scouts surface.
-function scoutDisplayName(skill: string): string {
-    return skill.replace(/^signals-scout-/, '')
-}
-
 /**
  * One scratchpad note the scout fleet has written about this project. Shares the collapse/expand
  * grammar of the scout emission cards: a header (chevron · kind · key · updated time) that stays
@@ -47,7 +44,7 @@ export function ScratchpadEntryCard({ entry }: { entry: ScratchpadEntryApi }): J
     const [expanded, setExpanded] = useState(false)
 
     const { kind, body } = splitKey(entry.key)
-    const scoutName = entry.created_by_skill ? scoutDisplayName(entry.created_by_skill) : null
+    const scoutName = entry.created_by_skill ? stripScoutPrefix(entry.created_by_skill) : null
 
     // How long the note has been carried forward: a fresh creation reads ~0 days; a large gap
     // means the fleet has re-touched this learning across many runs — the "gets sharper" signal.

@@ -1,11 +1,12 @@
 from datetime import timedelta
 from typing import Literal
 
+from django.conf import settings
 from django.utils import timezone
 
 from posthog.models import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_oauth_access_token
-from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS
+from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS, resolve_ceiling
 from posthog.utils import get_instance_region
 
 ARRAY_APP_CLIENT_ID_US = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W"
@@ -15,6 +16,20 @@ POSTHOG_AI_APP_CLIENT_ID_US = "N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu"
 POSTHOG_AI_APP_CLIENT_ID_EU = "0Lizwa3mFSlBuEEQ8V8FMJlskUXpDuSmoEdhzxyi"
 POSTHOG_AI_APP_CLIENT_ID_DEV = "DD2ZLG6a2YEUtpPANSzSiIBPuUryYmbndLnKKUy1"
 
+# Every OAuth application sandbox agent tokens are minted under. Tokens for these apps
+# are only ever created server-side (never via the consent flow or personal API keys),
+# so a request bearing one provably originates from a sandbox run.
+SANDBOX_OAUTH_APP_CLIENT_IDS = frozenset(
+    {
+        ARRAY_APP_CLIENT_ID_US,
+        ARRAY_APP_CLIENT_ID_EU,
+        ARRAY_APP_CLIENT_ID_DEV,
+        POSTHOG_AI_APP_CLIENT_ID_US,
+        POSTHOG_AI_APP_CLIENT_ID_EU,
+        POSTHOG_AI_APP_CLIENT_ID_DEV,
+    }
+)
+
 McpScopePreset = Literal["read_only", "full", "signals_scout", "signals_scout_reports"]
 SandboxOAuthApplication = Literal["array", "posthog_ai"]
 
@@ -22,6 +37,13 @@ SandboxOAuthApplication = Literal["array", "posthog_ai"]
 INTERNAL_SCOPES: list[str] = [
     "task:write",
     "llm_gateway:read",
+    # Provenance marker: proves a token was minted here (server-side), not obtained by a
+    # user via the consent flow or a personal API key. `internal_run` is an internal scope,
+    # so it's rejected by every user-facing scope validator and can't be forged. The LLM
+    # gateway requires it on the internal products that share the PostHog Code OAuth app
+    # (background_agents, signals, slack_app, conversations) so a user's own OAuth token
+    # can't route around the posthog_code free-tier model gate through those.
+    "internal_run:read",
 ]
 
 
@@ -179,6 +201,21 @@ def get_sandbox_oauth_app(application: SandboxOAuthApplication = "array") -> OAu
     return get_array_app()
 
 
+def _mint_oauth_access_token(user, team_id: int, *, app: OAuthApplication, scopes: list[str]) -> str:
+    token_value = generate_random_oauth_access_token(None)
+
+    OAuthAccessToken.objects.create(
+        user=user,
+        application=app,
+        token=token_value,
+        expires=timezone.now() + timedelta(seconds=TOKEN_EXPIRATION_SECONDS),
+        scope=" ".join(dict.fromkeys(scopes)),
+        scoped_teams=[team_id],
+    )
+
+    return token_value
+
+
 def create_oauth_access_token_for_user(
     user,
     team_id: int,
@@ -189,15 +226,25 @@ def create_oauth_access_token_for_user(
 ) -> str:
     resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
     app = get_sandbox_oauth_app(application)
-    token_value = generate_random_oauth_access_token(None)
+    return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved))
 
-    OAuthAccessToken.objects.create(
-        user=user,
-        application=app,
-        token=token_value,
-        expires=timezone.now() + timedelta(seconds=TOKEN_EXPIRATION_SECONDS),
-        scope=" ".join(resolved),
-        scoped_teams=[team_id],
+
+def get_wizard_app() -> OAuthApplication:
+    return _get_oauth_app_for_client_id(
+        settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID, "PostHog Wizard", get_instance_region()
     )
 
-    return token_value
+
+def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
+    """Mint an OAuth access token under the wizard's own app for a cloud wizard run.
+
+    Deliberately separate from the sandbox/agent token (`create_oauth_access_token_for_user`) so the
+    wizard's scopes stay independent of the agent's. Uses the wizard app's configured scope ceiling.
+    """
+    app = get_wizard_app()
+
+    ceiling = resolve_ceiling(app.ceiling_scopes)
+    if ceiling is None or len(ceiling) == 0:
+        raise RuntimeError("Wizard app has no scope ceiling. Must be configured in the database.")
+
+    return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(ceiling))

@@ -68,7 +68,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
    - `externalDataSources` at `frontend/src/queries/schema/schema-general.ts` (`lower-kebab-case`)
 
 3. **Pick the base class** (see above) and rename the class / `source_type` return.
-4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below).
+4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below). Also set the vendor API version metadata class attributes — see "Vendor API version metadata".
 5. **Register** the source — add an import line to `products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py` and include it in `__all__`. (The `@SourceRegistry.register` decorator on the class handles runtime registration.)
 6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs.py`. **Do not edit that file by hand.** Every time you change `get_source_config.fields`, re-run the generator.
 7. **Swap the generic `Config` type** in `source.py` for the generated `{Source}SourceConfig` class.
@@ -79,7 +79,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
 12. **Rebuild schema types**: `pnpm run schema:build`. This updates `posthog/schema.py` from `schema-general.ts` and makes the source appear in frontend dropdowns. Re-run whenever `schema-general.ts` changes.
 13. **Release status — a finished source has no `unreleasedSource` flag.** The default for the deliverable this skill produces is **no `unreleasedSource`** — a completed, working source ships visible and connectable. You don't need anyone's sign-off to ship it released; that's just the finished state. The scaffolded stub ships with `unreleasedSource=True` pre-set, so deleting that line is part of finishing the source — go ahead and remove it. (Why it matters: `unreleasedSource=True` **hides the connector from users entirely** — the frontend filters out every source where it's truthy; see `DataWarehouseQueryVariant.tsx`, `InlineSourceSetup.tsx`, and the "coming soon / Notify me" path in `nonHogFunctionTemplatesLogic.tsx`.)
 
-    Keeping `unreleasedSource=True` is the exception that needs a reason: only do it when the source is genuinely incomplete and must not be reachable yet (e.g. you're landing it across several PRs and it can't sync). The moment it syncs end-to-end and its tests pass, it's done — the flag comes out.
+    **Deleting that line is mandatory, and it is not gated on anything you can't do in your environment.** In particular, "I couldn't curl the live API" or "I couldn't verify against a real account" is NOT a reason to keep the flag — that is exactly what `releaseStatus=ReleaseStatus.ALPHA` is for (a soft "new, lightly tested" label on a _visible_ source). The only time `unreleasedSource=True` legitimately stays is when the source physically cannot sync yet because it is being landed across several PRs and the implementing code isn't all there. A source with working `get_schemas` / `source_for_pipeline` and passing tests is finished — the flag comes out. **Never write a test that asserts `unreleasedSource is True`** — that locks the bug in and is what kept 166 finished sources hidden until they had to be released in bulk.
 
     So a newly finished, tested source ships with:
     - **no `unreleasedSource`** (visible and connectable),
@@ -223,6 +223,44 @@ enum. Adding a **new** category means editing that array and rebuilding — don'
 alternate spelling a user might type (e.g. `["ga4", "ga"]`, `["sql server"]`, `["facebook ads"]`). Skip it when
 the name already obviously matches; don't add noise.
 
+## Vendor API version metadata
+
+Every source declares three class attributes (on the source class body, alongside `lists_tables_without_credentials`)
+describing the vendor's API version.
+The framework (`common/base.py`) records the version each `ExternalDataSource` runs against so old pins keep working
+and deprecations can be surfaced;
+`sources/tests/test_source_versions.py` enforces the invariants below across every registered source, so a new
+source that gets these wrong fails CI.
+
+Two cases:
+
+- **The vendor exposes a real, pinnable API version** — a URL path segment (`/v3/`, `/2/`), a required version
+  header value (a dated `2022-11-28`), a dated query/version param, or a named release. Declare all three:
+
+  ```python
+  class MySource(SimpleSource[MySourceConfig]):
+      supported_versions = ("v3",)          # opaque vendor labels — never parsed or ordered
+      default_version = "v3"                 # stamped onto newly created sources; must be in supported_versions
+      api_docs_url = "https://vendor.example/docs/api"   # API reference or changelog page (https, not the marketing site)
+  ```
+
+  Pin **the version the source's own code actually calls** (the base URL path, a version header, or a version
+  constant in `settings.py` / `{source}.py`) — not the vendor's newest version. Examples already in the tree:
+  GitHub `("2022-11-28",)` (dated header), HubSpot `("v3",)` (path), Klaviyo `("2024-10-15",)` (dated revision).
+
+- **The vendor has no meaningful API versioning** — set only `api_docs_url`; leave `supported_versions` /
+  `default_version` at the framework default (`("v1",)`, the `UNVERSIONED_API_VERSION` sentinel). A bare `/v1/`
+  that has never changed and isn't a documented version choice is this case.
+
+Rules:
+
+- `default_version` must equal the single entry in `supported_versions`, and `api_docs_url` must be `https://`.
+- Use the vendor's exact version string; never invent one.
+- Don't hardcode a fallback version in the transport/request layer — resolve it from the source class
+  (`self.resolve_api_version(inputs.api_version)`), which already falls back to `default_version`.
+- Adding support for a **new** vendor version later, or **deprecating** an old one, is the
+  `/warehouse-source-new-version` skill — not this one.
+
 ## Source fields (the form the user fills in)
 
 Defined in `get_source_config.fields`. All field types live in `posthog/schema.py` and are unioned as `FieldType` in `products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py`.
@@ -340,7 +378,7 @@ log line and OTel metric, and participates in opt-in sample capture.
   `⚠️ Vendor SDK` in `SOURCES.md`.
 - gRPC SDKs are **not** exempt — they have their own tracked transport (see below).
 
-CI enforces this via `.semgrep/rules/data-imports-http-transport.yaml`. The rule bans direct `requests.Session()`,
+CI enforces this via `.semgrep/rules/security/data-imports-http-transport.yaml`. The rule bans direct `requests.Session()`,
 `requests.<verb>(...)`, and `httpx.Client/AsyncClient/<verb>` inside `sources/**`. Type-only imports
 (`from requests import Response`, `from requests.exceptions import HTTPError`) remain allowed.
 
@@ -357,7 +395,7 @@ OTel metrics (`data_import_grpc_*`) and feed opt-in sample capture (protobuf →
   channel, wrap it with `make_tracked_channel(channel, host=...)`, then hand it to the transport. Reference:
   `bigquery/bigquery.py:bigquery_storage_read_client`.
 
-CI enforces this via `.semgrep/rules/data-imports-grpc-transport.yaml`, which bans raw `grpc.*_channel(...)`
+CI enforces this via `.semgrep/rules/security/data-imports-grpc-transport.yaml`, which bans raw `grpc.*_channel(...)`
 and direct `BigQueryReadClient(...)` / `GoogleAdsClient(...)` construction inside `sources/**` (outside the
 `common/grpc/` package and the two reference source files). Operators arm sample capture with
 `python manage.py warehouse_sources_capture_grpc_samples enable ...`.
@@ -453,6 +491,16 @@ If undocumented, keep parsing/merge logic conservative and add a short code comm
 - Bound and make deterministic (`stop_after_attempt`). Preserve clear terminal behavior.
 - Keep timeout/retry settings near the top of the module for easy tuning.
 
+The backoff above is the right control when the **customer owns the credential** — their own PAT / API key / OAuth token on their own third-party account, which is nearly every source.
+PostHog can't overspend a budget it doesn't own, so honoring `429` / `Retry-After` at the source is enough.
+
+**The exception is a credential PostHog owns and shares across processes** — today that's the PostHog GitHub App installation token (many PostHog subsystems draw from one per-installation budget at once).
+There, reactive backoff isn't enough: without coordination, concurrent PostHog callers collectively blow past the shared limit before any `429` comes back.
+Those calls must route through [`posthog/egress/`](../../../posthog/egress/README.md) — a Redis-backed shared budget plus telemetry, gated by construction — never hand-rolled `requests`.
+The [GitHub source](../../../products/warehouse_sources/backend/temporal/data_imports/sources/github/github.py) is the reference: it keys the limiter on the **GitHub App installation id** (the budget owner in GitHub's own id space, not a PostHog DB row), and the customer-PAT path skips the limiter token-blind.
+Raw calls to `api.github.com` are blocked by the `github-api-calls-go-through-egress` semgrep rule, so a GitHub-shaped source lands on the egress path by construction.
+Deciding question is never "is this a warehouse source?" — it's **"who owns the token, and could concurrent PostHog processes trample each other on it?"**
+
 ## Fan-out endpoints
 
 Fan-out = iterate a parent resource, then query child endpoints per parent.
@@ -508,6 +556,10 @@ Common cases: 401 Unauthorized, 403 Forbidden, invalid/expired tokens, OAuth tok
 Called with `schema_name=None` at source-create (one cheap probe to confirm the token is genuine) and with `schema_name=<name>` from the per-schema `incremental_fields` action (confirm scope for that specific endpoint).
 
 If the API distinguishes 401 (bad token) from 403 (valid token, missing scope), **accept 403 at source-create** — users may legitimately only grant scopes for the endpoints they want to sync. Re-raise 403 only when `schema_name` is set. Sync-time 403s are handled separately by `get_non_retryable_errors()`.
+
+For per-table scope status in the schema picker, override `get_endpoint_permissions(config, team_id, endpoints) -> {name: None | reason}`: probe each endpoint and return `None` when reachable or a short reason when not. The `database_schema` action surfaces it as each table's `permission_error`, so the user sees which tables need extra scopes and deselects them — it must **never** block source-create. The base default reports everything reachable.
+
+When you do surface a missing scope, name it — providers usually state it (``Required access: `read_x` access scope.``), so parse that into your own message instead of dumping the raw exception or collapsing it to a bare table list. Probe whatever field the **sync query** needs (not just `id`) so the per-table check reflects what syncing that table actually requires. Keep the probe narrow: only a real denial is a missing scope — a throttle, 5xx, or network blip is not, so route those through the retryable path rather than bucketing every exception as "missing permission".
 
 ## Document required token scopes
 
@@ -592,6 +644,8 @@ Bootstrapping:
 Source implementation:
 - [ ] Set category on get_source_config (required — DataWarehouseSourceCategory; groups the source in the wizard catalog)
 - [ ] Add keywords if the source has a common acronym / alternate spelling (optional, lowercase)
+- [ ] Set api_docs_url (https, vendor API docs/changelog); add supported_versions + default_version if the vendor
+      exposes a real version token — pin what the code actually calls (see "Vendor API version metadata")
 - [ ] Define source fields in get_source_config
 - [ ] Implement validate_credentials
 - [ ] Implement get_schemas
@@ -613,9 +667,11 @@ Tooling & assets:
 - [ ] Run `pnpm run schema:build`
 - [ ] Django migrations run if enum value requires it
 
-Release status (default: a finished source has NO unreleasedSource flag — it hides the source from users):
-- [ ] No unreleasedSource on the finished source — delete the line the scaffolded stub ships with
-      (keep it ONLY as an exception, when the source is genuinely incomplete / landed across multiple PRs)
+Release status (a finished source has NO unreleasedSource flag — it hides the source from users entirely):
+- [ ] REQUIRED: delete `unreleasedSource=True` from the finished source (the scaffolded stub ships with it).
+      Not being able to curl the live API is NOT a reason to keep it — use releaseStatus=ALPHA.
+      Keep it ONLY when the code genuinely can't sync yet (landed across multiple PRs).
+- [ ] No test asserts `unreleasedSource is True` (that anti-pattern locks the source hidden)
 - [ ] When set, releaseStatus uses the `ReleaseStatus` enum, never a string literal
 - [ ] releaseStatus=ReleaseStatus.ALPHA for a new source not yet extensively tested
       (ReleaseStatus.BETA later; ReleaseStatus.GA or omit for GA)
@@ -642,6 +698,7 @@ After changing source fields, re-run `pnpm run generate:source-configs` and `pnp
 - Pod OOMs on a busy table: primary key not actually unique (usually a fan-out child missing the parent id in its key) — duplicate rows accumulate and every merge multi-matches them; often paired with a paginator that re-walks full history each sync because the time filter only applies to page one.
 - `sort_mode="asc"` declared on an API that returns newest-first: the watermark checkpoints to ≈now after the first batch and mid-sync shutdowns lose data ordering guarantees.
 - Endless retries for bad credentials: missing `get_non_retryable_errors`.
+- Source won't connect despite a valid token: `validate_credentials(schema_name=None)` probes every resource's scope instead of just the token, so one missing scope — often on a table the user won't sync — blocks the whole source. Probe only the token at create; report per-table scope via `get_endpoint_permissions`.
 - Resumable state never saved: forgot to call `save_state` after yielding a batch; or saved before yield and a crash causes data loss.
 - Webhook rows not landing: schema `is_webhook=False`, or `initial_sync_complete=False`.
 - Dependent resource path `KeyError`: pre-format static path placeholders (see Fan-out).

@@ -14,8 +14,6 @@ import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore
 import { RedisCachedKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cache'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
-import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
-import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService, RedisPool } from '~/types'
 
 import { RecordingService } from './recording-service'
@@ -85,7 +83,6 @@ export class RecordingApi {
 
         this.s3Client = new S3Client(s3Config)
 
-        const teamService = new TeamService(this.postgres)
         this.redisPool = createRedisPoolFromConfig({
             connection: {
                 url: this.config.SESSION_RECORDING_API_REDIS_HOST,
@@ -95,9 +92,8 @@ export class RecordingApi {
             poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
-        const retentionService = new RetentionService(this.redisPool, teamService)
 
-        const keyStore: KeyStore = getKeyStore(retentionService, s3Region, {
+        const keyStore: KeyStore = getKeyStore(s3Region, {
             kmsEndpoint: this.config.SESSION_RECORDING_KMS_ENDPOINT,
             dynamoDBEndpoint: this.config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
         })

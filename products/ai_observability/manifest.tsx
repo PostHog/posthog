@@ -144,7 +144,7 @@ export const manifest: ProductManifest = {
         '/ai-observability/tools': ['AIObservability', 'aiObservabilityTools'],
         '/ai-observability/sentiment': ['AIObservability', 'aiObservabilitySentiment'],
         '/ai-observability/sessions': ['AIObservability', 'aiObservabilitySessions'],
-        '/ai-observability/sessions/:id': ['AIObservabilitySession', 'aiObservability'],
+        '/ai-observability/sessions/:id': ['AIObservability', 'aiObservabilitySessions'],
         '/ai-observability/playground': ['AIObservabilityPlayground', 'aiObservabilityPlayground'],
         '/ai-observability/clusters': ['AIObservabilityClusters', 'aiObservabilityClusters'],
         '/ai-observability/clusters/:runId': ['AIObservabilityClusters', 'aiObservabilityClusters'],
@@ -302,9 +302,20 @@ export const manifest: ProductManifest = {
                 msg?: string
             }
         ): string => {
+            const encodePathSegment = (value: string): string => {
+                // kea-router decodes the pathname before matching, so preserve an encoded layer for the trace scene.
+                const encodedValue = encodeURIComponent(value).replace(
+                    /[!'()*]/g,
+                    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+                )
+                return encodeURIComponent(encodedValue).replace(
+                    /[!'()*]/g,
+                    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+                )
+            }
             const queryParams = new URLSearchParams(params)
             const stringifiedParams = queryParams.toString()
-            return `/ai-observability/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+            return `/ai-observability/traces/${encodePathSegment(id)}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },
         aiObservabilityUsers: (): string => '/ai-observability/users',
         aiObservabilityErrors: (): string => '/ai-observability/errors',

@@ -97,21 +97,37 @@ class TestRedditAdsSource:
         assert error_message is None
         mock_get_oauth_integration.assert_called_once_with(self.config.reddit_integration_id, self.team_id)
 
+    @pytest.mark.parametrize(
+        "side_effect,expected_error_fragment,expect_capture_called",
+        [
+            # A deleted/disconnected integration is an expected user state — surface a clean
+            # "reconnect" message and do NOT report it to error tracking.
+            (ValueError("Integration not found: 154683"), "Reddit Ads integration not found", False),
+            # Anything else is genuinely unexpected and must still be captured.
+            (Exception("OAuth error"), "Failed to validate Reddit Ads credentials", True),
+        ],
+    )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.RedditAdsSource.get_oauth_integration"
     )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.capture_exception")
-    def test_validate_credentials_integration_error(self, mock_capture_exception, mock_get_oauth_integration):
-        """Test credential validation with integration error."""
-        mock_get_oauth_integration.side_effect = Exception("Integration not found")
+    def test_validate_credentials_oauth_failures(
+        self,
+        mock_capture_exception,
+        mock_get_oauth_integration,
+        side_effect,
+        expected_error_fragment,
+        expect_capture_called,
+    ):
+        """Validation distinguishes an expected missing integration from a genuine error."""
+        mock_get_oauth_integration.side_effect = side_effect
 
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is False
         assert error_message is not None
-        assert "Failed to validate Reddit Ads credentials" in error_message
-        assert "Integration not found" in error_message
-        mock_capture_exception.assert_called_once()
+        assert expected_error_fragment in error_message
+        assert mock_capture_exception.called is expect_capture_called
 
     @pytest.mark.parametrize(
         "observed_error",

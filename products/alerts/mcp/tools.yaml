@@ -37,9 +37,11 @@ tools:
             condition only). label_column names the evaluated row(s) in breach messages in every evaluation mode
             (defaults to the first non-evaluated column). Label values appear in delivered notifications — avoid label
             columns containing PII. Funnel insights: FunnelsAlertConfig — funnel_step picks the step to monitor (null
-            for the overall last step) and metric is 'conversion_from_start' or 'conversion_from_previous'; funnel
-            alerts only support absolute_value conditions. Anomaly detection (detector_config) is supported for trends
-            and SQL insights (not funnels).
+            for the overall last step), metric is 'conversion_from_start' or 'conversion_from_previous', and
+            check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps
+            funnels support only absolute_value conditions; historical-trend funnels also support
+            relative_increase/relative_decrease. Anomaly detection (detector_config) is supported for trends and SQL
+            insights (not funnels).
 
             Note: subscribed_users only controls email recipients. For Slack, HTTPS webhook, or Discord delivery, see
             the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe

@@ -17,10 +17,12 @@ findings (and so left no `Signal` row to query against) — plus the
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.db.models import Q
+from django.db.models.functions import Coalesce
+from django.utils import timezone
 
 from products.signals.backend.models import SignalScoutRun
 from products.tasks.backend.facade import api as tasks_facade
@@ -31,6 +33,14 @@ if TYPE_CHECKING:
 # Defensive caps so a runaway agent loop can't pull thousands of rows in one call.
 DEFAULT_RUN_SEARCH_LIMIT = 20
 MAX_RUN_SEARCH_LIMIT = 100
+
+# The "Scout findings" callout summary tallies findings over a fixed lookback window. The default
+# window and the run cap mirror the cloud/desktop frontend (`SCOUT_RUNS_WINDOW_HOURS = 72` /
+# `MAX_FLEET_EMITTED_RUNS = 120`) so the callout count matches the set the findings page renders;
+# the max window bounds a pathological lookback.
+DEFAULT_FINDINGS_WINDOW_HOURS = 72
+MAX_FINDINGS_WINDOW_HOURS = 168
+FLEET_FINDINGS_SUMMARY_RUN_CAP = 120
 
 # `failure_reason` is the concise, list-safe derived signal; `error` carries the full
 # `TaskRun.error_message`. Bound the derived reason so it stays cheap to scan in bulk.
@@ -162,6 +172,53 @@ def search_recent_runs(
         qs = qs.filter(skill_version=skill_version)
     qs = qs[:clamped_limit]
     return [_to_summary(row, team_id=team_id) for row in qs]
+
+
+@dataclass(frozen=True)
+class FleetFindingsSummary:
+    """Cheap fleet-wide tally of recently emitted findings — what the "Scout findings" callout reads."""
+
+    count: int
+    scout_count: int
+    latest_at: str | None
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS_WINDOW_HOURS) -> FleetFindingsSummary:
+    """Summarise the findings the fleet emitted in the recent window, in a single query.
+
+    Replaces the client-side tally that walked the whole paginated runs window just to count
+    findings for the callout. Counts only emitted runs (`emitted_count > 0`) whose `created_at`
+    falls in the last `window_hours`, capped to the most recent `FLEET_FINDINGS_SUMMARY_RUN_CAP`
+    runs by completion time (falling back to creation) — the same set the findings page renders,
+    so the callout can't over-advertise. Returns the finding total (sum of `emitted_count`), the
+    distinct scout count, and the most recent emission time.
+    """
+    window_hours = max(1, min(window_hours, MAX_FINDINGS_WINDOW_HOURS))
+    window_start = timezone.now() - timedelta(hours=window_hours)
+    # Order by completion (fall back to creation) so the cap keeps the *most recently emitted* runs,
+    # matching the frontend's `completed_at ?? created_at` sort; `-id` tie-breaks on the time-ordered PK.
+    rows = (
+        SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=window_start, emitted_count__gt=0)
+        .annotate(_emitted_at=Coalesce("task_run__completed_at", "created_at"))
+        .order_by("-_emitted_at", "-id")
+        .values_list("emitted_count", "skill_name", "_emitted_at")[:FLEET_FINDINGS_SUMMARY_RUN_CAP]
+    )
+    count = 0
+    scouts: set[str] = set()
+    latest_at: datetime | None = None
+    for emitted_count, skill_name, emitted_at in rows:
+        count += emitted_count or 0
+        scouts.add(skill_name)
+        if emitted_at is not None and (latest_at is None or emitted_at > latest_at):
+            latest_at = emitted_at
+    return FleetFindingsSummary(
+        count=count,
+        scout_count=len(scouts),
+        latest_at=latest_at.isoformat() if latest_at is not None else None,
+    )
 
 
 def get_run(*, team_id: int, run_id: str) -> RunDetail | None:

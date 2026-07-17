@@ -21,7 +21,8 @@ import { SANDBOX_BIND_TASK_PARAM } from 'scenes/max/maxLogic'
 import { urls } from 'scenes/urls'
 
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
-import { RunViewer } from 'products/posthog_ai/frontend/api/run'
+import { TaskRunStatusDot } from 'products/posthog_ai/frontend/api/primitives'
+import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
@@ -29,11 +30,10 @@ import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { deriveHeadline, parsePrRepoSlug, parsePrUrlParts } from '../../utils/reportPresentation'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
-import { DetailSection, RightColumnSection } from './DetailSection'
+import { DetailSection } from './DetailSection'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportDetailBadges } from './ReportDetail'
 import { ReportTasksSection } from './ReportTasksSection'
-import { TaskRunStatusDot } from './taskRunDisplay'
 
 /**
  * Ready-state run output: a polished outcome card that links to the produced PR or report,
@@ -193,7 +193,13 @@ function TaskLogBody({
         return (
             <div className="h-[calc(100dvh-22rem)] min-h-[420px] w-full overflow-hidden rounded border border-primary bg-surface-primary">
                 {/* In-progress runs stream live; terminal runs show the static replay. */}
-                <RunViewer taskId={task.id} runId={runId} interaction={replayOnly ? 'read-only' : 'live'} />
+                <ReadonlyRunSurface
+                    taskId={task.id}
+                    runId={runId}
+                    interaction={replayOnly ? 'read-only' : 'live'}
+                    threadRowClassName="px-3"
+                    threadListClassName="py-3"
+                />
             </div>
         )
     }
@@ -244,7 +250,7 @@ export function OpenTaskButton({ taskId, runStatus }: { taskId: string; runStatu
 
 /**
  * Inline "Task log": the selected linked task's agent transcript, rendered with the shared
- * `RunViewer` — live for an in-progress run, static replay once terminal. A `LemonSelect`
+ * `ReadonlyRunSurface` — live for an in-progress run, static replay once terminal. A `LemonSelect`
  * switches between linked tasks (research / implementation) when there's more than one; "Open task"
  * continues the task in a new PostHog AI chat. Mirrors desktop `AgentRunDetail`'s Task-log section.
  */
@@ -295,7 +301,7 @@ function TaskLogSection({ report }: { report: SignalReport }): JSX.Element {
 
 /**
  * Agent run detail body. Shows the run state strip + output state, the linked run's agent transcript
- * inline (`TaskLogSection`, via the shared `RunViewer`), and contributing evidence.
+ * inline (`TaskLogSection`, via the shared `ReadonlyRunSurface`), and contributing evidence.
  * Mirrors desktop `AgentRunDetail`.
  */
 export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Element {
@@ -330,7 +336,7 @@ export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Elemen
 
                 <div className="flex flex-col min-w-0 gap-5">
                     {evidenceCount > 0 && (
-                        <RightColumnSection
+                        <DetailSection
                             icon={<IconSearch />}
                             title="Evidence so far"
                             rightSlot={
@@ -351,7 +357,7 @@ export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Elemen
                                     ))}
                                 </div>
                             )}
-                        </RightColumnSection>
+                        </DetailSection>
                     )}
                     <ReportTasksSection report={report} />
                     <ReportActivitySection report={report} />

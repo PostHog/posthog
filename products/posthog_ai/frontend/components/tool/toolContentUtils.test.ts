@@ -90,10 +90,15 @@ describe('toolContentUtils', () => {
     })
 
     describe('getReadToolContent', () => {
-        it('strips system reminders, code fences, and line-number gutters', () => {
+        it('strips system reminders, code fences, and arrow line-number gutters', () => {
             const raw =
                 '```python\n     1→import os\n     2→print(os.getcwd())\n```\n<system-reminder>be careful</system-reminder>'
             expect(getReadToolContent([{ type: 'text', text: raw }])).toBe('import os\nprint(os.getcwd())')
+        })
+
+        it('strips tab-delimited line-number gutters (the Read tool output format)', () => {
+            const raw = '```\n1\t---\n2\ttitle: x\n3\t\n10\tconst a = 1\n```'
+            expect(getReadToolContent([{ type: 'text', text: raw }])).toBe('---\ntitle: x\n\nconst a = 1')
         })
     })
 

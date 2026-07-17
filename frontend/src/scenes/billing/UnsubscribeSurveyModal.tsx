@@ -19,6 +19,7 @@ import {
 import { HeartHog } from 'lib/components/hedgehogs'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
@@ -54,8 +55,8 @@ export const UnsubscribeSurveyModal = ({
     const { deactivateProduct, resetUnsubscribeError } = useActions(billingLogic)
     const { unsubscribeError, billingLoading, billing } = useValues(billingLogic)
     const { openSupportForm } = useActions(supportLogic)
-    const [randomizedReasons] = useState(
-        process?.env.STORYBOOK ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
+    const [randomizedReasons] = useState(() =>
+        inStorybook() || inStorybookTestRunner() ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
     )
 
     const textAreaNotEmpty = surveyResponse[SurveyEventProperties.SURVEY_RESPONSE]?.length > 0

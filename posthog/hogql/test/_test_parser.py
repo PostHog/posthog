@@ -5340,15 +5340,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             for src in cases:
                 self._assert_ast(src, "expr")
 
-        def test_between_not_lambda_lower_bound(self):
-            # `BETWEEN <low>`'s AND-reservation must propagate through a `NOT`-wrapped lambda low bound so the lambda doesn't over-consume `…and c`.
-            cases = (
-                "a between not lambda x: b and c",
-                "a between not x -> y and z",
-            )
-            for src in cases:
-                self._assert_ast(src, "expr")
-
         def test_chained_between_inner_end_position(self):
             # Left-recursive `between`: `a between L1 and H1 between L2 and H2` parses as `BetweenExpr(BetweenExpr(a, L1, H1), L2, H2)`.
             # The inner BetweenExpr's `.end` must stop at H1 (offset of `2` here), not extend through H2.
@@ -5362,6 +5353,112 @@ def parser_test_factory(backend: HogQLParserBackend):
             # H1 is the constant `2`, which ends at offset 24 in the source.
             self.assertEqual(inner.end, 24, msg=f"{backend}: inner.end={inner.end}, expected 24")
             self.assertEqual(outer.end, 40, msg=f"{backend}: outer.end={outer.end}, expected 40")
+
+        def test_between_binds_tighter_than_and_or(self):
+            # BETWEEN binds at the comparison tier, so its tested expression and both
+            # bounds never swallow a surrounding AND/OR chain. The reported bug was
+            # `x BETWEEN a AND b AND rest` parsing as `x BETWEEN (a AND b) AND rest`
+            # (making the low bound a boolean → a runtime type error). Each case must
+            # group the same as its explicitly-parenthesized equivalent.
+            cases = (
+                ("a between 1 and 2 and c", "(a between 1 and 2) and c"),
+                ("a between 1 and 2 and 3 and 4", "(a between 1 and 2) and 3 and 4"),
+                ("x = 1 and a between 1 and 2 and c = 3", "(x = 1) and (a between 1 and 2) and (c = 3)"),
+                ("a between b and c or d", "(a between b and c) or d"),
+                ("a not between 1 and 2 and c", "(a not between 1 and 2) and c"),
+                (
+                    "timestamp between 'x' and 'y' and uuid in ('u1', 'u2')",
+                    "(timestamp between 'x' and 'y') and (uuid in ('u1', 'u2'))",
+                ),
+            )
+            for src, parenthesized in cases:
+                self.assertEqual(self._expr(src), self._expr(parenthesized), msg=f"{backend}: {src!r}")
+            # BETWEEN also binds tighter than prefix NOT now (matching ClickHouse
+            # and standard SQL); it used to parse as `(not a) between 1 and 2`.
+            # Constructed expectations because `not (…)` parses as a `not()` call.
+            between = self._expr("a between 1 and 2")
+            self.assertEqual(self._expr("not a between 1 and 2"), ast.Not(expr=between))
+            self.assertEqual(
+                self._expr("not a between 1 and 2 and c"),
+                ast.And(exprs=[ast.Not(expr=between), ast.Field(chain=["c"])]),
+            )
+
+        def test_between_bound_rejects_lambda_and_named_argument(self):
+            # A lambda or named argument is meaningless as a BETWEEN bound, and as
+            # the LOW bound its trailing body competes with the bound separator
+            # `AND` (an ambiguity ALL(*) resolves adaptively, which a deterministic
+            # parser can't reproduce). Both backends reject the bare shape —
+            # through NOT / unary-minus wrappers too. Parenthesized bounds and
+            # trailing-position (high) bounds have no ambiguity and stay accepted.
+            for query in (
+                "x between lambda a : a and b",
+                "x between a -> a and b",
+                "x between (a, b) -> a and c",
+                "x between p := 1 and b",
+                "x between not lambda a : a and b",
+                "x between - lambda a : a and b",
+                "x between not not lambda a : a and b",
+                "x between not p := 1 and b",
+            ):
+                with self.assertRaises(BaseHogQLError, msg=f"{backend}: {query!r}"):
+                    parse_expr(query, backend=backend)
+            for src in (
+                "x between (lambda a : a) and b",
+                "x between 1 and lambda a : a",
+                "x between 1 and p := 2",
+                "x between interval 1 day and interval 2 day",
+                "x between case when a then b else c end and d",
+            ):
+                self._assert_ast(src, "expr")
+
+        def test_named_argument_reroots_trailing_value_operator(self):
+            # `ColumnExprNamedArg` is a value-tier primary, so when its value parse
+            # stops at a bare-alias boundary a trailing value-tier operator attaches
+            # to the NamedArgument itself: `y := 1 as x [1]` is ONE ExprStatement
+            # `ArrayAccess(NamedArgument(y, Alias(1, x)), 1)` — not a
+            # VariableAssignment followed by a stray array statement. The bare
+            # NamedArgument statement (nothing trailing) still promotes to a
+            # VariableAssignment.
+            for src in (
+                "y := 1 as x [1]",
+                "y := 1 as x :: Int",
+                "y := 1 as x + 2",
+                "y := 1 as x between 1 and 2",
+                "y := 1 as x not in (1,2)",
+                "for (y := 1 as x [1]; a; b) {}",
+                # Guards: promotion to VariableAssignment and statement-splitting
+                # recovery are unaffected.
+                "y := 1",
+                "y := 1 as x",
+                "y := 1 as x and 2",
+                "y := x *= 2",
+                "a := 1 := 2",
+            ):
+                self._assert_ast(src, "program")
+            for src in (
+                "f(y := 1 as x [1])",
+                "f(y := 1 [1])",
+                "f(y := 1 as x + 2, z)",
+                "(y := 1 as x [1])",
+                "arr[w := 1 as x + 2]",
+            ):
+                self._assert_ast(src, "expr")
+            for src in ("select 1 from f(y := 1 as x [1])", "select f(y := 1 as x [1])"):
+                self._assert_ast(src, "select")
+
+        def test_between_alias_ternary_and_paren_grouping(self):
+            # An alias / ternary / OR applies to the whole BetweenExpr (they live in
+            # the outer tier), and parenthesized bounds keep their spans — coverage
+            # carried over from the pre-two-tier positional tests.
+            for src in (
+                "1 between 2 and 3 as l",
+                "1 between 2 and 3 as l or w",
+                "1 between 2 and 3 as l ? x : y",
+                "x between (1) and (2) or y",
+                "1 between 2 and (3) and 4",
+                "x between 1 and (2) * (3) and 4",
+            ):
+                self._assert_ast(src, "expr")
 
         def test_parenthesized_between_high_end_position_with_hoist(self):
             # A BETWEEN whose high operand is parenthesized spans through the
@@ -6454,12 +6551,36 @@ def parser_test_factory(backend: HogQLParserBackend):
         def test_interval_combined_string_validates_count_and_unit(self):
             # `INTERVAL '<count> <unit>'` requires an ASCII-digit count and a literal-lowercase unit; each invalid input must surface the same error string in both parsers.
             cases = (
-                ("INTERVAL 'twenty days'", "Unsupported interval count: twenty"),
-                ("INTERVAL '-1 day'", "Unsupported interval count: -1"),
-                ("INTERVAL '1.5 days'", "Unsupported interval count: 1.5"),
-                # `stoi`'s `out_of_range::what()` differs by stdlib (libc++ adds `: out of range`, libstdc++ doesn't); match the platform-independent prefix only.
-                ("INTERVAL '99999999999999999999 day'", "Unknown error: stoi"),
+                ("INTERVAL 'twenty days'", "Unsupported interval count: 'twenty' is not a valid integer"),
+                ("INTERVAL '-1 day'", "Unsupported interval count: '-1' is not a valid integer"),
+                ("INTERVAL '1.5 days'", "Unsupported interval count: '1.5' is not a valid integer"),
+                # A space-but-empty count (`' '`, `' day'`) is reported the same way — the count before the space isn't a valid integer.
+                ("INTERVAL ' '", "Unsupported interval count: '' is not a valid integer"),
+                ("INTERVAL ' day'", "Unsupported interval count: '' is not a valid integer"),
+                # ClickHouse stores intervals as Int64, so both parsers convert the count with `std::stoll` (i64); a value past Int64 max is rejected as too large. Both parsers emit this exact message (no leaked stdlib `stoll` text), so assert it in full.
+                (
+                    "INTERVAL '9223372036854775808 day'",
+                    "Unsupported interval count: '9223372036854775808' is too large",
+                ),
+                (
+                    "INTERVAL '99999999999999999999 day'",
+                    "Unsupported interval count: '99999999999999999999' is too large",
+                ),
                 ("INTERVAL '1 SECOND'", "Unsupported interval unit: SECOND"),
+                # cpp accepts only the singular or single-`s` plural unit; a doubled plural is rejected. rust used to strip every trailing `s` and silently accept `dayss` as `day`.
+                ("INTERVAL '1 dayss'", "Unsupported interval unit: dayss"),
+                ("INTERVAL '1 secondss'", "Unsupported interval unit: secondss"),
+                # A string with no internal space can't be `<count> <unit>`: cpp commits to ColumnExprIntervalString and its visitor rejects with this message. rust used to fall through to the expr+unit form and raise a "expected interval unit keyword" SyntaxError instead — same base class, so only the message asserts the divergence.
+                ("INTERVAL ''", "Unsupported interval type: must be in the format '<count> <unit>'"),
+                ("INTERVAL 'x'", "Unsupported interval type: must be in the format '<count> <unit>'"),
+                ("now() - INTERVAL ''", "Unsupported interval type: must be in the format '<count> <unit>'"),
+                # A nested string-valued interval (`INTERVAL INTERVAL '<count> <unit>' <unit>`) reaches the same count/unit validation through a different call site; assert the edge cases there too so the two sites can't drift.
+                ("INTERVAL INTERVAL ' day' MONTH", "Unsupported interval count: '' is not a valid integer"),
+                (
+                    "INTERVAL INTERVAL '9223372036854775808 day' MONTH",
+                    "Unsupported interval count: '9223372036854775808' is too large",
+                ),
+                ("INTERVAL INTERVAL '1 dayss' MONTH", "Unsupported interval unit: dayss"),
             )
             for src, expected_msg in cases:
                 with self.assertRaises(ExposedHogQLError, msg=src) as cpp_cm:
@@ -6471,6 +6592,19 @@ def parser_test_factory(backend: HogQLParserBackend):
             # Guard: valid combined-string and expr+unit forms still parse.
             for src in ("INTERVAL '1 day'", "INTERVAL '5 days'", "INTERVAL 1 day", "INTERVAL 1 DAY"):
                 self._assert_ast(src, "expr")
+            # Guard: a no-space string that is only the HEAD of a longer
+            # unit-terminated value still parses as `ColumnExprInterval` (expr+unit)
+            # on both backends — the fall-back to the string-form rejection must not
+            # pre-empt these. `interval 'x' day` takes the same path with the unit
+            # immediately after the string.
+            # Counts past int32 (`2147483648`) up to Int64 max (`9223372036854775807`) must parse — ClickHouse stores intervals as Int64, so `std::stoll` accepts the whole range. This guards the boundary against the out_of_range reject case above.
+            for src in (
+                "INTERVAL 'a' || 'b' hour",
+                "INTERVAL 'x' day",
+                "INTERVAL '2147483648 day'",
+                "INTERVAL '9223372036854775807 day'",
+            ):
+                self.assertEqual(parse_expr(src, backend="cpp-json"), parse_expr(src, backend=backend), msg=src)
 
         def test_in_cohort_falls_back_to_identifier_when_rhs_missing(self):
             # `IN COHORT` only commits when a columnExpr follows; otherwise `cohort` is the IN rhs identifier (`a IN cohort` → Compare(a, "in", Field('cohort'))).
@@ -6941,32 +7075,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "(((* replace(a as b))))",
                 "(columns(* replace(a as b)))",
                 "((columns(* replace(a as b))))",
-            ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
-
-        def test_between_hoist_inner_wrapper_spans(self):
-            # When 2+ wrappers stack outside a BETWEEN (`1 between 2 and 3 as l :: Int`),
-            # the hoist-apply loop built each position-less and only the OUTERMOST got
-            # the outer pratt `wrap_pos` — the inner wrappers (here the Alias) stayed
-            # position-less. cpp spans each at `[lhs_start, end-of-its-own-token]`.
-            # The split now records each hoist's end and the apply loop stamps it.
-            for query in (
-                "1 between 2 and 3 as l :: Int",
-                "1 between 2 and 3 as l :: Int :: Float",
-                "1 between 2 and 3 as l [ 1 ]",
-                "1 between 2 and 3 as l . 1",
-                "1 between 2 and 3 as l ( x )",
-                "1 between 2 and 3 as l is null",
-                "1 between 2 and 3 as l or w",
-                "1 between 2 and 3 as l ? x : y",
-                "1 between 2 and 3 as l + 5",
-                "1 between 2 and 3 as l is distinct from w",
-                "1 between 2 and 3 as l",
-                "1 between 2 and 3 :: Int",
             ):
                 self.assertEqual(
                     parse_expr(query, backend="cpp-json"),
@@ -7702,8 +7810,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "1 + 1 as lambda",
                 "[1 as lambda]",
                 "f(1 as lambda)",
-                "1 as lambda()",
-                "1 as lambda + 2",
             ):
                 self.assertEqual(
                     parse_expr(query, backend="cpp-json"),
@@ -7718,7 +7824,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 )
             # A real lambda body after `AS` is not a valid alias and rejects on both
             # in plain expression context (the alias absorbs `lambda`, the `:` trails).
-            for query in ("1 as lambda: 2", "1 as lambda x: x", "1 as lambda x"):
+            # `AS`/aliases live in the loosest (boolean) precedence tier, so a value-tier
+            # operator (call `()`, arithmetic `+`, …) cannot bind to a bare alias — it
+            # needs parentheses (`(1 as lambda) + 2`). This matches ClickHouse/SQL.
+            for query in ("1 as lambda: 2", "1 as lambda x: x", "1 as lambda x", "1 as lambda()", "1 as lambda + 2"):
                 with self.assertRaises(BaseHogQLError):
                     parse_expr(query, backend=backend)
 
@@ -8010,40 +8119,13 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
-        def test_between_split_synthetic_node_positions(self):
-            # When the greedy BETWEEN-body parse is split at the rightmost AND, the
-            # rebuilt And/Or (and the wrappers it descends through) must carry cpp's
-            # ctx-derived span, not the children's inner (paren-stripped) span. cpp
-            # positions a boolean node from its FIRST operand's `(` and LAST operand's
-            # `)`, and a stay-in-place wrapper (Lambda / Not / arith.right / the
-            # if-call else-branch) ends where its now-shorter child ends. A no_pos
-            # NamedArgument operand still contributes its `value`'s end.
-            for query in (
-                "x between (1) and (2) or y",  # synthetic Or start = `(` of `(2)`
-                "1 between 2 and (3) and 4",  # synthetic And end = `)` of `(3)`
-                "x between (1) and lambda z: (2) and (3)",  # Lambda body end shrinks
-                "a between not lambda x: (b) and (c) and d",  # Not + Lambda descent
-                "x between 1 and (2) * (3) and 4",  # arith.right end shrinks
-                "a between b ? c : (d) and (e) and f",  # if-call else-branch end
-                "1 between 2 between 3 and (4) and 5",  # nested BETWEEN low peel
-                "x between y between z and (w) and v",
-                "p between (q) and r := (s) and (t)",  # no_pos NamedArgument last operand
-                "m between (n) and o := (p) and q := (r) and (s)",
-                "x between (1) and ((2) or (3)) and (4)",
-            ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
-
         def test_between_parenthesized_group_high(self):
-            # `a and (b and c)` flattens to `And([a,b,c])` (cpp does too for a standalone
-            # expr), but in a BETWEEN body cpp keeps `(b and c)` as one high operand: the
-            # rightmost AND at paren-depth 0 is the one BEFORE the parens, so
-            # `1 between a and (b and c)` is `low=a, high=And(b,c)`. rust used to descend
-            # into the flattened inner AND and mis-split to `low=And(a,b), high=c`. The
-            # split now skips ANDs inside parens (paren-depth-0 rule).
+            # Parenthesized AND groups next to BETWEEN: `(b and c)` stays one operand
+            # (an unflattened And node), while an unparenthesized trailing `and …` /
+            # `or …` wraps the whole BetweenExpr — `1 between a and (b and c)` is
+            # `BetweenExpr(low=a, high=And(b,c))`, and `1 between x and y and (b and c)`
+            # is `And([BetweenExpr(x, y), And(b, c)])`. Pinned cpp-vs-rust because the
+            # pre-two-tier rust split machinery used to mis-handle exactly these.
             for query in (
                 "1 between a and (b and c)",
                 "1 between a and ((b) and (c))",

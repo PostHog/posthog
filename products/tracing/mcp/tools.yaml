@@ -173,6 +173,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: ?trace={params.trace_id}
         title: Retrieve trace spans
         description: >
             Fetch all spans for a specific trace by its hex trace ID. Returns the full span tree for the trace including
@@ -208,4 +209,22 @@ tools:
         enabled: false
     tracing-spans-symbol-stats-create:
         operation: tracing_spans_symbol_stats_create
+        enabled: false
+    tracing-views-create:
+        operation: tracing_views_create
+        enabled: false
+    tracing-views-destroy:
+        operation: tracing_views_destroy
+        enabled: false
+    tracing-views-list:
+        operation: tracing_views_list
+        enabled: false
+    tracing-views-partial-update:
+        operation: tracing_views_partial_update
+        enabled: false
+    tracing-views-retrieve:
+        operation: tracing_views_retrieve
+        enabled: false
+    tracing-views-update:
+        operation: tracing_views_update
         enabled: false

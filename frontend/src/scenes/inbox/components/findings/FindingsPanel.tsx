@@ -43,7 +43,6 @@ export function FindingsPanel(): JSX.Element {
         hasLoadedOnce,
         emissionsLoadFailed,
         emissionsLoading,
-        emissionsPartialFailedRuns,
     } = useValues(findingsLogic)
     const { setSearchText, setScoutFilter, setSeverityFilter, setSortKey, loadEmissions } = useActions(findingsLogic)
 
@@ -97,17 +96,19 @@ export function FindingsPanel(): JSX.Element {
                 />
             </div>
 
-            {hasLoadedOnce && (emissionsPartialFailedRuns > 0 || (emissionsLoadFailed && totalCount > 0)) && (
-                // Incomplete fetch: either some runs' findings loaded and others failed (partial), or a
-                // later poll/retry failed outright while a prior set is still on screen (stale). Either
-                // way the list a user triages against may be incomplete — warn rather than show it silently.
-                <LemonBanner
-                    type="warning"
-                    action={{ children: 'Retry', onClick: () => loadEmissions(), loading: emissionsLoading }}
-                >
-                    Some findings couldn't be loaded, so this list may be incomplete.
-                </LemonBanner>
-            )}
+            {hasLoadedOnce &&
+                emissionsLoadFailed &&
+                totalCount > 0 && (
+                    // A later poll/retry of the batched fetch failed while a prior set is still on screen
+                    // (stale). The list a user triages against may be incomplete — warn rather than show it
+                    // silently.
+                    <LemonBanner
+                        type="warning"
+                        action={{ children: 'Retry', onClick: () => loadEmissions(), loading: emissionsLoading }}
+                    >
+                        Some findings couldn't be loaded, so this list may be incomplete.
+                    </LemonBanner>
+                )}
 
             {!hasLoadedOnce ? (
                 <div className="flex flex-col gap-2">

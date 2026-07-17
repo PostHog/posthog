@@ -35,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OutbrainSource(ResumableSource[OutbrainSourceConfig, OutbrainResumeConfig]):
+    supported_versions = ("v0.1",)
+    default_version = "v0.1"
+    api_docs_url = "https://developers.outbrain.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -52,6 +56,10 @@ class OutbrainSource(ResumableSource[OutbrainSourceConfig, OutbrainResumeConfig]
         return {
             "401 Client Error: Unauthorized for url: https://api.outbrain.com/amplify/v0.1/login": "Outbrain authentication failed. Please check your username and password.",
             "403 Client Error: Forbidden for url: https://api.outbrain.com": "Outbrain denied access. Please check that your account has Amplify API access (requested via your account manager).",
+            # A 400 on a well-formed, static request is deterministic, so retrying can never succeed.
+            # It surfaces when one of the marketers returned by /marketers can't be queried through
+            # the Amplify API, so match the stable prefix, not the volatile marketer id and query.
+            "400 Client Error: Bad Request for url: https://api.outbrain.com": "Outbrain rejected the request (400 Bad Request). One of the marketers on your account may not be accessible via the Amplify API. Please confirm your account's Amplify API access with your Outbrain account manager.",
         }
 
     @property

@@ -52,7 +52,20 @@ fi
 # TMPDIR is canonicalized so the profile's self-write-deny (rendered below) matches
 # the physical path Seatbelt enforces against (/var/folders -> /private/var/...).
 tmpdir="$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P || echo "${TMPDIR:-/tmp}")"
-cache_key="$(printf '%s\0' "$project" "$mainrepo" "$HOME" "${SSH_AUTH_SOCK:-}" | /usr/bin/shasum -a256 | cut -c1-16)"
+
+# The base profile allows the git config files by literal path, but Seatbelt
+# matches physical paths — when one is a symlink (dotfile managers), the read of
+# its target is still denied and cargo/libgit2 fails hard ("failed to stat
+# ~/.gitconfig"). Resolve symlinked configs here and allow (read) + deny (write,
+# hooksPath/credential-helper escape) their targets in the rendered profile.
+gitcfg_targets=()
+for _cfg in "$HOME/.gitconfig" "$HOME/.gitconfig.local" "$HOME/.config/git/config"; do
+    [[ -L "$_cfg" ]] || continue
+    _resolved="$(/usr/bin/readlink -f "$_cfg" 2>/dev/null || true)"
+    [[ -n "$_resolved" && "$_resolved" != "$_cfg" ]] && gitcfg_targets+=("$_resolved")
+done
+
+cache_key="$(printf '%s\0' "$project" "$mainrepo" "$HOME" "${SSH_AUTH_SOCK:-}" ${gitcfg_targets[@]+"${gitcfg_targets[@]}"} | /usr/bin/shasum -a256 | cut -c1-16)"
 rendered="$tmpdir/posthog-dev-sandbox-$cache_key.sb"
 stamp="$rendered.ok" # touched once the rendered profile passes the init preflight
 
@@ -75,7 +88,7 @@ render_profile() {
     ancestors+=("$HOME")
     # Paths are emitted as SBPL string literals; a " or \ would corrupt the
     # profile (quoted expansions match literally, dodging glob/escape ambiguity).
-    for _a in "${ancestors[@]}" "$rendered" "$stamp"; do
+    for _a in "${ancestors[@]}" "$rendered" "$stamp" ${gitcfg_targets[@]+"${gitcfg_targets[@]}"}; do
         case "$_a" in
         *"$_dq"* | *"$_bs"*)
             echo "⚠️  dev sandbox: path contains a quote/backslash, running WITHOUT sandbox: $_a" >&2
@@ -89,6 +102,16 @@ render_profile() {
         printf '(allow file-read*'
         printf ' (literal "%s")' "${ancestors[@]}"
         printf ')\n'
+        # Physical targets of symlinked git configs (resolved above): readable like
+        # the configs themselves, write-denied for the same hooksPath escape reason.
+        if [[ ${#gitcfg_targets[@]} -gt 0 ]]; then
+            printf '(allow file-read*'
+            printf ' (literal "%s")' "${gitcfg_targets[@]}"
+            printf ')\n'
+            printf '(deny file-write*'
+            printf ' (literal "%s")' "${gitcfg_targets[@]}"
+            printf ')\n'
+        fi
         # Deny the SSH agent socket (path varies per agent: Secretive, 1Password,
         # launchd, gpg). Canonicalize its dir — Seatbelt matches the kernel's
         # physical path (e.g. /tmp -> /private/tmp); fall back to the raw path.

@@ -35,8 +35,14 @@ from products.data_warehouse.backend.facade.api import (
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import EmitSignalsActivityInputs
-from products.warehouse_sources.backend.temporal.data_imports.metrics import get_data_import_finished_metric
+from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
+    EmitSignalsActivityInputs,
+    PersonPropertySyncActivityInputs,
+)
+from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+    get_data_import_finished_metric,
+    get_v3_lock_skipped_metric,
+)
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource
@@ -72,6 +78,10 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     ImportDataActivityInputs,
     import_data_activity_sync,
 )
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
+    RepartitionActivityInputs,
+    maybe_repartition_table_activity,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
@@ -93,8 +103,15 @@ Any_Source_Errors: dict[str, str | None] = {
         "(private key, passphrase, or username and password) on the source's SSH tunnel "
         "configuration, then re-enable the sync."
     ),
-    "Primary key required for incremental syncs": None,
-    "The primary keys for this table are not unique": None,
+    "Primary key required for incremental syncs": (
+        "This table needs a primary key to sync incrementally, but none is set. Choose a primary key "
+        "for the table in its sync settings, or switch it to full table replication, then re-enable the sync."
+    ),
+    "The primary keys for this table are not unique": (
+        "The primary key set for this table isn't unique, so incremental syncing can't reliably match "
+        "rows to update. Choose a unique primary key in the table's sync settings, or switch it to full "
+        "table replication, then re-enable the sync."
+    ),
     "Integration matching query does not exist": "The connected account for this source is no longer available — it may have been disconnected. Please reconnect the source's account.",
     # A fatal TLS alert from the remote host (raised in the shared HTTP transport for every
     # REST-based source). The server refused the handshake, which is deterministic for a given
@@ -102,6 +119,13 @@ Any_Source_Errors: dict[str, str | None] = {
     # misconfigured or wrong host/URL on the customer's side. Match the stable alert name, not the
     # volatile `_ssl.c:NNNN` suffix or per-request host.
     "SSLV3_ALERT_HANDSHAKE_FAILURE": "Could not complete a secure (TLS) connection to the source's server — the handshake was rejected. Please check the configured host/URL is correct and that the server supports a compatible TLS version.",
+    # Raised by `get_incremental_field_value` when the configured incremental field isn't a column
+    # in the extracted rows (e.g. a display label persisted instead of the real field name). The
+    # config is wrong, so every retry replays the same failure — pause and tell the user to fix it.
+    "was not found in the data returned by the source": (
+        "The incremental field configured for this table doesn't exist in the data the source returns. "
+        "Edit the table's sync method, pick a valid incremental field, then re-enable the sync."
+    ),
 }
 
 
@@ -114,6 +138,9 @@ class UpdateExternalDataJobStatusInputs:
     status: str
     internal_error: str | None
     latest_error: str | None
+    # Run id stamped on the job row by the create-job activity, so finalization can resolve this
+    # run's own job when job_id never made it back. Optional for mixed-version workers mid-rollout.
+    workflow_run_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -123,6 +150,7 @@ class UpdateExternalDataJobStatusInputs:
             "schema_id": self.schema_id,
             "source_id": self.source_id,
             "status": self.status,
+            "workflow_run_id": self.workflow_run_id,
         }
 
 
@@ -140,15 +168,34 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     await finish_row_tracking(inputs.team_id, inputs.schema_id)
 
     if inputs.job_id is None:
-        job: ExternalDataJob | None = await database_sync_to_async_pool(
-            lambda: (
+
+        def _resolve_job() -> ExternalDataJob | None:
+            # Resolve this run's own job by run id; the finally-block update is the only finalizer for
+            # zero-batch runs (e.g. quiet Slack channels) that never send a batch to complete the job.
+            if inputs.workflow_run_id is not None:
+                job = (
+                    ExternalDataJob.objects.filter(team_id=inputs.team_id, workflow_run_id=inputs.workflow_run_id)
+                    .order_by("-created_at")
+                    .first()
+                )
+                if job is not None:
+                    return job
+            # Legacy fallback for runs started before workflow_run_id existed; racy under concurrent runs.
+            return (
                 ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
                 .order_by("-created_at")
                 .first()
             )
-        )()
+
+        job: ExternalDataJob | None = await database_sync_to_async_pool(_resolve_job)()
         if job is None:
-            logger.info("No job to update status on")
+            # A FAILED finalization with no resolvable job means an early activity (e.g. create-job)
+            # failed before a row was committed — nothing is stranded and that failure is already
+            # reported on its own, so don't double-alarm. A non-FAILED finalization that can't find
+            # its job is a real anomaly (work we think succeeded has nowhere to record it) — surface it.
+            logger.warning("No job to update status on", workflow_run_id=inputs.workflow_run_id)
+            if inputs.status != ExternalDataJob.Status.FAILED:
+                capture_exception(Exception("Data import finalization could not resolve a job to update"))
             return
 
         job_id = str(job.pk)
@@ -273,6 +320,11 @@ def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
 
 
 # TODO: update retry policies
+#
+# DETERMINISM: adding, removing, or reordering activities / child-workflow starts in `run` breaks
+# every in-flight execution with a non-deterministic replay error on deploy. Gate new commands with
+# `workflow.patched("...")`, or on a new `create_job_model` output field that defaults to the skip
+# value — see .claude/rules/temporal-workflow-versioning.md.
 @workflow.defn(name="external-data-job")
 class ExternalDataJobWorkflow(PostHogWorkflow):
     @staticmethod
@@ -292,6 +344,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
             schema_id=str(inputs.external_data_schema_id),
             source_id=str(inputs.external_data_source_id),
+            # Deterministic and available immediately, so the finalizer can resolve this run's job.
+            workflow_run_id=workflow.info().run_id,
         )
 
         source_type = None
@@ -341,6 +395,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     "V3 pipeline lock not acquired, skipping",
                     extra={"schema_id": str(inputs.external_data_schema_id)},
                 )
+                get_v3_lock_skipped_metric().add(1)
                 return
 
             lock_token = lock_result.token
@@ -368,8 +423,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             if isinstance(create_job_result, tuple):
                 job_id, incremental_or_append, source_type = create_job_result
                 schema_name, last_synced_at, emit_signals_enabled = None, None, False
-                enrichment_enabled = False
-                statistics_enabled = False
+                enrichment_needed = False
+                statistics_needed = False
+                person_property_sync_enabled = False
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -377,8 +433,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schema_name = create_job_result.schema_name
                 last_synced_at = create_job_result.last_synced_at
                 emit_signals_enabled = create_job_result.emit_signals_enabled
-                enrichment_enabled = create_job_result.enrichment_enabled
-                statistics_enabled = create_job_result.statistics_enabled
+                enrichment_needed = create_job_result.enrichment_needed
+                statistics_needed = create_job_result.statistics_needed
+                person_property_sync_enabled = create_job_result.person_property_sync_enabled
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # Check billing limits
@@ -396,6 +453,29 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             if hit_billing_limit:
                 update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_REACHED
                 return
+
+            # Pre-extraction, in-place repartition of any table flagged on a prior run. Runs here — sole
+            # writer, lock held, before the merge — so the subsequent merge uses the memory-safe layout.
+            # A no-op unless a repartition is pending; never fails the sync (errors are swallowed).
+            if job_id is not None:
+                try:
+                    await workflow.execute_activity(
+                        maybe_repartition_table_activity,
+                        RepartitionActivityInputs(
+                            team_id=inputs.team_id,
+                            schema_id=str(inputs.external_data_schema_id),
+                            job_id=str(job_id),
+                            source_id=str(inputs.external_data_source_id),
+                        ),
+                        start_to_close_timeout=dt.timedelta(hours=6),
+                        heartbeat_timeout=dt.timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                except Exception:
+                    workflow.logger.warning(
+                        "Repartition activity failed; continuing with sync on existing layout",
+                        extra={"schema_id": str(inputs.external_data_schema_id)},
+                    )
 
             job_inputs = ImportDataActivityInputs(
                 team_id=inputs.team_id,
@@ -499,32 +579,62 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     execution_timeout=dt.timedelta(hours=2),
                 )
 
-            # Generate semantic descriptions for the synced table. Gated up front (feature flag + AI
-            # data-processing consent, resolved in create_external_data_job_model_activity) so we don't
-            # spawn a child that would immediately no-op; the activity re-checks as a safety net and is
-            # idempotent. Fire-and-forget child on the dedicated metadata queue; ABANDON means it never
-            # blocks or fails the import.
-            if enrichment_enabled:
+            # Upsert warehouse columns onto person properties for any enabled person-target source.
+            # Fire-and-forget, started by name because it runs on a different task queue (see
+            # person_property_sync_job.py). Gated up front (like signals) to avoid a no-op child per sync.
+            if source_type is not None and schema_name is not None and person_property_sync_enabled:
                 await workflow.start_child_workflow(
-                    EnrichTableSemanticsWorkflow.run,
-                    EnrichTableSemanticsInputs(
+                    "sync-warehouse-person-properties",
+                    PersonPropertySyncActivityInputs(
                         team_id=inputs.team_id,
                         schema_id=inputs.external_data_schema_id,
+                        source_id=inputs.external_data_source_id,
+                        job_id=job_id,
+                        source_type=source_type,
+                        schema_name=schema_name,
+                        last_synced_at=last_synced_at,
                     ),
-                    id=f"enrich-warehouse-table-semantics-{job_id}",
+                    id=f"sync-warehouse-person-properties-{job_id}",
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                     task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
                     parent_close_policy=ParentClosePolicy.ABANDON,
-                    execution_timeout=dt.timedelta(minutes=30),
+                    execution_timeout=dt.timedelta(hours=6),
                 )
 
+            # Generate semantic descriptions for the synced table. Gated up front on actual need
+            # (feature flag + AI consent AND unannotated columns / missing table description, resolved in
+            # create_external_data_job_model_activity) so a steady-state sync — which re-fires every few
+            # minutes — doesn't spawn a child that immediately no-ops; the activity re-checks as a safety
+            # net and is idempotent. Keyed per schema so only one runs per schema at a time: a concurrent
+            # sync gets WorkflowAlreadyStartedError, which we swallow. Fire-and-forget child on the
+            # dedicated metadata queue; ABANDON means it never blocks or fails the import.
+            if enrichment_needed:
+                try:
+                    await workflow.start_child_workflow(
+                        EnrichTableSemanticsWorkflow.run,
+                        EnrichTableSemanticsInputs(
+                            team_id=inputs.team_id,
+                            schema_id=inputs.external_data_schema_id,
+                        ),
+                        id=f"enrich-warehouse-table-semantics-{inputs.external_data_schema_id}",
+                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                        task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
+                        parent_close_policy=ParentClosePolicy.ABANDON,
+                        execution_timeout=dt.timedelta(minutes=30),
+                    )
+                except WorkflowAlreadyStartedError:
+                    workflow.logger.info(
+                        "Semantic enrichment already running for schema, skipping",
+                        extra={"schema_id": str(inputs.external_data_schema_id)},
+                    )
+
             # Profile the synced table's columns (null %, min/max, row count) from the Delta log. Gated up
-            # front (feature flag only — no data leaves our infra). Keyed per schema so only one runs per
-            # schema at a time: a concurrent sync that tries to start a second one gets
-            # WorkflowAlreadyStartedError, which we swallow (the running one already covers this schema).
-            # The activity itself caps recompute to once a day. Fire-and-forget metadata queue; ABANDON so
-            # it never blocks or fails the import.
-            if statistics_enabled:
+            # front on staleness (feature flag AND stats older than the recompute interval — no data leaves
+            # our infra). Keyed per schema so only one runs per schema at a time: a concurrent sync that
+            # tries to start a second one gets WorkflowAlreadyStartedError, which we swallow (the running
+            # one already covers this schema). The activity itself re-checks recency. Fire-and-forget
+            # metadata queue; ABANDON so it never blocks or fails the import.
+            if statistics_needed:
                 try:
                     await workflow.start_child_workflow(
                         ComputeTableStatisticsWorkflow.run,

@@ -28,6 +28,17 @@ _AUTH_MARKERS = (
     "no password supplied",
 )
 
+# Routing failures (ENETUNREACH / EHOSTUNREACH): there is no route to the host's network at all,
+# so the connection never leaves PostHog. Unlike a refused or reset connection — where the host is
+# reachable and the failure is plausibly transient — these are deterministic for the configured
+# host (e.g. it resolves to a private or otherwise non-routable address, such as an IPv6 address
+# PostHog can't route to), so retrying re-hits the same wall. Mirrors the non-retryable treatment
+# on the batch path (PostgresSource.get_non_retryable_errors).
+_HOST_UNREACHABLE_MARKERS = (
+    "network is unreachable",
+    "no route to host",
+)
+
 
 def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
     """Classify a single Postgres exception into a ``CDCErrorCategory``.
@@ -69,6 +80,8 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
     if isinstance(exc, psycopg.OperationalError):
         if any(marker in message for marker in _SSL_REQUIRED_MARKERS):
             return CDCErrorCategory.SSL_REQUIRED
+        if any(marker in message for marker in _HOST_UNREACHABLE_MARKERS):
+            return CDCErrorCategory.HOST_UNREACHABLE
         return CDCErrorCategory.CONNECTION_FAILED
 
     return None

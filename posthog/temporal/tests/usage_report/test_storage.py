@@ -33,6 +33,7 @@ def _ctx(run_id: str = "abc-123", date_str: str = "2026-05-04") -> WorkflowConte
 
     return WorkflowContext(
         run_id=run_id,
+        workflow_started_at=datetime(2026, 5, 5, 1, 45, 0, tzinfo=UTC),
         period_start=datetime(2026, 5, 4, 0, 0, 0, tzinfo=UTC),
         period_end=datetime(2026, 5, 4, 23, 59, 59, 999999, tzinfo=UTC),
         date_str=date_str,

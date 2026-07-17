@@ -62,7 +62,7 @@ from posthog.hogql.type_system import (
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
-from posthog.models.utils import UUIDT
+from posthog.uuidt import UUIDT
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
 
@@ -114,6 +114,18 @@ assert POSTGRES_KEYWORD_TYPES.keys() == ast.VALID_KEYWORD_NAMES, (
 # DuckDB is Postgres-wire compatible and accepts nearly all PG-specific constructs, so it
 # takes the PG code path in the resolver.
 _POSTGRES_FAMILY: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb"})
+
+# Dialects with native PIVOT/UNPIVOT support. Snowflake speaks the same standard-SQL
+# `PIVOT (agg FOR col IN (...))` shape, so it joins the Postgres family here even though it
+# isn't Postgres-wire compatible for the other gated constructs. `hogql` is included so the
+# canonical round-trip (the re-printed `self.hogql`) doesn't reject a query the target dialect
+# accepts.
+_PIVOT_ONLY_DIALECTS: frozenset[HogQLDialect] = frozenset({"snowflake", "hogql"})
+_PIVOT_DIALECTS: frozenset[HogQLDialect] = _POSTGRES_FAMILY | _PIVOT_ONLY_DIALECTS
+
+
+def _select_from_is_pivot(select_from: "ast.JoinExpr | None") -> bool:
+    return select_from is not None and isinstance(select_from.table, ast.PivotExpr)
 
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
@@ -345,7 +357,7 @@ class Resolver(CloningVisitor):
         return result
 
     def visit_unpivot_expr(self, node: ast.UnpivotExpr):
-        if self.dialect not in _POSTGRES_FAMILY:
+        if self.dialect not in _PIVOT_DIALECTS:
             raise QueryError(f"UNPIVOT is not allowed in {self.dialect} dialect")
 
         node = cast(ast.UnpivotExpr, clone_expr(node))
@@ -532,7 +544,7 @@ class Resolver(CloningVisitor):
             self.scopes.pop()
 
     def visit_pivot_expr(self, node: ast.PivotExpr):
-        if self.dialect not in _POSTGRES_FAMILY:
+        if self.dialect not in _PIVOT_DIALECTS:
             raise QueryError(f"PIVOT is not allowed in {self.dialect} dialect")
 
         node = cast(ast.PivotExpr, clone_expr(node))
@@ -781,6 +793,13 @@ class Resolver(CloningVisitor):
                 continue
             new_expr = self.visit(expr)
             if isinstance(new_expr.type, ast.AsteriskType):
+                # A PIVOT produces output columns named after its IN-list values, which we can't
+                # enumerate at resolve time. Snowflake names them in ways HogQL can't express, so
+                # keep `*` literal and let Snowflake expand it. (UNPIVOT output IS knowable, so it
+                # still expands normally.)
+                if self.dialect == "snowflake" and _select_from_is_pivot(new_node.select_from):
+                    select_nodes.append(new_expr)
+                    continue
                 columns = self._asterisk_columns(new_expr.type, chain_prefix=new_expr.chain[:-1])
                 for col in columns:
                     visited_col = self.visit(col)
@@ -1509,6 +1528,17 @@ class Resolver(CloningVisitor):
             node.type = ast.FloatType()
         elif isinstance(left_type, ast.DateTimeType) or isinstance(right_type, ast.DateTimeType):
             node.type = ast.DateTimeType()
+        elif isinstance(left_type, ast.DecimalType) or isinstance(right_type, ast.DecimalType):
+            # ClickHouse widens Decimal combined with a Float to Float; Decimal combined with a
+            # Decimal or Integer stays Decimal. Anything else (e.g. Decimal + String) is unknown.
+            if isinstance(left_type, ast.FloatType) or isinstance(right_type, ast.FloatType):
+                node.type = ast.FloatType()
+            elif isinstance(left_type, ast.DecimalType | ast.IntegerType) and isinstance(
+                right_type, ast.DecimalType | ast.IntegerType
+            ):
+                node.type = ast.DecimalType()
+            else:
+                node.type = ast.UnknownType()
         elif isinstance(left_type, ast.UnknownType) or isinstance(right_type, ast.UnknownType):
             node.type = ast.UnknownType()
         else:
@@ -1577,12 +1607,18 @@ class Resolver(CloningVisitor):
                     matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
                 )
             if node.name == "getSurveyResponse":
-                return self.visit(get_survey_response(node=node, args=node.args))
+                return self.visit(
+                    get_survey_response(node=node, args=node.args, use_new_schema=self.context.uses_new_events_schema())
+                )
             if node.name == "uniqueSurveySubmissionsFilter":
                 return self.visit(
                     unique_survey_submissions_filter(node=node, args=node.args, team_id=self.context.team_id)
                 )
             if node.name in ("isLikelyBot", "__preview_isBot"):
+                # The two-arg form duplicates its IP argument across the per-prefix-length range
+                # checks, so it needs the same re-entrancy guard as the lookup builders below.
+                if len(node.args) > 1:
+                    return self._expand_duplicating_macro(node, lambda: is_bot(node=node, args=node.args))
                 return self.visit(is_bot(node=node, args=node.args))
             # The bot-lookup builders below duplicate their argument, so they must expand under the
             # re-entrancy guard to bound nested expansion (see _expand_duplicating_macro).

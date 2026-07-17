@@ -1,6 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
-from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
+from products.data_modeling.backend.presentation.views import DAGViewSet, EdgeViewSet, NodeViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:

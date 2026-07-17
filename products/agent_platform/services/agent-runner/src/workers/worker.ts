@@ -29,6 +29,7 @@ import {
     buildAskerIdentity,
     BundleStore,
     categorize,
+    type IngressRoutingMode,
     createLogger,
     CredentialBroker,
     IdentityCredentialStore,
@@ -41,6 +42,7 @@ import {
     getSecretAllowedHosts,
     HttpFetcher,
     LogSink,
+    McpConnectionStore,
     MemoryStore,
     modelPolicyToList,
     TabularStore,
@@ -190,7 +192,11 @@ export interface WorkerDeps {
     identityCredentials?: IdentityCredentialStore
     identityLinks?: IdentityLinkStateStore
     identities?: IdentityStore
-    /** OAuth callback base; `/link/<provider>/callback` is appended. */
+    /** Ingress routing mode; mirrors the ingress `ROUTING_MODE`. Defaults to `path`. */
+    routingMode?: IngressRoutingMode
+    /** Domain suffix for domain mode (e.g. `.agents.us.posthog.com`); builds the per-agent OAuth link callback host. */
+    domainSuffix?: string
+    /** Flat ingress base URL for the OAuth link callback in `path` mode (dev). */
     linkRedirectBaseUrl?: string
     /**
      * Override the MCP transport factory. Defaults to
@@ -200,6 +206,11 @@ export interface WorkerDeps {
      * instrumentation / retry middleware.
      */
     mcpTransportFactory?: McpTransportFactory
+    /**
+     * Shared-credential MCP resolver (`spec.mcps[].connection`). The worker binds
+     * it to the session's `team_id`. Omit to disable the connection path.
+     */
+    mcpConnections?: McpConnectionStore
     /**
      * Dev-only bearer forwarded to `openMcpClients`. See `OpenMcpClientsDeps`.
      * Sourced from `AGENT_DEV_MCP_BEARER_TOKEN`; the runner's `index.ts`
@@ -489,15 +500,30 @@ export class Worker {
                               http: this.deps.http,
                               secret: (name) => secrets[name],
                               posthogApiBaseUrl: this.deps.posthogApiBaseUrl,
+                              slug: application?.slug ?? '',
+                              routingMode: this.deps.routingMode,
+                              domainSuffix: this.deps.domainSuffix,
                               linkRedirectBaseUrl: this.deps.linkRedirectBaseUrl,
                               log: (level, msg, meta) => sLog[level](meta ?? {}, msg),
                           })
                         : undefined
+                // Scope connection resolution to this session's team AND the spec
+                // author (`created_by_id`): a connection resolves only if the
+                // installation belongs to the spec's author, so no authoring path can
+                // make the runner hand out a credential the author doesn't own. This is
+                // the IDOR boundary; a null author fails closed.
+                const mcpConnections = this.deps.mcpConnections
+                    ? {
+                          resolve: (connectionId: string) =>
+                              this.deps.mcpConnections!.resolve(connectionId, session.team_id, rev.created_by_id),
+                      }
+                    : undefined
                 const opened = await openMcpClients(rev.spec.mcps, {
                     secrets,
                     secretAllowedHosts: (name) => getSecretAllowedHosts(rev.spec, name),
                     transportFactory: this.deps.mcpTransportFactory,
                     identity: mcpIdentity,
+                    connections: mcpConnections,
                     devMcpBearerToken: this.deps.devMcpBearerToken,
                     log: (level, msg, meta) => sLog[level](meta ?? {}, msg),
                     http: this.deps.http,
@@ -594,6 +620,9 @@ export class Worker {
                 identityCredentials: this.deps.identityCredentials,
                 identityLinks: this.deps.identityLinks,
                 identities: this.deps.identities,
+                applicationSlug: application?.slug,
+                routingMode: this.deps.routingMode,
+                domainSuffix: this.deps.domainSuffix,
                 linkRedirectBaseUrl: this.deps.linkRedirectBaseUrl,
                 mcpClients: openedMcpClients,
                 mcpFailures,

@@ -1,13 +1,16 @@
 import Vapi from '@vapi-ai/web'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 
+import * as roboHogPng from '@posthog/brand/hoggies/png/robo-hog'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { Logo } from 'lib/brand/Logo'
-import { RobotHog } from 'lib/components/hedgehogs'
+import { Logo } from 'lib/brand'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 
 import { InterviewExportPayload } from '../types'
+
+const HedgehogRoboHog = pngHoggie(roboHogPng)
 
 // Vapi surfaces several normal-completion signals through its `error` channel because
 // the underlying Daily.co transport reports the local participant being evicted as
@@ -59,7 +62,7 @@ const CallStatusPanel = memo(function CallStatusPanel({
     return (
         <div className="flex-shrink-0 mx-auto md:mx-0 md:w-40">
             <div className="w-40 h-40 mx-auto">
-                <RobotHog className="w-full h-full" alt="" />
+                <HedgehogRoboHog className="w-full h-full" />
             </div>
             {state === 'in-call' && <p className="text-sm text-muted text-center mt-2">{PHASE_LABELS[phase]}</p>}
         </div>
@@ -407,7 +410,7 @@ export default function ExporterInterviewScene({
         <div className="max-w-2xl mx-auto px-4 py-12">
             <HogfettiComponent />
             <div className="mb-8">
-                <Logo className="text-lg" />
+                <Logo size="md" />
             </div>
 
             <div className="flex flex-col md:flex-row md:items-start gap-6 md:gap-8 mb-8">

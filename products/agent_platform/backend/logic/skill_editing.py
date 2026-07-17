@@ -1,0 +1,198 @@
+"""Store-backed editing of a draft revision's referenced skills.
+
+Skills are store-only: freeze resolves ``AgentRevision.skill_refs`` against the
+llma-skill store, materializes the pinned bytes into the bundle, and sweeps any
+``skills/`` folder that isn't a current ref (see the freeze action). Writing a
+skill's markdown into the draft bundle therefore can't stick — it would be
+overwritten (ref alias) or deleted (orphan) at the next freeze. Instead an edit
+publishes a new version of the store skill and the caller re-pins the draft's
+ref to it, so the next freeze materializes exactly the edited bytes and the
+store stays the single source of truth.
+"""
+
+from typing import Any
+
+from rest_framework import status
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
+
+from posthog.models import Team, User
+from posthog.rbac.user_access_control import UserAccessControl
+
+from products.skills.backend.api.skill_serializers import validate_skill_body_size, validate_skill_name_value
+from products.skills.backend.api.skill_services import (
+    LLMSkillDuplicateNameConflictError,
+    LLMSkillNotFoundError,
+    LLMSkillVersionConflictError,
+    LLMSkillVersionLimitError,
+    create_skill,
+    get_skill_by_name_from_db,
+    publish_skill_version,
+)
+from products.skills.backend.marketplace.packaging import SkillImportError, parse_skill_md
+from products.skills.backend.models import LLMSkill
+
+
+class SkillStoreConflict(APIException):
+    """The store skill changed between read and publish — caller should reload
+    the latest version and retry. Plain string detail on purpose: exceptions_hog
+    can't render dict details (see JanitorUpstreamError)."""
+
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "The skill changed in the store since you loaded it. Reload the latest version and try again."
+    default_code = "skill_store_conflict"
+
+
+def assert_skills_writable(
+    names: list[str],
+    *,
+    scopes: list[str] | None,
+    user_access_control: UserAccessControl,
+) -> None:
+    """Authorize the caller to publish new versions of every named store skill.
+
+    The write-side mirror of ``assert_skill_refs_readable``: these edits mutate
+    ``llm_skill`` rows shared across every agent that references them, so they
+    must honour the same boundary ``LLMSkillViewSet`` enforces on PATCH and
+    create — the ``llm_skill:write`` API scope for token callers, plus
+    editor-level access to the skills resource for everyone. Without this an
+    ``agents:write`` caller could rewrite or mint shared skills through the
+    agent authoring surface. ``scopes`` is ``None`` for session auth, which
+    carries no API scopes.
+
+    Skill access is governed at the RESOURCE level, for creates and updates
+    alike: ``LLMSkill`` has no model→resource mapping (``model_to_resource``
+    returns ``None`` for it), so ``check_access_level_for_object`` passes
+    unconditionally and must not be mistaken for a boundary. The resource-level
+    check is what ``LLMSkillViewSet`` actually enforces — it honours both
+    team-wide lockdowns and member-specific grants on the inherited
+    ``llm_analytics`` resource.
+    """
+    if not names:
+        return
+    if scopes is not None and not ({"*", "llm_skill:write"} & set(scopes)):
+        raise PermissionDenied(
+            "Editing store-backed skills requires the `llm_skill:write` scope in addition to `agents:write`."
+        )
+    if not user_access_control.check_access_level_for_resource("llm_skill", "editor"):
+        raise PermissionDenied(
+            "You do not have editor access to skills in the skill store, so you cannot publish or create "
+            "store-backed skills through the agent surface. Ask a skill admin for editor access to skills."
+        )
+
+
+def store_skill_exists(team: Team, name: str) -> bool:
+    """Whether an active (non-archived) store skill with this name exists."""
+    return get_skill_by_name_from_db(team, name) is not None
+
+
+# Mirrors LLMSkillPublishSerializer.description's max_length — the store caps
+# it in its serializers, not the service layer, so this direct-service path
+# must re-apply it.
+_MAX_SKILL_DESCRIPTION_CHARS = 4096
+
+
+def validate_store_write(body: str | None, description: str | None, *, new_skill_name: str | None = None) -> None:
+    """Re-apply the store's serializer-level rules. The skills API enforces body
+    size, description length, and name format in `LLMSkill*Serializer`s; this
+    path calls the services directly, so without these gates an agent editor
+    could write rows the store's own API would reject (Django's request cap is
+    20 MB, well above the store's 1 MB body limit, and `create_skill` doesn't
+    validate name format). Pure — safe to run up-front for all-or-nothing bulk
+    validation and again at the publish/create choke points.
+
+    ``new_skill_name`` is only for names about to be CREATED: the store's name
+    rules (≤64 chars, hyphens not underscores, reserved-name blocklist) are
+    stricter than the janitor's alias regex, and an existing skill's name needs
+    no re-check."""
+    if new_skill_name is not None:
+        validate_skill_name_value(new_skill_name)
+    if body is not None:
+        validate_skill_body_size(body)
+    if description is not None and len(description) > _MAX_SKILL_DESCRIPTION_CHARS:
+        raise ValidationError(f"Skill description must be {_MAX_SKILL_DESCRIPTION_CHARS} characters or fewer.")
+
+
+def _publish_next_version(team: Team, *, user: User, skill_name: str, fields: dict[str, Any]) -> LLMSkill:
+    """Publish ``fields`` on top of the store's latest version, mapping the
+    service errors to API-shaped ones. Publishing targets latest — an edit means
+    "move the skill forward", even when the draft's ref pins an older version;
+    the caller re-pins the ref to the returned row.
+    """
+    validate_store_write(fields.get("body"), fields.get("description"))
+    latest = get_skill_by_name_from_db(team, skill_name)
+    if latest is None:
+        raise ValidationError(
+            f"Skill '{skill_name}' was not found in the skill store. It may have been archived — "
+            "remove the reference or recreate the skill."
+        )
+    try:
+        return publish_skill_version(team, user=user, skill_name=skill_name, base_version=latest.version, **fields)
+    except LLMSkillNotFoundError:
+        raise ValidationError(f"Skill '{skill_name}' was not found in the skill store.")
+    except LLMSkillVersionConflictError:
+        raise SkillStoreConflict()
+    except LLMSkillVersionLimitError as e:
+        raise ValidationError(
+            f"Skill '{skill_name}' has reached the maximum of {e.max_version} versions. "
+            "Archive and recreate the skill to continue publishing."
+        )
+
+
+def publish_skill_body(
+    team: Team,
+    *,
+    user: User,
+    skill_name: str,
+    body: str,
+    description: str | None = None,
+) -> LLMSkill:
+    """Publish ``body`` (and optionally ``description``) as a new version of the
+    named store skill; omitted fields carry forward from the current version."""
+    return _publish_next_version(
+        team, user=user, skill_name=skill_name, fields={"body": body, "description": description}
+    )
+
+
+def publish_skill_md_edit(team: Team, *, user: User, skill_name: str, content: str) -> LLMSkill:
+    """Publish edited SKILL.md content as a new version of the named store skill.
+
+    The bundle's SKILL.md is ``render_skill_md`` output (frontmatter + body), so
+    an edited file normally round-trips through ``parse_skill_md`` — frontmatter
+    fields (description, license, compatibility, allowed-tools, metadata) update
+    the store alongside the body. Content without a frontmatter block is
+    accepted as body-only (the other fields carry forward), but a block that
+    *looks* like frontmatter and fails to parse is rejected — storing it as body
+    would double the frontmatter on the next freeze render.
+    """
+    parsed: dict[str, Any] | None
+    try:
+        parsed = parse_skill_md(content)
+    except SkillImportError as e:
+        if content.startswith("---"):
+            raise ValidationError(f"SKILL.md frontmatter is invalid: {e}")
+        parsed = None
+    if parsed is None:
+        fields: dict[str, Any] = {"body": content}
+    else:
+        fields = {
+            "body": parsed["body"],
+            # An empty parsed field means the frontmatter dropped it — carry the
+            # current value forward rather than blanking a shared field.
+            "description": parsed["description"] or None,
+            "license": parsed["license"] or None,
+            "compatibility": parsed["compatibility"] or None,
+            "allowed_tools": parsed["allowed_tools"] or None,
+            "metadata": parsed["metadata"] or None,
+        }
+    return _publish_next_version(team, user=user, skill_name=skill_name, fields=fields)
+
+
+def create_store_skill(team: Team, *, user: User, name: str, description: str, body: str) -> LLMSkill:
+    """Create a brand-new store skill (v1) for a bulk-imported skill id."""
+    validate_store_write(body, description, new_skill_name=name)
+    try:
+        return create_skill(team, user=user, name=name, description=description, body=body)
+    except LLMSkillDuplicateNameConflictError:
+        # A concurrent create won the race — surface as a conflict so the caller
+        # retries and takes the publish-new-version path instead.
+        raise SkillStoreConflict(f"A skill named '{name}' was just created in the store. Retry the import.")

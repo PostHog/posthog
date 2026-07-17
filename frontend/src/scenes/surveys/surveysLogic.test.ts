@@ -63,6 +63,8 @@ describe('surveysLogic', () => {
             })
                 .delay(400)
                 .toDispatchActions(['loadSearchResults'])
+                // let the search request settle so its success action doesn't land after unmount
+                .toFinishAllListeners()
         })
 
         it('searchedSurveys reflects backend results once loaded', async () => {
@@ -177,6 +179,16 @@ describe('surveysLogic', () => {
             await expectLogic(logic).toFinishAllListeners().toMatchValues({
                 searchTerm: 'onboarding',
             })
+        })
+
+        it('coerces a numeric search query param to a string without crashing searchedSurveys', async () => {
+            router.actions.push('/surveys', { search: 3 })
+
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({
+                searchTerm: '3',
+            })
+
+            expect(logic.values.searchedSurveys).toEqual([])
         })
 
         it('clears a stale search term when navigating to surveys without a search param', async () => {

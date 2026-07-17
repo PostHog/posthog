@@ -61,7 +61,11 @@ const MAX_LOGS_PER_SECOND = 1_000_000
 const MAX_BURST_LOGS = 10_000_000
 const MAX_KB_PER_SECOND = 1_000_000
 const MAX_BURST_KB = 10_000_000
-const BYTES_PER_KB = 1024
+// Decimal (SI) KB: the drop-rule form (UNIT_TO_KB_PER_S), the sparkline preview's
+// threshold line (KB/s × 1000), and the API validator ("1000000 = 1 GB/s") all use
+// 1 KB = 1000 bytes. The bucket must charge in the same unit, otherwise every cap
+// silently enforces ~2.4% above its label.
+const BYTES_PER_KB = 1000
 
 function parseRateLimitFromConfig(
     config: Record<string, unknown>
@@ -230,7 +234,9 @@ export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
         let pathDropMatchAttributeKey: string | null = null
         let filterGroup: FilterGroupNode | null = null
         if (row.rule_type === 'path_drop') {
-            const patterns = (row.config.patterns as unknown[]) || []
+            // Array.isArray, not truthiness: a corrupt string value would otherwise be
+            // iterated per character into single-char regexes that match nearly everything.
+            const patterns = Array.isArray(row.config.patterns) ? (row.config.patterns as unknown[]) : []
             pathDropPatterns = []
             for (const p of patterns) {
                 if (typeof p !== 'string') {

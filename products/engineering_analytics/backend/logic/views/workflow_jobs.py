@@ -11,6 +11,11 @@ Same two-layer shape as ``workflow_runs``: the inner SELECT parses timestamps wi
 ``parseDateTimeBestEffortOrNull`` (a queued/running job has no start/finish) and unwraps Nullable
 JSON with ``ifNull``; the outer SELECT derives the duration off the parsed columns.
 
+The raw ``created_at`` string rides along as ``created_at_raw`` (unparsed) because ISO-8601 strings
+compare correctly lexicographically. A parsed-column predicate never pushes down to the parquet/S3
+scan, so a raw-column floor (``created_at_raw >= '<date>'``) is the only windowing predicate the scan
+can prune on — the parsed ``created_at`` stays the precise filter, the raw twin lets the scan skip.
+
 Embedded as a subquery by the jobs query module (see ``_curated``); nothing registers a global view.
 """
 
@@ -22,27 +27,37 @@ def build_query(table_name: str) -> str:
             run_id,
             run_attempt,
             name,
+            workflow_name,
+            head_branch,
             status,
             conclusion,
             labels,
             runner_name,
+            created_at,
+            created_at_raw,
             started_at,
             completed_at,
-            if(status = 'completed', dateDiff('second', started_at, completed_at), NULL) AS duration_seconds
+            if(status = 'completed', dateDiff('second', started_at, completed_at), NULL) AS duration_seconds,
+            -- Queue wait: webhook creation to first execution. NULL while still queued.
+            if(started_at IS NOT NULL, dateDiff('second', created_at, started_at), NULL) AS queue_seconds
         FROM (
             SELECT
                 id,
                 run_id,
                 run_attempt,
                 name,
+                ifNull(workflow_name, '') AS workflow_name,
+                ifNull(head_branch, '') AS head_branch,
                 status,
                 conclusion,
                 ifNull(labels, '[]') AS labels,
                 ifNull(runner_name, '') AS runner_name,
                 -- HogQL maps parseDateTimeBestEffort to the OrNull variant, so an empty/queued '' lands
                 -- as NULL with no explicit nullIf — same as the runs builder.
+                parseDateTimeBestEffort(created_at) AS created_at,
+                created_at_raw,
                 parseDateTimeBestEffort(started_at) AS started_at,
                 parseDateTimeBestEffort(completed_at) AS completed_at
-            FROM {table_name}
+            FROM (SELECT *, created_at AS created_at_raw FROM {table_name})
         )
     """

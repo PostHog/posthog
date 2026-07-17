@@ -13,9 +13,10 @@ import { funnelDataLogic } from './funnelDataLogic'
 
 type FunnelStepMoreProps = {
     stepIndex: number
+    className?: string
 }
 
-export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element | null {
+export function FunnelStepMore({ stepIndex, className }: FunnelStepMoreProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { querySource } = useValues(funnelDataLogic(insightProps))
 
@@ -52,6 +53,7 @@ export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element 
 
     return (
         <More
+            className={className}
             placement="bottom-start"
             noPadding
             overlay={

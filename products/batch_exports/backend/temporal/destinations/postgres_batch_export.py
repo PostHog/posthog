@@ -96,6 +96,9 @@ NON_RETRYABLE_ERROR_TYPES = (
     "DiskFull",
     # Raised by our PostgreSQL client when failing to connect after several attempts.
     "PostgreSQLConnectionError",
+    # The integration backing this export was deleted. Retrying can never recover it,
+    # so fail fast and let the user reconnect the destination.
+    "PostgreSQLIntegrationNotFoundError",
     # Raised when merging without a primary key.
     "MissingPrimaryKeyError",
     # Raised when the database doesn't support a particular feature we use.

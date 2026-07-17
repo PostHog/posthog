@@ -184,6 +184,7 @@ export interface RoleLookupResponseApi {
  * * `slack` - Slack
  * * `slack-posthog-code` - Slack Posthog Code
  * * `snapchat` - Snapchat
+ * * `snowflake` - Snowflake
  * * `stripe` - Stripe
  * * `tiktok-ads` - Tiktok Ads
  * * `twilio` - Twilio
@@ -227,6 +228,7 @@ export const IntegrationKindEnumApi = {
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Snapchat: 'snapchat',
+    Snowflake: 'snowflake',
     Stripe: 'stripe',
     TiktokAds: 'tiktok-ads',
     Twilio: 'twilio',
@@ -308,9 +310,24 @@ export interface GitHubBranchesResponseApi {
 }
 
 export interface GitHubRepoApi {
+    /** GitHub repository numeric identifier. */
     id: number
+    /** Repository short name (without the owner prefix). */
     name: string
+    /** Fully-qualified repository name as 'owner/repo'. */
     full_name: string
+    /** Whether the repository is private. */
+    private?: boolean
+    /** The repository's default branch (e.g. 'main'). */
+    default_branch?: string
+    /** Primary programming language GitHub detected for the repository. */
+    language?: string
+    /** ISO 8601 timestamp of the most recent push, useful for sorting by recent activity. */
+    pushed_at?: string
+    /** Whether the repository is archived. */
+    archived?: boolean
+    /** Whether the PostHog GitHub App has write access — required to open pull requests. */
+    can_push?: boolean
 }
 
 export interface GitHubReposResponseApi {
@@ -338,17 +355,6 @@ export interface GitHubTeamsResponseApi {
     teams: GitHubTeamApi[]
     /** Whether more teams are available beyond this page. */
     has_more: boolean
-}
-
-export interface GoogleSearchConsoleSiteApi {
-    /** Site URL in canonical Google format — `https://example.com/` for URL-prefix properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties. */
-    siteUrl: string
-    /** The connected user's permission level for this site. One of `siteOwner`, `siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`. */
-    permissionLevel: string
-}
-
-export interface GoogleSearchConsoleSitesResponseApi {
-    sites: GoogleSearchConsoleSiteApi[]
 }
 
 export interface JiraProjectApi {
@@ -457,6 +463,7 @@ export interface IntegrationAccessRequestApi {
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
      * * `snapchat` - Snapchat
+     * * `snowflake` - Snowflake
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
@@ -545,6 +552,7 @@ export type IntegrationsListParams = {
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
      * * `snapchat` - Snapchat
+     * * `snowflake` - Snowflake
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
@@ -599,6 +607,7 @@ export const IntegrationsListKind = {
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Snapchat: 'snapchat',
+    Snowflake: 'snowflake',
     Stripe: 'stripe',
     TiktokAds: 'tiktok-ads',
     Twilio: 'twilio',

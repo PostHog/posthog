@@ -111,6 +111,25 @@ async def test_retryable_setup_error_is_reraised():
     handle_mock.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_unparseable_config_routes_through_handler():
+    # A corrupt / double-encoded stored config makes parse_config raise deterministically before
+    # source setup. It must be treated as non-retryable instead of crash-looping on every attempt.
+    error = ValueError("invalid literal for int() with base 10: 'not-an-int'")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.side_effect = error
+    source.get_non_retryable_errors.return_value = {}
+
+    with _patched_activity(source) as handle_mock:
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await import_data_activity_sync(_inputs())
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args.args[3] is error
+    source.source_for_pipeline.assert_not_called()
+
+
 def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -> mock.MagicMock:
     schema = mock.MagicMock()
     schema.should_use_incremental_field = True
@@ -119,6 +138,7 @@ def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -
     schema.incremental_field_lookback_seconds = lookback_seconds
     schema.incremental_field_earliest_value = None
     schema.row_filters = None
+    schema.api_version = None
     schema.sync_type_config = {
         "incremental_field_last_value": "2026-06-14T15:33:31.802833",
         "incremental_field_type": "timestamp",
@@ -127,10 +147,11 @@ def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -
 
 
 @contextlib.contextmanager
-def _patched_activity_reaching_run(source_mock, schema):
+def _patched_activity_reaching_run(source_mock, schema, api_version=None):
     model = mock.MagicMock()
     model.pipeline.source_type = "MongoDB"
     model.pipeline.job_inputs = {}
+    model.pipeline.api_version = api_version
     model.folder_path = mock.Mock(return_value="dataset")
 
     with (
@@ -182,3 +203,27 @@ async def test_incremental_lookback_shifts_query_value_not_stored_watermark(is_i
     _, source_inputs = source.source_for_pipeline.call_args.args
     assert source_inputs.db_incremental_field_last_value == expected_last_value
     assert schema.sync_type_config["incremental_field_last_value"] == "2026-06-14T15:33:31.802833"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "schema_override,pinned,expected",
+    [
+        (None, "2020-01-01", "2020-01-01"),  # a stored pin is honored verbatim
+        (None, None, "vdefault"),  # no pin resolves to the source's default_version
+        ("2021-05-05", "2020-01-01", "2021-05-05"),  # a user-managed schema override wins over the source pin
+    ],
+)
+async def test_pinned_api_version_is_resolved_into_source_inputs(schema_override, pinned, expected):
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    source.resolve_api_version = lambda p: p or "vdefault"
+    schema = _incremental_schema(is_incremental=False, lookback_seconds=None)
+    schema.api_version = schema_override
+
+    with _patched_activity_reaching_run(source, schema, api_version=pinned):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    _, source_inputs = source.source_for_pipeline.call_args.args
+    assert source_inputs.api_version == expected

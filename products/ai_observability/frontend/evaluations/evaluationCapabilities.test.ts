@@ -1,16 +1,21 @@
-import { FEATURE_FLAGS } from 'lib/constants'
-
-import { evaluationTypeCanBeCreated } from './evaluationCapabilities'
+import { evaluationSupportsReports, evaluationSupportsRunSummary } from './evaluationCapabilities'
+import type { EvaluationOutputType, EvaluationTarget } from './types'
 
 describe('evaluationCapabilities', () => {
-    it('gates sentiment creation on the sentiment evaluations feature flag', () => {
-        expect(evaluationTypeCanBeCreated('llm_judge', {})).toBe(true)
-        expect(evaluationTypeCanBeCreated('hog', {})).toBe(true)
-        expect(evaluationTypeCanBeCreated('sentiment', {})).toBe(false)
-        expect(
-            evaluationTypeCanBeCreated('sentiment', {
-                [FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_SENTIMENT]: true,
-            })
-        ).toBe(true)
-    })
+    it.each<
+        [outputType: EvaluationOutputType, target: EvaluationTarget, supportsReports: boolean, supportsSummary: boolean]
+    >([
+        ['boolean', 'generation', true, true],
+        ['sentiment', 'generation', true, false],
+        ['boolean', 'trace', true, false],
+        ['sentiment', 'trace', false, false],
+    ])(
+        'supports the expected capabilities for %s %s evaluations',
+        (outputType, target, supportsReports, supportsSummary) => {
+            const evaluation = { output_type: outputType, target }
+
+            expect(evaluationSupportsReports(evaluation)).toBe(supportsReports)
+            expect(evaluationSupportsRunSummary(evaluation)).toBe(supportsSummary)
+        }
+    )
 })

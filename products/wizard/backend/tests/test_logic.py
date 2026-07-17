@@ -5,6 +5,7 @@ import pytest
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardTaskDTO
 from products.wizard.backend.facade.enums import RunPhase, TaskStatus
+from products.wizard.backend.metrics import WIZARD_SESSIONS_FINISHED_TOTAL
 
 
 def _input(team_id: int, **overrides) -> UpsertWizardSessionInput:
@@ -134,3 +135,25 @@ def test_list_for_team_returns_sessions_ordered_by_started_at_desc(team):
 
     sessions = wizard_facade.list_for_team(team.id, limit=100)
     assert [s.session_id for s in sessions] == ["run-late", "run-early"]
+
+
+@pytest.mark.django_db
+def test_upsert_counts_a_terminal_transition_exactly_once(team):
+    counter = WIZARD_SESSIONS_FINISHED_TOTAL.labels(workflow="other", outcome="completed")
+    before = counter._value.get()
+
+    wizard_facade.upsert(_input(team.id, run_phase=RunPhase.RUNNING))
+    wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED))
+    wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED))
+
+    assert counter._value.get() == before + 1
+
+
+@pytest.mark.django_db
+def test_upsert_counts_a_session_created_already_terminal(team):
+    counter = WIZARD_SESSIONS_FINISHED_TOTAL.labels(workflow="other", outcome="error")
+    before = counter._value.get()
+
+    wizard_facade.upsert(_input(team.id, run_phase=RunPhase.ERROR, error={"type": "boom", "message": "x"}))
+
+    assert counter._value.get() == before + 1

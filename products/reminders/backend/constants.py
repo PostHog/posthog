@@ -1,9 +1,9 @@
+from django.apps import apps
 from django.db import models
 
 from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
@@ -21,7 +21,7 @@ RESOURCE_MODELS: dict[str, tuple[type[models.Model], str, str]] = {
     "survey": (Survey, "pk", "surveys"),
     "notebook": (Notebook, "short_id", "notebooks"),
     "replay": (SessionRecording, "session_id", "replay"),
-    "error_tracking": (ErrorTrackingIssue, "pk", "error_tracking"),
+    "error_tracking": (apps.get_model("error_tracking", "ErrorTrackingIssue"), "pk", "error_tracking"),
 }
 
 RESOURCE_TYPES: tuple[str, ...] = tuple(RESOURCE_MODELS.keys())

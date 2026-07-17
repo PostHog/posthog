@@ -18,7 +18,8 @@ def validate_data_warehouse_table_columns(team_id: int, table_id: str) -> None:
         table = DataWarehouseTable.objects.get(team_id=team_id, id=table_id)
         columns = table.columns or {}
         for column in columns.keys():
-            columns[column]["valid"] = table.validate_column_type(column)
+            # Background validation is userless; validate table schema, not requester permissions.
+            columns[column]["valid"] = table.validate_column_type(column, bypass_warehouse_access_control=True)
         table.columns = columns
         table.save()
 

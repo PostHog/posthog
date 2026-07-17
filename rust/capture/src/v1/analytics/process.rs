@@ -10,11 +10,11 @@ use super::constants::{
     CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, CAPTURE_V1_EVENTS_RESTRICTED,
     CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
     CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_PROCESSING_DURATION_SECONDS,
-    CAPTURE_V1_RATE_LIMITER, DETAIL_EVENT_RESTRICTION_DROP, DETAIL_PERSON_PROCESSING_DISABLED,
-    FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
+    CAPTURE_V1_RATE_LIMITER, DETAIL_EVENT_RESTRICTION_DROP, DETAIL_INVALID_OPTIONS,
+    DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
 };
 use super::response::BatchResponse;
-use super::types::{Batch, Event, EventResult, WrappedEvent};
+use super::types::{Batch, Event, EventResult, Options, WrappedEvent};
 use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
 use crate::v0_request::DataType;
@@ -28,6 +28,7 @@ use crate::v1::sinks::event::Event as SinkEvent;
 use crate::v1::sinks::types::SinkResult;
 use crate::v1::sinks::{serialize_batch, Destination};
 use crate::v1::Error;
+use common_ingestion_warnings::{WarningType, CAPTURE_V1_ANALYTICS};
 
 /// Maps event name to its Kafka destination, mirroring legacy DataType assignment.
 ///
@@ -53,10 +54,24 @@ pub async fn process_batch(
     let processing_start = Instant::now();
     crate::ctx_log!(Level::INFO, context, "process_batch called");
 
-    validate_batch(&batch)?;
+    let batch_len = batch.batch.len();
+    if let Err(err) = validate_batch(&batch) {
+        emit_batch_abort_warning(state, context, &err, batch_len);
+        return Err(err);
+    }
     context.set_batch_metadata(&batch);
 
-    let mut events = validate_events(context, batch)?;
+    let mut events = match validate_events(context, batch) {
+        Ok(events) => events,
+        Err(err) => {
+            emit_batch_abort_warning(state, context, &err, batch_len);
+            return Err(err);
+        }
+    };
+
+    // Best-effort v2 ingestion warnings for validation drops, emitted before
+    // the all-dropped early return so those batches are covered too.
+    emit_validation_drop_warnings(state, context, &events);
 
     // Nothing left to process — return 200 with per-event drops.
     if events.iter().all(|ev| ev.result != EventResult::Ok) {
@@ -253,42 +268,198 @@ pub fn merge_sink_results(events: &mut [WrappedEvent], sink_results: &[Box<dyn S
     }
 }
 
+/// Stamps request-level context (sdk lib/version, request path) into a
+/// warning's details map. Keys are camelCase to match the v2 `DEFAULT`
+/// extractors' expectations for entity keys.
+fn warning_context_details(context: &Context) -> serde_json::Map<String, serde_json::Value> {
+    let mut details = serde_json::Map::new();
+    if let Some((lib, version)) = context.sdk_lib_and_version() {
+        details.insert("lib".to_string(), serde_json::json!(lib));
+        details.insert("libVersion".to_string(), serde_json::json!(version));
+    }
+    details.insert("path".to_string(), serde_json::json!(context.path));
+    details
+}
+
+/// Best-effort v2 ingestion warning for a whole-batch validation abort (4xx).
+/// The batch is rejected as a unit, so `count` charges the full batch length;
+/// no per-event identifiers exist at this point. Unregistered tags emit
+/// nothing (allowlist in `WarningType::from_tag`). Never fails the request.
+fn emit_batch_abort_warning(
+    state: &router::State,
+    context: &Context,
+    err: &Error,
+    batch_len: usize,
+) {
+    let Some(ref emitter) = state.ingestion_warning_emitter else {
+        return;
+    };
+    let Some(warning) = WarningType::from_tag(err.tag()) else {
+        return;
+    };
+    // `empty_batch` aborts have batch_len == 0; the rejected request is still
+    // one occurrence, so never charge a count of zero.
+    emitter.emit(
+        context.api_token.clone(),
+        CAPTURE_V1_ANALYTICS,
+        warning,
+        warning_context_details(context),
+        batch_len.max(1) as u64,
+    );
+}
+
+/// Best-effort v2 ingestion warnings for per-event validation drops: one
+/// message per registered drop tag with the deduped occurrence count.
+/// `distinctId`/`eventUuid` are included only when a tag matched exactly one
+/// event — with multiple events they would be ambiguous, so they are omitted.
+/// Skips entirely when the emitter is off or the batch had no drops.
+fn emit_validation_drop_warnings(
+    state: &router::State,
+    context: &Context,
+    events: &[WrappedEvent],
+) {
+    let Some(ref emitter) = state.ingestion_warning_emitter else {
+        return;
+    };
+
+    // (count, identifiers-of-the-single-event-if-unique) per warning type.
+    type DropGroup<'a> = (u64, Option<(&'a str, Uuid)>);
+    let mut grouped: HashMap<WarningType, DropGroup> = HashMap::new();
+    for ev in events {
+        if ev.result != EventResult::Drop {
+            continue;
+        }
+        let Some(warning) = ev.details.and_then(WarningType::from_tag) else {
+            continue;
+        };
+        let entry = grouped
+            .entry(warning)
+            .or_insert((0, Some((ev.event.distinct_id.as_str(), ev.uuid))));
+        entry.0 += 1;
+        if entry.0 > 1 {
+            entry.1 = None;
+        }
+    }
+
+    for (warning, (count, single_event)) in grouped {
+        let mut details = warning_context_details(context);
+        if let Some((distinct_id, uuid)) = single_event {
+            // A public request can submit a `distinct_id` far larger than
+            // CAPTURE_V1_DISTINCT_ID_MAX_SIZE (that oversized value is exactly
+            // what triggers `distinct_id_too_large`), so bound what enters the
+            // warning: a fixed-size prefix keeps it useful for debugging while
+            // the length preserves how large the real value was.
+            let char_count = distinct_id.chars().count();
+            let prefix: String = distinct_id
+                .chars()
+                .take(CAPTURE_V1_DISTINCT_ID_MAX_SIZE)
+                .collect();
+            details.insert("distinctId".to_string(), serde_json::json!(prefix));
+            if char_count > CAPTURE_V1_DISTINCT_ID_MAX_SIZE {
+                details.insert(
+                    "distinctIdLength".to_string(),
+                    serde_json::json!(char_count),
+                );
+            }
+            details.insert("eventUuid".to_string(), serde_json::json!(uuid.to_string()));
+        }
+        emitter.emit(
+            context.api_token.clone(),
+            CAPTURE_V1_ANALYTICS,
+            warning,
+            details,
+            count,
+        );
+    }
+}
+
+/// Records a whole-batch validation abort. These errors reject the batch as a
+/// unit, so every event in it is dropped — but the request only ever ticks one
+/// `capture_v1_analytics_error`, leaving the event count invisible. Charge the
+/// full batch length to `capture_v1_events_dropped` so dup/oversize/invalid-uuid
+/// rejections show real per-event loss. Returns `err` for use at the call site.
+fn count_validation_abort(err: Error, batch_len: usize) -> Error {
+    metrics::counter!(
+        CAPTURE_V1_EVENTS_DROPPED,
+        "reason" => err.tag(),
+        "stage" => "validation_abort",
+    )
+    .increment(batch_len as u64);
+    err
+}
+
 fn validate_batch(batch: &Batch) -> Result<(), Error> {
+    let batch_len = batch.batch.len();
     if batch.batch.is_empty() {
-        return Err(Error::EmptyBatch);
+        return Err(count_validation_abort(Error::EmptyBatch, batch_len));
     }
 
     DateTime::parse_from_rfc3339(&batch.created_at).map_err(|_| {
-        Error::InvalidBatch(format!(
-            "created_at is not valid RFC 3339: {}",
-            batch.created_at
-        ))
+        count_validation_abort(
+            Error::InvalidBatch(format!(
+                "created_at is not valid RFC 3339: {}",
+                batch.created_at
+            )),
+            batch_len,
+        )
     })?;
 
     Ok(())
 }
 
 fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<WrappedEvent>, Error> {
-    let mut events: Vec<WrappedEvent> = Vec::with_capacity(batch.batch.len());
-    let mut seen: HashSet<Uuid> = HashSet::with_capacity(batch.batch.len());
+    let batch_len = batch.batch.len();
+    let mut events: Vec<WrappedEvent> = Vec::with_capacity(batch_len);
+    let mut seen: HashSet<Uuid> = HashSet::with_capacity(batch_len);
     let mut illegal_distinct_id_count: u64 = 0;
 
     for event in batch.batch.into_iter() {
         if event.uuid.is_empty() {
-            return Err(Error::MissingEventUuid);
+            return Err(count_validation_abort(Error::MissingEventUuid, batch_len));
         }
-        let uuid = Uuid::parse_str(&event.uuid)
-            .map_err(|_| Error::InvalidEventUuid(event.uuid.clone()))?;
+        let uuid = Uuid::parse_str(&event.uuid).map_err(|_| {
+            count_validation_abort(Error::InvalidEventUuid(event.uuid.clone()), batch_len)
+        })?;
         if !seen.insert(uuid) {
-            return Err(Error::DuplicateEventUuid(event.uuid.clone()));
+            return Err(count_validation_abort(
+                Error::DuplicateEventUuid(event.uuid.clone()),
+                batch_len,
+            ));
         }
 
         let destination = destination_for_event_name(&event.event);
 
         match validate_event(&event) {
             Ok(raw_ts) => {
+                // Options validation: coerce known fields or drop the event.
+                // The malformed-event metric (CAPTURE_V1_PARSED_EVENTS{malformed})
+                // is emitted uniformly by observe_malformed_events, matching the
+                // other validate-stage drops. Per-field detail is deferred to the
+                // sampled verbose-logging mode rather than logged per-event here.
+                let options = match event.options.validate() {
+                    Ok(opts) => opts,
+                    Err(_) => {
+                        events.push(WrappedEvent {
+                            event,
+                            uuid,
+                            options: Options::default(),
+                            adjusted_timestamp: None,
+                            result: EventResult::Drop,
+                            details: Some(DETAIL_INVALID_OPTIONS),
+                            destination,
+                            force_disable_person_processing: false,
+                            is_gateway_verified: false,
+                        });
+                        continue;
+                    }
+                };
+
                 metrics::counter!(CAPTURE_V1_PARSED_EVENTS, "result" => "valid").increment(1);
-                let adjusted = normalize_timestamp(context, &event, raw_ts);
+                let adjusted = normalize_timestamp(
+                    context,
+                    options.disable_skew_correction.unwrap_or(false),
+                    raw_ts,
+                );
                 let illegal = is_distinct_id_illegal(&event.distinct_id);
                 if illegal {
                     illegal_distinct_id_count += 1;
@@ -296,6 +467,7 @@ fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<Wrapped
                 events.push(WrappedEvent {
                     event,
                     uuid,
+                    options,
                     adjusted_timestamp: Some(adjusted),
                     result: EventResult::Ok,
                     details: if illegal {
@@ -312,6 +484,7 @@ fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<Wrapped
                 events.push(WrappedEvent {
                     event,
                     uuid,
+                    options: Options::default(),
                     adjusted_timestamp: None,
                     result: EventResult::Drop,
                     details: Some(err.tag()),
@@ -404,10 +577,10 @@ fn validate_event(event: &Event) -> Result<DateTime<Utc>, Error> {
 
 fn normalize_timestamp(
     context: &RequestContext,
-    event: &Event,
+    disable_skew_correction: bool,
     raw_event_ts: DateTime<Utc>,
 ) -> DateTime<Utc> {
-    if event.options.disable_skew_correction.unwrap_or(false) {
+    if disable_skew_correction {
         return raw_event_ts;
     }
 
@@ -636,7 +809,7 @@ mod tests {
         Pipeline, Restriction, RestrictionManager, RestrictionScope, RestrictionType,
     };
     use crate::v1::analytics::constants::CAPTURE_V1_PATH;
-    use crate::v1::analytics::types::{Batch, Event, Options};
+    use crate::v1::analytics::types::{Batch, Event};
     use crate::v1::sinks::{Destination, DEFAULT_SCATTER_GATHER_MIN_BATCH};
     use crate::v1::test_utils::{
         self, find_by_did, malformed_wrapped_event, raw_obj, valid_event, wrapped_event,
@@ -663,6 +836,37 @@ mod tests {
             "timestamp": "2026-03-19T14:29:58.123Z",
         });
         serde_json::from_str(&json.to_string()).unwrap()
+    }
+
+    /// Runs `f` under a local metrics recorder and returns the recorded
+    /// `capture_v1_events_dropped` counter for the given `reason`+`stage` labels,
+    /// so whole-batch-abort tests can assert the exact per-event drop count.
+    fn dropped_count(reason: &str, stage: &str, f: impl FnOnce()) -> Option<u64> {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        f();
+
+        snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .find_map(|(key, _, _, value)| {
+                if key.key().name() != CAPTURE_V1_EVENTS_DROPPED {
+                    return None;
+                }
+                let labels: std::collections::HashMap<&str, &str> =
+                    key.key().labels().map(|l| (l.key(), l.value())).collect();
+                if labels.get("reason") != Some(&reason) || labels.get("stage") != Some(&stage) {
+                    return None;
+                }
+                match value {
+                    DebugValue::Counter(v) => Some(v),
+                    _ => None,
+                }
+            })
     }
 
     // --- validate_batch ---
@@ -1039,6 +1243,116 @@ mod tests {
         assert!(matches!(err, Error::MissingEventUuid));
     }
 
+    // --- whole-batch abort drop counting ---
+    // Each abort rejects the entire batch, so the dropped-events counter must be
+    // charged the FULL batch length (not 1, and not just the events seen before
+    // the bad one) — that is the per-event loss the single request-level
+    // capture_v1_analytics_error tick can't show.
+
+    #[test]
+    fn duplicate_uuid_abort_counts_whole_batch() {
+        let ctx = test_utils::test_context();
+        let shared = Uuid::new_v4().to_string();
+        // dup is only detected at index 2, but all 3 events are lost.
+        let batch = valid_batch(vec![
+            Event {
+                uuid: shared.clone(),
+                ..valid_event()
+            },
+            Event {
+                uuid: Uuid::new_v4().to_string(),
+                ..valid_event()
+            },
+            Event {
+                uuid: shared,
+                ..valid_event()
+            },
+        ]);
+
+        let count = dropped_count("duplicate_event_uuid", "validation_abort", || {
+            assert!(matches!(
+                validate_events(&ctx, batch).unwrap_err(),
+                Error::DuplicateEventUuid(_)
+            ));
+        });
+        assert_eq!(count, Some(3));
+    }
+
+    #[test]
+    fn invalid_uuid_abort_counts_whole_batch() {
+        let ctx = test_utils::test_context();
+        // bad uuid at index 0; the 2 trailing valid events are lost too.
+        let batch = valid_batch(vec![
+            Event {
+                uuid: "not-a-uuid".to_string(),
+                ..valid_event()
+            },
+            valid_event(),
+            valid_event(),
+        ]);
+
+        let count = dropped_count("invalid_event_uuid", "validation_abort", || {
+            assert!(matches!(
+                validate_events(&ctx, batch).unwrap_err(),
+                Error::InvalidEventUuid(_)
+            ));
+        });
+        assert_eq!(count, Some(3));
+    }
+
+    #[test]
+    fn missing_uuid_abort_counts_whole_batch() {
+        let ctx = test_utils::test_context();
+        let batch = valid_batch(vec![
+            Event {
+                uuid: String::new(),
+                ..valid_event()
+            },
+            valid_event(),
+        ]);
+
+        let count = dropped_count("missing_event_uuid", "validation_abort", || {
+            assert!(matches!(
+                validate_events(&ctx, batch).unwrap_err(),
+                Error::MissingEventUuid
+            ));
+        });
+        assert_eq!(count, Some(2));
+    }
+
+    #[test]
+    fn invalid_batch_abort_counts_whole_batch() {
+        let batch = Batch {
+            created_at: "not-a-timestamp".to_string(),
+            historical_migration: false,
+            capture_internal: None,
+            batch: vec![valid_event(), valid_event(), valid_event()],
+        };
+
+        let count = dropped_count("invalid_batch", "validation_abort", || {
+            assert!(matches!(
+                validate_batch(&batch).unwrap_err(),
+                Error::InvalidBatch(_)
+            ));
+        });
+        assert_eq!(count, Some(3));
+    }
+
+    #[test]
+    fn empty_batch_abort_counts_zero() {
+        // An empty batch loses no events, so the drop counter must not be
+        // inflated (0, whether the series is registered or absent).
+        let batch = valid_batch(vec![]);
+
+        let count = dropped_count("empty_batch", "validation_abort", || {
+            assert!(matches!(
+                validate_batch(&batch).unwrap_err(),
+                Error::EmptyBatch
+            ));
+        });
+        assert_eq!(count.unwrap_or(0), 0);
+    }
+
     #[test]
     fn validate_events_uuid_with_whitespace_trimmed_successfully() {
         let ctx = test_utils::test_context();
@@ -1074,6 +1388,104 @@ mod tests {
         assert_eq!(event.details, Some("malformed_event_properties"));
     }
 
+    #[test]
+    fn validate_events_invalid_options_drops_single_event() {
+        use crate::v1::analytics::types::RawOptions;
+
+        let ctx = test_utils::test_context();
+        let mut good = valid_event();
+        good.uuid = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d".to_string();
+
+        let mut bad = valid_event();
+        bad.uuid = "b1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5e".to_string();
+        bad.options = RawOptions(serde_json::json!({"cookieless_mode": [1, 2, 3]}));
+
+        let batch = Batch {
+            created_at: "2026-03-19T14:30:00.000Z".to_string(),
+            historical_migration: false,
+            capture_internal: None,
+            batch: vec![good, bad],
+        };
+        let events = validate_events(&ctx, batch).unwrap();
+        assert_eq!(events.len(), 2);
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(events[0].details, None);
+
+        assert_eq!(events[1].result, EventResult::Drop);
+        assert_eq!(events[1].details, Some("invalid_options"));
+    }
+
+    #[test]
+    fn validate_events_invalid_options_does_not_fail_batch() {
+        use crate::v1::analytics::types::RawOptions;
+
+        let ctx = test_utils::test_context();
+        let mut ev1 = valid_event();
+        ev1.uuid = "c1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5f".to_string();
+        ev1.options = RawOptions(serde_json::json!({"disable_skew_correction": "not_a_bool"}));
+
+        let mut ev2 = valid_event();
+        ev2.uuid = "d1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c60".to_string();
+        ev2.options = RawOptions(serde_json::json!({"disable_skew_correction": true}));
+
+        let batch = Batch {
+            created_at: "2026-03-19T14:30:00.000Z".to_string(),
+            historical_migration: false,
+            capture_internal: None,
+            batch: vec![ev1, ev2],
+        };
+        let result = validate_events(&ctx, batch);
+        assert!(result.is_ok());
+        let events = result.unwrap();
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[1].result, EventResult::Ok);
+    }
+
+    #[test]
+    fn validate_events_coerced_options_used_for_skew_correction() {
+        use crate::v1::analytics::types::RawOptions;
+
+        let ctx = test_utils::test_context();
+        let mut ev = valid_event();
+        ev.uuid = "e1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c61".to_string();
+        ev.options = RawOptions(serde_json::json!({"disable_skew_correction": 1}));
+
+        let batch = Batch {
+            created_at: "2026-03-19T14:30:00.000Z".to_string(),
+            historical_migration: false,
+            capture_internal: None,
+            batch: vec![ev],
+        };
+        let events = validate_events(&ctx, batch).unwrap();
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(events[0].options.disable_skew_correction, Some(true));
+    }
+
+    #[test]
+    fn validate_events_structural_error_takes_precedence_over_invalid_options() {
+        use crate::v1::analytics::types::RawOptions;
+
+        // An event with BOTH a structural error (empty event name) and
+        // uncoercible options must drop for the structural reason: options
+        // validation only runs after validate_event() passes.
+        let ctx = test_utils::test_context();
+        let mut ev = valid_event();
+        ev.uuid = "f1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c62".to_string();
+        ev.event = String::new();
+        ev.options = RawOptions(serde_json::json!({"cookieless_mode": [1, 2, 3]}));
+
+        let batch = Batch {
+            created_at: "2026-03-19T14:30:00.000Z".to_string(),
+            historical_migration: false,
+            capture_internal: None,
+            batch: vec![ev],
+        };
+        let events = validate_events(&ctx, batch).unwrap();
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].details, Some("missing_event_name"));
+    }
+
     // --- normalize_timestamp ---
 
     fn dt(s: &str) -> DateTime<Utc> {
@@ -1102,31 +1514,12 @@ mod tests {
         }
     }
 
-    fn event_with_disable_skew_correction(disable: bool) -> Event {
-        Event {
-            event: "$pageview".to_string(),
-            uuid: Uuid::new_v4().to_string(),
-            distinct_id: "user-1".to_string(),
-            timestamp: "2026-03-19T11:00:00Z".to_string(),
-            session_id: None,
-            window_id: None,
-            options: Options {
-                cookieless_mode: None,
-                disable_skew_correction: Some(disable),
-                product_tour_id: None,
-                process_person_profile: None,
-            },
-            properties: raw_obj("{}"),
-        }
-    }
-
     #[test]
     fn normalize_no_skew() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::zero());
-        let event = valid_event();
         let event_ts = dt("2026-03-19T11:00:00Z");
-        let result = normalize_timestamp(&ctx, &event, event_ts);
+        let result = normalize_timestamp(&ctx, false, event_ts);
         assert_eq!(result, event_ts);
     }
 
@@ -1134,9 +1527,8 @@ mod tests {
     fn normalize_positive_skew_client_ahead() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::seconds(10));
-        let event = valid_event();
         let event_ts = dt("2026-03-19T11:00:00Z");
-        let result = normalize_timestamp(&ctx, &event, event_ts);
+        let result = normalize_timestamp(&ctx, false, event_ts);
         assert_eq!(result, dt("2026-03-19T10:59:50Z"));
     }
 
@@ -1144,9 +1536,8 @@ mod tests {
     fn normalize_negative_skew_client_behind() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::seconds(-10));
-        let event = valid_event();
         let event_ts = dt("2026-03-19T11:00:00Z");
-        let result = normalize_timestamp(&ctx, &event, event_ts);
+        let result = normalize_timestamp(&ctx, false, event_ts);
         assert_eq!(result, dt("2026-03-19T11:00:10Z"));
     }
 
@@ -1154,9 +1545,8 @@ mod tests {
     fn normalize_clamps_far_future() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::zero());
-        let event = valid_event();
         let event_ts = dt("2026-03-21T12:00:00Z");
-        let result = normalize_timestamp(&ctx, &event, event_ts);
+        let result = normalize_timestamp(&ctx, false, event_ts);
         assert_eq!(result, now);
     }
 
@@ -1164,9 +1554,8 @@ mod tests {
     fn normalize_allows_near_future() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::zero());
-        let event = valid_event();
         let event_ts = dt("2026-03-20T10:00:00Z");
-        let result = normalize_timestamp(&ctx, &event, event_ts);
+        let result = normalize_timestamp(&ctx, false, event_ts);
         assert_eq!(result, event_ts);
     }
 
@@ -1174,9 +1563,8 @@ mod tests {
     fn normalize_disable_skew_correction_skips_adjustment() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::seconds(10));
-        let event = event_with_disable_skew_correction(true);
         let event_ts = dt("2026-03-19T11:00:00Z");
-        let result = normalize_timestamp(&ctx, &event, event_ts);
+        let result = normalize_timestamp(&ctx, true, event_ts);
         assert_eq!(result, event_ts);
     }
 
@@ -1184,9 +1572,8 @@ mod tests {
     fn normalize_disable_skew_correction_false_still_adjusts() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::seconds(10));
-        let event = event_with_disable_skew_correction(false);
         let event_ts = dt("2026-03-19T11:00:00Z");
-        let result = normalize_timestamp(&ctx, &event, event_ts);
+        let result = normalize_timestamp(&ctx, false, event_ts);
         assert_eq!(result, dt("2026-03-19T10:59:50Z"));
     }
 
@@ -2893,6 +3280,234 @@ mod tests {
     }
 
     // =========================================================================
+    // Ingestion warning emission — process_batch with a CollectingEmitter
+    // =========================================================================
+
+    use common_ingestion_warnings::test_support::CollectingEmitter;
+    use common_ingestion_warnings::WarningType;
+
+    /// State wired to a `CollectingEmitter` so tests can assert exactly what
+    /// `process_batch` emitted (type, count, details) without any Kafka.
+    fn state_with_warning_collector() -> (router::State, Arc<CollectingEmitter>) {
+        let collector = Arc::new(CollectingEmitter::new());
+        let state = TestStateBuilder::new()
+            .with_ingestion_warning_emitter(collector.clone())
+            .build()
+            .state;
+        (state, collector)
+    }
+
+    #[tokio::test]
+    async fn warnings_same_tag_drops_dedupe_to_one_emit_without_identifiers() {
+        let (state, collector) = state_with_warning_collector();
+        let mut ctx = test_utils::test_analytics_context();
+        let bad = || Event {
+            event: String::new(),
+            ..valid_event()
+        };
+        let batch = valid_batch(vec![bad(), bad(), bad(), valid_event()]);
+
+        process_batch(&state, &mut ctx, batch).await.unwrap();
+
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1, "same-tag drops must dedupe to one emit");
+        assert_eq!(emitted[0].warning, WarningType::MissingEventName);
+        assert_eq!(emitted[0].count, 3);
+        assert_eq!(emitted[0].token, "phc_test_token");
+        // With multiple affected events, per-event identifiers are ambiguous
+        // and must be omitted; request-level context is always present.
+        assert!(!emitted[0].extra_details.contains_key("distinctId"));
+        assert!(!emitted[0].extra_details.contains_key("eventUuid"));
+        assert_eq!(
+            emitted[0].extra_details.get("path"),
+            Some(&serde_json::json!(CAPTURE_V1_PATH))
+        );
+    }
+
+    #[tokio::test]
+    async fn warnings_single_drop_includes_event_identifiers_and_sdk_info() {
+        let (state, collector) = state_with_warning_collector();
+        let mut ctx = test_utils::test_analytics_context();
+        let bad = Event {
+            event: String::new(),
+            distinct_id: "user-warned".to_string(),
+            ..valid_event()
+        };
+        let bad_uuid = bad.uuid.clone();
+        let batch = valid_batch(vec![bad, valid_event()]);
+
+        process_batch(&state, &mut ctx, batch).await.unwrap();
+
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].count, 1);
+        assert_eq!(
+            emitted[0].extra_details.get("distinctId"),
+            Some(&serde_json::json!("user-warned"))
+        );
+        assert_eq!(
+            emitted[0].extra_details.get("eventUuid"),
+            Some(&serde_json::json!(bad_uuid))
+        );
+        // sdk_info "posthog-rs/1.0.0" from test_context splits into lib fields.
+        assert_eq!(
+            emitted[0].extra_details.get("lib"),
+            Some(&serde_json::json!("posthog-rs"))
+        );
+        assert_eq!(
+            emitted[0].extra_details.get("libVersion"),
+            Some(&serde_json::json!("1.0.0"))
+        );
+    }
+
+    /// A public request can submit a `distinct_id` far larger than
+    /// CAPTURE_V1_DISTINCT_ID_MAX_SIZE — that's exactly what makes it
+    /// `distinct_id_too_large`. The warning must never copy the raw oversized
+    /// value into `details`: it stores a bounded prefix plus the true length
+    /// instead, so a flood of such requests can't inflate warning payload
+    /// size proportional to attacker-controlled input.
+    #[tokio::test]
+    async fn warnings_oversized_distinct_id_is_truncated_in_details() {
+        let (state, collector) = state_with_warning_collector();
+        let mut ctx = test_utils::test_analytics_context();
+        let huge_id = "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE * 100);
+        let bad = Event {
+            distinct_id: huge_id.clone(),
+            ..valid_event()
+        };
+        let batch = valid_batch(vec![bad]);
+
+        process_batch(&state, &mut ctx, batch).await.unwrap();
+
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].warning, WarningType::DistinctIdTooLarge);
+        let stored = emitted[0]
+            .extra_details
+            .get("distinctId")
+            .and_then(|v| v.as_str())
+            .expect("distinctId must be present");
+        assert_eq!(
+            stored.len(),
+            CAPTURE_V1_DISTINCT_ID_MAX_SIZE,
+            "stored distinctId must be bounded regardless of the offending value's size"
+        );
+        assert_eq!(
+            emitted[0].extra_details.get("distinctIdLength"),
+            Some(&serde_json::json!(huge_id.chars().count())),
+            "the true length must still be observable for debugging"
+        );
+    }
+
+    #[tokio::test]
+    async fn warnings_mixed_tags_emit_one_message_per_tag() {
+        let (state, collector) = state_with_warning_collector();
+        let mut ctx = test_utils::test_analytics_context();
+        let missing_name = || Event {
+            event: String::new(),
+            ..valid_event()
+        };
+        let oversized_id = Event {
+            distinct_id: "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE + 1),
+            ..valid_event()
+        };
+        let batch = valid_batch(vec![missing_name(), missing_name(), oversized_id]);
+
+        process_batch(&state, &mut ctx, batch).await.unwrap();
+
+        let counts: HashMap<WarningType, u64> = collector
+            .emitted()
+            .into_iter()
+            .map(|w| (w.warning, w.count))
+            .collect();
+        assert_eq!(
+            counts,
+            HashMap::from([
+                (WarningType::MissingEventName, 2),
+                (WarningType::DistinctIdTooLarge, 1),
+            ])
+        );
+    }
+
+    /// `dropped_performance_event` is legacy cruft deliberately absent from the
+    /// `WarningType::from_tag` allowlist — this locks in that it never emits.
+    #[tokio::test]
+    async fn warnings_excluded_tag_dropped_performance_event_emits_nothing() {
+        let (state, collector) = state_with_warning_collector();
+        let mut ctx = test_utils::test_analytics_context();
+        let perf = Event {
+            event: "$performance_event".to_string(),
+            ..valid_event()
+        };
+        let batch = valid_batch(vec![perf, valid_event()]);
+
+        process_batch(&state, &mut ctx, batch).await.unwrap();
+
+        assert!(collector.emitted().is_empty());
+    }
+
+    #[tokio::test]
+    async fn warnings_fully_valid_batch_emits_nothing() {
+        let (state, collector) = state_with_warning_collector();
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = valid_batch(vec![valid_event(), valid_event()]);
+
+        process_batch(&state, &mut ctx, batch).await.unwrap();
+
+        assert!(collector.emitted().is_empty());
+    }
+
+    #[tokio::test]
+    async fn warnings_batch_abort_emits_once_with_full_batch_count() {
+        let (state, collector) = state_with_warning_collector();
+        let mut ctx = test_utils::test_analytics_context();
+        let shared_uuid = Uuid::new_v4().to_string();
+        let dup_a = Event {
+            uuid: shared_uuid.clone(),
+            ..valid_event()
+        };
+        let dup_b = Event {
+            uuid: shared_uuid,
+            distinct_id: "someone-else".to_string(),
+            ..valid_event()
+        };
+        let batch = valid_batch(vec![dup_a, dup_b, valid_event()]);
+
+        let err = process_batch(&state, &mut ctx, batch).await.unwrap_err();
+        assert!(matches!(err, Error::DuplicateEventUuid(_)));
+
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].warning, WarningType::DuplicateEventUuid);
+        assert_eq!(
+            emitted[0].count, 3,
+            "a batch abort charges the whole batch length"
+        );
+        assert!(
+            !emitted[0].extra_details.contains_key("distinctId"),
+            "no per-event identifiers exist for a whole-batch abort"
+        );
+    }
+
+    #[tokio::test]
+    async fn warnings_empty_batch_abort_charges_count_one_not_zero() {
+        let (state, collector) = state_with_warning_collector();
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = valid_batch(vec![]);
+
+        let err = process_batch(&state, &mut ctx, batch).await.unwrap_err();
+        assert!(matches!(err, Error::EmptyBatch));
+
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].warning, WarningType::EmptyBatch);
+        assert_eq!(
+            emitted[0].count, 1,
+            "an empty-batch abort is one occurrence, never zero"
+        );
+    }
+
+    // =========================================================================
     // Integration-style tests: publish → merge → response flow
     // =========================================================================
     // These tests exercise the same code path as the wired process_batch, but
@@ -3080,10 +3695,11 @@ mod tests {
         let payload = batch_payload(&events);
         let batch: Batch = serde_json::from_slice(&payload).unwrap();
         assert_eq!(batch.batch.len(), 1);
-        assert_eq!(batch.batch[0].options.cookieless_mode, None);
-        assert_eq!(batch.batch[0].options.disable_skew_correction, None);
-        assert_eq!(batch.batch[0].options.product_tour_id, None);
-        assert_eq!(batch.batch[0].options.process_person_profile, None);
+        let opts = batch.batch[0].options.validate().unwrap();
+        assert_eq!(opts.cookieless_mode, None);
+        assert_eq!(opts.disable_skew_correction, None);
+        assert_eq!(opts.product_tour_id, None);
+        assert_eq!(opts.process_person_profile, None);
     }
 
     #[test]
@@ -3092,13 +3708,11 @@ mod tests {
         let payload = batch_payload(&events);
         let batch: Batch = serde_json::from_slice(&payload).unwrap();
         assert_eq!(batch.batch.len(), 1);
-        assert_eq!(batch.batch[0].options.cookieless_mode, Some(true));
-        assert_eq!(batch.batch[0].options.disable_skew_correction, Some(true));
-        assert_eq!(
-            batch.batch[0].options.product_tour_id.as_deref(),
-            Some("tour-v2")
-        );
-        assert_eq!(batch.batch[0].options.process_person_profile, Some(false));
+        let opts = batch.batch[0].options.validate().unwrap();
+        assert_eq!(opts.cookieless_mode, Some(true));
+        assert_eq!(opts.disable_skew_correction, Some(true));
+        assert_eq!(opts.product_tour_id.as_deref(), Some("tour-v2"));
+        assert_eq!(opts.process_person_profile, Some(false));
     }
 
     #[cfg(test)]

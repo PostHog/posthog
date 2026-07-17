@@ -15,6 +15,15 @@
 
 import { Fernet } from 'fernet-nodejs'
 
+/**
+ * Derive a Fernet key exactly as Django does: urlsafe base64, not standard. If a
+ * salt key's base64 contains `+`/`/` the two diverge, `fernet-nodejs` rejects the
+ * key, and the runner can't decrypt Django's ciphertext.
+ */
+function toFernetKey(saltKey: string): string {
+    return Buffer.from(saltKey, 'utf-8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_')
+}
+
 export class EncryptedFields {
     private readonly fernets: Fernet[]
 
@@ -30,7 +39,7 @@ export class EncryptedFields {
         if (keys.length === 0) {
             throw new Error('EncryptedFields: no keys configured (set ENCRYPTION_SALT_KEYS to a 32-byte UTF-8 string)')
         }
-        this.fernets = keys.map((k) => new Fernet(Buffer.from(k, 'utf-8').toString('base64')))
+        this.fernets = keys.map((k) => new Fernet(toFernetKey(k)))
     }
 
     encrypt(value: string): string {
@@ -98,5 +107,56 @@ export class EncryptedFields {
             throw new Error('EncryptedFields.decryptJson: decoded value is not a JSON object')
         }
         return parsed as Record<string, unknown>
+    }
+
+    /**
+     * Decrypt a Django `EncryptedJSONField` (RECURSIVE per-leaf — not the
+     * whole-blob `decryptJson`). Structure stays plaintext JSON; each scalar leaf
+     * was `encrypt(str(value))`, so leaves come back as STRINGS (`3600`→"3600",
+     * `True`→"True"); `null` passes through. Pass the parsed value (node-pg parses
+     * jsonb; JSON.parse a text column first). Mirrors `_decrypt_values`.
+     */
+    decryptJsonFieldValue(value: unknown): unknown {
+        if (value === null || value === undefined) {
+            return value
+        }
+        if (Array.isArray(value)) {
+            return value.map((v) => this.decryptJsonFieldValue(v))
+        }
+        if (typeof value === 'object') {
+            const out: Record<string, unknown> = {}
+            for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+                out[k] = this.decryptJsonFieldValue(v)
+            }
+            return out
+        }
+        if (typeof value === 'string') {
+            return this.decrypt(value)
+        }
+        // Numbers/booleans shouldn't appear at rest (they were str()-ified then
+        // encrypted to a string token), but pass them through if they do.
+        return value
+    }
+
+    /**
+     * Inverse of `decryptJsonFieldValue` for write-back. Mirrors `_encrypt_values`:
+     * each scalar leaf is `str(value)`-ified (bool → "True"/"False") then
+     * encrypted; `null` preserved. `JSON.stringify` the result for the column.
+     */
+    encryptJsonFieldValue(value: unknown): unknown {
+        if (value === null || value === undefined) {
+            return value
+        }
+        if (Array.isArray(value)) {
+            return value.map((v) => this.encryptJsonFieldValue(v))
+        }
+        if (typeof value === 'object') {
+            const out: Record<string, unknown> = {}
+            for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+                out[k] = this.encryptJsonFieldValue(v)
+            }
+            return out
+        }
+        return this.encrypt(typeof value === 'boolean' ? (value ? 'True' : 'False') : String(value))
     }
 }

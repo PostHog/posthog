@@ -34,6 +34,34 @@ ECHO_TOOL='module.exports = {
     },
 }'
 
+# This fixture IS the repo's esbuild output for the typed pipeline's mandated
+# `export default {}` source shape (format:"cjs", loader:"ts", target:"node20")
+# — the compiled.js production tools ship. It exposes the tool object as
+# `.default` via a __toCommonJS getter on module.exports.
+ECHO_DEFAULT_TOOL='var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var stdin_exports = {};
+__export(stdin_exports, {
+  default: () => stdin_default
+});
+module.exports = __toCommonJS(stdin_exports);
+var stdin_default = { id: "echo-default", actions: { default: (args, ctx) => ({ doubled: args.n * 2 }) } };'
+
 # Run a single dispatch scenario:
 #   $1 — request JSON
 #   $2 — node assertion script (reads response.json from $1 argument)
@@ -48,6 +76,9 @@ run_scenario() {
     mkdir -p "$workdir/tools/echo"
     printf '%s' "$ECHO_TOOL" > "$workdir/tools/echo/compiled.js"
     echo '{ "type": "object" }' > "$workdir/tools/echo/schema.json"
+    mkdir -p "$workdir/tools/echo-default"
+    printf '%s' "$ECHO_DEFAULT_TOOL" > "$workdir/tools/echo-default/compiled.js"
+    echo '{ "type": "object" }' > "$workdir/tools/echo-default/schema.json"
     echo '{ "TEST_SECRET": "nonce_smoke_abc" }' > "$workdir/nonces.json"
     printf '%s' "$request_json" > "$workdir/request.json"
     # Bind-mounted dirs keep the host's UID/GID; the in-container `sandbox`
@@ -106,5 +137,13 @@ run_scenario \
 const res = JSON.parse(require("node:fs").readFileSync(process.argv[2], "utf-8"))
 assert.equal(res.ok, false, `expected ok=false, got ${JSON.stringify(res)}`)
 assert.equal(res.error.code, "tool_not_found", `wrong code: ${JSON.stringify(res)}`)'
+
+echo "smoke: scenario 4 — esbuild-CJS default-export tool (typed pipeline shape)" >&2
+run_scenario \
+    '{"toolId":"echo-default","action":"default","args":{"n":21},"timeoutMs":10000}' \
+    'const assert = require("node:assert/strict")
+const res = JSON.parse(require("node:fs").readFileSync(process.argv[2], "utf-8"))
+assert.equal(res.ok, true, `expected ok=true, got ${JSON.stringify(res)}`)
+assert.deepEqual(res.result, { doubled: 42 })'
 
 echo "smoke: PASS — image $IMAGE works end-to-end" >&2

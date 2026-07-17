@@ -1,0 +1,31 @@
+{
+    "name": "@posthog/replay-anonymizer",
+    "version": "0.0.1",
+    "description": "Node bindings for the session-replay anonymizer",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "test": "cargo test -p replay-anonymizer-node",
+        "build": "pnpm run build:cargo --release && pnpm run build:move-lib && pnpm run build:typescript",
+        "build:dev": "pnpm run build:cargo && pnpm run build:move-lib:dev && pnpm run build:typescript",
+        "build:move-lib": "TARGET_DIR=${CARGO_TARGET_DIR:-../target} && cp \"$TARGET_DIR/release/libreplay_anonymizer_node.dylib\" index.node 2>/dev/null || cp \"$TARGET_DIR/release/libreplay_anonymizer_node.so\" index.node || (echo \"No valid library file found in $TARGET_DIR/release/\" && exit 1)",
+        "build:move-lib:dev": "TARGET_DIR=${CARGO_TARGET_DIR:-../target} && cp \"$TARGET_DIR/debug/libreplay_anonymizer_node.dylib\" index.node 2>/dev/null || cp \"$TARGET_DIR/debug/libreplay_anonymizer_node.so\" index.node || (echo \"No valid library file found in $TARGET_DIR/debug/\" && exit 1)",
+        "build:cargo": "cargo build -p replay-anonymizer-node --message-format=json > cargo.log",
+        "build:cargo:debug": "pnpm run build:cargo",
+        "build:typescript": "tsc",
+        "typecheck": "tsc --noEmit",
+        "clean": "rm -rf index.node dist",
+        "package": "NODE_ENV=development pnpm --filter=@posthog/replay-anonymizer run build"
+    },
+    "author": "",
+    "license": "MIT",
+    "devDependencies": {
+        "@types/node": "22.15.17",
+        "typescript": "6.0.3",
+        "undici-types": "^7.3.0"
+    },
+    "files": [
+        "dist",
+        "index.node"
+    ]
+}

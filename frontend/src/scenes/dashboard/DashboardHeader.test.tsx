@@ -1,9 +1,10 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { cleanup, render } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlagVariantKey } from '@posthog/react'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
@@ -11,7 +12,6 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardMode, DashboardType, QueryBasedInsightModel } from '~/types'
 
-import { addTilePickerModalLogic } from './addTilePickerModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { dashboardLogic } from './dashboardLogic'
 
@@ -21,6 +21,12 @@ jest.mock('lib/components/FullScreen', () => ({
 jest.mock('scenes/max/MaxTool', () => ({
     MaxTool: ({ children }: any) => <>{children}</>,
 }))
+jest.mock('@posthog/react', () => ({
+    ...jest.requireActual('@posthog/react'),
+    useFeatureFlagVariantKey: jest.fn(),
+}))
+
+const mockUseFeatureFlagVariantKey = jest.mocked(useFeatureFlagVariantKey)
 
 const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
     id: 5,
@@ -164,25 +170,22 @@ describe('DashboardHeader', () => {
         }
     )
 
-    // The add-tile-picker experiment: the flag must route the Add click to the picker modal in the
-    // `test` variant and to the existing dropdown (never the picker) in control. Guards against the
-    // gating being removed or inverted in DashboardAddTileButton.
     it.each([
-        { variant: 'test' as string | undefined, expectPicker: true },
-        { variant: undefined, expectPicker: false },
-    ])('add button opens picker only for the test variant (variant=$variant)', ({ variant, expectPicker }) => {
-        if (variant) {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_ADD_TILE_PICKER_MODAL], {
-                [FEATURE_FLAGS.DASHBOARD_ADD_TILE_PICKER_MODAL]: variant,
-            })
+        { variant: 'control', showsLabel: false },
+        { variant: 'control_b', showsLabel: false },
+        { variant: 'test', showsLabel: true },
+    ])('$variant variant sets the PostHog AI button label', ({ variant, showsLabel }) => {
+        mockUseFeatureFlagVariantKey.mockReturnValue(variant)
+
+        const { logic } = renderHeader({ dashboard: MOCK_DASHBOARD })
+        const aiButton = document.querySelector('[data-attr="open-context-panel-ai-button"]')
+
+        expect(aiButton).toBeInTheDocument()
+        if (showsLabel) {
+            expect(aiButton).toHaveTextContent('PostHog AI')
+        } else {
+            expect(aiButton).not.toHaveTextContent('PostHog AI')
         }
-
-        const { logic } = renderHeader({})
-        addTilePickerModalLogic.mount()
-
-        fireEvent.click(document.querySelector('[data-attr="dashboard-add-tile"]')!)
-
-        expect(addTilePickerModalLogic.values.addTilePickerModalVisible).toBe(expectPicker)
 
         logic.unmount()
     })

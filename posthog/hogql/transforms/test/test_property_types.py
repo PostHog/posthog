@@ -1,4 +1,5 @@
 import re
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
@@ -14,11 +15,20 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.conf import settings
+from django.test import SimpleTestCase, override_settings
 
+from hypothesis import (
+    HealthCheck,
+    example,
+    given,
+    settings as hypothesis_settings,
+    strategies as st,
+)
+from hypothesis.extra.django import TestCase as HypothesisDjangoTestCase
 from parameterized import parameterized
 
-from posthog.schema import HogQLQueryModifiers
+from posthog.schema import HogQLQueryModifiers, MaterializationMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -35,11 +45,14 @@ from posthog.hogql.property_planner import (
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.test.utils import pretty_print_in_tests
-from posthog.hogql.transforms.property_types import build_property_swapper
+from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.type_system import ComparisonCompatibility
 
-from posthog.models import PropertyDefinition
+from posthog.clickhouse.client import sync_execute
+from posthog.models import PropertyDefinition, Team
+from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE
 from posthog.models.group.util import create_group
+from posthog.models.property.util import get_property_string_expr
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -59,6 +72,156 @@ class FakeMaterializedColumn:
 
 def _normalize_snapshot_sql(sql: str) -> str:
     return "\n".join(line.rstrip() for line in sql.splitlines())
+
+
+class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
+    def _context(self) -> HogQLContext:
+        team = Team(id=1, project_id=1)
+        context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True)
+        context.database = Database()
+        context.restricted_properties = set()
+        context.property_swapper = PropertySwapper("UTC", {}, {}, {}, context, True)
+        return context
+
+    def _print_select(self, select: str) -> str:
+        expr = parse_select(select)
+        context = self._context()
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            query, _ = prepare_and_print_ast(
+                expr,
+                context,
+                "clickhouse",
+            )
+        return pretty_print_in_tests(query, 1)
+
+    def _plan_where_comparison(self, select: str) -> PropertyComparisonPlan:
+        expr = parse_select(select)
+        context = self._context()
+        resolved = cast(ast.SelectQuery, resolve_types(expr, context, dialect="clickhouse"))
+        comparison = cast(ast.CompareOperation, resolved.where)
+        plan = plan_property_comparison(comparison, context)
+        assert plan is not None
+        return plan
+
+    @parameterized.expand(
+        [
+            ("$active_feature_flags", "beta-feature", True),
+            ("$exception_types", "TypeError", False),
+        ]
+    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_property_comparison_planner_uses_json_array_subcolumn_type(
+        self, property_name: str, value: str, has_bloom_filter_index: bool
+    ) -> None:
+        plan = self._plan_where_comparison(f"select count() from events where properties.{property_name} = '{value}'")
+
+        assert plan.access.source.kind == PropertySourceKind.JSON
+        assert plan.access.source.is_nullable is False
+        assert isinstance(plan.access.source.physical_type, ast.ArrayType)
+        assert isinstance(plan.access.source.physical_type.item_type, ast.StringType)
+        assert plan.access.source.has_bloom_filter_index is has_bloom_filter_index
+
+    @parameterized.expand(
+        [
+            ("json_has", "select count() from events where JSONHas(properties, '$active_feature_flags')", "notEmpty"),
+            (
+                "is_set",
+                "select count() from events where properties.$active_feature_flags != null",
+                "notEmpty",
+            ),
+            (
+                "is_not_set",
+                "select count() from events where properties.$active_feature_flags = null",
+                "empty",
+            ),
+            (
+                "exact",
+                "select count() from events where properties.$active_feature_flags = 'beta-feature'",
+                "has",
+            ),
+            (
+                "in",
+                "select count() from events where properties.$active_feature_flags in ('alpha', 'beta')",
+                "hasAny",
+            ),
+            (
+                "icontains",
+                "select count() from events where toString(properties.$active_feature_flags) ILIKE '%beta%'",
+                "arrayExists",
+            ),
+            (
+                "icontains_multi",
+                "select count() from events where multiSearchAnyCaseInsensitive(toString(properties.$active_feature_flags), ['alpha', 'beta']) > 0",
+                "arrayExists",
+            ),
+        ]
+    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_active_feature_flags_use_array_subcolumn(self, _name: str, query: str, expected_function: str) -> None:
+        printed = self._print_select(query)
+
+        assert expected_function in printed, printed
+        assert "events.properties.`$active_feature_flags`" in printed, printed
+        assert "toString(events.properties.`$active_feature_flags`)" not in printed, printed
+        assert "JSONHas(events.properties" not in printed, printed
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_exception_types_use_array_subcolumn(self) -> None:
+        printed = self._print_select("select count() from events where properties.$exception_types = 'TypeError'")
+
+        assert "has(" in printed, printed
+        assert "events.properties.`$exception_types`" in printed, printed
+        assert "toString(events.properties.`$exception_types`)" not in printed, printed
+        assert "JSONExtract" not in printed, printed
+
+    @parameterized.expand(
+        [
+            ("typed_array", "$active_feature_flags"),
+            ("dynamic_array", "custom_array"),
+        ]
+    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_array_value_reads_are_json_strings(self, _name: str, property_name: str) -> None:
+        printed = self._print_select(f"select lower(properties.{property_name}) from events")
+        escaped_property_name = f"`{property_name}`" if property_name.startswith("$") else property_name
+
+        assert f"toJSONString(events.properties.{escaped_property_name})" in printed, printed
+        assert "JSONExtractKeysAndValuesRaw" not in printed, printed
+
+    @parameterized.expand(
+        [
+            ("typed_array", "$active_feature_flags"),
+            ("dynamic_array", "custom_array"),
+        ]
+    )
+    def test_raw_property_helper_reads_only_one_json_subcolumn(self, _name: str, property_name: str) -> None:
+        expression, _ = get_property_string_expr(
+            "events",
+            property_name,
+            "%(property_key)s",
+            "events.properties",
+            use_new_events_schema=True,
+        )
+        escaped_property_name = f"`{property_name}`" if property_name.startswith("$") else property_name
+
+        assert f"events.properties.{escaped_property_name}" in expression
+        assert "toJSONString(events.properties)" not in expression
+
+    @parameterized.expand(
+        [
+            ("$active_feature_flags", "[]"),
+            ("$exception_types", ""),
+        ]
+    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_jsonextract_string_arrays_read_array_subcolumn(self, property_name: str, default_value: str) -> None:
+        printed = self._print_select(
+            f"select JSONExtract(ifNull(properties.{property_name}, '{default_value}'), 'Array(String)') from events"
+        )
+
+        assert f"events.properties.`{property_name}`" in printed, printed
+        assert "JSONExtract" not in printed, printed
+        assert f"toJSONString(events.properties.`{property_name}`)" not in printed, printed
 
 
 class TestPropertyTypes(BaseTest):
@@ -125,6 +288,12 @@ class TestPropertyTypes(BaseTest):
             defaults={"property_type": "Boolean", "group_type_index": 0},
         )
 
+    def _events_schema_snapshot(self):
+        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            return self.snapshot(name="new_events_schema")
+        return self.snapshot
+
     def _plan_where_comparison(
         self,
         select: str,
@@ -171,8 +340,19 @@ class TestPropertyTypes(BaseTest):
         return context, prepared
 
     def test_property_comparison_planner_marks_string_minmax_ready(self) -> None:
-        with materialized("events", "$browser", is_nullable=True, create_minmax_index=True):
-            plan = self._plan_where_comparison("select count() from events where properties.$browser < 'm'")
+        property_name = "$session_id" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "$browser"
+        with materialized("events", property_name, is_nullable=True, create_minmax_index=True):
+            plan = self._plan_where_comparison(f"select count() from events where properties.{property_name} < 'm'")
+
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert plan.access.source.kind == PropertySourceKind.JSON
+            assert plan.access.semantic_type == ast.StringType(nullable=True)
+            assert plan.access.source.physical_type == ast.StringType(nullable=True)
+            assert plan.physical_compatibility == ComparisonCompatibility.DEFINITELY_COMPATIBLE
+            assert plan.can_compare_physical_source_directly is True
+            assert plan.can_use_minmax_index is True
+            assert plan.minmax_blocker is None
+            return
 
         assert plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
         assert plan.access.semantic_type == ast.StringType(nullable=True)
@@ -185,6 +365,17 @@ class TestPropertyTypes(BaseTest):
     def test_property_comparison_planner_blocks_numeric_minmax_until_source_type_matches(self) -> None:
         with materialized("events", "$screen_width", is_nullable=True, create_minmax_index=True):
             plan = self._plan_where_comparison("select count() from events where properties.$screen_width < 5")
+
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert plan.access.source.kind == PropertySourceKind.JSON
+            assert plan.access.semantic_type == ast.FloatType(nullable=True)
+            assert plan.access.source.physical_type == ast.StringType(nullable=True)
+            assert plan.semantic_compatibility == ComparisonCompatibility.CHEAP_CAST
+            assert plan.physical_compatibility == ComparisonCompatibility.EXPENSIVE_CAST
+            assert plan.can_compare_physical_source_directly is False
+            assert plan.can_use_minmax_index is False
+            assert plan.minmax_blocker == PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE
+            return
 
         assert plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
         assert plan.access.semantic_type == ast.FloatType(nullable=True)
@@ -205,6 +396,18 @@ class TestPropertyTypes(BaseTest):
 
         with patch("posthog.hogql.property_planner.get_materialized_column_for_property", return_value=fake_column):
             plan = self._plan_where_comparison("select count() from events where properties.$screen_width < 5")
+
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert plan.access.source.kind == PropertySourceKind.JSON
+            assert plan.access.semantic_type == ast.FloatType(nullable=True)
+            assert plan.access.source.physical_type == ast.StringType(nullable=True)
+            assert plan.semantic_compatibility == ComparisonCompatibility.CHEAP_CAST
+            assert plan.physical_compatibility == ComparisonCompatibility.EXPENSIVE_CAST
+            assert plan.literal_conversion == PropertyLiteralConversion.NONE
+            assert plan.can_compare_physical_source_directly is False
+            assert plan.can_use_minmax_index is False
+            assert plan.minmax_blocker == PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE
+            return
 
         assert plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
         assert plan.access.semantic_type == ast.FloatType(nullable=True)
@@ -227,6 +430,17 @@ class TestPropertyTypes(BaseTest):
             plan = self._plan_where_comparison(
                 "select count() from events where properties.event_time_prop < toDateTime('2024-01-01')"
             )
+
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert plan.access.source.kind == PropertySourceKind.JSON
+            assert plan.access.semantic_type == ast.DateTimeType(nullable=True)
+            assert plan.access.source.physical_type == ast.StringType(nullable=True)
+            assert plan.semantic_compatibility == ComparisonCompatibility.DEFINITELY_COMPATIBLE
+            assert plan.physical_compatibility == ComparisonCompatibility.EXPENSIVE_CAST
+            assert plan.can_compare_physical_source_directly is False
+            assert plan.can_use_minmax_index is False
+            assert plan.minmax_blocker == PropertyMinmaxBlocker.NO_MINMAX_INDEX
+            return
 
         assert plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
         assert plan.access.semantic_type == ast.DateTimeType(nullable=True)
@@ -255,6 +469,18 @@ class TestPropertyTypes(BaseTest):
             plan = self._plan_where_comparison(
                 "select count() from events where properties.event_time_prop < '2024-01-01'"
             )
+
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert plan.access.source.kind == PropertySourceKind.JSON
+            assert plan.access.semantic_type == ast.DateTimeType(nullable=True)
+            assert plan.access.source.physical_type == ast.StringType(nullable=True)
+            assert plan.semantic_compatibility == ComparisonCompatibility.EXPENSIVE_CAST
+            assert plan.physical_compatibility == ComparisonCompatibility.DEFINITELY_COMPATIBLE
+            assert plan.literal_conversion == PropertyLiteralConversion.NONE
+            assert plan.can_compare_physical_source_directly is False
+            assert plan.can_use_minmax_index is False
+            assert plan.minmax_blocker == PropertyMinmaxBlocker.NO_MINMAX_INDEX
+            return
 
         assert plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
         assert plan.access.semantic_type == ast.DateTimeType(nullable=True)
@@ -310,7 +536,7 @@ class TestPropertyTypes(BaseTest):
         printed = self._print_select(
             "select properties.$screen_width * properties.$screen_height, properties.bool from events"
         )
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     def test_property_type_override_beats_detected_type(self):
         PropertyDefinition.objects.get_or_create(
@@ -351,19 +577,19 @@ class TestPropertyTypes(BaseTest):
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_resolve_property_types_combined(self):
         printed = self._print_select("select properties.$screen_width * person.properties.tickets from events")
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_resolve_property_types_event_person_poe_off(self):
         printed = self._print_select("select person.properties.provided_timestamp from events")
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_resolve_property_types_event_person_poe_on(self):
         printed = self._print_select("select person.properties.provided_timestamp from events")
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     def test_resolve_property_types_from_qualified_posthog_events(self):
         # Selecting from the qualified `posthog.events` form must produce the same property-type
@@ -379,7 +605,7 @@ class TestPropertyTypes(BaseTest):
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_group_property_types(self):
         printed = self._print_select("select organization.properties.inty from events")
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -391,7 +617,7 @@ class TestPropertyTypes(BaseTest):
             organization.properties.group_boolean is null
             from events"""
         )
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
         assert (
             "SELECT ifNull(equals(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar), 1), 0), ifNull(equals(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar), 0), 0), isNull(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar))"
             in re.sub(r"%\(hogql_val_\d+\)s", "hogvar", printed)
@@ -465,6 +691,7 @@ class TestPropertyTypes(BaseTest):
             ("to_float_or_zero", "toFloatOrZero(properties.$screen_width)", "toFloat64OrZero"),
             ("to_int_or_zero", "toIntOrZero(properties.$screen_width)", "toInt64OrZero"),
             ("to_float_or_default", "toFloatOrDefault(properties.$screen_width, 0)", "toFloat64OrDefault"),
+            ("to_int_or_default", "toIntOrDefault(properties.$screen_width, 0)", "toInt64OrDefault"),
         ]
     )
     def test_numeric_property_not_double_cast_inside_string_parser(self, _name: str, expr: str, ch_fn: str):
@@ -485,6 +712,32 @@ class TestPropertyTypes(BaseTest):
         printed = self._print_select("select toFloatOrZero(toString(properties.$screen_width)) from events")
         assert "toFloat64OrZero(toString(accurateCastOrNull" in printed
 
+    @parameterized.expand(
+        [
+            ("has", "has(properties.$exception_values, 'x')"),
+            ("hasAny", "hasAny(properties.$exception_values, ['x'])"),
+            ("hasAll", "hasAll(properties.$exception_values, ['x'])"),
+        ]
+    )
+    def test_exception_array_property_extracted_for_array_membership_functions(self, fn_name: str, expr: str):
+        # $exception_* array properties are stored as a raw JSON String once materialized, so passing the
+        # bare column to an array function raises ILLEGAL_TYPE_OF_ARGUMENT. It must first be extracted to
+        # Array(String) — the same wrapping property_to_expr applies to typed exception filters.
+        with materialized("events", "$exception_values"):
+            printed = self._print_select(f"select uuid from events where {expr}")
+        # The membership function receives the property extracted to an array, not the bare String column.
+        # (The 'Array(String)' type literal is parameterized out by the printer, so match structure instead.)
+        assert f"{fn_name}(JSONExtract(ifNull(" in printed
+        assert "events.`mat_$exception_values`" in printed
+        assert f"{fn_name}(events.`mat_$exception_values`" not in printed
+
+    def test_non_exception_array_property_left_untouched(self):
+        # Only the known $exception_* array properties get the wrapping; an ordinary property passed to an
+        # array function must be left untouched so we don't change results elsewhere.
+        with materialized("events", "$browser"):
+            printed = self._print_select("select uuid from events where hasAny(properties.$browser, ['x'])")
+        assert "hasAny(JSONExtract(" not in printed
+
     def _print_select(self, select: str) -> str:
         expr = parse_select(select)
         query, _ = prepare_and_print_ast(
@@ -496,14 +749,25 @@ class TestPropertyTypes(BaseTest):
 
 
 class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
-    def _print_select(self, select: str):
+    def _print_select(self, select: str, restricted_properties: set[tuple[str, int]] | None = None):
         expr = parse_select(select)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        if restricted_properties is not None:
+            context.restricted_properties = restricted_properties
         query, _ = prepare_and_print_ast(
             expr,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            context,
             "clickhouse",
         )
         return pretty_print_in_tests(query, self.team.pk)
+
+    def _assert_typed_jsonextract_fallback(self, printed: str) -> None:
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "JSONExtract" in printed, printed
+            assert "events.properties." in printed, printed
+            assert "JSONExtractKeysAndValuesRaw" not in printed, printed
+        else:
+            assert "JSONExtract(events.properties" in printed, printed
 
     @parameterized.expand(
         [
@@ -514,6 +778,13 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
     def test_jsonextractstring_rewritten_to_mat_column(self, _name: str, query: str):
         with materialized("events", "$browser"):
             printed = self._print_select(query)
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                assert "events_json" in printed, printed
+                assert "properties.`$browser`" in printed, printed
+                assert "mat_$browser" not in printed, printed
+                assert "JSONExtractString(ifNull(toJSONString(" in printed, printed
+                return
+
             assert "mat_$browser" in printed, f"Expected mat_$browser in output, got: {printed}"
             assert "JSONExtractString" not in printed, f"Expected no JSONExtractString, got: {printed}"
 
@@ -522,6 +793,14 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             printed = self._print_select(
                 "select JSONExtractString(properties, '$browser'), JSONExtractString(properties, '$os') from events"
             )
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                assert "events_json" in printed, printed
+                assert "properties.`$browser`" in printed, printed
+                assert "properties.`$os`" in printed, printed
+                assert "mat_" not in printed, printed
+                assert printed.count("JSONExtractString(ifNull(toJSONString(") == 4, printed
+                return
+
             assert "mat_$browser" in printed, printed
             assert "mat_$os" in printed, printed
             assert "JSONExtractString(events.properties" not in printed, printed
@@ -547,6 +826,13 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             printed = self._print_select(
                 "select JSONExtract(properties, 'typed_json_float', 'Nullable(Float64)') from events"
             )
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                assert "events_json" in printed, printed
+                assert "events.properties.typed_json_float" in printed, printed
+                assert "JSONExtract(ifNull(" in printed, printed
+                assert "mat_typed_json_float" not in printed, printed
+                return
+
             assert "mat_typed_json_float" in printed, printed
             assert "JSONExtract(events.properties" not in printed, printed
 
@@ -555,14 +841,26 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             printed = self._print_select(
                 "select JSONExtract(properties, 'typed_json_float', 'Nullable(Float64)') from events"
             )
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                assert "events.properties.typed_json_float" in printed, printed
+                assert "JSONExtract(ifNull(" in printed, printed
+                assert "mat_typed_json_float" not in printed, printed
+                return
+
             assert "mat_typed_json_float" not in printed, printed
-            assert "JSONExtract(events.properties" in printed, printed
+            self._assert_typed_jsonextract_fallback(printed)
 
     def test_typed_jsonextract_rewritten_despite_type_spelling_differences(self):
         with materialized("events", "typed_json_dt", column_type="DateTime64(6, 'UTC')"):
             printed = self._print_select(
                 "select JSONExtract(properties, 'typed_json_dt', 'DateTime64(6,\\'UTC\\')') from events"
             )
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                assert "events.properties.typed_json_dt" in printed, printed
+                assert "JSONExtract(ifNull(" in printed, printed
+                assert "mat_typed_json_dt" not in printed, printed
+                return
+
             assert "mat_typed_json_dt" in printed, printed
             assert "JSONExtract(events.properties" not in printed, printed
 
@@ -571,12 +869,173 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         # column yields NULL, so this rewrite would change results despite looking lossless.
         with materialized("events", "$browser", is_nullable=True):
             printed = self._print_select("select JSONExtract(properties, '$browser', 'String') from events")
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                assert "events.properties.`$browser`" in printed, printed
+                assert "JSONExtract(ifNull(toJSONString(" in printed, printed
+                assert "mat_" not in printed, printed
+                return
+
             assert "mat_" not in printed, printed
 
-    def test_jsonextractint_not_rewritten_even_with_mat_column(self):
+    def test_jsonextractint_rewritten_only_for_new_events_schema(self):
         with materialized("events", "$browser"):
             printed = self._print_select("select JSONExtractInt(properties, '$browser') from events")
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                assert "events.properties.`$browser`" in printed, printed
+                assert "JSONExtractInt(ifNull(toJSONString(" in printed, printed
+                assert "mat_" not in printed, printed
+                return
+
             assert "mat_" not in printed, f"Expected no mat_ column in output, got: {printed}"
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_new_events_schema_jsonextract_rewrites_use_json_subcolumns(self):
+        printed = self._print_select(
+            "select JSONExtractInt(properties, 'metric'), "
+            "JSONExtract(properties, 'score', 'Nullable(Float64)'), "
+            "JSONExtractString(properties, 'email') "
+            "from events"
+        )
+
+        assert "events_json" in printed, printed
+        assert "events.properties.metric" in printed, printed
+        assert "events.properties.score" in printed, printed
+        assert "events.properties.email" in printed, printed
+        assert "JSONExtractInt(ifNull(" in printed, printed
+        assert "JSONExtract(ifNull(" in printed, printed
+        assert "JSONExtractString(ifNull(" in printed, printed
+        assert "toJSONString(events.properties)" not in printed, printed
+        assert "toJSONString(events.properties.^email)" in printed, printed
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_new_events_schema_nested_jsonextractstring_uses_string_default(self):
+        printed = self._print_select("select JSONExtractString(properties, 'metadata', 'score') from events")
+
+        assert "JSONExtractString(ifNull(" in printed, printed
+        assert "events.properties.^metadata" in printed, printed
+        assert "%(hogql_val_0)s" in printed, printed
+        assert "JSONExtractKeysAndValuesRaw" not in printed, printed
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_new_events_schema_jsonextract_non_nullable_type_uses_default(self):
+        printed = self._print_select("select JSONExtract(properties, 'score', 'Float64') from events")
+
+        assert "events.properties.score" in printed, printed
+        assert "JSONExtract(ifNull(" in printed, printed
+        assert "JSONExtractKeysAndValuesRaw" not in printed, printed
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_new_events_schema_jsonextract_array_uses_json_serialized_subcolumn(self):
+        printed = self._print_select(
+            "select JSONExtract(ifNull(properties.arr_field, '[]'), 'Array(String)') from events"
+        )
+
+        assert "events_json" in printed, printed
+        assert "toJSONString(events.properties.arr_field)" in printed, printed
+        assert "toJSONString(events.properties.^arr_field)" in printed, printed
+        assert "JSONExtract(events.properties" not in printed, printed
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_new_events_schema_jsonextract_respects_restricted_properties(self):
+        printed = self._print_select(
+            "select JSONExtractInt(properties, 'secret'), "
+            "JSONExtract(properties, 'secret', 'Nullable(Float64)'), "
+            "JSONExtractString(properties, 'email'), "
+            "JSONHas(properties, 'secret') "
+            "from events",
+            restricted_properties={
+                ("secret", PropertyDefinition.Type.EVENT),
+                ("email", PropertyDefinition.Type.EVENT),
+            },
+        )
+
+        assert "events.properties.secret" not in printed, printed
+        assert "events.properties.email" not in printed, printed
+        assert "JSONDropKeys" not in printed, printed
+        assert "JSONExtractKeysAndValuesRaw" not in printed, printed
+
+    @parameterized.expand(
+        [
+            ("int", "JSONExtractInt(properties, 'metric')", "Int64", "0"),
+            ("uint", "JSONExtractUInt(properties, 'metric')", "UInt64", "0"),
+            ("float", "JSONExtractFloat(properties, 'metric')", "Float64", "0.0"),
+            ("bool", "JSONExtractBool(properties, 'flag')", "Bool", "0"),
+        ]
+    )
+    def test_scalar_jsonextract_uses_original_function_on_json_subcolumn(
+        self, _name: str, expression: str, _cast_type: str, _default_value: str
+    ):
+        printed = self._print_select(f"select {expression} from events")
+        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "events.properties." not in printed, printed
+            return
+
+        property_name = "flag" if "flag" in expression else "metric"
+        assert f"events.properties.{property_name}" in printed, printed
+        assert expression.split("(", 1)[0] in printed, printed
+        assert "JSONExtractKeysAndValuesRaw" not in printed, printed
+
+    def test_scalar_jsonextract_preserves_clickhouse_coercions(self):
+        for tag, value in (
+            ("boolean", True),
+            ("float", 1.5),
+            ("integer", 2),
+            ("numeric_string", "2.5"),
+            ("string", "true"),
+        ):
+            _create_event(
+                team=self.team,
+                distinct_id=tag,
+                event="jsonextract",
+                properties={"tag": tag, "value": value},
+            )
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            "SELECT properties.tag, JSONExtractInt(properties, 'value'), "
+            "JSONExtractBool(properties, 'value'), JSONExtractFloat(properties, 'value') FROM events "
+            "WHERE event = 'jsonextract' ORDER BY properties.tag",
+            team=self.team,
+        )
+
+        assert response.results == [
+            ("boolean", 0, 1, 0.0),
+            ("float", 1, 0, 1.5),
+            ("integer", 2, 1, 2.0),
+            ("numeric_string", 2, 0, 2.5),
+            ("string", 0, 0, 0.0),
+        ]
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert response.clickhouse is not None
+            assert "events.properties.value" in response.clickhouse
+            assert "JSONExtractKeysAndValuesRaw" not in response.clickhouse
+
+    def test_jsonextractraw_typed_array_preserves_missing_default(self):
+        _create_event(
+            team=self.team,
+            distinct_id="array-set",
+            event="jsonextract-array",
+            properties={"tag": "set", "$active_feature_flags": ["flag"]},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="array-missing",
+            event="jsonextract-array",
+            properties={"tag": "missing"},
+        )
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            "SELECT properties.tag, JSONExtractRaw(properties, '$active_feature_flags') FROM events "
+            "WHERE event = 'jsonextract-array' ORDER BY properties.tag",
+            team=self.team,
+        )
+
+        assert response.results == [("missing", ""), ("set", '["flag"]')]
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert response.clickhouse is not None
+            assert "events.properties.`$active_feature_flags`" in response.clickhouse
+            assert "JSONExtractKeysAndValuesRaw" not in response.clickhouse
 
     def _seed_edge_case_events(self):
         _create_event(
@@ -609,6 +1068,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             event="pageview",
             properties={"tag": "unset"},
         )
+        flush_persons_and_events()
 
     def _run_and_collect(
         self, extract_expr: str = "JSONExtractString(properties, '$browser')"
@@ -622,8 +1082,14 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
     def test_rewrite_value_semantics_no_mat_column(self):
         self._seed_edge_case_events()
         values, sql = self._run_and_collect()
-        assert "JSONExtractString(events.properties" in sql, sql
-        assert "mat_$browser" not in sql, sql
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "events_json" in sql, sql
+            assert "events.properties.`$browser`" in sql, sql
+            assert "JSONExtractString(ifNull(toJSONString(" in sql, sql
+            assert "mat_$browser" not in sql, sql
+        else:
+            assert "JSONExtractString(events.properties" in sql, sql
+            assert "mat_$browser" not in sql, sql
         # JSONExtractString returns '' for JSON null (type mismatch), not 'null'.
         # Only JSONExtractRaw returns the literal string 'null' for JSON null.
         assert values == {"set": "Chrome", "empty": "", "null_str": "null", "json_null": "", "unset": ""}
@@ -632,6 +1098,13 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         self._seed_edge_case_events()
         with materialized("events", "$browser", is_nullable=False):
             values, sql = self._run_and_collect()
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "events_json" in sql, sql
+            assert "events.properties.`$browser`" in sql, sql
+            assert "mat_$browser" not in sql, sql
+            assert values == {"set": "Chrome", "empty": "", "null_str": "null", "json_null": "", "unset": ""}
+            return
+
         assert "JSONExtractString(events.properties" not in sql, sql
         assert "mat_$browser" in sql, sql
         # Rewritten call goes through the standard property-access path, so the mat
@@ -643,17 +1116,135 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         self._seed_edge_case_events()
         with materialized("events", "$browser", is_nullable=True):
             values, sql = self._run_and_collect()
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "events_json" in sql, sql
+            assert "events.properties.`$browser`" in sql, sql
+            assert "mat_$browser" not in sql, sql
+            assert values == {"set": "Chrome", "empty": "", "null_str": "null", "json_null": "", "unset": ""}
+            return
+
         assert "JSONExtractString(events.properties" not in sql, sql
         assert "mat_$browser" in sql, sql
         assert values == {"set": "Chrome", "empty": "", "null_str": "null", "json_null": None, "unset": None}
 
     @parameterized.expand([("non_nullable", False), ("nullable", True)])
-    def test_jsonextractstring_synonym_of_properties_access(self, _name: str, is_nullable: bool):
+    def test_jsonextractstring_preserves_function_semantics_with_mat_columns(self, _name: str, is_nullable: bool):
         self._seed_edge_case_events()
         with materialized("events", "$browser", is_nullable=is_nullable):
             extract_values, _ = self._run_and_collect("JSONExtractString(properties, '$browser')")
             access_values, _ = self._run_and_collect("properties.$browser")
-        assert extract_values == access_values
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert extract_values == {
+                "set": "Chrome",
+                "empty": "",
+                "null_str": "null",
+                "json_null": "",
+                "unset": "",
+            }
+            assert extract_values != access_values
+        else:
+            assert extract_values == access_values
+
+
+_JSON_SCHEMA_PARITY_TEXT = st.text(alphabet=st.characters(blacklist_categories=["Cc", "Cs"]), max_size=20)
+
+_JSON_SCHEMA_PARITY_PROPERTIES: st.SearchStrategy[dict[str, object]] = st.fixed_dictionaries(
+    {
+        "dynamic_value": st.one_of(
+            st.booleans(),
+            st.integers(min_value=-1000, max_value=1000),
+            _JSON_SCHEMA_PARITY_TEXT,
+        )
+    },
+    optional={
+        "$active_feature_flags": st.lists(_JSON_SCHEMA_PARITY_TEXT, max_size=3),
+        "$browser": st.one_of(st.none(), st.sampled_from(["", "null", "Chrome", "Firefox"])),
+    },
+)
+
+
+@pytest.mark.skipif(
+    not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+    reason="requires both event tables created by the new-schema CI variant (#63448)",
+)
+class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCase, BaseTest):
+    def _query_properties(self, event_uuid: str, use_new_events_schema: bool) -> tuple[Any, ...]:
+        response = execute_hogql_query(
+            "SELECT properties, properties.dynamic_value, properties.$active_feature_flags, "
+            "JSONHas(properties, '$active_feature_flags'), properties.$browser, JSONHas(properties, '$browser') "
+            f"FROM events WHERE uuid = '{event_uuid}'",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
+            context=HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                use_new_events_schema=use_new_events_schema,
+            ),
+        )
+        assert response.results is not None
+        assert len(response.results) == 1
+        return response.results[0]
+
+    @given(properties=_JSON_SCHEMA_PARITY_PROPERTIES)
+    @example(properties={"dynamic_value": "value"})
+    @example(properties={"dynamic_value": "value", "$active_feature_flags": []})
+    @example(properties={"dynamic_value": "value", "$active_feature_flags": ["flag"]})
+    @example(properties={"dynamic_value": "value", "$browser": None})
+    @example(properties={"dynamic_value": "value", "$browser": ""})
+    @example(properties={"dynamic_value": "value", "$browser": "null"})
+    @hypothesis_settings(
+        max_examples=10,
+        deadline=None,
+        suppress_health_check=[HealthCheck.differing_executors],
+    )
+    def test_property_results_match_except_native_json_storage_defaults(self, properties: dict[str, object]) -> None:
+        event_uuid = _create_event(
+            team=self.team,
+            distinct_id="schema-parity",
+            event="schema-parity",
+            properties=properties,
+        )
+        flush_persons_and_events()
+
+        legacy = self._query_properties(event_uuid, use_new_events_schema=False)
+        native = self._query_properties(event_uuid, use_new_events_schema=True)
+
+        legacy_document = json.loads(legacy[0])
+        native_document = json.loads(native[0])
+        # Native JSON cannot preserve JSON nulls, and declared containers use the same default for missing and empty.
+        expected_native_document = {key: value for key, value in legacy_document.items() if value is not None}
+        if expected_native_document.get("$active_feature_flags") == []:
+            del expected_native_document["$active_feature_flags"]
+
+        assert native_document == expected_native_document
+        assert native[1] == legacy[1]
+
+        browser = properties.get("$browser")
+        assert native[4] == legacy[4]
+
+        flags_present = "$active_feature_flags" in properties
+        flags = properties.get("$active_feature_flags")
+        if flags_present and flags == []:
+            assert legacy[2:4] == ("[]", True)
+            assert native[2:4] == (None, False)
+        else:
+            assert native[2:4] == legacy[2:4]
+
+        if "$browser" in properties and browser is None:
+            assert legacy[5] == 1
+            assert native[5] == 0
+        else:
+            assert native[5] == legacy[5]
+
+        raw_native_document = json.loads(
+            sync_execute(
+                f"SELECT toJSONString(properties) FROM {DISTRIBUTED_EVENTS_JSON_TABLE} WHERE uuid = %(uuid)s",
+                {"uuid": event_uuid},
+            )[0][0]
+        )
+        # Typed paths physically exist with defaults even when the captured document omitted them.
+        assert raw_native_document["$active_feature_flags"] == properties.get("$active_feature_flags", [])
+        assert raw_native_document["$browser"] == properties.get("$browser")
 
 
 # ── Timezone index pruning tests ──────────────────────────────────────────────
@@ -697,6 +1288,16 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
                 )
         flush_persons_and_events()
 
+    def _events_table_ref(self) -> str:
+        return "events_json" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
+
+    def _assert_primary_key_uses_timestamp_range(self, primary_key: dict) -> None:
+        pk_keys = primary_key.get("Keys", [])
+        expected_timestamp_key = "timestamp" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "toDate(timestamp)"
+        assert any(expected_timestamp_key in key for key in pk_keys), (
+            f"Expected PK to use {expected_timestamp_key}, got Keys={pk_keys}"
+        )
+
     def _compile_hogql(self, hogql: str, timezone: str = "UTC") -> tuple[str, dict]:
         self.team.timezone = timezone
         self.team.save()
@@ -716,7 +1317,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
     def test_bare_timestamp_prunes_partition_and_primary_key(self):
         """Bare timestamp comparisons allow partition and primary key pruning."""
         sql = (
-            f"SELECT count() FROM events "
+            f"SELECT count() FROM {self._events_table_ref()} "
             f"WHERE team_id = {self.team.pk} "
             f"AND timestamp >= '2024-03-01' AND timestamp < '2024-04-01'"
         )
@@ -730,10 +1331,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
 
         primary_key = _get_index_by_type(indexes, "PrimaryKey")
         assert primary_key is not None
-        pk_keys = primary_key.get("Keys", [])
-        assert any("toDate(timestamp)" in k for k in pk_keys), (
-            f"PrimaryKey should use toDate(timestamp), got Keys={pk_keys}"
-        )
+        self._assert_primary_key_uses_timestamp_range(primary_key)
         assert primary_key.get("Condition") != "true"
 
     @parameterized.expand(["UTC", "America/New_York"])
@@ -746,7 +1344,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         entirely (PropertySwapper.visit_compare_operation).
         """
         sql = (
-            f"SELECT count() FROM events "
+            f"SELECT count() FROM {self._events_table_ref()} "
             f"WHERE team_id = {self.team.pk} "
             f"AND toTimeZone(timestamp, '{tz}') >= '2024-03-01' "
             f"AND toTimeZone(timestamp, '{tz}') < '2024-04-01'"
@@ -777,10 +1375,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
 
         primary_key = _get_index_by_type(indexes, "PrimaryKey")
         assert primary_key is not None
-        pk_keys = primary_key.get("Keys", [])
-        assert any("toDate(timestamp)" in k for k in pk_keys), (
-            f"Expected PK to use toDate(timestamp), got Keys={pk_keys}"
-        )
+        self._assert_primary_key_uses_timestamp_range(primary_key)
 
     def test_toTimeZone_stripped_from_where_but_kept_in_select(self):
         """toTimeZone should be stripped from top-level WHERE range comparisons
@@ -945,6 +1540,18 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
 
         hogql = "SELECT count() FROM events WHERE event = 'lhi_test' AND timestamp >= '2024-01-16' AND timestamp < '2024-01-17'"
         self._assert_correct_results(hogql, timezone="Australia/Lord_Howe", expected_count=2)
+
+    @parameterized.expand(["UTC", "America/New_York", "Asia/Tokyo"])
+    def test_iso8601_z_suffixed_filter_value_does_not_error(self, tz):
+        """ISO 8601 filter values with a trailing `Z` must parse (not hit the strict
+        toDateTime64 parser, which throws) and honor the UTC offset regardless of the
+        team timezone — so all three timezones select the same three UTC instants."""
+        hogql = (
+            "SELECT count() FROM events WHERE event = '$pageview' "
+            "AND timestamp >= '2024-03-12T00:00:00.000Z' "
+            "AND timestamp < '2024-03-15T00:00:00.000Z'"
+        )
+        self._assert_correct_results(hogql, timezone=tz, expected_count=3)
 
     def test_constant_gets_timezone_annotation(self):
         """Bare string constants get wrapped with toDateTime64(..., 6, tz)."""

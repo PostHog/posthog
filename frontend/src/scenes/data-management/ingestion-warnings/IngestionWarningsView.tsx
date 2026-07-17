@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
+import * as readingIsMagicPng from '@posthog/brand/hoggies/png/reading-is-magic'
 import { IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { ReadingHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -21,6 +22,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { IngestionWarning, IngestionWarningSummary, ingestionWarningsLogic } from './ingestionWarningsLogic'
 
+const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
+
 export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',
     cannot_merge_with_illegal_distinct_id: 'Refused to merge with an illegal distinct id',
@@ -35,6 +38,19 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     set_on_exception: '$set or $set_once is ignored on exception events and should not be sent',
     schema_validation_failed: 'Event rejected due to schema validation failure',
     invalid_heatmap_data: 'Invalid heatmap data',
+    // Emitted by the capture service when it drops events at validation time
+    missing_event_name: 'Discarded event with no event name',
+    event_name_too_long: 'Discarded event whose name exceeds the length limit',
+    missing_distinct_id: 'Discarded event with no distinct ID',
+    distinct_id_too_large: 'Discarded event whose distinct ID exceeds the size limit',
+    invalid_event_timestamp: 'Discarded event with an invalid timestamp',
+    malformed_event_properties: 'Discarded event with malformed properties',
+    invalid_options: 'Discarded event with invalid capture options',
+    empty_batch: 'Rejected a request containing no events',
+    invalid_batch: 'Rejected a batch with invalid metadata',
+    missing_event_uuid: 'Rejected a batch containing an event with no UUID',
+    invalid_event_uuid: 'Rejected a batch containing an event with an invalid UUID',
+    duplicate_event_uuid: 'Rejected a batch containing duplicate event UUIDs',
 }
 
 // Explicit anchor on https://posthog.com/docs/data/ingestion-warnings for each warning type.
@@ -56,7 +72,7 @@ export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     invalid_heatmap_data: 'invalid-heatmap-data',
 }
 
-const WARNING_TYPE_RENDERER = {
+export const WARNING_TYPE_RENDERER = {
     cannot_merge_already_identified: function Render(warning: IngestionWarning): JSX.Element {
         const details = warning.details as {
             sourcePersonDistinctId: string
@@ -286,7 +302,7 @@ const WARNING_TYPE_RENDERER = {
                 distinct_id <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link> (event
                 uuid: <code>{details.eventUuid}</code>):
                 <ul>
-                    {details.errors.map((error, index) => (
+                    {(details.errors ?? []).map((error, index) => (
                         <li key={index}>
                             {error.reason === 'missing_required' ? (
                                 <>
@@ -330,7 +346,7 @@ export function IngestionWarningsView(): JSX.Element {
                     titleOverride="Nice! No ingestion warnings in the past 30 days"
                     description="Your incoming events look clean. If we detect any issues with your data, we'll show them here."
                     docsURL="https://posthog.com/docs/data/data-management#ingestion-warnings"
-                    customHog={ReadingHog}
+                    customHog={HedgehogReadingIsMagic}
                     actionElementOverride={
                         <LemonButton
                             type="primary"

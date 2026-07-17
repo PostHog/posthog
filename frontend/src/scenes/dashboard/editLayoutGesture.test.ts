@@ -1,5 +1,6 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
 
+import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import {
     continueDragGestureInEditMode,
     continueResizeGestureInEditMode,
@@ -23,8 +24,13 @@ describe('editLayoutGesture', () => {
             ['w', 0, 195, 'sw'],
             ['e', 300, 10, 'ne'],
             ['e', 300, 195, 'se'],
+            // Corner presses pass through directly, ignoring the edge-upgrade thresholds.
+            ['nw', 150, 100, 'nw'],
+            ['ne', 150, 100, 'ne'],
+            ['sw', 150, 100, 'sw'],
+            ['se', 150, 100, 'se'],
         ])('maps edge %s at (%i, %i) to handle %s', (edge, clientX, clientY, expected) => {
-            expect(resolveResizeHandleDirection(edge as 'n' | 's' | 'w' | 'e', rect, clientX, clientY)).toBe(expected)
+            expect(resolveResizeHandleDirection(edge as EditModeEdge, rect, clientX, clientY)).toBe(expected)
         })
     })
 

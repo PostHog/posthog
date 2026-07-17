@@ -50,12 +50,16 @@ import {
     BundleStore,
     buildSystemPrompt,
     buildAskerIdentity,
+    type IngressRoutingMode,
     ConversationMessage,
     CredentialBroker,
     createLogger,
+    extractGatewayRequestId,
     FRAMEWORK_PROMPT_VERSION,
+    GATEWAY_REQUEST_ID_HEADER,
     GatewayCatalog,
     GatewayClient,
+    gatewaySettledCost,
     generationSpanId,
     HttpFetcher,
     IdentityCredentialStore,
@@ -78,18 +82,27 @@ import {
     SLACK_BOT_TOKEN_KEY,
     SlackStatusReporter,
     slackTextFromContent,
+    resolveToolRefApprovalLevel,
     TabularStore,
     ToolContext,
     toolSpanId,
     WebSearchProvider,
 } from '@posthog/agent-shared'
+import { nativeToolApprovalClass } from '@posthog/agent-tools'
 
 import { approvalMarkerRequestId, ApprovalPolicy, dispatchApprovedResult, queueApprovalResult } from './approval'
 import { AgentToolDeps, buildAgentTools, MetaControl, RealToolExecute, ToolResultDetails } from './build-agent-tools'
 import { fallbackStreamFn, ResolvedModel } from './fallback-stream'
+import { assertToolsGated, gateTool, QueueGated } from './gate-tool'
 import { resolveMaxOutputTokens } from './max-output-tokens'
 import type { McpOpenFailure, OpenedMcp } from './mcp-clients'
-import { lookupMcpToolApproval } from './mcp-tool-lookup'
+import {
+    isProxyReadOnlyHelper,
+    lookupMcpToolApproval,
+    PREFIX_SEPARATOR,
+    proxiedPrefixesFromCallTools,
+    resolveApprovedExecutor,
+} from './mcp-tool-lookup'
 import { providerSafeName } from './provider-safe-names'
 
 /** The model id that served the most recent assistant turn, if any. Seeds the
@@ -250,7 +263,13 @@ export interface RunSessionDeps {
     identityLinks?: IdentityLinkStateStore
     /** Resolves a non-slack principal to its AgentUser id for linking. */
     identities?: IdentityStore
-    /** OAuth callback base; `/link/<provider>/callback` is appended. */
+    /** Agent slug — the OAuth link callback host in domain mode is `<slug><domainSuffix>`. */
+    applicationSlug?: string
+    /** Ingress routing mode; mirrors the ingress `ROUTING_MODE`. Defaults to `path`. */
+    routingMode?: IngressRoutingMode
+    /** Domain suffix for domain mode (e.g. `.agents.us.posthog.com`). */
+    domainSuffix?: string
+    /** Flat ingress base URL for the OAuth link callback in `path` mode (dev). */
     linkRedirectBaseUrl?: string
 }
 
@@ -287,7 +306,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({
             id: f.ref.id,
             category: f.category,
-            authorizeUrl: f.authorizeUrl,
+            provider: f.provider,
         })),
         slackReplyRelay: slackReply !== null,
     })
@@ -457,6 +476,9 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 http: deps.http,
                 secret: (name) => deps.secrets[name],
                 posthogApiBaseUrl: deps.posthogApiBaseUrl,
+                slug: deps.applicationSlug ?? '',
+                routingMode: deps.routingMode,
+                domainSuffix: deps.domainSuffix,
                 linkRedirectBaseUrl: deps.linkRedirectBaseUrl,
                 log,
             })
@@ -482,7 +504,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             posthogApiBaseUrl: deps.posthogApiBaseUrl,
             gatewayCatalog: deps.gatewayCatalog,
         }
-        const { tools, nameToId } = await buildAgentTools(rev, toolDeps)
+        const { tools, nameToId, mcpProxyCallTools } = await buildAgentTools(rev, toolDeps)
 
         await emit('session_started', {
             team_id: session.team_id,
@@ -528,10 +550,10 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         let lastOutput: unknown = null
         const toolStarts = new Map<string, { args: Record<string, unknown>; t0: number }>()
 
-        // Keep each tool's real execute, then swap gated tools for the queue path.
-        // The real execute is what an approved call runs on resume (the human has
-        // already cleared the gate). `approvals` is mandatory (runSession throws
-        // otherwise), so gating is unconditional — there is no ungated fast path.
+        // Keep each tool's real execute (what an approved call runs on resume,
+        // once the human has cleared the gate), then rebuild every tool through
+        // `gateTool`. `approvals` is mandatory (runSession throws otherwise), so
+        // gating is unconditional — there is no ungated fast path.
         const realExecute = new Map<string, RealToolExecute>()
         for (const tool of tools) {
             // Tools are named with their original id.
@@ -539,8 +561,102 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         }
         {
             const approvals = deps.approvals
-            for (const tool of tools) {
+            // pi-agent-core Promise.alls a turn's tool calls, so two gated
+            // calls in one turn would both pass the max_open_approvals count
+            // check before either row lands. Chain the count+insert critical
+            // section instead so a session's gated writes serialize in-process.
+            // This is a single-worker best-effort lock, NOT a hard guarantee:
+            // the stuck-running reaper (`reapStuckRunning`) can requeue a
+            // slow-but-alive session on a time threshold with no fencing, so two
+            // workers may briefly run one session, each with its own chain. The
+            // cap can then overshoot — bounded and self-correcting once a
+            // decision frees a slot (see the TOCTOU note in approval.ts). A hard
+            // cap would need SQL-level enforcement or a claim lease/fence token.
+            let gateChain: Promise<unknown> = Promise.resolve()
+            // Shared by every lane's resolver below. Every gated call queues for
+            // a human decision — being the asker is not consent to the specific
+            // call (the model could have been steered by content it read).
+            // `toolName` is what the approval row records.
+            const queueGated: QueueGated = async (toolName, toolCallId, args, policy) => {
+                const run = gateChain.then(() =>
+                    queueApprovalResult({
+                        approvals,
+                        buildApprovalUrl: deps.buildApprovalUrl,
+                        session,
+                        revisionId: rev.id,
+                        turn,
+                        toolName,
+                        toolCallId,
+                        args,
+                        policy,
+                        maxOpenApprovals: rev.spec.limits.max_open_approvals,
+                    })
+                )
+                gateChain = run.catch(() => undefined)
+                const queued = await run
+                // `principal` + Slack: post Approve/Reject buttons in-thread
+                // (best-effort; skip a deduped re-queue).
+                const reqId = queued.details?.requestId
+                if (slackReply && policy.type === 'principal' && reqId && !queued.details?.deduped) {
+                    void postSlackApprovalButtons(deps.http, {
+                        token: deps.secrets[SLACK_BOT_TOKEN_KEY],
+                        channel: slackReply.channel,
+                        thread_ts: slackReply.thread_ts,
+                        sessionId: session.id,
+                        requestId: reqId,
+                        toolName,
+                        logger: {
+                            warn: (meta, msg) => log('warn', msg, meta),
+                            info: (meta, msg) => log('info', msg, meta),
+                        },
+                    }).catch(() => {})
+                }
+                return queued
+            }
+
+            // Prefixes whose connection is proxied (`<prefix>__call_tool` exists),
+            // so the synthetic read-only helpers below can be recognised as ours.
+            const proxiedPrefixes = proxiedPrefixesFromCallTools(mcpProxyCallTools.keys())
+
+            for (let i = 0; i < tools.length; i++) {
+                const tool = tools[i]
                 const id = tool.name
+                // Proxy `call_tool` gates dynamically: the underlying tool is
+                // only known at call time (the `tool_name` arg), so re-key the
+                // gate on `<prefix>__<tool_name>` per call.
+                const proxyEntry = mcpProxyCallTools.get(id)
+                if (proxyEntry) {
+                    tools[i] = gateTool(
+                        tool,
+                        (_toolCallId, args) => {
+                            const raw = typeof args.tool_name === 'string' ? args.tool_name : ''
+                            // Resolve the same way `call_tool` will at dispatch time
+                            // (mcp-proxy.ts `resolveProxyRemoteName`): prefer the raw
+                            // name when it exists in the exposed catalog, only strip
+                            // `<prefix>__` when the stripped name does. Gate and dispatch
+                            // must key on the same name or one tool gates while another runs.
+                            const remoteName = proxyEntry.resolveRemoteName(raw)
+                            const exposedName = `${proxyEntry.client.prefix}${PREFIX_SEPARATOR}${remoteName}`
+                            const gate = lookupMcpToolApproval(exposedName, rev.spec)
+                            return gate?.requires_approval
+                                ? { gate: true, toolName: exposedName, policy: gate.approval_policy }
+                                : { gate: false }
+                        },
+                        queueGated
+                    )
+                    continue
+                }
+                // Synthetic proxy read-only helpers (`explore_tools` /
+                // `get_tool_schema`) for a PROXIED connection are ungated catalog/
+                // schema browsing — gating them would block enumeration on a human
+                // and defeat the proxy. The blanket exemption was removed from
+                // `lookupMcpToolApproval` (which can't tell a synthetic helper from
+                // a real same-named tool); the proxy-aware check lives here.
+                if (isProxyReadOnlyHelper(id, proxiedPrefixes)) {
+                    tools[i] = gateTool(tool, () => ({ gate: false }), queueGated)
+                    continue
+                }
+
                 // Native + custom tools carry their approval policy on
                 // `spec.tools[]`. MCP tools materialise at session start
                 // from `client.listTools()` so they can't appear there;
@@ -549,7 +665,17 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 // Client tools have no approval field today so they skip
                 // either path. (PR 7 — runtime-mcps.md "Resolved design".)
                 const ref = rev.spec.tools.find((t) => t.id === id)
-                const nativeRef = ref && ref.kind !== 'client' && ref.requires_approval ? ref : null
+                // The effective approval level FLOORS the spec's `requires_approval`:
+                // a mutating native tool (intrinsic class `approve`, e.g.
+                // `@posthog/memory-write`) is gated even when the author left
+                // `requires_approval` false. Authors may tighten (set
+                // `requires_approval`), never loosen below intrinsic.
+                const nativeRef =
+                    ref &&
+                    ref.kind !== 'client' &&
+                    resolveToolRefApprovalLevel(ref, { nativeApprovalClass: nativeToolApprovalClass }) === 'approve'
+                        ? ref
+                        : null
                 // Only fall through to MCP lookup when there's NO `spec.tools`
                 // entry at all. A `client` tool whose id collides with an
                 // MCP-exposed `<prefix>__<remote>` name is an author bug —
@@ -563,53 +689,17 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     : mcpGate?.requires_approval
                       ? mcpGate.approval_policy
                       : null
-                if (policy) {
-                    tool.execute = async (toolCallId, args) => {
-                        // Every gated call queues — there is no auto-dispatch.
-                        // Being the asker is not consent to the specific call the
-                        // model emitted (a prompt injection in content the agent
-                        // read could have steered it), so a deterministic human
-                        // decision is always required: `principal` clears it via
-                        // the ingress decision API, `agent` via the console.
-                        const queued = await queueApprovalResult({
-                            approvals,
-                            buildApprovalUrl: deps.buildApprovalUrl,
-                            session,
-                            revisionId: rev.id,
-                            // `turn` is the live counter — at call time it's the
-                            // turn that proposed this gated call.
-                            turn,
-                            toolName: id,
-                            toolCallId,
-                            args: (args ?? {}) as Record<string, unknown>,
-                            policy,
-                        })
-                        // For a `principal` approval on a Slack session, post
-                        // Approve/Reject buttons into the thread so the session
-                        // owner can decide in-place (the ingress interactivity
-                        // handler enforces principal-match on the click). Skip on
-                        // a deduped re-queue so we don't spam the same buttons.
-                        // Best-effort — a Slack hiccup must not break the loop.
-                        const reqId = queued.details?.requestId
-                        if (slackReply && policy.type === 'principal' && reqId && !queued.details?.deduped) {
-                            void postSlackApprovalButtons(deps.http, {
-                                token: deps.secrets[SLACK_BOT_TOKEN_KEY],
-                                channel: slackReply.channel,
-                                thread_ts: slackReply.thread_ts,
-                                sessionId: session.id,
-                                requestId: reqId,
-                                toolName: id,
-                                logger: {
-                                    warn: (meta, msg) => log('warn', msg, meta),
-                                    info: (meta, msg) => log('info', msg, meta),
-                                },
-                            }).catch(() => {})
-                        }
-                        return queued
-                    }
-                }
+                tools[i] = gateTool(
+                    tool,
+                    () => (policy ? { gate: true, toolName: id, policy } : { gate: false }),
+                    queueGated
+                )
             }
         }
+
+        // Fail-closed: every tool must be `gateTool`-branded before dispatch
+        // (see gate-tool.ts).
+        assertToolsGated(tools)
 
         const sink: AgentEventSink = async (event: AgentEvent): Promise<void> => {
             switch (event.type) {
@@ -800,11 +890,11 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                     phc: deps.gatewayUsage.phc,
                                 })
                                 if (usage) {
-                                    const cost = Number(usage.cost_usd)
-                                    if (Number.isFinite(cost)) {
+                                    const settled = gatewaySettledCost(usage)
+                                    if (settled) {
                                         session.usage_total = {
                                             ...session.usage_total,
-                                            cost_total: session.usage_total.cost_total + cost,
+                                            cost_total: session.usage_total.cost_total + settled.usd,
                                         }
                                     } else {
                                         runLog.warn(
@@ -916,12 +1006,12 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                             phc: deps.gatewayUsage.phc,
                         })
                         if (usage) {
-                            const cost = Number(usage.cost_usd)
+                            const settled = gatewaySettledCost(usage)
                             session.usage_total = {
                                 ...session.usage_total,
                                 tokens_in: session.usage_total.tokens_in + (usage.input_tokens ?? 0),
                                 tokens_out: session.usage_total.tokens_out + (usage.output_tokens ?? 0),
-                                cost_total: session.usage_total.cost_total + (Number.isFinite(cost) ? cost : 0),
+                                cost_total: session.usage_total.cost_total + (settled?.usd ?? 0),
                             }
                         }
                     } catch (err) {
@@ -1125,7 +1215,12 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                 // dispatch (tracked follow-up).
                                 const d = await dispatchApprovedResult({
                                     approvals: deps.approvals,
-                                    realExecute: realExecute.get(row.tool_name),
+                                    // A proxy-routed row is keyed `<prefix>__<remoteName>` (the gate
+                                    // re-keyed onto the underlying tool) but its executor is the
+                                    // connection's `call_tool`, whose args are the row's stored args.
+                                    // resolveApprovedExecutor falls back to it so the approved call
+                                    // actually replays instead of erroring "unknown tool".
+                                    realExecute: resolveApprovedExecutor(row.tool_name, realExecute, mcpProxyCallTools),
                                     row,
                                 })
                                 // Secure the wake before observability so a failing
@@ -1356,6 +1451,9 @@ function sanitizingStreamFn(base: StreamFn, safeToOriginal: Map<string, string>)
 export function sanitizeOutboundContext<T extends { tools?: Array<{ name: string }>; messages?: Message[] }>(
     context: T
 ): T {
+    // Provider-wire projection (the tool schemas the model sees), NOT the
+    // executable dispatch array — the `{ ...t }` spread drops the gate brand.
+    // If you ever dispatch off this result, re-gate it first.
     return {
         ...context,
         tools: context.tools?.map((t) => ({ ...t, name: providerSafeName(t.name) })),
@@ -1401,11 +1499,13 @@ export function translateAssistantNamesBack(
  *
  * The usage lookup keys off the GATEWAY's id, not ours. The gateway mints its
  * own settlement reference server-side — a client-chosen id would let a caller
- * collapse every debit as a duplicate — and returns it in the `X-Request-ID`
- * response header; it ignores any inbound `X-Request-Id`. We read it back via
- * pi-ai's `onResponse` (header keys are lowercased). Keying off the
- * runner-chosen id never matched the ledger → `getUsage` 404'd every turn and
- * cost stayed $0. A missing header (no `onResponse`, gateway misroute) just
+ * collapse every debit as a duplicate — and returns it in the response header
+ * named by `GATEWAY_REQUEST_ID_HEADER` (agent-shared's `gateway-wire`); it
+ * ignores any inbound `X-Request-Id`. We read it back via
+ * `extractGatewayRequestId` off pi-ai's `onResponse` (header keys are
+ * lowercased) — the SAME function `gateway-client.ts`'s settled-cost lookup
+ * builds its URL from (`gatewayUsagePath`), so the two sides can't key on
+ * different ids. A missing header (no `onResponse`, gateway misroute) just
  * leaves the turn's entry unset → cost merge is skipped (fail-open).
  */
 function gatewayMetadataStreamFn(
@@ -1414,6 +1514,7 @@ function gatewayMetadataStreamFn(
     gatewayHeaders: Record<string, string> | undefined,
     turnRequestIds: Map<number, string>
 ): StreamFn {
+    const log = createLogger('runner')
     let outboundTurn = 0
     return async (model, context, options) => {
         outboundTurn++
@@ -1424,9 +1525,21 @@ function gatewayMetadataStreamFn(
             ...options,
             headers: { ...gatewayHeaders, ...options?.headers, 'Idempotency-Key': idempotencyKey },
             onResponse: async (response, m) => {
-                const id = response.headers['x-request-id']
+                const id = extractGatewayRequestId(response.headers)
                 if (id) {
                     turnRequestIds.set(turnIndex, id)
+                } else if (response.headers[GATEWAY_REQUEST_ID_HEADER]) {
+                    // Header present but rejected by the charset guard → no settlement
+                    // id, so this turn's cost silently won't settle. Surface it as a
+                    // diagnosable gap rather than a phantom $0 (per review).
+                    log.warn(
+                        {
+                            session_id: sessionId,
+                            turn: turnIndex,
+                            rejected: String(response.headers[GATEWAY_REQUEST_ID_HEADER]).slice(0, 64),
+                        },
+                        'gateway.request_id.rejected'
+                    )
                 }
                 await priorOnResponse?.(response, m)
             },

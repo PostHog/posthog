@@ -1,7 +1,5 @@
-import enum
 import dataclasses
 from datetime import timedelta
-from typing import get_args
 
 from django.conf import settings
 
@@ -10,14 +8,13 @@ import structlog
 import temporalio
 import posthoganalytics
 
-from posthog.schema import SignalInput, SignalRemediation
-
 from posthog.event_usage import groups
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
+from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.models import SignalSourceConfig
 
 logger = structlog.get_logger(__name__)
@@ -175,37 +172,16 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
     return blocked
 
 
-def _get_field_values(field: pydantic.fields.FieldInfo) -> tuple[str, ...]:
-    """Extract all possible values for a Pydantic field (Literal, StrEnum, or default)."""
-    args = get_args(field.annotation)
-    if args:
-        return args
-    if isinstance(field.annotation, type) and issubclass(field.annotation, enum.Enum):
-        return tuple(m.value for m in field.annotation)
-    if field.default is not pydantic.fields.PydanticUndefined:
-        return (field.default,)
-    return ()
-
-
-# Build a lookup from (source_product, source_type) -> variant model class
-# so we can validate signals without needing the synthetic discriminator tag.
-_SIGNAL_VARIANT_LOOKUP: dict[tuple[str, str], type[pydantic.BaseModel]] = {}
-for _variant_type in get_args(SignalInput.model_fields["root"].annotation):
-    _product_field = _variant_type.model_fields.get("source_product")
-    _type_field = _variant_type.model_fields.get("source_type")
-    if _product_field is None or _type_field is None:
-        continue
-    for _product in _get_field_values(_product_field):
-        for _source_type in _get_field_values(_type_field):
-            _SIGNAL_VARIANT_LOOKUP[(_product, _source_type)] = _variant_type
-
-
-# Telemetry only forwards top-level *scalar* `extra` values, each truncated — never nested
-# lists/dicts. Source `extra` payloads nest customer-derived content (pganalyze
-# `references[].queryText` raw SQL, session-replay `event_history`, scout `evidence`
-# summaries) that must not leak into product analytics; scalars are the cheap-to-query
-# attribution we actually want (`scout_run_id`, `task_run_id`, `skill_name`, …). The cap
-# bounds top-level strings that could still be large (e.g. an `error_message`).
+# The signal channel's generic `extra` passthrough only forwards top-level *scalar* values,
+# each truncated — never nested lists/dicts. Source `extra` payloads nest *uncurated*
+# customer-derived content (pganalyze `references[].queryText` raw SQL, session-replay
+# `event_history`, scout `evidence` summaries) that we don't want to forward wholesale; scalars
+# are the cheap-to-query attribution we actually want (`scout_run_id`, `task_run_id`,
+# `skill_name`, …). The cap bounds top-level strings that could still be large (e.g. an
+# `error_message`). This governs only the opaque `extra` blob — it is NOT a blanket ban on
+# report substance in telemetry. The report channel deliberately forwards specific, curated,
+# scout-authored fields (title / summary) on its own lifecycle events, where the content *is*
+# the product output rather than an arbitrary nested blob; see `scout_harness/tools/report.py`.
 _MAX_TELEMETRY_STR_LEN = 256
 
 
@@ -300,7 +276,7 @@ async def emit_signal(
             )
 
     # Validate the signal against the matching schema variant
-    variant_model = _SIGNAL_VARIANT_LOOKUP.get((source_product, source_type))
+    variant_model = SIGNAL_VARIANT_LOOKUP.get((source_product, source_type))
     if variant_model is None:
         raise pydantic.ValidationError.from_exception_data(
             title="SignalInput",

@@ -21,7 +21,6 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY
 
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     BingAdsConfig,
     ExternalConfig,
@@ -56,6 +55,7 @@ from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataSource,
 )
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 # Test Constants
 TEST_DATE_FROM = "2024-01-01"
