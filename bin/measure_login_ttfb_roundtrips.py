@@ -80,40 +80,56 @@ def _dotted(node: ast.expr) -> str | None:
     return None
 
 
-def count_preflight_roundtrips() -> list[tuple[str, str]]:
+def count_preflight_roundtrips() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """Count references to blocking-I/O callables on the anonymous branch.
 
     The checks are passed as callables into `_traced(...)` (or called inline), so they
     surface as Name/Attribute references rather than direct call callees. We count each
     reference once. The authenticated-only branch (`if request.user.is_authenticated`)
     is excluded — the login page is anonymous.
+
+    Returns (serial_hits, parallel_hits): probes referenced inside the concurrent
+    fan-out helper `_run_liveness_probes` (ThreadPoolExecutor) run as ONE parallel
+    batch — their wall-clock cost is max(probe), not sum — so they are reported
+    separately and count as a single serial step.
     """
-    fn = _get_func_source(REPO / "posthog" / "views.py", "preflight_check")
 
-    # Nodes inside the authenticated-only block don't run for the login page.
-    authed_nodes: set[int] = set()
-    for node in ast.walk(fn):
-        if isinstance(node, ast.If):
-            test = node.test
-            if isinstance(test, ast.Attribute) and test.attr == "is_authenticated":
-                for child in node.body:
-                    for sub in ast.walk(child):
-                        authed_nodes.add(id(sub))
+    def _hits_in(fn: ast.FunctionDef, skip_authed: bool) -> list[tuple[str, str]]:
+        authed_nodes: set[int] = set()
+        if skip_authed:
+            # Nodes inside the authenticated-only block don't run for the login page.
+            for node in ast.walk(fn):
+                if isinstance(node, ast.If):
+                    test = node.test
+                    if isinstance(test, ast.Attribute) and test.attr == "is_authenticated":
+                        for child in node.body:
+                            for sub in ast.walk(child):
+                                authed_nodes.add(id(sub))
 
-    hits: list[tuple[str, str]] = []
-    seen_positions: set[tuple[int, int]] = set()
-    for node in ast.walk(fn):
-        if isinstance(node, ast.Name | ast.Attribute):
-            if id(node) in authed_nodes:
-                continue
-            name = _dotted(node)
-            if name in BLOCKING_CALLS:
-                pos = (getattr(node, "lineno", -1), getattr(node, "col_offset", -1))
-                if pos in seen_positions:
+        found: list[tuple[str, str]] = []
+        seen_positions: set[tuple[int, int]] = set()
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Name | ast.Attribute):
+                if id(node) in authed_nodes:
                     continue
-                seen_positions.add(pos)
-                hits.append((name, BLOCKING_CALLS[name]))
-    return hits
+                name = _dotted(node)
+                if name in BLOCKING_CALLS:
+                    pos = (getattr(node, "lineno", -1), getattr(node, "col_offset", -1))
+                    if pos in seen_positions:
+                        continue
+                    seen_positions.add(pos)
+                    found.append((name, BLOCKING_CALLS[name]))
+        return found
+
+    serial = _hits_in(_get_func_source(REPO / "posthog" / "views.py", "preflight_check"), skip_authed=True)
+    parallel: list[tuple[str, str]] = []
+    try:
+        pool_fn = _get_func_source(REPO / "posthog" / "views.py", "_run_liveness_probes")
+    except SystemExit:
+        pool_fn = None
+    if pool_fn is not None and any(isinstance(n, ast.Name) and n.id == "ThreadPoolExecutor" for n in ast.walk(pool_fn)):
+        parallel = _hits_in(pool_fn, skip_authed=False)
+    return serial, parallel
 
 
 def anonymous_preflight_cache_layers() -> tuple[bool, bool]:
@@ -130,10 +146,12 @@ def anonymous_preflight_cache_layers() -> tuple[bool, bool]:
 
 
 def main() -> None:
-    hits = count_preflight_roundtrips()
+    serial_hits, parallel_hits = count_preflight_roundtrips()
     shared_cache, local_cache = anonymous_preflight_cache_layers()
 
-    cold = len(hits)
+    # Cold path: each serial hit is one blocking step; a concurrent probe batch costs
+    # ~max(probe) wall-clock, so it counts as a single blocking step.
+    cold = len(serial_hits) + (1 if parallel_hits else 0)
     # Warm path (steady state, per request): the in-memory layer serves from process
     # memory (0 external round trips); the shared cache alone costs 1 cache read;
     # uncached recomputes everything.
@@ -146,10 +164,14 @@ def main() -> None:
 
     print("Anonymous GET /login — serial blocking external I/O round trips")
     print("-" * 64)
-    for name, service in hits:
-        print(f"  {name:<40} -> {service}")
+    for name, service in serial_hits:
+        print(f"  serial   {name:<40} -> {service}")
+    for name, service in parallel_hits:
+        print(f"  parallel {name:<40} -> {service}")
     print("-" * 64)
-    print(f"cold (uncached) round trips : {cold}")
+    print(
+        f"cold blocking steps         : {cold} ({len(serial_hits)} serial + {'1 parallel batch' if parallel_hits else 'no batch'})"
+    )
     print(f"shared cache (cross-worker) : {shared_cache}")
     print(f"per-worker in-memory layer  : {local_cache}")
     print(f"warm-path round trips       : {warm}")

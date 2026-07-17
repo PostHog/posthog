@@ -1,5 +1,8 @@
 import os
 import time
+import contextvars
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import timedelta
 from functools import wraps
@@ -201,6 +204,41 @@ ANONYMOUS_PREFLIGHT_LOCAL_TTL_SECONDS = 15
 _anonymous_preflight_local: tuple[float, dict[str, Any]] | None = None
 
 
+def _probe_in_thread(span_name: str, fn: Callable[[], bool]) -> bool:
+    try:
+        return _traced(span_name, fn)
+    finally:
+        # Worker threads get their own DB connections (is_postgres_alive) — close rather
+        # than leak them; a no-op for probes that never touched the ORM.
+        connections.close_all()
+
+
+def _run_liveness_probes() -> dict[str, bool]:
+    """Run the independent, side-effect-free liveness probes concurrently.
+
+    Each probe can block on a network timeout (Kafka admin, plugin-server HTTP,
+    ClickHouse, S3), so a cold preflight build costs ~max(probe) instead of sum(probes).
+    Probe functions are resolved from module globals at call time so tests patching
+    `posthog.views.is_kafka_connected` etc. keep working. Span names match the old
+    serial ones; each future runs in its own contextvars copy so OTel parenting holds.
+    """
+    probes: dict[str, tuple[str, Callable[[], bool]]] = {
+        "redis": ("preflight.is_redis_alive", is_redis_alive),
+        "plugins": ("preflight.is_plugin_server_alive", is_plugin_server_alive),
+        "celery": ("preflight.is_celery_alive", is_celery_alive),
+        "clickhouse": ("preflight.is_clickhouse_connected", is_clickhouse_connected),
+        "kafka": ("preflight.is_kafka_connected", is_kafka_connected),
+        "db": ("preflight.is_postgres_alive", is_postgres_alive),
+        "object_storage": ("preflight.is_object_storage_available", is_object_storage_available),
+    }
+    with ThreadPoolExecutor(max_workers=len(probes), thread_name_prefix="preflight-probe") as pool:
+        futures = {
+            key: pool.submit(contextvars.copy_context().run, _probe_in_thread, span_name, fn)
+            for key, (span_name, fn) in probes.items()
+        }
+        return {key: future.result() for key, future in futures.items()}
+
+
 @never_cache
 def preflight_check(request: HttpRequest, *, allow_cached: bool = False) -> JsonResponse:
     global _anonymous_preflight_local
@@ -223,16 +261,20 @@ def preflight_check(request: HttpRequest, *, allow_cached: bool = False) -> Json
         hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
         salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
 
+        # On cloud every probe short-circuits to True, so don't spin the pool up at all.
+        probe_results: dict[str, bool] = {}
+        if not in_cloud:
+            with tracer.start_as_current_span("preflight.liveness_probes"):
+                probe_results = _run_liveness_probes()
+
         response = {
             "django": True,
-            "redis": in_cloud or _traced("preflight.is_redis_alive", is_redis_alive) or settings.TEST,
-            "plugins": in_cloud or _traced("preflight.is_plugin_server_alive", is_plugin_server_alive) or settings.TEST,
-            "celery": in_cloud or _traced("preflight.is_celery_alive", is_celery_alive) or settings.TEST,
-            "clickhouse": in_cloud
-            or _traced("preflight.is_clickhouse_connected", is_clickhouse_connected)
-            or settings.TEST,
-            "kafka": in_cloud or _traced("preflight.is_kafka_connected", is_kafka_connected),
-            "db": in_cloud or _traced("preflight.is_postgres_alive", is_postgres_alive),
+            "redis": in_cloud or probe_results["redis"] or settings.TEST,
+            "plugins": in_cloud or probe_results["plugins"] or settings.TEST,
+            "celery": in_cloud or probe_results["celery"] or settings.TEST,
+            "clickhouse": in_cloud or probe_results["clickhouse"] or settings.TEST,
+            "kafka": in_cloud or probe_results["kafka"],
+            "db": in_cloud or probe_results["db"],
             "initiated": in_cloud or _traced("preflight.organization_exists", Organization.objects.exists),
             "cloud": in_cloud,
             "demo": settings.DEMO,
@@ -252,7 +294,7 @@ def preflight_check(request: HttpRequest, *, allow_cached: bool = False) -> Json
                 "hubspot": {"client_id": hubspot_client_id},
                 "salesforce": {"client_id": salesforce_client_id},
             },
-            "object_storage": in_cloud or _traced("preflight.is_object_storage_available", is_object_storage_available),
+            "object_storage": in_cloud or probe_results["object_storage"],
             "public_egress_ip_addresses": settings.PUBLIC_EGRESS_IP_ADDRESSES,
             "wizard_cloud_run_available": bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID),
         }
