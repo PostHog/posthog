@@ -172,6 +172,20 @@ class TestGetRowsTopLevel:
         assert rows == [{"id": "h1", "name": "cron"}]
 
     @mock.patch(_TRANSPORT)
+    def test_contact_group_ping_url_is_scrubbed(self, mock_session):
+        # The /contact-groups `ping_url` is a callback invoked on alert and can embed a webhook
+        # secret. It must never reach the warehouse, where any project user could read it back.
+        mock_session.return_value = _session_returning(
+            {"data": [{"id": "c1", "name": "ops", "ping_url": "https://hooks.example.com/?token=secret"}]}
+        )
+        manager = _make_manager()
+
+        batches = list(get_rows("token", "contact_groups", mock.MagicMock(), manager))
+        rows = [row for batch in batches for row in batch]
+
+        assert rows == [{"id": "c1", "name": "ops"}]
+
+    @mock.patch(_TRANSPORT)
     def test_resumes_from_saved_page(self, mock_session):
         mock_session.return_value = _session_returning(
             _list_body([{"id": "9"}], page=3, page_count=3),

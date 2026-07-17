@@ -101,6 +101,9 @@ STATUSCAKE_ENDPOINTS: dict[str, StatusCakeEndpointConfig] = {
         name="contact_groups",
         path="/contact-groups",
         primary_key=["id"],
+        # The `ping_url` callback is invoked when the group is alerted and commonly embeds a webhook
+        # secret; drop it so it never reaches the warehouse and can't be read back to spoof alerts.
+        scrub_fields=["ping_url"],
     ),
     "maintenance_windows": StatusCakeEndpointConfig(
         name="maintenance_windows",
