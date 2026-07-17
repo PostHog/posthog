@@ -18,8 +18,8 @@ export function ExperimentMetricModal({
 }: {
     experiment: Experiment
     exposureCriteria: ExperimentExposureCriteria | undefined
-    onSave: (metric: ExperimentMetric, context: MetricContext) => void | Promise<void>
-    onDelete: (metric: ExperimentMetric, context: MetricContext) => void | Promise<void>
+    onSave: (metric: ExperimentMetric, context: MetricContext) => Promise<void>
+    onDelete: (metric: ExperimentMetric, context: MetricContext) => Promise<void>
 }): JSX.Element | null {
     const { isModalOpen, metric, context, isCreateMode, isEditMode } = useValues(experimentMetricModalLogic)
     const { closeExperimentMetricModal, setMetric: setModalMetric } = useActions(experimentMetricModalLogic)
@@ -62,7 +62,7 @@ export function ExperimentMetricModal({
                                         type: 'primary',
                                         onClick: () => {
                                             // Toast + modal close handled by the caller.
-                                            void Promise.resolve(onDelete(metric, context)).catch(() => {})
+                                            void onDelete(metric, context).catch(() => {})
                                         },
                                         size: 'small',
                                     },
