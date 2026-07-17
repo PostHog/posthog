@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import TrackedHTTPAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.veracode.settings import VERACODE_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.veracode.veracode import (
     VeracodeHMACAuth,
@@ -124,6 +125,7 @@ class TestSessionSecurity:
         # leak that data to anyone with sample access, outside the warehouse table's access path.
         session = _make_session("00vc-api-id", "ff-api-secret")
         adapter = session.get_adapter("https://api.veracode.com")
+        assert isinstance(adapter, TrackedHTTPAdapter)
         assert adapter._capture is False
         assert "00vc-api-id" in adapter._redact_values
         assert "ff-api-secret" in adapter._redact_values
