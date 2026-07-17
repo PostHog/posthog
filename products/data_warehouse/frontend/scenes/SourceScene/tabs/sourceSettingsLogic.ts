@@ -1447,10 +1447,18 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 }
             },
             bulkEnable: async ({ schemas }) => {
+                // Guard against concurrent submissions — a rapid double-click (e.g. on the
+                // imperative dialog's Enable button, which can't reactively disable) would
+                // otherwise fire the PATCH twice and prepare duplicate schedule side effects.
+                if (cache.bulkEnableInFlight) {
+                    return
+                }
+                cache.bulkEnableInFlight = true
                 const payloads = buildBulkEnablePayloads(schemas)
                 if (payloads.length === 0) {
                     lemonToast.info('All selected schemas are already enabled')
                     actions.setBulkEnableLoading(false)
+                    cache.bulkEnableInFlight = false
                     return
                 }
                 const defaultsCount = payloads.filter((payload) => payload.apply_sync_defaults).length
@@ -1477,6 +1485,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     lemonToast.error(e?.message || "Can't enable schemas at this time")
                 } finally {
                     actions.setBulkEnableLoading(false)
+                    cache.bulkEnableInFlight = false
                 }
             },
             bulkDisable: ({ schemas }) => {
