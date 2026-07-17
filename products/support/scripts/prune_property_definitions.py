@@ -305,6 +305,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("provide either positional names or --regex (exactly one)")
     if not args.project_id:
         parser.error("--project-id (or POSTHOG_PROJECT_ID) is required")
+    if args.batch_size <= 0:
+        parser.error("--batch-size must be greater than zero")
     if not args.personal_api_key and not args.session_id:
         parser.error(
             "either --personal-api-key (POSTHOG_PERSONAL_API_KEY) or --session-id (POSTHOG_SESSION_ID) is required"
