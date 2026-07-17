@@ -202,14 +202,23 @@ def _validate_github_trigger_config(config: dict, team_id: int) -> dict:
             }
         )
 
-    filters = config.get("filters") or {}
-    if not isinstance(filters, dict):
+    filters_raw = config.get("filters") or {}
+    if not isinstance(filters_raw, dict):
         raise serializers.ValidationError({"filters": "Filters must be an object."})
-    for key, filter_value in filters.items():
+    # Accept singular keys and a bare string value too: agents (and GitHub's own webhook
+    # payloads) naturally reach for `action`/`"opened"` over `actions`/`["opened"]`.
+    filter_key_aliases = {"action": "actions", "branch": "branches", "label": "labels"}
+    filters: dict[str, list[str]] = {}
+    for raw_key, filter_value in filters_raw.items():
+        key = filter_key_aliases.get(raw_key, raw_key)
         if key not in ("actions", "branches", "labels"):
-            raise serializers.ValidationError({"filters": f"Unsupported filter key: '{key}'."})
-        if not isinstance(filter_value, list) or not all(isinstance(item, str) for item in filter_value):
-            raise serializers.ValidationError({"filters": f"Filter '{key}' must be a list of strings."})
+            raise serializers.ValidationError(
+                {"filters": f"Unsupported filter key: '{raw_key}'. Allowed: actions, branches, labels."}
+            )
+        values = [filter_value] if isinstance(filter_value, str) else filter_value
+        if not isinstance(values, list) or not all(isinstance(item, str) for item in values):
+            raise serializers.ValidationError({"filters": f"Filter '{key}' must be a string or a list of strings."})
+        filters[key] = values
 
     return {
         "github_integration_id": github_integration_id,
@@ -367,10 +376,20 @@ class LoopWriteSerializer(serializers.Serializer):
     def validate_repositories(self, value: list[dict]) -> list[dict]:
         team = self.context["team"]
         integration_ids = {entry["github_integration_id"] for entry in value}
-        if integration_ids:
-            missing = sorted(integration_ids - loops_facade.github_integration_ids_for_team(team.id, integration_ids))
-            if missing:
-                raise serializers.ValidationError(f"GitHub integration(s) not found for this team: {missing}")
+        if not integration_ids:
+            return value
+        team_integration_ids = loops_facade.team_github_integration_ids(team.id)
+        missing = sorted(integration_ids - team_integration_ids)
+        if missing:
+            if not team_integration_ids:
+                raise serializers.ValidationError(
+                    "This project has no GitHub integration. Connect GitHub for this project, "
+                    "or build a report-only loop with no repositories."
+                )
+            raise serializers.ValidationError(
+                f"GitHub integration(s) not found for this project: {missing}. "
+                f"This project's GitHub integration ids are: {sorted(team_integration_ids)}."
+            )
         return value
 
     def validate(self, attrs: dict) -> dict:

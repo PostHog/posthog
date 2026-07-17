@@ -528,6 +528,12 @@ def github_integration_ids_for_team(team_id: int, integration_ids: Iterable[int]
     )
 
 
+def team_github_integration_ids(team_id: int) -> set[int]:
+    """Every GitHub integration id for a team. Lets loop-repository validation tell
+    'this project has none' apart from 'you passed the wrong id'."""
+    return set(Integration.objects.filter(team_id=team_id, kind="github").values_list("id", flat=True))
+
+
 def _desktop_node_exists(team_id: int, node_id: str, *, node_type: str) -> bool:
     parsed = _parse_uuid(node_id)
     if parsed is None:
