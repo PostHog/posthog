@@ -385,6 +385,12 @@ class Integration(models.Model):
 
     @property
     def display_name(self) -> str:
+        if self.kind == "pinterest-ads":
+            # Pinterest's OAuth username is an opaque hash, so prefer the business name when there is one.
+            return self.config.get("business_name") or self.config.get("username") or self.integration_id
+        if self.kind == "tiktok-ads":
+            # The OAuth id is a list of advertiser ids, so prefer whoever authorized the connection.
+            return self.config.get("user_email") or self.config.get("user_display_name") or self.integration_id
         if self.kind in OauthIntegration.supported_kinds:
             oauth_config = OauthIntegration.oauth_config_for_kind(self.kind)
             return dot_get(self.config, oauth_config.name_path, self.integration_id)
@@ -830,7 +836,7 @@ class OauthIntegration:
                 authorize_url="https://www.pinterest.com/oauth/",
                 token_url="https://api.pinterest.com/v5/oauth/token",
                 token_info_url="https://api.pinterest.com/v5/user_account",
-                token_info_config_fields=["id", "username"],
+                token_info_config_fields=["id", "username", "business_name"],
                 client_id=settings.PINTEREST_ADS_CLIENT_ID,
                 client_secret=settings.PINTEREST_ADS_CLIENT_SECRET,
                 scope="ads:read user_accounts:read",
@@ -1170,6 +1176,23 @@ class OauthIntegration:
             data = config.pop("data", {})
             # Move other data fields to main config for TikTok
             config.update(data)
+            # Best-effort: fetch who authorized this, so it isn't listed as a row of advertiser ids.
+            try:
+                user_res = requests.get(
+                    "https://business-api.tiktok.com/open_api/v1.3/user/info/",
+                    headers={"Access-Token": config["access_token"]},
+                    timeout=10,
+                )
+                # TikTok answers 200 even when the call failed; the body `code` (0 = OK) is the outcome.
+                body = user_res.json()
+                if body.get("code") == 0:
+                    user = body.get("data") or {}
+                    if user.get("email"):
+                        config["user_email"] = user["email"]
+                    if user.get("display_name"):
+                        config["user_display_name"] = user["display_name"]
+            except Exception:
+                logger.warning("Failed to fetch TikTok user info for display name")
 
         sensitive_config: dict = {
             "access_token": config.pop("access_token"),
@@ -1629,6 +1652,12 @@ def validate_slack_request(request: HttpRequest | Request, signing_secret: str) 
         raise SlackIntegrationError("Invalid")
 
 
+def google_ads_hierarchy_level(account: dict) -> int:
+    """Depth of an account below the manager the walk started from. Google's REST responses omit proto3
+    defaults, so a level-0 account carries no `level` key at all, and deeper ones arrive as strings."""
+    return int(account.get("level") or 0)
+
+
 class GoogleAdsIntegration:
     integration: Integration
 
@@ -1687,7 +1716,7 @@ class GoogleAdsIntegration:
 
     # Google Ads manager accounts can have access to other accounts (including other manager accounts).
     # Filter out duplicates where a user has direct access and access through a manager account, while prioritizing direct access.
-    def list_google_ads_accessible_accounts(self) -> list[dict[str, str]]:
+    def list_google_ads_accessible_accounts(self) -> list[dict[str, Any]]:
         response = requests.request(
             "GET",
             "https://googleads.googleapis.com/v21/customers:listAccessibleCustomers",
@@ -1723,7 +1752,7 @@ class GoogleAdsIntegration:
             raise Exception("There was an internal error")
 
         accessible_accounts = response.json()
-        all_accounts: list[dict[str, str]] = []
+        all_accounts: list[dict[str, Any]] = []
 
         def dfs(account_id, accounts=None, parent_id=None) -> list[dict]:
             if accounts is None:
@@ -1746,33 +1775,40 @@ class GoogleAdsIntegration:
             if response.status_code != 200:
                 return accounts
 
+            # searchStream's REST body is an array of response objects, one per streamed batch.
             data = response.json()
+            results = [row for chunk in data for row in chunk.get("results", [])]
 
-            for nested_account in data[0]["results"]:
-                if any(
-                    account["id"] == nested_account["customerClient"]["clientCustomer"].split("/")[1]
-                    and account["level"] > nested_account["customerClient"]["level"]
-                    for account in accounts
-                ):
-                    accounts = [
-                        account
-                        for account in accounts
-                        if account["id"] != nested_account["customerClient"]["clientCustomer"].split("/")[1]
-                    ]
-                elif any(
-                    account["id"] == nested_account["customerClient"]["clientCustomer"].split("/")[1]
-                    and account["level"] < nested_account["customerClient"]["level"]
-                    for account in accounts
-                ):
+            for nested_account in results:
+                client = nested_account["customerClient"]
+                client_id = client["clientCustomer"].split("/")[1]
+                # `level` is compared numerically: it is absent on the level-0 row and a string ("1", "2")
+                # below it, so the raw values are not mutually comparable.
+                client_level = google_ads_hierarchy_level(client)
+
+                # Reject non-enabled accounts before deduping. Otherwise a disabled, shallower sighting
+                # of an account we already kept as enabled would evict the enabled entry here and then be
+                # skipped by the status check below, dropping the account from the picker entirely.
+                if client.get("status") != "ENABLED":
                     continue
-                if nested_account["customerClient"].get("status") != "ENABLED":
-                    continue
+
+                # One account can be reached from several accessible roots — e.g. a user with access to
+                # both a manager and one of its clients walks that client twice, once as a root (level 0)
+                # and once beneath the manager (level 1). Keep the shallowest sighting, whose `parent_id`
+                # is the account we can authenticate the sync as.
+                already_seen = [account for account in accounts if account["id"] == client_id]
+                if already_seen:
+                    if all(google_ads_hierarchy_level(account) <= client_level for account in already_seen):
+                        continue
+                    accounts = [account for account in accounts if account["id"] != client_id]
+
                 accounts.append(
                     {
                         "parent_id": parent_id,
-                        "id": nested_account["customerClient"].get("clientCustomer").split("/")[1],
-                        "level": nested_account["customerClient"].get("level"),
-                        "name": nested_account["customerClient"].get("descriptiveName", "Google Ads account"),
+                        "id": client_id,
+                        "level": client.get("level"),
+                        "name": client.get("descriptiveName", "Google Ads account"),
+                        "manager": client.get("manager", False),
                     }
                 )
 
@@ -2483,7 +2519,7 @@ class LinearIntegration:
         teams = dot_get(body, "data.teams.nodes")
         return teams
 
-    def create_issue(self, team_id: str, posthog_issue_id: str, config: dict[str, str]) -> dict[str, str]:
+    def create_issue(self, attachment_url: str, config: dict[str, str]) -> dict[str, str]:
         title: str = config.pop("title")
         description: str = config.pop("description")
         linear_team_id = config.pop("team_id")
@@ -2502,7 +2538,6 @@ class LinearIntegration:
         )
         linear_issue_id = dot_get(body, "data.issueCreate.issue.identifier")
 
-        attachment_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking/{posthog_issue_id}"
         link_attachment_query = """
         mutation AttachmentCreate($issueId: String!, $title: String!, $url: String!) {
             attachmentCreate(input: { issueId: $issueId, title: $title, url: $url }) {

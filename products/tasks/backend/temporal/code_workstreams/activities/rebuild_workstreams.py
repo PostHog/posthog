@@ -62,6 +62,21 @@ def _pr_url_from_run(run: Optional[TaskRun]) -> Optional[str]:
     return (run.output or {}).get("pr_url") if run and run.output else None
 
 
+def _task_pr_is_merged(task: Task, pr_url: Optional[str]) -> bool:
+    if not pr_url:
+        return False
+    for run in task.runs.all():
+        output = run.output
+        if (
+            run.team_id == task.team_id
+            and isinstance(output, dict)
+            and output.get("pr_url") == pr_url
+            and output.get("pr_merged") is True
+        ):
+            return True
+    return False
+
+
 def _task_to_input(task: Task) -> tuple[TaskInput, Optional[str]]:
     run: Optional[TaskRun] = task.latest_run
     last_activity = run.updated_at if run else task.updated_at
@@ -78,6 +93,7 @@ def _task_to_input(task: Task) -> tuple[TaskInput, Optional[str]]:
             branch=run.branch if run else None,
             base_branch=state.pr_base_branch,
             cloud_pr_url=cloud_pr_url,
+            cloud_pr_merged=_task_pr_is_merged(task, cloud_pr_url),
             folder_path=None,
             quick_action=state.home_quick_action,
         ),
