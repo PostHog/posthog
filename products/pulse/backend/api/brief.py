@@ -121,6 +121,12 @@ class BriefSettingsSerializer(serializers.Serializer):
         max_value=20,
         help_text="Maximum opportunities kept per brief. Default 3.",
     )
+    max_annotations = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=100,
+        help_text="Maximum annotations gathered as context per brief. Default 20.",
+    )
 
 
 class BriefConfigSerializer(serializers.ModelSerializer):
@@ -189,23 +195,32 @@ class PeriodSerializer(serializers.Serializer):
         return attrs
 
 
-class BriefSectionSerializer(serializers.Serializer):
-    # Mirrors generation.schemas.BriefSectionOut so the generated frontend/MCP types are typed
-    # rather than an opaque dict; brief.sections stores a list of these shapes.
-    kind = serializers.CharField(help_text="Section kind, e.g. 'what_happened' or 'what_to_build_next'.")
-    title = serializers.CharField(help_text="Short, specific section heading.")
-    markdown = serializers.CharField(help_text="Section body in markdown.")
-    citations = serializers.ListField(
-        child=serializers.CharField(), help_text="Citation ids (e.g. 'c1') backing the section, copied verbatim."
+class BriefSectionCitationSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="Cited resource type, e.g. insight or dashboard.")
+    ref = serializers.CharField(help_text="Stable id of the cited resource within its type.")
+    label = serializers.CharField(  # type: ignore[assignment]  # field name intentionally shadows Field.label
+        help_text="Human-readable name of the cited resource, for display."
     )
-    confidence = serializers.FloatField(help_text="Confidence in this section, 0.0-1.0.")
+    url = serializers.CharField(
+        allow_blank=True, help_text="Deep link into the app, or empty when the resource has no navigable target."
+    )
+
+
+class BriefSectionSerializer(serializers.Serializer):
+    kind = serializers.CharField(help_text="Section kind, e.g. what_happened or what_to_build_next.")
+    title = serializers.CharField(help_text="Short section heading.")
+    markdown = serializers.CharField(help_text="Section body rendered as markdown.")
+    citations = BriefSectionCitationSerializer(many=True, help_text="PostHog resources this section cites as evidence.")
+    confidence = serializers.FloatField(help_text="Model confidence in this section, 0.0-1.0.")
 
 
 class ProductBriefSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who requested the brief.")
     period = PeriodSerializer(read_only=True, help_text="The resolved-at-gather period spec the brief covers.")
     sections = BriefSectionSerializer(
-        many=True, read_only=True, help_text="Generated brief sections, most important first."
+        many=True,
+        read_only=True,
+        help_text="Generated brief sections, most important first.",
     )
     sources_used = serializers.ListField(
         child=serializers.CharField(),
@@ -282,7 +297,7 @@ class BriefConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return configs
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
-        instance = serializer.save(team=self.team, created_by=cast(User, self.request.user))
+        instance = cast(BriefConfig, serializer.save(team=self.team, created_by=cast(User, self.request.user)))
         report_user_action(
             cast(User, self.request.user),
             "pulse config created",
@@ -308,6 +323,14 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     posthog_feature_flag = PULSE_FEATURE_FLAG
     permission_classes = [PostHogFeatureFlagPermission, PulseProjectWritePermission]
     queryset = ProductBrief.objects.unscoped()
+
+    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
+        source_read_scopes = ["annotation:read", "subscription:read", "alert:read", "insight:read"]
+        if self.action == "generate":
+            return ["project:write", *source_read_scopes]
+        if self.action in ("list", "retrieve"):
+            return ["project:read", *source_read_scopes]
+        return None
 
     def safely_get_queryset(self, queryset: QuerySet[ProductBrief]) -> QuerySet[ProductBrief]:
         return (
@@ -338,7 +361,11 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     @action(methods=["POST"], detail=False, url_path="generate")
     def generate(self, request: Request, **kwargs) -> Response:
         if not self.team.organization.is_ai_data_processing_approved:
-            raise ValidationError("AI data processing must be approved for this organization to generate briefs.")
+            # `code` is a cross-boundary contract with pulseLogic's AI_CONSENT_ERROR_CODE.
+            raise ValidationError(
+                "AI data processing must be approved for this organization to generate briefs.",
+                code="ai_consent_required",
+            )
 
         request_serializer = GenerateBriefRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)

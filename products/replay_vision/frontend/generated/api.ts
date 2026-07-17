@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AffectedCohortRequestApi,
+    AffectedCohortResponseApi,
     CurrentPromptSuggestionApi,
     EstimateRequestApi,
     EstimateResponseApi,
@@ -29,6 +31,7 @@ import type {
     ReplayScannerPromptSuggestionApi,
     RetryResponseApi,
     ScannerCreatorsResponseApi,
+    ScannerImpactApi,
     ScannerStatsResponseApi,
     SuggestTagsRequestApi,
     SuggestTagsResponseApi,
@@ -39,6 +42,7 @@ import type {
     VisionObservationsListParams,
     VisionObservationsRetrieveParams,
     VisionQuotaApi,
+    VisionScannersImpactRetrieveParams,
     VisionScannersListParams,
     VisionScannersObservationsListParams,
     VisionScannersObservationsRetrieveParams,
@@ -459,6 +463,62 @@ export const visionScannersDestroy = async (projectId: string, id: string, optio
     return apiMutator<void>(getVisionScannersDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getVisionScannersAffectedCohortCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/affected_cohort/`
+}
+
+/**
+ * Save the users this scanner matched as a static cohort, for surveys, funnels, and retention analysis.
+ */
+export const visionScannersAffectedCohortCreate = async (
+    projectId: string,
+    id: string,
+    affectedCohortRequestApi?: AffectedCohortRequestApi,
+    options?: RequestInit
+): Promise<AffectedCohortResponseApi> => {
+    return apiMutator<AffectedCohortResponseApi>(getVisionScannersAffectedCohortCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(affectedCohortRequestApi),
+    })
+}
+
+export const getVisionScannersImpactRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: VisionScannersImpactRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/${id}/impact/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/${id}/impact/`
+}
+
+/**
+ * Affected sessions and users for this scanner over the trailing window.
+ */
+export const visionScannersImpactRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: VisionScannersImpactRetrieveParams,
+    options?: RequestInit
+): Promise<ScannerImpactApi> => {
+    return apiMutator<ScannerImpactApi>(getVisionScannersImpactRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

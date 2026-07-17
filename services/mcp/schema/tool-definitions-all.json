@@ -459,12 +459,42 @@
         },
         "feature_flag": "agent-platform"
     },
+    "agent-applications-invoke": {
+        "description": "Start a new session on the agent's LIVE (promoted) revision and return its `session_id`. Requires the agent to have a live revision and a `chat` trigger. Your PAT is forwarded so the session runs as you. Drive the conversation with `agent-applications-send` and read progress with `agent-applications-listen`. For a non-live / draft revision use `agent-applications-preview-proxy` instead.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Invoke a live agent (start a session)",
+        "title": "Invoke a live agent (start a session)",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform"
+    },
     "agent-applications-list": {
         "description": "List every agent application in the project. Returns id, slug, name, description, live_revision, archived state. Use the slug to drive subsequent calls — it's stable and human-readable. Playbook: read the `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "List agent applications",
         "title": "List agent applications",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform"
+    },
+    "agent-applications-listen": {
+        "description": "Read a live session as a single JSON digest (non-streaming): last assistant text, a one-line tool-activity summary, and state / usage. Pass the returned `next_cursor` back as `cursor` to summarize only what's new, and stop when `done` is true. Use this instead of the SSE `/listen` stream from an MCP client.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Poll a live session's progress",
+        "title": "Poll a live session's progress",
         "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
@@ -861,6 +891,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform"
+    },
+    "agent-applications-send": {
+        "description": "Append a message to an existing live session (from `agent-applications-invoke`) and re-queue it for another turn. `session_id` must belong to this agent. A `completed` session is still open — send re-queues it for another turn; only truly-terminal sessions (failed / cancelled / closed) fail cleanly with a 410.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Send a message to a live session",
+        "title": "Send a message to a live session",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "agent-platform"
     },
@@ -1814,7 +1859,7 @@
         }
     },
     "conversations-tickets-list": {
-        "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high), channel_source (widget, email, slack), assignee, date range, and search. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps.",
+        "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, date range, and search. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "List support tickets",
@@ -1870,7 +1915,7 @@
         }
     },
     "conversations-tickets-update": {
-        "description": "Update a support ticket. Can change status (new, open, pending, on_hold, resolved), priority (low, medium, high), assignee, SLA deadline, escalation reason, and tags. Assignee should be an object with type ('user' or 'role') and id, or null to unassign.",
+        "description": "Update a support ticket. Can change status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), assignee, SLA deadline, escalation reason, and tags. Assignee should be an object with type ('user' or 'role') and id, or null to unassign.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "Update support ticket",
@@ -1881,6 +1926,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "conversations-views-list": {
+        "description": "List the saved ticket views in the project. Each view is a named, saved set of ticket filters — for example the per-team views named \"Team <name>\". Returns each view's short_id and name; a view opens in the app at /support/tickets?view=<short_id>.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "List saved ticket views",
+        "title": "List saved ticket views",
+        "required_scopes": ["ticket:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "create-feature-flag": {
@@ -5331,7 +5390,7 @@
         }
     },
     "llma-prompt-get": {
-        "description": "Get a specific LLM prompt by name. Uses the cached endpoint for fast retrieval.\nThe response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful\nas a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,\nor `content=preview` for a short `prompt_preview` snippet instead of the full prompt.",
+        "description": "Get a specific LLM prompt by name. Uses the cached endpoint for fast retrieval.\nPass `label` (e.g. 'production') to fetch the version that label currently points to, or `version` for an\nexact version number — not both. With neither, the latest version is returned.\nThe response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful\nas a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,\nor `content=preview` for a short `prompt_preview` snippet instead of the full prompt.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get prompt",
@@ -6926,7 +6985,7 @@
         "system_prompt_hint": "List persons who converted through or dropped off at a given funnel step"
     },
     "query-lifecycle": {
-        "description": "Run a lifecycle query to categorize users into lifecycle stages based on their activity pattern relative to a single event or action. Lifecycle insights break users into four mutually exclusive groups for each time period: new, returning, resurrecting, and dormant. They're useful for understanding the composition of your active users and diagnosing growth or churn patterns.\n\nUse 'read-data-schema' to discover available events, actions, and properties for filters.\n\nExamples of use cases include:\n\n- What is the composition of my active users over time?\n- Are we gaining new users faster than we're losing dormant ones?\n- How many users resurrected (came back after being inactive) last week?\n- Is the returning user base growing or shrinking?\n- How does user engagement change after a product launch?\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters to narrow results. Only include property filters when they are essential to directly answer the user's question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed.\n\nIMPORTANT: Do not check if a property is set unless the user explicitly asks for it.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`.\n- **Ensure that you find both the property group and name.** Property groups should be one of the following: event, person, session, group.\n- After selecting a property, **validate that the property value accurately reflects the intended criteria**.\n- **Find the suitable operator for type** (e.g., `contains`, `is set`).\n- If the operator requires a value, use the `read-data-schema` tool to find the property values.\n- You set logical operators to combine multiple properties of a single series: AND or OR.\n\nInfer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.\n\nSupported operators for the String type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- contains (icontains)\n- doesn't contain (not_icontains)\n- matches regex (regex)\n- doesn't match regex (not_regex)\n- is set\n- is not set\n\nSupported operators for the Numeric type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- greater than (gt)\n- less than (lt)\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n\n- equals (is_date_exact)\n- doesn't equal (is_not for existence check)\n- before (is_date_before)\n- after (is_date_after)\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).\n\n## Time period\n\nYou should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, use last 30 days as a default time period.\n\n# Lifecycle guidelines\n\nLifecycle insights analyze a **single event or action** over time. The `series` array must contain exactly one item. If the user mentions multiple events, pick the most relevant one or clarify.\n\n## Lifecycle statuses\n\nEach user is categorized into one of four statuses for each time period:\n\n- **New** – the user performed the event for the first time ever during this period.\n- **Returning** – the user was active in the previous period and is active again in the current period.\n- **Resurrecting** – the user was inactive for one or more periods and became active again.\n- **Dormant** – the user was active in the previous period but did not perform the event in the current period. Dormant counts are shown as negative values.\n\n## Time interval\n\nSpecify the time interval using the `interval` field. Available intervals are: `hour`, `day`, `week`, `month`. The default is `day`.\n\nUnless the user has specified otherwise, use the following default interval:\n\n- If the time period is less than two days, use the `hour` interval.\n- If the time period is less than a month, use the `day` interval.\n- If the time period is less than three months, use the `week` interval.\n- Otherwise, use the `month` interval.\n\n## Toggled lifecycles\n\nUse `toggledLifecycles` in `lifecycleFilter` to control which lifecycle statuses are displayed. By default, all four statuses are shown. Only set this when the user wants to focus on specific statuses (e.g., only new and dormant users).\n\n## Math aggregation\n\nLifecycle insights do **not** support math aggregation types. Do not set `math` on the series node.\n\n# Examples\n\n## Daily lifecycle of pageviews over the last 30 days\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"$pageview\" }],\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"interval\": \"day\"\n}\n```\n\n## Weekly lifecycle of sign ups, excluding test accounts\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"user signed up\" }],\n  \"dateRange\": { \"date_from\": \"-90d\" },\n  \"interval\": \"week\",\n  \"filterTestAccounts\": true\n}\n```\n\n## Monthly lifecycle of \"insight created\" showing only new and dormant users\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"insight created\" }],\n  \"dateRange\": { \"date_from\": \"-12m\" },\n  \"interval\": \"month\",\n  \"lifecycleFilter\": {\n    \"toggledLifecycles\": [\"new\", \"dormant\"]\n  },\n  \"filterTestAccounts\": true\n}\n```\n\n## Lifecycle of purchases by mobile users\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"purchase completed\" }],\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"interval\": \"day\",\n  \"properties\": [{ \"key\": \"$os\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"iOS\", \"Android\"] }]\n}\n```\n\n# Reminders\n\n- Lifecycle insights support only **one** series — do not add multiple events or actions.\n- Do not set `math` on the series node — lifecycle does not support math aggregation.\n- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.\n- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.",
+        "description": "Run a lifecycle query to categorize users into lifecycle stages based on their activity pattern relative to a single event or action. Lifecycle insights break users into four mutually exclusive groups for each time period: new, returning, resurrecting, and dormant. They're useful for understanding the composition of your active users and diagnosing growth or churn patterns.\n\nUse 'read-data-schema' to discover available events, actions, and properties for filters.\n\nExamples of use cases include:\n\n- What is the composition of my active users over time?\n- Are we gaining new users faster than we're losing dormant ones?\n- How many users resurrected (came back after being inactive) last week?\n- Is the returning user base growing or shrinking?\n- How does user engagement change after a product launch?\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters to narrow results. Only include property filters when they are essential to directly answer the user's question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed.\n\nIMPORTANT: Do not check if a property is set unless the user explicitly asks for it.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`.\n- **Ensure that you find both the property group and name.** Property groups should be one of the following: event, person, session, group.\n- After selecting a property, **validate that the property value accurately reflects the intended criteria**.\n- **Find the suitable operator for type** (e.g., `contains`, `is set`).\n- If the operator requires a value, use the `read-data-schema` tool to find the property values.\n- You set logical operators to combine multiple properties of a single series: AND or OR.\n\nInfer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.\n\nSupported operators for the String type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- contains (icontains)\n- doesn't contain (not_icontains)\n- matches regex (regex)\n- doesn't match regex (not_regex)\n- is set\n- is not set\n\nSupported operators for the Numeric type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- greater than (gt)\n- less than (lt)\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n\n- equals (is_date_exact)\n- doesn't equal (is_not for existence check)\n- before (is_date_before)\n- after (is_date_after)\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).\n\n## Time period\n\nYou should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, use last 30 days as a default time period.\n\n# Lifecycle guidelines\n\nLifecycle insights analyze a **single event or action** over time. The `series` array must contain exactly one item. If the user mentions multiple events, pick the most relevant one or clarify.\n\n## Lifecycle statuses\n\nEach user is categorized into one of four statuses for each time period:\n\n- **New** – the user was seen for the first time (their person profile was created) during this period.\n- **Returning** – the user was active in the previous period and is active again in the current period.\n- **Resurrecting** – the user was inactive for one or more periods and became active again.\n- **Dormant** – the user was active in the previous period but did not perform the event in the current period. Dormant counts are shown as negative values.\n\n## Anonymous users are excluded\n\nLifecycle only counts users with person profiles. Events with `$process_person_profile: false` are excluded entirely; these come from anonymous users on SDKs configured with `person_profiles: 'identified_only'`, the default in posthog-js. In projects with anonymous traffic, lifecycle totals are therefore expected to be far lower than a trends unique-user count of the same event. To confirm a gap is this expected exclusion rather than a data problem, add a filter to the trends query excluding events where `$process_person_profile` is `false`. If the gap persists after that, investigate further.\n\n## Time interval\n\nSpecify the time interval using the `interval` field. Available intervals are: `hour`, `day`, `week`, `month`. The default is `day`.\n\nUnless the user has specified otherwise, use the following default interval:\n\n- If the time period is less than two days, use the `hour` interval.\n- If the time period is less than a month, use the `day` interval.\n- If the time period is less than three months, use the `week` interval.\n- Otherwise, use the `month` interval.\n\n## Toggled lifecycles\n\nUse `toggledLifecycles` in `lifecycleFilter` to control which lifecycle statuses are displayed. By default, all four statuses are shown. Only set this when the user wants to focus on specific statuses (e.g., only new and dormant users).\n\n## Math aggregation\n\nLifecycle insights do **not** support math aggregation types. Do not set `math` on the series node.\n\n# Examples\n\n## Daily lifecycle of pageviews over the last 30 days\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"$pageview\" }],\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"interval\": \"day\"\n}\n```\n\n## Weekly lifecycle of sign ups, excluding test accounts\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"user signed up\" }],\n  \"dateRange\": { \"date_from\": \"-90d\" },\n  \"interval\": \"week\",\n  \"filterTestAccounts\": true\n}\n```\n\n## Monthly lifecycle of \"insight created\" showing only new and dormant users\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"insight created\" }],\n  \"dateRange\": { \"date_from\": \"-12m\" },\n  \"interval\": \"month\",\n  \"lifecycleFilter\": {\n    \"toggledLifecycles\": [\"new\", \"dormant\"]\n  },\n  \"filterTestAccounts\": true\n}\n```\n\n## Lifecycle of purchases by mobile users\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"purchase completed\" }],\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"interval\": \"day\",\n  \"properties\": [{ \"key\": \"$os\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"iOS\", \"Android\"] }]\n}\n```\n\n# Reminders\n\n- Lifecycle insights support only **one** series — do not add multiple events or actions.\n- Lifecycle excludes anonymous users (events with `$process_person_profile: false`), so totals are expected to be lower than unique-user trends of the same event.\n- Do not set `math` on the series node — lifecycle does not support math aggregation.\n- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.\n- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.",
         "category": "Query wrappers",
         "feature": "insights",
         "summary": "Run a lifecycle query",
@@ -6941,7 +7000,7 @@
         "system_prompt_hint": "New, returning, resurrecting, dormant user composition"
     },
     "query-lifecycle-actors": {
-        "description": "List the persons in a specific bucket of a lifecycle insight. Use this to answer \"who are the new / returning / resurrecting / dormant users on day Y?\".\n\n`source` is the lifecycle query that defines the population (event, date range, filters). Build it directly when the user's request already names a bucket-day, or reuse one you previously ran via `query-lifecycle` when drilling in from a chart.\n\nSelectors:\n\n- `day` **(required)**: the bucket date as an ISO date string (YYYY-MM-DD), e.g. `\"2024-01-15\"`. Must align with the source's interval (a day boundary for `interval=day`, the start of the week for `interval=week`, etc.).\n- `status` **(required)**: which lifecycle bucket to drill into. One of `new`, `returning`, `resurrecting`, `dormant`.\n  - `new` — users performing the event for the first time during the period.\n  - `returning` — users active in the previous period and active in this one.\n  - `resurrecting` — users inactive for one or more periods and active again now.\n  - `dormant` — users active in the previous period but inactive now.\n\nResponse:\n\nEach returned row contains `distinct_id`, `email`, and `name`. Results are limited to the top 100 actors. Matched session recordings are not returned — the lifecycle runner does not project per-actor matching events.\n\nGuidance:\n\n- Lifecycle insights only support a single series and do not expose `compareFilter`, so there is no `series` or `compare` selector here.\n- Keep the `source` lifecycle query minimal — only include the filters needed to define the same lifecycle population the user is asking about.\n- For large buckets, tighten the source query (filters, date range) rather than expecting more rows.",
+        "description": "List the persons in a specific bucket of a lifecycle insight. Use this to answer \"who are the new / returning / resurrecting / dormant users on day Y?\".\n\n`source` is the lifecycle query that defines the population (event, date range, filters). Build it directly when the user's request already names a bucket-day, or reuse one you previously ran via `query-lifecycle` when drilling in from a chart.\n\nSelectors:\n\n- `day` **(required)**: the bucket date as an ISO date string (YYYY-MM-DD), e.g. `\"2024-01-15\"`. Must align with the source's interval (a day boundary for `interval=day`, the start of the week for `interval=week`, etc.).\n- `status` **(required)**: which lifecycle bucket to drill into. One of `new`, `returning`, `resurrecting`, `dormant`.\n  - `new` — users seen for the first time (person profile created) during the period.\n  - `returning` — users active in the previous period and active in this one.\n  - `resurrecting` — users inactive for one or more periods and active again now.\n  - `dormant` — users active in the previous period but inactive now.\n\nResponse:\n\nEach returned row contains `distinct_id`, `email`, and `name`. Results are limited to the top 100 actors. Matched session recordings are not returned — the lifecycle runner does not project per-actor matching events.\n\nGuidance:\n\n- Lifecycle excludes anonymous users (events with `$process_person_profile: false`), so actor lists only contain identified users — anonymous visitors never appear in any bucket.\n- Lifecycle insights only support a single series and do not expose `compareFilter`, so there is no `series` or `compare` selector here.\n- Keep the `source` lifecycle query minimal — only include the filters needed to define the same lifecycle population the user is asking about.\n- For large buckets, tighten the source query (filters, date range) rather than expecting more rows.",
         "category": "Query wrappers",
         "feature": "insights",
         "summary": "List persons in a lifecycle bucket",
@@ -9563,6 +9622,21 @@
         },
         "feature_flag": "replay-vision"
     },
+    "vision-scanners-affected-cohort-create": {
+        "description": "Create a static cohort of the users a scanner matched within the trailing window (default 30 days). Monitors count verdict-yes observations and take no qualifiers; classifiers require `tag`; scorers require `min_score` and/or `max_score`. The cohort is a dated snapshot and does not live-update; calling again creates a new cohort. Use it anywhere cohorts work: funnel breakdowns, retention, survey targeting, experiment exclusion. Fails when the window has no users or none resolve to a person profile.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Save a scanner's affected users as a cohort",
+        "title": "Save a scanner's affected users as a cohort",
+        "required_scopes": ["replay_scanner:read", "cohort:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "replay-vision"
+    },
     "vision-scanners-create": {
         "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary with optional facet embeddings via `emits_embeddings`) — and fill `scanner_config` to match: all types need a `prompt`; classifiers also need `tags`; scorers also need `scale`; summarizers optionally set `length` and `emits_embeddings`. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_rate` is a 0..1 random downsample applied after the query matches (default 1.0). `model` chooses the LLM. Names must be unique within the team. Before creating a broad scanner (a permissive `query` and/or high `sampling_rate`), first call `vision-scanners-estimate-create` to project its monthly observation volume and `vision-quota-retrieve` to check the org's remaining budget — an enabled scanner sweeps matching recordings every 5 minutes, and creation itself does not check quota, so a too-broad scanner can exhaust the monthly budget on its first sweeps.",
         "category": "Replay vision",
@@ -9615,6 +9689,21 @@
         "feature": "replay_vision",
         "summary": "Get replay vision scanner",
         "title": "Get replay vision scanner",
+        "required_scopes": ["replay_scanner:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-impact-retrieve": {
+        "description": "Affected sessions and users for a scanner over a trailing window, counted from its observations. Monitors count verdict-yes observations and take no qualifiers; classifiers require `tag`; scorers require `min_score` and/or `max_score`. `sessions_without_user` reports affected sessions that carried no distinct ID, so the user count reads honestly against the session count.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get a scanner's impact counts",
+        "title": "Get a scanner's impact counts",
         "required_scopes": ["replay_scanner:read"],
         "annotations": {
             "destructiveHint": false,

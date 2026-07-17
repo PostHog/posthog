@@ -368,8 +368,16 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
         sender_email=sender_email,
     )
 
-    # 7. Get content (stripped by Mailgun to remove quotes/signatures)
-    content = (request.POST.get("stripped-text", "") or request.POST.get("body-plain", ""))[:MAX_EMAIL_BODY_LENGTH]
+    # 7. Get content. Mailgun's stripped-text removes quoted replies, but its signature
+    # detection also cuts real content (e.g. a trailing list of bare emails/links), so we
+    # reattach stripped-signature to keep quote-stripping without losing customer text.
+    stripped_text = request.POST.get("stripped-text", "")
+    stripped_signature = request.POST.get("stripped-signature", "")
+    if stripped_text:
+        content = f"{stripped_text}\n\n{stripped_signature}" if stripped_signature else stripped_text
+    else:
+        content = request.POST.get("body-plain", "")
+    content = content[:MAX_EMAIL_BODY_LENGTH]
     subject = request.POST.get("subject", "")[:500]
 
     # 7b. Detect team member sender — only trust From when DKIM passes

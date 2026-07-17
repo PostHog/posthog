@@ -2313,6 +2313,7 @@ def _full_usage_counters(**overrides: int) -> UsageCounters:
         cdp_trigger_events=0,
         rows_exported=0,
         workflow_emails=0,
+        workflow_push=0,
         workflow_destinations_dispatched=0,
         logs_mb_ingested=0,
         replay_vision_credits=0,

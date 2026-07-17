@@ -50,6 +50,13 @@ class BaseNextUrlPaginator(BasePaginator):
         super().__init__()
         self._next_url: Optional[str] = None
 
+    def init_request(self, request: Request) -> None:
+        # Apply a seeded resume URL to the first request so a resumed run starts at the
+        # saved next-page link rather than the base path.
+        if self._next_url is not None:
+            request.url = self._next_url
+            request.params = {}
+
     def update_request(self, request: Request) -> None:
         if self._next_url is not None:
             request.url = self._next_url
@@ -59,6 +66,15 @@ class BaseNextUrlPaginator(BasePaginator):
             # back into their next link, so re-appending compounds one copy per page
             # until the URL grows large enough for the server to reject it.
             request.params = {}
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"next_url": self._next_url} if self._has_next_page and self._next_url is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        next_url = state.get("next_url")
+        if next_url is not None:
+            self._next_url = next_url
+            self._has_next_page = True
 
 
 class HeaderLinkPaginator(BaseNextUrlPaginator):
@@ -116,6 +132,13 @@ class JSONResponseCursorPaginator(BasePaginator):
         self.cursor_param = cursor_param
         self._cursor_value: Optional[str] = None
 
+    def init_request(self, request: Request) -> None:
+        # Apply a seeded resume cursor to the first request.
+        if self._cursor_value is not None:
+            if request.params is None:
+                request.params = {}
+            request.params[self.cursor_param] = self._cursor_value
+
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         try:
             values = find_values(self.cursor_path, response.json())
@@ -133,6 +156,15 @@ class JSONResponseCursorPaginator(BasePaginator):
                 request.params = {}
             request.params[self.cursor_param] = self._cursor_value
 
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"cursor": self._cursor_value} if self._has_next_page and self._cursor_value is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor is not None:
+            self._cursor_value = cursor
+            self._has_next_page = True
+
     def __str__(self) -> str:
         return f"JSONResponseCursorPaginator(cursor_path={self.cursor_path})"
 
@@ -145,6 +177,7 @@ class OffsetPaginator(BasePaginator):
         offset_param: str = "offset",
         limit_param: str = "limit",
         total_path: Optional[TJsonPath] = "total",
+        total_header: Optional[str] = None,
         maximum_offset: Optional[int] = None,
         stop_after_empty_page: bool = True,
     ) -> None:
@@ -154,6 +187,9 @@ class OffsetPaginator(BasePaginator):
         self.offset_param = offset_param
         self.limit_param = limit_param
         self.total_path = total_path
+        # Some APIs report the grand total in a response header (e.g. X-*-Total) rather than the body;
+        # when set, this takes precedence over total_path for the stop check.
+        self.total_header = total_header
         self.maximum_offset = maximum_offset
         self.stop_after_empty_page = stop_after_empty_page
 
@@ -173,6 +209,16 @@ class OffsetPaginator(BasePaginator):
         if self.maximum_offset is not None and self.offset >= self.maximum_offset:
             self._has_next_page = False
             return
+
+        if self.total_header:
+            raw_total = response.headers.get(self.total_header)
+            if raw_total is not None:
+                try:
+                    if self.offset >= int(raw_total):
+                        self._has_next_page = False
+                        return
+                except (TypeError, ValueError):
+                    pass
 
         if self.total_path:
             try:
@@ -195,6 +241,16 @@ class OffsetPaginator(BasePaginator):
         if request.params is None:
             request.params = {}
         request.params[self.offset_param] = self.offset
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # self.offset already points at the next page to fetch (update_state incremented it).
+        return {"offset": self.offset} if self._has_next_page else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        offset = state.get("offset")
+        if offset is not None:
+            self.offset = int(offset)
+            self._has_next_page = True
 
     def __str__(self) -> str:
         return f"OffsetPaginator(offset={self.offset}, limit={self.limit})"
@@ -240,6 +296,16 @@ class PageNumberPaginator(BasePaginator):
         if request.params is None:
             request.params = {}
         request.params[self.page_param] = self.page
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # self.page already points at the next page to fetch (update_state incremented it).
+        return {"page": self.page} if self._has_next_page else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        page = state.get("page")
+        if page is not None:
+            self.page = int(page)
+            self._has_next_page = True
 
     def __str__(self) -> str:
         return f"PageNumberPaginator(page={self.page})"
