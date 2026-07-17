@@ -53,7 +53,7 @@ the row lists both.
 | airtable                         | HTTP                        | requests                                                        | ✅                          |
 | aiven                            | HTTP                        | requests                                                        | ✅                          |
 | algolia                          | HTTP                        | requests                                                        | ✅                          |
-| alguna                           | HTTP                        | requests                                                        | ✅                          |
+| alguna                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | alpha_vantage                    | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads                       | HTTP                        | requests                                                        | ✅                          |
 | amplitude                        | HTTP                        | requests                                                        | ✅                          |
