@@ -52,8 +52,9 @@ The long-term goal is to merge PostHog Code (github.com/posthog/code) into this 
 
 ### Packaging and distribution
 
-- [ ] `electron-builder` packaging: bundle `frontend/dist` as `extraResources`, per-platform targets (dmg/nsis/AppImage), `electronLanguages` trimming
-- [ ] macOS signing + notarization, Windows signing; release CI workflow (PostHog Code's `code-release.yml` is the model: draft release pre-creation, packaged-app smoke test, checksums)
+- [x] `electron-builder` packaging: `frontend/dist` bundled as the `frontend-dist` extraResource (sourcemaps stripped), unsigned arm64 DMG built per PR in CI (`build-desktop-app.yml`) and uploaded as a workflow artifact
+- [ ] Per-platform targets beyond macOS (nsis/AppImage), `electronLanguages` trimming
+- [ ] macOS signing + notarization, Windows signing; real release CI workflow publishing GitHub Releases (PostHog Code's `code-release.yml` is the model: draft release pre-creation, packaged-app smoke test, checksums)
 - [ ] Auto-update via `electron-updater` with GitHub Releases
 - [ ] `posthog://` deep links (protocol registration, second-instance/open-url handling)
 

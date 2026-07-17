@@ -1,0 +1,55 @@
+name: Build Desktop App
+
+on:
+    pull_request:
+        paths:
+            - 'products/desktop/**'
+            - '.github/workflows/build-desktop-app.yml'
+    push:
+        branches:
+            - master
+        paths:
+            - 'products/desktop/**'
+            - '.github/workflows/build-desktop-app.yml'
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    package-macos:
+        name: Package macOS DMG (arm64, unsigned)
+        # Depot macOS is a fixed FIFO pool (Startup+ plan); if it's unavailable,
+        # swap runs-on for `macos-14`.
+        runs-on: depot-macos-latest
+        timeout-minutes: 60
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install dependencies
+              uses: ./.github/actions/pnpm-install
+
+            - name: Build workspace dependencies
+              run: bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Build frontend
+              run: |
+                  pnpm --filter=@posthog/frontend build:products
+                  pnpm --filter=@posthog/frontend build
+
+            - name: Package desktop app
+              env:
+                  # No signing identity in CI yet; the package script ad-hoc signs
+                  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+              run: pnpm --filter=@posthog/desktop package
+
+            - name: Upload DMG
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: posthog-desktop-macos-arm64
+                  path: products/desktop/release/*.dmg
+                  if-no-files-found: error
+                  # The DMG is already compressed; recompressing ~500 MB is pure waste
+                  compression-level: 0
+                  retention-days: 14

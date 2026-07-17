@@ -47,4 +47,20 @@ pnpm --filter=@posthog/desktop build       # bundle main/preload/shell with esbu
 
 `POSTHOG_DESKTOP_FRONTEND_DIST=/path/to/dist` overrides where the frontend build is loaded from.
 
+## Packaging
+
+```bash
+# Build the frontend first (see above), then:
+pnpm --filter=@posthog/desktop package
+```
+
+This bundles the app with [electron-builder](https://www.electron.build/) (config in `electron-builder.yml`) into `release/`:
+the built frontend is embedded as the `frontend-dist` resource (sourcemaps stripped), so the packaged app is fully self-contained.
+
+The build is currently unsigned: there is no signing identity yet, so `scripts/after-pack.cjs` applies an ad-hoc signature, which is required for the app to launch on Apple Silicon at all.
+Because of that, macOS quarantines the downloaded app.
+To open it: right-click the app › Open, or run `xattr -d com.apple.quarantine /Applications/PostHog.app`.
+
+CI builds the DMG for every PR that touches `products/desktop/` (`.github/workflows/build-desktop-app.yml`) and uploads it as the `posthog-desktop-macos-arm64` artifact on the workflow run.
+
 See [TODO.md](./TODO.md) for what's done and what's next.

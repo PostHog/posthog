@@ -1,0 +1,34 @@
+# Packaging config for the PostHog desktop app.
+# The built PostHog frontend (frontend/dist) is bundled into the app's
+# Resources as `frontend-dist`, where the packaged main process expects it
+# (resolveFrontendDistDir in src/main/index.ts). Sourcemaps are excluded:
+# they multiply the bundle size roughly 4x and the app never serves them.
+appId: com.posthog.desktop
+productName: PostHog
+directories:
+    buildResources: build
+    output: release
+files:
+    - dist/**
+extraResources:
+    - from: ../../frontend/dist
+      to: frontend-dist
+      filter:
+          - '**/*'
+          - '!**/*.map'
+          - '!**/*.map.gz'
+          - '!**/*.map.br'
+# Everything the app runs is bundled by esbuild into dist/, so there are no
+# production node_modules to rebuild or package
+npmRebuild: false
+mac:
+    category: public.app-category.developer-tools
+    icon: build/icon.png
+    target:
+        - target: dmg
+          arch:
+              - arm64
+    # No signing identity yet. after-pack.cjs applies an ad-hoc signature so
+    # the app can launch on Apple Silicon (which refuses fully unsigned code).
+    identity: null
+afterPack: scripts/after-pack.cjs
