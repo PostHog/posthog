@@ -3287,6 +3287,8 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      * @nullable
      */
     row_filters?: ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem[] | null
+    /** When true and the schema has no sync method configured yet (and this update does not set one), discover the table on the source and fill in default sync settings: incremental sync with an auto-selected tracking column where supported, otherwise append, otherwise full refresh. Ignored for schemas that already have a sync method. */
+    apply_sync_defaults?: boolean
 }
 
 export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
