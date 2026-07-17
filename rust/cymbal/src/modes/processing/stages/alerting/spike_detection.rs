@@ -652,10 +652,11 @@ mod tests {
         let configs = HashMap::from([(ctx.team_id, SpikeDetectionConfig::default())]);
         let properties = HashMap::from([(ctx.issue_id, processed_properties(ctx.issue_id))]);
 
-        let result =
-            get_spiking_issues(&ctx.redis, &ctx.issues_by_id(), &properties, &configs).await;
+        let result = get_spiking_issues(&ctx.redis, &ctx.issues_by_id(), &properties, &configs)
+            .await
+            .expect("read path fails open, not propagating a 500");
 
-        assert!(result.expect("read path fails open, not propagating a 500").is_empty());
+        assert!(result.is_empty());
     }
 
     #[test]
