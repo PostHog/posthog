@@ -87,11 +87,16 @@ tools:
             you want to see the computed results.
         agent_note:
             After creating a Trends, SQL (HogQL), or Funnels insight — the only kinds that support alerts — consider
-            offering the user an alert on it as a next step (e.g. 'Want me to set up an alert if this drops below X?').
-            Propose a concrete threshold based on the metric rather than asking generically. First call alerts-list with
-            this insight's id to avoid duplicating an existing alert, then use alert-create. Skip this for Retention,
-            Paths, Stickiness, and Lifecycle insights, which cannot have alerts, and don't re-offer if the user
-            declines.
+            offering the user an alert as a next step. Judge relevance before offering. Alerts earn their keep on
+            metrics someone would act on if they moved sharply (signups, active users, revenue, conversion rate, error
+            or failure counts, latency), and are rarely worth it for one-off or exploratory insights,
+            high-cardinality breakdowns, or vanity metrics. Favor a single-value or clearly trending series, since a
+            threshold compares against one number. Propose a concrete threshold and direction drawn from the metric
+            (e.g. 'alert if this drops below X' or 'if it spikes above Y') rather than asking generically; when an
+            absolute number is unclear, suggest a relative-change alert on a sudden increase or decrease. First call
+            alerts-list for this insight's id to avoid duplicating an existing alert, then use alert-create. Skip
+            Retention, Paths, Stickiness, and Lifecycle insights, which cannot have alerts, and don't re-offer if the
+            user declines.
         exclude_params:
             - query
         include_params:
