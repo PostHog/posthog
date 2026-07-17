@@ -343,6 +343,8 @@ DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER = Counter(
 
 def _dashboards_field_access_method(request: Request | None) -> str:
     authenticator = getattr(request, "successful_authenticator", None)
+    # An unresolved authenticator (no DRF auth ran) is treated as session below: it's not a
+    # token caller we're trying to migrate off the field, so keep serving it.
     if authenticator is None:
         return "no_authenticator"
     if isinstance(authenticator, SessionAuthentication):
@@ -363,14 +365,16 @@ def should_serve_deprecated_dashboards_field(context: dict) -> bool:
     if request is None:
         # Internal serialization (exports, subscriptions) has no requesting client to migrate.
         return True
-    authenticator = getattr(request, "successful_authenticator", None)
-    # An unresolved authenticator (no DRF auth ran) fails open as session: it's not a token
-    # caller we're trying to migrate off the field, so keep serving it. See
-    # _dashboards_field_access_method for the corresponding metric label.
-    is_session = authenticator is None or isinstance(authenticator, SessionAuthentication)
+    is_session = _dashboards_field_access_method(request) in ("no_authenticator", "session")
     query_params = getattr(request, "query_params", None)
     opted_in = query_params is not None and str_to_bool(query_params.get(INCLUDE_DASHBOARDS_PARAM, "0"))
     return is_session or opted_in
+
+
+def _record_deprecated_dashboards_field_used(context: dict, usage: str) -> None:
+    DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER.labels(
+        usage=usage, access_method=_dashboards_field_access_method(context.get("request"))
+    ).inc()
 
 
 @extend_schema_serializer(exclude_fields=["filters", "saved"], deprecate_fields=["dashboards"])
@@ -433,9 +437,7 @@ class InsightBasicSerializer(
         representation = super().to_representation(instance)
 
         if should_serve_deprecated_dashboards_field(self.context):
-            DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER.labels(
-                usage="read", access_method=_dashboards_field_access_method(self.context.get("request"))
-            ).inc()
+            _record_deprecated_dashboards_field_used(self.context, usage="read")
             representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
         else:
             representation.pop("dashboards", None)
@@ -703,9 +705,7 @@ class InsightSerializer(InsightBasicSerializer):
                     raise serializers.ValidationError("Dashboard not found")
 
             if target_dashboards:
-                DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER.labels(
-                    usage="write", access_method=_dashboards_field_access_method(self.context.get("request"))
-                ).inc()
+                _record_deprecated_dashboards_field_used(self.context, usage="write")
 
         insight = Insight.objects.create(
             team_id=team_id,
@@ -936,9 +936,7 @@ class InsightSerializer(InsightBasicSerializer):
                     request=self.context["request"],
                 )
 
-        DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER.labels(
-            usage="write", access_method=_dashboards_field_access_method(self.context.get("request"))
-        ).inc()
+        _record_deprecated_dashboards_field_used(self.context, usage="write")
 
         self.context["after_dashboard_changes"] = [describe_change(d) for d in dashboards if not d.deleted]
 
