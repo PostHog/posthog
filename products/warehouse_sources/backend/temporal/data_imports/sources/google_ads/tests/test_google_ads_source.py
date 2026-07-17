@@ -1,13 +1,17 @@
+import re
 import typing
+import datetime as dt
 import collections.abc
 from types import SimpleNamespace
 
 import pytest
+from freezegun import freeze_time
 from unittest import mock
 
 from django.db import OperationalError
 
 import grpc
+import pyarrow as pa
 from google.ads.googleads.errors import GoogleAdsException
 from google.ads.googleads.v23.enums import types as ga_enums
 from google.ads.googleads.v23.errors.types.errors import ErrorCode, GoogleAdsError, GoogleAdsFailure
@@ -25,6 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     clean_customer_id,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
+    GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS,
+    GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN,
     GoogleAdsColumn,
     GoogleAdsTable,
     _get_integration,
@@ -467,6 +473,11 @@ def _string_column(qualified_name: str) -> GoogleAdsColumn:
         is_repeatable=False,
         type_url="",
     )
+
+
+def _pa_table_with_rows(num_rows: int) -> pa.Table:
+    """A minimal Arrow table standing in for a window's extracted page; only its row count matters."""
+    return pa.table({"campaign_id": [str(i) for i in range(num_rows)], "segments_date": ["2026-01-01"] * num_rows})
 
 
 def _single_row_table() -> GoogleAdsTable:
@@ -1148,16 +1159,24 @@ class TestGoogleAdsQueryConstruction:
             description=None,
         )
 
-    def _run_source(self, table: GoogleAdsTable, **source_kwargs):
+    def _run_source(self, table: GoogleAdsTable, *, window_rows: dict[str, int] | None = None, **source_kwargs):
         from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
             google_ads_source,
         )
 
-        captured: dict = {}
+        queries: list[str] = []
 
-        def fake_search(*, service, customer_id, query, table, resumable_source_manager):
-            captured["query"] = query
-            return iter([])
+        def fake_search(*args, **kwargs):
+            # The production code calls positionally; pull `query` (3rd positional) either way.
+            query = kwargs.get("query", args[2] if len(args) > 2 else "")
+            queries.append(query)
+            rows = 0
+            if window_rows is not None:
+                match = re.search(r">= '(\d{4}-\d{2}-\d{2})'", query or "")
+                if match:
+                    rows = window_rows.get(match.group(1), 0)
+            # `_search_as_arrow_tables` only yields non-empty tables, so an empty window yields nothing.
+            return iter([_pa_table_with_rows(rows)] if rows else [])
 
         assert table.alias is not None
         config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
@@ -1174,37 +1193,92 @@ class TestGoogleAdsQueryConstruction:
                 **source_kwargs,
             )
             list(typing.cast(collections.abc.Iterable, response.items()))
-        return response, captured["query"]
+        return response, queries
 
-    def test_incremental_query_is_bounded_and_ordered_by_cursor(self):
-        import datetime as dt
+    def test_established_cursor_drains_in_bounded_windows(self):
+        # An established cursor on a report table is drained in bounded date windows, not the
+        # open-ended `< 2100` scan that re-extracted the whole backlog every run and OOM-spiralled.
+        with freeze_time("2026-07-17"):
+            response, queries = self._run_source(
+                self._stats_table(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=dt.date(2026, 4, 2),
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
 
-        response, query = self._run_source(
-            self._stats_table(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=dt.date(2026, 4, 2),
-            incremental_field="segments.date",
-            incremental_field_type=IncrementalFieldType.Date,
+        assert queries[0] == (
+            "SELECT campaign.id,segments.date FROM campaign_stats "
+            "WHERE segments.date >= '2026-04-02' AND segments.date < '2026-04-09' "
+            "ORDER BY segments.date ASC"
         )
-
-        assert "WHERE segments.date >= '2026-04-02'" in query
-        # Ascending order is load-bearing: the pipeline advances the incremental watermark after
-        # every durably written chunk under sort_mode "asc". Unordered pages would let the
-        # watermark skip past unfetched older rows, and make every chunk's Delta merge touch the
-        # whole date window instead of a narrow band — the stuck-cursor OOM spiral.
-        assert query.endswith("ORDER BY segments.date ASC")
+        assert all("2100-01-01" not in q for q in queries)
         assert response.sort_mode == "asc"
 
-    def test_stats_table_forces_incremental_and_still_orders(self):
-        # requires_filter tables force segments.date filtering even when the caller didn't pass
-        # incremental args (e.g. first backfill) — the ordering must apply on that path too.
-        _response, query = self._run_source(self._stats_table())
+    def test_first_sync_uses_open_ended_scan_not_windows(self):
+        # A first sync carries the 1970 sentinel cursor; windowing it would crawl 7 days at a time
+        # from 1970 and never catch up, so first syncs must stay a single open-ended ascending scan.
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=None,
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
 
-        assert "WHERE segments.date >=" in query
-        assert query.endswith("ORDER BY segments.date ASC")
+        assert queries == [
+            "SELECT campaign.id,segments.date FROM campaign_stats "
+            "WHERE segments.date >= '1970-01-01' AND segments.date < '2100-01-01' "
+            "ORDER BY segments.date ASC"
+        ]
+
+    def test_run_stops_after_max_data_windows(self):
+        # Every window has data; the run must stop after GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN
+        # non-empty windows so a single run stays short enough to complete and durably advance the
+        # cursor, instead of re-extracting the whole backlog and dying to a heartbeat timeout.
+        cursor = dt.date(2026, 1, 1)
+        window_rows = {
+            (cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * i)).isoformat(): 1
+            for i in range(GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN + 3)
+        }
+
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                window_rows=window_rows,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=cursor,
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        assert len(queries) == GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN
+        assert "WHERE segments.date >= '2026-01-01' AND segments.date < '2026-01-08'" in queries[0]
+
+    def test_empty_windows_are_crossed_within_one_run(self):
+        # Data only appears in the fourth window. The three empty windows before it must be
+        # traversed within the same run (not counted toward the budget, not stopping the loop), so
+        # a gap in the data never permanently stalls the cursor short of the data behind it.
+        cursor = dt.date(2026, 1, 1)
+        data_window_start = cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * 3)
+        window_rows = {data_window_start.isoformat(): 1}
+
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                window_rows=window_rows,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=cursor,
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        lower_bounds = [re.search(r">= '(\d{4}-\d{2}-\d{2})'", q).group(1) for q in queries]  # type: ignore[union-attr]
+        assert lower_bounds[:4] == ["2026-01-01", "2026-01-08", "2026-01-15", "2026-01-22"]
 
     def test_dimension_table_query_has_no_order_clause(self):
-        _response, query = self._run_source(_single_row_table())
+        _response, queries = self._run_source(_single_row_table())
 
-        assert "WHERE" not in query
-        assert "ORDER BY" not in query
+        assert "WHERE" not in queries[0]
+        assert "ORDER BY" not in queries[0]
