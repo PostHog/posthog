@@ -179,10 +179,10 @@ describe('useChartInteraction — tooltip pinning', () => {
             },
         ],
         [
-            'click outside',
+            'pointer-down outside',
             () => {
                 jest.runAllTimers()
-                document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+                document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
             },
         ],
     ])('clears pinned tooltip on %s', (_name, trigger) => {
