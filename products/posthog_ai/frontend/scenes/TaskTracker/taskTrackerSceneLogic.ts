@@ -3,14 +3,17 @@ import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { uuid } from 'lib/utils/dom'
+import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
+import { tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
 import {
     ClaudeRuntimeAdapterEnumApi,
+    OriginProductEnumApi,
     ReasoningEffortEnumApi,
+    type TaskWriteApi,
     TaskExecutionModeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
@@ -23,9 +26,9 @@ import type { ComposerSeed } from '../../logics/composerSeedLogic'
 import { runnerPanelLogic } from '../../logics/runnerPanelLogic'
 import type { ActiveCreation } from '../../logics/runnerPanelLogic'
 import { tasksLogic } from '../../logics/tasksLogic'
+import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import type { AttachedContextItem } from '../../types/contextTypes'
 import type { RepositoryConfig, Task } from '../../types/taskTypes'
-import { OriginProduct, TaskUpsertProps } from '../../types/taskTypes'
 import type { TaskListParams } from '../../types/taskTypes'
 import { DEFAULT_COMPOSER_EFFORT, DEFAULT_COMPOSER_MODEL, resolveEffortForModel } from '../../utils/composerModels'
 import { DEFAULT_COMPOSER_MODE, type PermissionMode } from '../../utils/composerModes'
@@ -72,6 +75,7 @@ export interface taskTrackerSceneLogicValues {
     contextItems: AttachedContextItem[] // attachedContextLogic
     seed: ComposerSeed | null // composerSeedLogic
     integrations: IntegrationType[] | null // integrationsLogic
+    currentProjectId: number | null // projectLogic
     activeCreation: ActiveCreation | null // runnerPanelLogic
     historyExpanded: boolean // runnerPanelLogic
     repositories: string[] // tasksLogic
@@ -218,6 +222,12 @@ export interface taskTrackerSceneLogicActions {
     } // tasksLogic
     loadRepositories: () => any // tasksLogic
     loadTasks: (params?: TaskListParams | undefined) => TaskListParams // tasksLogic
+    claimApplyBackTargets: (streamKey: string) => {
+        streamKey: string
+    } // toolStreamEventsLogic
+    releaseApplyBackTargets: (streamKey: string) => {
+        streamKey: string
+    } // toolStreamEventsLogic
     applyComposerSeed: () => {
         value: true
     }
@@ -297,6 +307,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['contextItems'],
             aiConsentLogic,
             ['dataProcessingAccepted'],
+            projectLogic,
+            ['currentProjectId'],
             composerSeedLogic(props),
             ['seed'],
         ],
@@ -309,6 +321,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['loadIntegrationsSuccess'],
             attachedContextLogic,
             ['markContextSent'],
+            toolStreamEventsLogic,
+            ['claimApplyBackTargets', 'releaseApplyBackTargets'],
             composerSeedLogic(props),
             ['consumeSeed', 'setSeed'],
         ],
@@ -455,6 +469,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.submitNewTaskFailure('Description is required')
                 return
             }
+            if (values.currentProjectId == null) {
+                actions.submitNewTaskFailure('Project is required')
+                return
+            }
 
             // Optimistically open the thread on send: a `runStreamLogic` keyed by a client `streamKey`, seeded
             // with the typed message + provisioning indicator, rendered by the pending `RunSurface` (the
@@ -464,29 +482,30 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             cache.activeCreationUnmount?.()
             cache.activeCreationUnmount = undefined
             const streamKey = `draft-${uuid()}`
+            const seededContext = values.contextItems
+            actions.claimApplyBackTargets(streamKey)
             const stream = runStreamLogic({ streamKey })
             cache.activeCreationUnmount = stream.mount()
             actions.setActiveCreation({ streamKey })
             stream.actions.startOptimisticRun(description)
 
             try {
-                const taskData: TaskUpsertProps = {
+                const taskData: TaskWriteApi = {
                     title: '',
                     description,
-                    origin_product: OriginProduct.POSTHOG_AI,
+                    origin_product: OriginProductEnumApi.PosthogAi,
                     // PostHog AI can run without a repo; null means the task is not scoped to any repository.
                     repository: repositoryConfig.repository ?? null,
                     github_integration: repositoryConfig.integrationId ?? null,
                 }
 
-                const newTask = await api.tasks.create(taskData)
+                const projectId = String(values.currentProjectId)
+                const newTask = await tasksCreate(projectId, taskData)
 
                 // Auto-run the task after creation; the detail scene shows the latest run by default. The
                 // run checks out the chosen branch (server falls back to the repo's default branch if unset)
                 // and launches with the picked model / reasoning effort (clamped to one the model supports).
-                // Snapshot the context here so the keys marked sent below match exactly what got wrapped.
-                const seededContext = values.contextItems
-                const runResponse = await api.tasks.run(newTask.id, {
+                const runResponse = await tasksRunCreate(projectId, newTask.id, {
                     branch: repositoryConfig.branch ?? null,
                     runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
                     model,
@@ -513,7 +532,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 // Attach the real ids to the optimistic creation so the detail page adopts this seeded stream
                 // (same `streamKey` + real `runId`) instead of cold-bootstrapping a fresh, skeleton-flashing one.
                 // Kept set across navigation; cleared by the `urlToAction` below once the user leaves this run.
-                actions.setActiveCreation({ streamKey, taskId: newTask.id, runId: runResponse.latest_run?.id })
+                actions.setActiveCreation({ streamKey, taskId: newTask.id, runId: runResponse.latest_run ?? undefined })
                 // An embedded instance (`panelId` set) keeps the run in place — the host renders it from
                 // `activeCreation` — rather than navigating the main app to the `/tasks/:id` detail page.
                 if (!props.panelId) {
@@ -527,6 +546,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.loadTasks(values.taskListParams)
                 actions.loadRepositories()
             } catch (error) {
+                actions.releaseApplyBackTargets(streamKey)
                 // Show the existing failure and return to the composer with the typed text intact.
                 actions.clearActiveCreation()
                 lemonToast.error('Failed to create task')

@@ -23,12 +23,15 @@ export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESS
 export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT } from '../utils/composerModels'
 
 // --- Attached-context store + injection hook (headless) ---
-// Global registry of on-screen context providers; `contextItems` is what the send paths wrap into a
-// `<posthog_context>` block. `useAttachedContext` registers a provider for the lifetime of a mount.
+// Global registry of on-screen context providers; `contextItems` is what the send paths wrap into the
+// trusted/untrusted context blocks. `useAttachedContext` registers a provider for the lifetime of a mount.
 export { attachedContextLogic } from '../logics/attachedContextLogic'
 export { useAttachedContext } from '../hooks/useAttachedContext'
 export type { UseAttachedContextOptions } from '../hooks/useAttachedContext'
 export { attachedContextItemKey } from '../types/contextTypes'
+// The standing "act via tool calls" instruction the sidebar surfaces attach while the user watches a
+// run — the prompt-side half of `useMcpToolApplyBack` (hidden from chips, deduped once per task).
+export { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../utils/posthogContextBlock'
 
 // --- User-picked context (the composer's @-affordance, headless half) ---
 // `contextPickerLogic` owns explicit user picks and registers them as the `user-picker` provider;

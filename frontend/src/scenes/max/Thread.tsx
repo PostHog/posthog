@@ -66,8 +66,10 @@ import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { PendingApproval, RecordingUniversalFilters, Region } from '~/types'
 
 import {
+    AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM,
     getThinkingMessageFromResponse,
     runStreamLogic,
+    useAttachedContext,
     useForegroundStream,
 } from 'products/posthog_ai/frontend/api/logics'
 import {
@@ -134,6 +136,12 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     // panelId) never registers. Cleared on unmount / conversation change via the streamKey dependency.
     const rendersSandboxThread = isSandboxRuntime || isConvertedConversation
     useForegroundStream(panelId === SIDE_PANEL_PANEL_ID && rendersSandboxThread ? sandboxConversationKey : null)
+
+    // While the side panel shows a sandbox thread, tell the agent its tool calls are applied back into
+    // whatever the user has open (the prompt-side half of the apply-back the foreground stream enables).
+    useAttachedContext([AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM], {
+        active: panelId === SIDE_PANEL_PANEL_ID && rendersSandboxThread,
+    })
 
     const containerClassName = cn(
         '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',

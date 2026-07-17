@@ -20,8 +20,12 @@ export interface UseMcpToolApplyBackOptions {
      * Resolved tool names to match (the bus's resolved `toolName`), or `'*'` for every tool.
      */
     tools: string[] | '*'
+    /** Stable identity for the editor resource while this apply-back target remains active. */
+    targetKey: string
     /** Called with the matching event and the parsed inner args (via `resolveToolCall`). */
     onApply: (event: ToolStreamEvent, context: McpToolApplyContext) => void
+    /** When false, no apply-back listener is registered. Defaults to true. */
+    active?: boolean
     /**
      * `'turn_end'` (default): apply the last matching completion once when the foreground turn ends.
      * `'tool_call_completed'`: apply each matching tool when it completes.
@@ -30,15 +34,20 @@ export interface UseMcpToolApplyBackOptions {
 }
 
 /**
- * Reacts to the foreground run's MCP tool calls — the seam for "the agent generated a query, apply it
- * to the open editor". Always foreground-gated (only the run rendered in the side panel the user is
- * watching) and replay-excluded, so a background run or a reload never triggers a reaction. In
- * `'turn_end'` mode the last matching completed event wins and `onApply` fires once when the turn
- * finishes; `'tool_call_completed'` fires per matching completion.
+ * Reacts to the foreground run's MCP tool calls. The active registration is snapshotted when a prompt
+ * is sent, so navigation cannot transfer an in-flight apply-back to a different editor. Delivery also
+ * fails closed when multiple claimed targets match the same tool. In `'turn_end'` mode the last matching
+ * completed event wins and `onApply` fires once when the turn finishes; `'tool_call_completed'` fires per
+ * matching completion.
  */
-export function useMcpToolApplyBack({ tools, onApply, applyOn = 'turn_end' }: UseMcpToolApplyBackOptions): void {
+export function useMcpToolApplyBack({
+    tools,
+    targetKey,
+    onApply,
+    active = true,
+    applyOn = 'turn_end',
+}: UseMcpToolApplyBackOptions): void {
     const { registerToolListener, deregisterToolListener } = useActions(toolStreamEventsLogic)
-    const listenerIdRef = useRef<string>(`mcp-apply-back-${uuid()}`)
 
     // Latest callback + mode held in refs so re-renders never churn the (closure-holding) registration.
     const onApplyRef = useRef(onApply)
@@ -51,8 +60,14 @@ export function useMcpToolApplyBack({ tools, onApply, applyOn = 'turn_end' }: Us
     const toolsKey = tools === '*' ? '*' : [...tools].sort().join(',')
 
     useEffect(() => {
-        const listenerId = listenerIdRef.current
         bufferedEventRef.current = null
+
+        if (!active) {
+            return
+        }
+
+        const targetId = `${targetKey}:${uuid()}`
+        const listenerId = `mcp-apply-back-${targetId}`
 
         const apply = (event: ToolStreamEvent): void => {
             // The bus event carries no inner args — re-parse the exec `command` off the invocation.
@@ -76,6 +91,7 @@ export function useMcpToolApplyBack({ tools, onApply, applyOn = 'turn_end' }: Us
 
         registerToolListener(listenerId, {
             tools,
+            applyBackTargetId: targetId,
             foregroundOnly: true,
             includeReplay: false,
             onEvent: (event: ToolStreamEvent) => {
@@ -100,5 +116,5 @@ export function useMcpToolApplyBack({ tools, onApply, applyOn = 'turn_end' }: Us
         })
         return () => deregisterToolListener(listenerId)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [toolsKey, registerToolListener, deregisterToolListener])
+    }, [active, targetKey, toolsKey, registerToolListener, deregisterToolListener])
 }
