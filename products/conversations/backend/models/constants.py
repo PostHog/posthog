@@ -36,6 +36,7 @@ class Priority(models.TextChoices):
     LOW = "low", "Low"
     MEDIUM = "medium", "Medium"
     HIGH = "high", "High"
+    CRITICAL = "critical", "Critical"
 
 
 class ImportJobStatus(models.TextChoices):

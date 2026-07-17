@@ -365,37 +365,40 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     <p className="text-muted text-sm m-0">
                                         History of when this evaluation has been executed.
                                         {runsSummary && runsSummary.total > EVALUATION_SUMMARY_MAX_RUNS && (
-                                            <> Showing the latest {EVALUATION_SUMMARY_MAX_RUNS} runs.</>
+                                            <> The table below shows the latest {EVALUATION_SUMMARY_MAX_RUNS} runs.</>
                                         )}
                                     </p>
                                     {runsSummary && (
-                                        <div className="flex gap-4 text-sm">
-                                            <div className="text-center">
-                                                <div className="font-semibold text-lg">{runsSummary.total}</div>
-                                                <div className="text-muted">Total runs</div>
-                                            </div>
-                                            {supportsRunSummary && (
+                                        <div className="flex flex-col items-end gap-1">
+                                            <div className="flex gap-4 text-sm">
                                                 <div className="text-center">
-                                                    <div className="font-semibold text-lg text-success">
-                                                        {runsSummary.successRate}%
-                                                    </div>
-                                                    <div className="text-muted">Success rate</div>
+                                                    <div className="font-semibold text-lg">{runsSummary.total}</div>
+                                                    <div className="text-muted">Total runs</div>
                                                 </div>
-                                            )}
-                                            {supportsRunSummary && evaluation.output_config.allows_na && (
+                                                {supportsRunSummary && (
+                                                    <div className="text-center">
+                                                        <div className="font-semibold text-lg text-success">
+                                                            {runsSummary.successRate}%
+                                                        </div>
+                                                        <div className="text-muted">Success rate</div>
+                                                    </div>
+                                                )}
+                                                {supportsRunSummary && evaluation.output_config.allows_na && (
+                                                    <div className="text-center">
+                                                        <div className="font-semibold text-lg">
+                                                            {runsSummary.applicabilityRate}%
+                                                        </div>
+                                                        <div className="text-muted">Applicable</div>
+                                                    </div>
+                                                )}
                                                 <div className="text-center">
-                                                    <div className="font-semibold text-lg">
-                                                        {runsSummary.applicabilityRate}%
+                                                    <div className="font-semibold text-lg text-danger">
+                                                        {runsSummary.errors}
                                                     </div>
-                                                    <div className="text-muted">Applicable</div>
+                                                    <div className="text-muted">Errors</div>
                                                 </div>
-                                            )}
-                                            <div className="text-center">
-                                                <div className="font-semibold text-lg text-danger">
-                                                    {runsSummary.errors}
-                                                </div>
-                                                <div className="text-muted">Errors</div>
                                             </div>
+                                            <div className="text-muted text-xs">Across all runs, all time</div>
                                         </div>
                                     )}
                                 </div>

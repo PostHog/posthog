@@ -8,6 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
+import { isAccessDeniedError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -35,7 +36,18 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadRecordingMeta', // Gracefully handled in the recording player
     'loadSimilarIssues', // Gracefully handled in the similar issues list
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
+    'loadExistingSubscription', // Background eligibility check for the dashboard subscribe nudge
+    'loadFreeTierSubscriptionCount', // Background free-tier limit check for the dashboard subscribe nudge
+    'sendNudgeNotification', // Background delivery request for the dashboard subscribe nudge
 ]
+
+/*
+Write actions that show their own friendly message for access-denied 403s
+(code `permission_denied`), so the generic toast would be a duplicate.
+Unlike ERROR_FILTER_ALLOW_LIST, this only suppresses access-denied errors;
+other failures on these actions still toast.
+*/
+const ACCESS_DENIED_SELF_HANDLED = new Set(['saveFeatureFlag'])
 
 /*
 Transient gateway/proxy errors. These are infrastructure-level failures (the gateway can't
@@ -114,11 +126,19 @@ export function initKea({
                 // `before_send` filter in `selfReadOnlyModeLogic`.
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
+                // Access-denied 403s (code `permission_denied`) are suppressed only where the
+                // owning UI surfaces them itself: load actions (AccessDenied scene gates) and the
+                // self-handled write actions above. Other writes keep the generic toast, since
+                // most write flows have no failure handling of their own. Read-only mode uses
+                // distinct codes (`read_only_blocked`, `impersonation_read_only`) and still toasts.
+                const isAccessDenied =
+                    isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&
                     ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic, 409 is handled by approval workflow
-                    !(isLoadAction && error.status === 403) // 403 access denied is handled by sceneLogic gates
+                    !(isLoadAction && error.status === 403) && // 403 access denied is handled by sceneLogic gates
+                    !isAccessDenied
                 ) {
                     let errorMessage = error.detail || error.statusText
                     const isTwoFactorError =

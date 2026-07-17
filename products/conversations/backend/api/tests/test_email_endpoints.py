@@ -829,6 +829,62 @@ class TestEmailInboundMultiConfig(BaseTest):
         assert ticket.email_config_id == config2.id
 
 
+class TestEmailInboundContent(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="cc00dd11ee2233ff",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+        )
+
+    @parameterized.expand(
+        [
+            # Mailgun sometimes mis-classifies trailing content (e.g. a list of bare emails)
+            # as a signature — it must be reattached, not dropped.
+            (
+                "signature_reattached",
+                {"stripped-text": "Missing recordings for:", "stripped-signature": "a@gmail.com\nb@gmail.com"},
+                "Missing recordings for:\n\na@gmail.com\nb@gmail.com",
+            ),
+            (
+                "stripped_text_only",
+                {"stripped-text": "Just a question"},
+                "Just a question",
+            ),
+            (
+                "falls_back_to_body_plain",
+                {"body-plain": "Full body text"},
+                "Full body text",
+            ),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_inbound_content_extraction(
+        self, _name: str, body_fields: dict[str, str], expected_content: str, _mock_sig: MagicMock
+    ):
+        response = self.client.post(
+            "/api/conversations/v1/email/inbound",
+            {
+                "recipient": "team-cc00dd11ee2233ff@mg.posthog.com",
+                "from": "customer@test.com",
+                "Message-Id": f"<content-{_name}@test.com>",
+                "subject": "Help",
+                **body_fields,
+            },
+        )
+        assert response.status_code == 200
+
+        comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert comment.content == expected_content
+
+
 class TestSendEmailReplyMultiConfig(BaseTest):
     def setUp(self):
         super().setUp()
@@ -897,7 +953,9 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         config1 = self._create_config("support@example.com", "aaa111")
         self._create_config("billing@example.com", "bbb222")
         ticket = self._create_ticket(config1)
-        ticket.cc_participants = ["cc1@example.com", "cc2@example.com"]
+        # Legacy tickets may carry the requester in cc_participants; they must not
+        # be delivered to twice (they're already the To recipient).
+        ticket.cc_participants = ["cc1@example.com", "customer@test.com", "cc2@example.com"]
         ticket.save(update_fields=["cc_participants"])
 
         _, outbox = self._run_reply(ticket)
@@ -908,7 +966,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         # Regression guard: must use the ticket's domain, not a shared/global one.
         assert args[0] == "example.com"
 
-        # Recipients include the customer and every CC participant.
+        # Recipients include the customer and every CC participant, minus the requester.
         assert kwargs["recipients"] == ["customer@test.com", "cc1@example.com", "cc2@example.com"]
 
         # MIME body carries the From header with the config's from_email.
@@ -1540,14 +1598,33 @@ class TestEmailInboundCcParticipants(BaseTest):
 
     @parameterized.expand(
         [
-            ("with_display_names", "Dev <dev@company.com>, pm@company.com", ["dev@company.com", "pm@company.com"]),
-            ("self_cc_filtered", "dev@company.com, team-cc00ee11ff22@mg.posthog.com", ["dev@company.com"]),
-            ("no_cc_header", None, []),
+            # (_name, to_header, cc_header, expected)
+            (
+                "cc_with_display_names",
+                None,
+                "Dev <dev@company.com>, pm@company.com",
+                ["dev@company.com", "pm@company.com"],
+            ),
+            ("self_cc_filtered", None, "dev@company.com, team-cc00ee11ff22@mg.posthog.com", ["dev@company.com"]),
+            ("no_recipients", None, None, []),
+            # Direct recipient in To, support address only CC'd — the recipient must survive.
+            (
+                "to_recipient_kept_channel_dropped",
+                "auser@example.com",
+                "support@example.com",
+                ["auser@example.com"],
+            ),
+            # Channel's own address and the sender are never participants.
+            ("channel_and_sender_excluded", "sender@test.com, support@example.com", None, []),
+            # To + Cc merge and dedupe.
+            ("to_and_cc_merged", "auser@example.com", "dev@company.com", ["auser@example.com", "dev@company.com"]),
         ]
     )
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_new_ticket_cc_participants(self, _name, cc_header, expected, _mock_sig):
+    def test_new_ticket_participants(self, _name, to_header, cc_header, expected, _mock_sig):
         data = self._base_data(f"<cc-{_name}@test.com>")
+        if to_header:
+            data["To"] = to_header
         if cc_header:
             data["Cc"] = cc_header
         response = self.client.post("/api/conversations/v1/email/inbound", data)
@@ -1568,6 +1645,18 @@ class TestEmailInboundCcParticipants(BaseTest):
         data2["In-Reply-To"] = "<cc2@test.com>"
         data2["Cc"] = "dev@company.com, new@company.com"
         self.client.post("/api/conversations/v1/email/inbound", data2)
+
+        ticket.refresh_from_db()
+        assert ticket.cc_participants == ["dev@company.com", "new@company.com"]
+
+        # A participant reply-alls: the requester lands in To but is already the
+        # reply target, so they must not be merged into cc_participants.
+        data3 = self._base_data("<cc4@test.com>")
+        data3["from"] = "dev@company.com"
+        data3["In-Reply-To"] = "<cc2@test.com>"
+        data3["To"] = "sender@test.com, support@example.com"
+        data3["Cc"] = "new@company.com"
+        self.client.post("/api/conversations/v1/email/inbound", data3)
 
         ticket.refresh_from_db()
         assert ticket.cc_participants == ["dev@company.com", "new@company.com"]

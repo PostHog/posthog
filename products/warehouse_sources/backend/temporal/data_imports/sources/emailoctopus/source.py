@@ -36,6 +36,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EmailOctopusSource(ResumableSource[EmailOctopusSourceConfig, EmailOctopusResumeConfig]):
+    # The source has always talked to EmailOctopus's REST API at api.emailoctopus.com — the v2 API.
+    # Existing instances carry the legacy default label "v1"; both resolve to that same host (the
+    # version isn't encoded in EmailOctopus requests), so the default bump leaves them unaffected.
+    supported_versions = ("v1", "v2")
+    default_version = "v2"
+    api_docs_url = "https://emailoctopus.com/api-documentation"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.EMAILOCTOPUS
@@ -131,6 +138,7 @@ You can create an API key in your [EmailOctopus account settings](https://emailo
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
