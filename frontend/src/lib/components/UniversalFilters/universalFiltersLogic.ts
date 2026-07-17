@@ -81,8 +81,6 @@ function isPropertyEditableTaxonomicGroupType(groupType: TaxonomicFilterGroupTyp
     )
 }
 
-export { DEFAULT_UNIVERSAL_GROUP_FILTER }
-
 export type UniversalFiltersLogicProps = {
     rootKey: string
     group: UniversalFiltersGroup | null
