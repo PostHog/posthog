@@ -105,7 +105,7 @@ Purpose: record every end-to-end `run_review` so we can tell whether a prompt/co
   `synchronize`) is gated here. A **no-publish** eval run is never gated (no published head) — the frozen-PR eval
   loop still recomputes to measure reviewer changes.
 - **New comments at an unchanged head:** counted + logged at fetch (`new_comment_count`) but do **not** force a
-  turn yet (decision 2026-06-29 — revisit with the "fix the issues" action plane; see DECISIONS.md, "Triggers & publish").
+  turn yet (decision 2026-06-29 — revisit with the "fix the issues" action plane; see DECISIONS.md → Stage 5b).
 - **NEXT — Scenario 2 (SHA changed):** push a tiny change to #66456 to move the head, re-run `--publish` → expect
   a full re-review (re-chunk/analyze/review at the new head) + a **fresh** published review pinned to the new head,
   **no** promo re-post, deduped against our own prior inline comments.
@@ -123,8 +123,8 @@ Purpose: record every end-to-end `run_review` so we can tell whether a prompt/co
   - once-per-report promo, `published_head_sha` then set).
 - **Root cause #2 (off-diff valid finding dropped):** of the 2 valid findings, `email.py:276` had **no resolvable
   diff position** → skipped; only `email.py:104` posted inline. If **all** valid findings were off-diff,
-  `publish_review` would return `False` and post **nothing** (not even the body). Both gaps have since been fixed —
-  see DECISIONS.md ("Off-diff valid findings are surfaced in a review-body section" and the per-run `publish` flag).
+  `publish_review` would return `False` and post **nothing** (not even the body). Both gaps written up in
+  DECISIONS.md → Stage 5b → _Publish-path gaps_ (since fixed — see the Change A + B section).
 
 ## 2026-06-26 · Stage 5 — production label trigger (BUILT, not e2e'd)
 

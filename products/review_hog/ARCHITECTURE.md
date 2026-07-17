@@ -21,53 +21,33 @@ back to the sandbox above their gates, selection falls back to running everythin
 Postgres (`ReviewReport` + `ReviewReportArtefact`) — there is **no on-disk store**; the only external side
 effect is the GitHub review it posts.
 
-This document is the present-tense architecture reference — what ReviewHog *is today*. Two companion docs
-carry the rest: **[DECISIONS.md](./DECISIONS.md)** records *why* it is shaped this way (the trade-offs made and
-the alternatives rejected, including the designed-but-unbuilt loop), and **[Status & next](#status--next)**
-below tracks what is in flight.
+This document is the present-tense architecture reference — what ReviewHog *is today*. Its companion
+**[DECISIONS.md](./DECISIONS.md)** is the full record of *why* it got there: the staged build history, the
+design decisions (with the alternatives weighed and rejected), the gotchas, the grounded implementation maps,
+and the roadmap — including the designed-but-unbuilt loop. Nothing is summarized away; go there to check the
+reasoning behind any part of this reference. [Status & next](#status--next) below is a short summary of what's
+in flight, with the detail in DECISIONS.md.
 
 > **Keep the docs in sync, each in its lane.** This reference is the source of truth for ReviewHog's
 > architecture — the pipeline shape, the sandbox/contract surface it binds to in `products/tasks`, the data
 > models, the prompts, the artefact layout. A merge or refactor that moves or renames what ReviewHog depends on
-> is exactly such a change: re-point the affected sections here, don't leave them stale. When a change embodies
-> a real trade-off (you chose X over Y for a reason a future reader couldn't reconstruct from the code alone),
-> add a distilled entry to [DECISIONS.md](./DECISIONS.md) — append-only, one entry per decision, no worklog
-> scaffolding. When a roadmap item lands, **delete** its line from [Status & next](#status--next) and, if it
-> involved a trade-off, distill one entry into DECISIONS.md. That delete-on-land rule is what keeps the build
-> log from growing back into this file.
+> is exactly such a change: re-point the affected sections here, don't leave them stale. Land the reasoning,
+> build history, and roadmap updates in [DECISIONS.md](./DECISIONS.md) — that's the record that grows over time,
+> so this reference stays lean and present-tense. Don't let the build log grow back into this file.
 
 ---
 
 ## Status & next
 
-ReviewHog runs end-to-end: label / UI / inbox triggers → the Temporal pipeline → published PR review. Open
-threads, newest intent first (see [DECISIONS.md](./DECISIONS.md) for why each area is shaped as it is, and
-`eval/` for the experiment archive):
+ReviewHog runs end-to-end: label / UI / inbox triggers → the Temporal pipeline → published PR review. The
+current focus is productionizing the reviewer-topology eval and tightening the finder/validator balance
+(validator strictness, fewer junk candidates, the coverage gap); the **loop** — a living, multi-turn review that
+re-checks on new commits/comments and implements fixes — is designed but not built. The single-turn pipeline
+below is its per-turn body.
 
-- **Reviewer-topology eval → prod (landed).** The winning shape — semantic chunking for mid-size PRs, parallel
-  perspectives, and one "what did everyone miss?" blind-spot sweep per chunk — is in prod. The frozen-PR
-  experiment archive is `eval/experiments/2026-07-reviewer-topology/` (read its `FINAL_REPORT.md` first).
-- **Validator strictness (open).** The strict validator killed real findings in the topology eval (yardstick #6
-  in 7 of 8 runs). Before loosening the criteria, run the free observational check (valid-rate + argument depth
-  by turn position over the archived dumps + prod verdicts) and the warm-session-vs-isolated-validation
-  experiment on the frozen PR — the strictness may be partly session-mode-induced.
-- **Fewer junk candidates (open).** A large share of post-dedup candidates get dismissed, and validation is the
-  run's wall-clock long pole. Raise the *finder-side* bar (per-perspective "do NOT report" guidance mined from
-  real dismissals), not the validator's. Tension with the item above: don't tune finders against a bar that may
-  itself loosen — the goal is fewer junk candidates, not fewer real ones.
-- **Coverage gap (open).** Five yardstick findings — including both must-fix security ones — never surfaced
-  under any topology. The likely fix is a fourth canonical perspective (e.g. agent-safety & privilege), not
-  diluting the existing three; the eval's coverage matrix is the acceptance test.
-- **Prompt caching / review-stage cost (active).** One neutral warm-up agent per chunk investigates once; every
-  perspective forks its cached session at reduced cost while keeping full tools. The program and harness live in
-  `eval/experiments/2026-07-prompt-caching/`.
-- **The loop (design only).** A PR review should become a living, multi-turn process (re-check on new commits /
-  comments, "implement the fixes", converge). Topology, control plane, router, cross-turn finding identity, and
-  the action plane are designed but not built — the full design is in [DECISIONS.md](./DECISIONS.md). The
-  single-turn pipeline below is its per-turn body.
-
-Smaller notes and unscheduled experiments (per-stage model/effort tiers, dedup at `effort=high`, per-chunk
-review→validate pipelining, adversarial validation panel) live in `eval/POTENTIAL_EXPERIMENTS.md`.
+The full roadmap — every open thread with its reasoning, the loop design, the grounded implementation maps, and
+the experiment backlog — is in [DECISIONS.md](./DECISIONS.md) (start at its "🎯 NEXT" section) and `eval/`
+(`RUN_LOG.md`, `POTENTIAL_EXPERIMENTS.md`, `experiments/`).
 
 **Before real users:** settle the "ReviewHog Alpha" published-comment wording (see
 [Known issues](#known-issues--tech-debt)).
@@ -398,9 +378,9 @@ content". Most begin with `{{ CLAUDE_CODE_CONTEXT | safe }}` (the `@path#L…` r
 
 A separate **blind-spots** skill (`skills/review-hog-blind-spots-general/SKILL.md`) drives the per-chunk sweep;
 it is pull-delivered the same way. The perspective / validation / blind-spot skills are all team-owned and
-customizable — see [DECISIONS.md](./DECISIONS.md) ("skills as the customization surface"). The invariant that keeps
-this safe: **the output schema is fixed (code), only the skill body (logic) is editable**, so editing a skill can
-never change the output format the downstream pipeline depends on.
+customizable — see [DECISIONS.md](./DECISIONS.md) (the customizable-perspectives / per-user-enablement sections).
+The invariant that keeps this safe: **the output schema is fixed (code), only the skill body (logic) is editable**,
+so editing a skill can never change the output format the downstream pipeline depends on.
 
 ---
 
