@@ -124,7 +124,7 @@ class TestPretixSource:
         inputs = mock.MagicMock()
         inputs.schema_name = "orders"
         inputs.team_id = self.team_id
-        inputs.logger = mock.MagicMock()
+        inputs.job_id = "job-123"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
         inputs.incremental_field = "last_modified"
@@ -137,7 +137,7 @@ class TestPretixSource:
             base_url=self.config.base_url,
             endpoint="orders",
             team_id=self.team_id,
-            logger=inputs.logger,
+            job_id="job-123",
             resumable_source_manager=manager,
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-01-01T00:00:00Z",

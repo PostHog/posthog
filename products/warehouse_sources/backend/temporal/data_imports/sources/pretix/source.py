@@ -156,7 +156,7 @@ Self-hosted users should set the API URL to their own pretix host (for example `
             base_url=config.base_url,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
-            logger=inputs.logger,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

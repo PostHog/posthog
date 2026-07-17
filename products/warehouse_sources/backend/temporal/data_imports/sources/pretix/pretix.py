@@ -7,31 +7,48 @@ is scoped to a single organizer, and every resource lives under
 ``/api/v1/organizers/{organizer}/...``.
 
 List endpoints are page-number paginated with a ``count``/``next``/``previous``/``results``
-envelope (page size defaults to the maximum of 50), where ``next`` is the full URL of the following
-page. Orders and invoices use the organizer-level list endpoints spanning all events; the remaining
-event-scoped resources fan out over the organizer's events.
+envelope where ``next`` is the full URL of the following page. Orders and invoices use the
+organizer-level list endpoints spanning all events; the remaining event-scoped resources fan out
+over the organizer's events.
 
 Only ``orders`` documents a server-side timestamp filter (``modified_since``) together with a
 ``last_modified`` ordering key, so it is the only incremental stream. Everything else is full
 refresh — pretix's other list endpoints only support ``If-Modified-Since`` conditional fetching
 (all-or-nothing 304s), which is not a per-row cursor.
+
+Built on the shared ``rest_source`` framework: a ``JSONResponsePaginator`` follows the ``next``
+link, framework ``api_key`` auth carries the token (and redacts it from errors/logs), ``allowed_hosts``
+pins every page/resume URL to the configured host, and ``allow_redirects=False`` rejects 3xx — the
+SSRF guards the hand-rolled transport enforced by hand. Event-scoped resources are single-hop
+dependent resources fanning out from the organizer's events list.
 """
 
 import re
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import quote, urlencode, urlparse
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib.parse import quote, urlparse
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+    IncrementalConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.settings import (
     EVENT_SLUG_KEY,
     EVENTS_PATH,
@@ -43,20 +60,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.set
 DEFAULT_API_HOST = "https://pretix.eu"
 API_VERSION_PATH = "/api/v1"
 
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRIES = 5
-# pretix Hosted enforces 360 requests/minute per organizer token and returns 429 + Retry-After.
-MAX_RETRY_AFTER_SECONDS = 60
-
 HOST_NOT_ALLOWED_ERROR = "pretix API URL is not allowed"
 HTTP_NOT_ALLOWED_ERROR = "pretix API URL must use HTTPS"
 INVALID_ORGANIZER_ERROR = "Invalid pretix organizer short name"
 
-
-class PretixRetryableError(Exception):
-    def __init__(self, message: str, retry_after: float | None = None) -> None:
-        super().__init__(message)
-        self.retry_after = retry_after
+# The parent event slug, percent-encoded, stashed on each event row so the child fan-out URL quotes
+# the slug exactly like the hand-rolled ``quote(slug, safe="")`` did — while the raw slug is stamped
+# into child rows unchanged (see ``EVENT_SLUG_KEY``).
+_EVENT_SLUG_ENCODED_KEY = "event_slug_encoded"
+# ``include_from_parent=["slug"]`` copies the parent's raw slug under this framework-derived name.
+_PARENT_SLUG_KEY = "_events_slug"
 
 
 class PretixHostNotAllowedError(Exception):
@@ -66,10 +79,13 @@ class PretixHostNotAllowedError(Exception):
 @dataclasses.dataclass
 class PretixResumeConfig:
     # Full URL of the next page to fetch, taken verbatim from the API's ``next`` link (query params,
-    # including any `modified_since` filter, are baked into it). Only persisted for organizer-level
-    # endpoints — event fan-out endpoints restart from the first event on resume and rely on merge
-    # dedupe, since event ordering is not guaranteed stable across runs.
+    # including any ``modified_since`` filter, are baked into it). Persisted for organizer-level
+    # (simple) endpoints.
     next_url: str | None = None
+    # Framework dependent-resource checkpoint for event fan-out endpoints (``{"completed": [...],
+    # "current": ..., "child_state": ...}``). Defaults to None so an old ``{"next_url": ...}`` state
+    # still parses after this change.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def normalize_base_url(base_url: Optional[str]) -> str:
@@ -136,184 +152,64 @@ def _check_host(base_url: str, team_id: int) -> None:
         raise PretixHostNotAllowedError(HTTP_NOT_ALLOWED_ERROR)
 
 
-def _parse_retry_after(response: requests.Response) -> float | None:
-    """Honor a whole-second ``Retry-After`` on 429. HTTP-date forms are ignored."""
-    raw = response.headers.get("Retry-After")
-    if raw and raw.strip().isdigit():
-        return min(float(raw.strip()), MAX_RETRY_AFTER_SECONDS)
-    return None
+def _client_config(api_token: str, base_url: str) -> ClientConfig:
+    # Auth is supplied via the framework `api_key` config (header `Authorization: Token <token>`) so
+    # the value is redacted from logs and raised error messages; only the non-secret Accept header is
+    # set on the client. `allowed_hosts=[]` pins every page/resume URL to the base host (the base host
+    # is always implicitly allowed), and `allow_redirects=False` rejects 3xx — a tampered `next` link
+    # or a redirect can't hand the token to another origin.
+    return {
+        "base_url": base_url,
+        "auth": {
+            "type": "api_key",
+            "api_key": f"Token {api_token}",
+            "name": "Authorization",
+            "location": "header",
+        },
+        "headers": {"Accept": "application/json"},
+        "paginator": JSONResponsePaginator(next_url_path="next"),
+        "allowed_hosts": [],
+        "allow_redirects": False,
+    }
 
 
-def _retry_wait(retry_state: RetryCallState) -> float:
-    """Use a server-provided Retry-After when present, else exponential backoff."""
-    exc = retry_state.outcome.exception() if retry_state.outcome else None
-    if isinstance(exc, PretixRetryableError) and exc.retry_after is not None:
-        return exc.retry_after
-    return wait_exponential_jitter(initial=1, max=30)(retry_state)
+def _modified_since_incremental() -> IncrementalConfig:
+    return {
+        "cursor_path": "last_modified",
+        "start_param": "modified_since",
+        "convert": _format_modified_since,
+    }
 
 
-def _origin_of(url: str) -> tuple[str, str, int]:
-    # Same backslash normalization as `_host_of`, so the origin we compare is the one requests
-    # actually connects to.
-    normalized = url.replace("\\", "/").replace("%5c", "/").replace("%5C", "/")
-    parsed = urlparse(normalized)
-    scheme = parsed.scheme.lower()
-    port = parsed.port or (443 if scheme == "https" else 80)
-    return scheme, (parsed.hostname or "").lower(), port
-
-
-def _ensure_same_origin(url: str, base_url: str) -> None:
-    """Refuse pagination/resume URLs that leave the validated pretix origin.
-
-    ``next`` links come from the (possibly self-hosted, customer-controlled) server and resume URLs
-    from persisted state, while the session attaches the API token to every request — following an
-    off-origin URL would hand the token to an arbitrary host (or reach internal addresses)."""
-    if _origin_of(url) != _origin_of(base_url):
-        raise PretixHostNotAllowedError(f"pretix pagination URL is not on the configured pretix host: {url}")
-
-
-def _fetch_page_impl(
-    session: requests.Session,
-    url: str,
-    logger: FilteringBoundLogger,
-) -> tuple[list[dict[str, Any]], Optional[str]]:
-    """Fetch one list page. ``url`` is absolute — the initial endpoint URL (params baked in via
-    urlencode) or a verbatim ``next`` link, so page params are never re-sent."""
-    # Don't follow redirects: an attacker-controlled self-hosted URL could 3xx to an internal
-    # address, bypassing the host validation done before the request (SSRF).
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        retry_after = _parse_retry_after(response) if response.status_code == 429 else None
-        raise PretixRetryableError(
-            f"pretix API error (retryable): status={response.status_code}, url={url}", retry_after=retry_after
-        )
-
-    # A 3xx isn't an error status (`response.ok` is True), so reject it explicitly rather than
-    # silently parsing the redirect body as data.
-    if response.is_redirect or response.is_permanent_redirect:
-        raise PretixHostNotAllowedError(
-            f"pretix API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
-        )
-
-    if not response.ok:
-        logger.error(f"pretix API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    data = response.json()
-    if not isinstance(data, dict) or not isinstance(data.get("results"), list):
-        raise PretixRetryableError(f"pretix returned an unexpected payload for {url}: {type(data).__name__}")
-
-    next_url = data.get("next")
-    return data["results"], next_url if isinstance(next_url, str) and next_url else None
-
-
-_fetch_page = retry(
-    retry=retry_if_exception_type((PretixRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(MAX_RETRIES),
-    wait=_retry_wait,
-    reraise=True,
-)(_fetch_page_impl)
-
-
-def _iter_pages(
-    session: requests.Session,
-    first_url: str,
-    base_url: str,
-    logger: FilteringBoundLogger,
-) -> Iterator[tuple[list[dict[str, Any]], Optional[str]]]:
-    """Yield ``(page_items, next_url)`` across every page starting at ``first_url``.
-
-    Every fetched URL — including a resumed ``first_url`` — and every ``next`` link is pinned to the
-    validated base origin before it is fetched or yielded (and thus before it can be persisted)."""
-    url: Optional[str] = first_url
-    while url:
-        _ensure_same_origin(url, base_url)
-        items, next_url = _fetch_page(session, url, logger)
-        if next_url:
-            _ensure_same_origin(next_url, base_url)
-        yield items, next_url
-        url = next_url
-
-
-def _build_url(base_url: str, path: str, params: dict[str, Any]) -> str:
-    return f"{base_url}{path}?{urlencode(params)}" if params else f"{base_url}{path}"
-
-
-def _iter_event_slugs(
-    session: requests.Session, base_url: str, organizer: str, logger: FilteringBoundLogger
-) -> Iterator[str]:
-    url = _build_url(base_url, EVENTS_PATH.format(organizer=organizer), {})
-    for page, _ in _iter_pages(session, url, base_url, logger):
-        for event in page:
-            # Fail fast on a malformed response rather than silently dropping an event's children.
-            yield str(event["slug"])
-
-
-def get_rows(
-    api_token: str,
-    organizer: str,
-    base_url: Optional[str],
-    endpoint: str,
-    team_id: int,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[PretixResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
-    incremental_field: str | None = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config: PretixEndpointConfig = PRETIX_ENDPOINTS[endpoint]
-    resolved_base_url = normalize_base_url(base_url)
-    # Re-check at run time (not just at source-create) in case the URL was edited or now resolves
-    # to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
-    _check_host(resolved_base_url, team_id)
-    quoted_organizer = _quote_organizer(organizer)
-
-    # `redact_values` masks the token from captured HTTP samples — it rides in the Authorization
-    # header with the non-standard `Token` scheme.
-    session = make_tracked_session(headers=_get_headers(api_token), redact_values=(api_token,))
-
-    params: dict[str, Any] = {}
-    if config.ordering:
-        # An explicit stable sort keeps page boundaries deterministic, and for `orders` it makes the
-        # response order match SourceResponse.sort_mode="asc" so the incremental watermark advances
-        # correctly (DRF-style `ordering=<field>` is ascending).
-        params["ordering"] = config.ordering
-    # Only narrow with the server-side `modified_since` filter when the endpoint supports it and the
-    # user's chosen cursor is the field that filter targets. Honors inputs.incremental_field rather
-    # than assuming it.
-    if (
+def _should_apply_incremental(
+    config: PretixEndpointConfig,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+    incremental_field: Optional[str],
+) -> bool:
+    # Mirror the hand-rolled gate: only narrow with the server-side `modified_since` filter when the
+    # endpoint supports it and the user's chosen cursor is the field that filter targets
+    # (`last_modified`). Honors the selected incremental_field rather than assuming it.
+    return (
         should_use_incremental_field
-        and config.modified_since_field
-        and db_incremental_field_last_value
+        and config.modified_since_field is not None
+        and db_incremental_field_last_value is not None
         and incremental_field in (None, config.modified_since_field)
-    ):
-        params["modified_since"] = _format_modified_since(db_incremental_field_last_value)
+    )
 
-    if config.scope == EndpointScope.ORGANIZER:
-        resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-        if resume and resume.next_url:
-            logger.debug(f"pretix: resuming {endpoint} from saved page URL")
-            first_url = resume.next_url
-        else:
-            first_url = _build_url(resolved_base_url, config.path.format(organizer=quoted_organizer), params)
 
-        for page, next_url in _iter_pages(session, first_url, resolved_base_url, logger):
-            if page:
-                yield page
-            # Save AFTER yielding so a crash re-fetches from the last unpersisted page (merge
-            # dedupes the re-pulled page on the primary key).
-            if next_url:
-                resumable_source_manager.save_state(PretixResumeConfig(next_url=next_url))
-        return
+def _encode_event_slug(row: dict[str, Any]) -> dict[str, Any]:
+    # Percent-encode the slug for the child fan-out path (matches the old `quote(slug, safe="")`),
+    # keeping the raw `slug` for the row stamp. Fail fast on a malformed event with no slug.
+    row[_EVENT_SLUG_ENCODED_KEY] = quote(str(row["slug"]), safe="")
+    return row
 
-    # Event fan-out: paginate the child endpoint per event, stamping each row with its parent event
-    # slug so composite primary keys stay unique table-wide. No resume state is persisted here.
-    for event_slug in _iter_event_slugs(session, resolved_base_url, quoted_organizer, logger):
-        path = config.path.format(organizer=quoted_organizer, event=quote(event_slug, safe=""))
-        for page, _ in _iter_pages(session, _build_url(resolved_base_url, path, params), resolved_base_url, logger):
-            if page:
-                yield [{**row, EVENT_SLUG_KEY: event_slug} for row in page]
+
+def _stamp_event_slug(row: dict[str, Any]) -> dict[str, Any]:
+    # `include_from_parent=["slug"]` copies the raw parent slug under `_events_slug`; rename it to the
+    # stable `event_slug` column so composite primary keys (event_slug, id) stay table-wide unique.
+    row[EVENT_SLUG_KEY] = row.pop(_PARENT_SLUG_KEY)
+    return row
 
 
 def pretix_source(
@@ -322,34 +218,124 @@ def pretix_source(
     base_url: Optional[str],
     endpoint: str,
     team_id: int,
-    logger: FilteringBoundLogger,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[PretixResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
 ) -> SourceResponse:
-    config = PRETIX_ENDPOINTS[endpoint]
+    config: PretixEndpointConfig = PRETIX_ENDPOINTS[endpoint]
+    resolved_base_url = normalize_base_url(base_url)
+    # Re-check at run time (not just at source-create) in case the URL was edited or now resolves to
+    # an internal address (SSRF / DNS rebinding). Only enforced on cloud.
+    _check_host(resolved_base_url, team_id)
+    quoted_organizer = _quote_organizer(organizer)
+
+    incremental: Optional[IncrementalConfig] = None
+    if _should_apply_incremental(
+        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+    ):
+        incremental = _modified_since_incremental()
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resume is not None:
+        if resume.fanout_state:
+            initial_paginator_state = resume.fanout_state
+        elif resume.next_url:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Save AFTER a page is yielded so a crash re-fetches the last page (merge dedupes on PK).
+        if not state:
+            return
+        if "next_url" in state:
+            if state.get("next_url"):
+                resumable_source_manager.save_state(PretixResumeConfig(next_url=state["next_url"]))
+        else:
+            resumable_source_manager.save_state(PretixResumeConfig(fanout_state=state))
+
+    client = _client_config(api_token, resolved_base_url)
+    # An explicit stable sort keeps page boundaries deterministic, and for `orders` makes the response
+    # order match `sort_mode="asc"` so the incremental watermark advances correctly.
+    static_params: dict[str, Any] = {"ordering": config.ordering} if config.ordering else {}
+
+    resource: Resource
+    if config.scope == EndpointScope.ORGANIZER:
+        organizer_endpoint: Endpoint = {
+            "path": config.path.format(organizer=quoted_organizer),
+            "data_selector": "results",
+            # An unexpected 200 body shape (not the `{results: [...]}` envelope) is treated as
+            # transient and reissued, as the hand-rolled fetch did.
+            "data_selector_malformed_retryable": True,
+        }
+        if static_params:
+            organizer_endpoint["params"] = static_params
+        if incremental is not None:
+            organizer_endpoint["incremental"] = incremental
+
+        rest_config: RESTAPIConfig = {
+            "client": client,
+            "resources": [{"name": endpoint, "endpoint": organizer_endpoint}],
+        }
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+    else:
+        # Event fan-out: discover the organizer's events, then paginate the child endpoint per event,
+        # stamping each row with its parent event slug (single-hop dependent resource, resume enabled).
+        events_endpoint: Endpoint = {
+            "path": EVENTS_PATH.format(organizer=quoted_organizer),
+            "data_selector": "results",
+            "data_selector_malformed_retryable": True,
+        }
+        events_resource: EndpointResource = {
+            "name": "events",
+            "endpoint": events_endpoint,
+            "data_map": _encode_event_slug,
+        }
+
+        leaf_endpoint: Endpoint = {
+            "path": config.path.format(organizer=quoted_organizer, event="{event}"),
+            "data_selector": "results",
+            "params": {
+                "event": {"type": "resolve", "resource": "events", "field": _EVENT_SLUG_ENCODED_KEY},
+                **static_params,
+            },
+        }
+        leaf_resource: EndpointResource = {
+            "name": endpoint,
+            "endpoint": leaf_endpoint,
+            "include_from_parent": ["slug"],
+            "data_map": _stamp_event_slug,
+        }
+
+        rest_config = {"client": client, "resources": [events_resource, leaf_resource]}
+        built = rest_api_resources(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+        resource = next(r for r in built if r.name == endpoint)
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_token=api_token,
-            organizer=organizer,
-            base_url=base_url,
-            endpoint=endpoint,
-            team_id=team_id,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
     )
 
 
@@ -376,27 +362,26 @@ def validate_credentials(
     if not _is_https(resolved_base_url):
         return False, HTTP_NOT_ALLOWED_ERROR
 
-    url = _build_url(resolved_base_url, EVENTS_PATH.format(organizer=quoted_organizer), {"page_size": 1})
-    session = make_tracked_session(headers=_get_headers(api_token), redact_values=(api_token,))
-    try:
-        response = session.get(url, timeout=15, allow_redirects=False)
-    except Exception as e:
-        return False, f"Could not connect to pretix: {e}"
+    url = f"{resolved_base_url}{EVENTS_PATH.format(organizer=quoted_organizer)}?page_size=1"
+    # allow_redirects=False so a 3xx surfaces as its own status rather than being followed off-host.
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_token,), allow_redirects=False),
+        url,
+        headers=_get_headers(api_token),
+    )
 
-    if response.is_redirect or response.is_permanent_redirect:
-        return False, HOST_NOT_ALLOWED_ERROR
-
-    if response.status_code == 200:
+    if status is None:
+        return False, "Could not connect to pretix"
+    if status == 200:
         return True, None
-
-    if response.status_code == 401:
+    if 300 <= status < 400:
+        return False, HOST_NOT_ALLOWED_ERROR
+    if status == 401:
         return False, "Invalid pretix API token"
-
-    if response.status_code == 403:
+    if status == 403:
         # pretix returns 403 both for an unknown organizer and for a token without access to it.
         return False, (
             "Your pretix API token does not have access to this organizer. "
             "Check the organizer short name and the token's team permissions."
         )
-
-    return False, f"pretix returned HTTP {response.status_code}"
+    return False, f"pretix returned HTTP {status}"
