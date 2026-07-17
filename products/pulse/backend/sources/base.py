@@ -14,11 +14,15 @@ class EvidenceType(StrEnum):
     DASHBOARD = "dashboard"
     ANNOTATION = "annotation"
     EXPERIMENT = "experiment"
+    ALERT = "alert"
+    SUBSCRIPTION = "subscription"
     EVENT = "event"
 
 
 class SourceItemKind(StrEnum):
     MOVEMENT = "movement"
+    # Background that may explain movements (annotations, deploy markers); never an opportunity on its own.
+    CONTEXT = "context"
     HEALTH = "health"
 
 

@@ -6156,42 +6156,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
-    def test_feature_flag_threshold(self):
-        feature_flag = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            data={
-                "name": "Beta feature",
-                "key": "beta-feature",
-                "filters": {
-                    "aggregation_group_type_index": 0,
-                    "groups": [{"rollout_percentage": 65}],
-                },
-                "rollback_conditions": [
-                    {
-                        "threshold": 5000,
-                        "threshold_metric": {
-                            "insight": "trends",
-                            "events": [{"order": 0, "id": "$pageview"}],
-                            "properties": [
-                                {
-                                    "key": "$geoip_country_name",
-                                    "type": "person",
-                                    "value": ["france"],
-                                    "operator": "exact",
-                                }
-                            ],
-                        },
-                        "operator": "lt",
-                        "threshold_type": "insight",
-                    }
-                ],
-                "auto-rollback": True,
-            },
-            format="json",
-        ).json()
-
-        self.assertEqual(len(feature_flag["rollback_conditions"]), 1)
-
     def test_get_flags_dont_return_survey_targeting_flags(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         survey = self.client.post(

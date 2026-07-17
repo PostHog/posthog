@@ -312,9 +312,34 @@ export const AIObservabilityGetCostsSchema = z.object({
     days: z.number().optional(),
 })
 
-export const OrganizationSetActiveSchema = z.object({
-    orgId: z.string(),
-})
+// Accept both `orgId` and its `id` alias. `organizations-list` and
+// `organization-get` return/accept the organization under an `id` key, so agents
+// naturally reach for `id` here too. Requiring `orgId` alone made this the odd
+// tool out and drove a stream of validation failures in exec mode. Modeled as a
+// union so the advertised JSON schema expresses "exactly one identifier is
+// required" (anyOf) rather than silently allowing an empty object; normalized to
+// `orgId` so the handler stays simple.
+export const OrganizationSetActiveSchema = z
+    .union(
+        [
+            z.object({
+                orgId: z
+                    .string()
+                    .describe(
+                        'The organization to switch to: the `id` returned by `organizations-list` (a UUID-like string, not the organization name). Use `organizations-list` to resolve a name to its id.'
+                    ),
+            }),
+            z.object({
+                id: z
+                    .string()
+                    .describe(
+                        'Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`.'
+                    ),
+            }),
+        ],
+        { error: () => 'provide the organization id via "orgId" (get it from organizations-list)' }
+    )
+    .transform((data) => ({ orgId: 'orgId' in data ? data.orgId : data.id }))
 
 export const ProjectGetAllSchema = z.object({})
 

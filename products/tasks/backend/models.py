@@ -110,6 +110,10 @@ PR_READY_EMAIL_PR_URL_STATE_KEY = "pr_ready_email_pr_url"
 
 
 class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
+    class Runtime(models.TextChoices):
+        ACP = "acp", "ACP"
+        PI = "pi", "Pi"
+
     class OriginProduct(models.TextChoices):
         ONBOARDING = "onboarding", "Onboarding"
         ERROR_TRACKING = "error_tracking", "Error Tracking"
@@ -225,6 +229,14 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     # Conversation-level state shared across the task's runs (each resume/follow-up
     # is a fresh TaskRun), e.g. which PRs have been announced to the Slack thread.
     state = models.JSONField(default=dict, null=True, blank=True)
+
+    runtime = models.CharField(
+        max_length=10,
+        choices=Runtime,
+        default=Runtime.ACP,
+        db_default=Runtime.ACP,
+        help_text="Agent protocol/harness driving this task's runs.",
+    )
 
     class Meta:
         db_table = "posthog_task"
