@@ -291,14 +291,19 @@ class TestUserInterviewTopicEdit(_FeatureFlagEnabledMixin):
         topic.refresh_from_db()
         assert topic.topic == "New angle"
 
-    def test_partial_update_rejects_clearing_all_targeting(self):
+    def test_partial_update_can_clear_all_targeting_for_shared_only_topic(self):
+        # Zero-target topics are valid — a shared (non-personalised) link needs no pre-seeded
+        # interviewees — so clearing all targeting must be allowed, not rejected.
         topic = self._topic()
         response = self.client.patch(
             self._detail_url(str(topic.id)),
             data={"interviewee_emails": [], "interviewee_distinct_ids": []},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        topic.refresh_from_db()
+        assert topic.interviewee_emails == []
+        assert topic.interviewee_distinct_ids == []
 
     def test_partial_update_revokes_shares_for_removed_identifiers(self):
         topic = self._topic(interviewee_emails=["alex@example.com", "jordan@example.com"])
