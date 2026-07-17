@@ -1,12 +1,16 @@
 """OTLP log push into the PostHog Logs product (the logs counterpart of `posthog/otel_metrics.py`).
 
-Attach `OtelLogHandler` to a stdlib logger (a product's namespace) to mirror its records into Logs
-without touching any call sites. A no-op unless OTLP_LOGS_INGEST_ENDPOINT and OTLP_LOGS_INGEST_TOKEN
-are set. Providers are lazy and per-process (fork-safe) and keyed by service name, which becomes the
-`service.name` the Logs read side filters on.
+`otel_log_mirror_processor(...)` returns a structlog processor that mirrors matching records into the
+Logs product over OTLP. It is a structlog processor rather than a stdlib `logging.Handler` because the
+Temporal workers configure structlog with a non-stdlib logger factory that bypasses stdlib logging, so
+a handler attached to a stdlib logger never sees their records. A no-op unless OTLP_LOGS_INGEST_ENDPOINT
+and OTLP_LOGS_INGEST_TOKEN are set. Providers are lazy and per-process (fork-safe) and keyed by service
+name, which becomes the `service.name` the Logs read side filters on.
 """
 
 import os
+import sys
+import time
 import logging
 import threading
 from typing import TYPE_CHECKING
@@ -14,6 +18,7 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 
 if TYPE_CHECKING:
+    import structlog
     from opentelemetry._logs import SeverityNumber
     from opentelemetry.sdk._logs import LoggerProvider
     from opentelemetry.sdk.resources import Resource
@@ -23,6 +28,18 @@ _providers: "dict[str, LoggerProvider | None]" = {}
 _providers_pid: int | None = None
 
 _severity_by_levelno: "dict[int, tuple[str, SeverityNumber]] | None" = None
+
+# `add_log_level` writes the lowercase level name (and structlog's method name matches) to a levelno.
+_LEVELNO_BY_LEVEL_NAME = {
+    "debug": logging.DEBUG,
+    "info": logging.INFO,
+    "warning": logging.WARNING,
+    "warn": logging.WARNING,
+    "error": logging.ERROR,
+    "exception": logging.ERROR,
+    "critical": logging.CRITICAL,
+    "fatal": logging.CRITICAL,
+}
 
 
 def _ensure_provider(service_name: str) -> "LoggerProvider | None":
@@ -75,88 +92,98 @@ def _severity(levelno: int) -> "tuple[str, SeverityNumber]":
     return _severity_by_levelno.get(levelno, _severity_by_levelno[logging.INFO])
 
 
-def _body_and_attributes(record: logging.LogRecord, allowlist: frozenset[str] | None) -> tuple[str, dict[str, str]]:
-    """Message and stringified, scalar-only attributes for one record (the queryable map is string-only).
+def _scalar_attributes(event_dict: "structlog.types.EventDict", allowlist: frozenset[str]) -> dict[str, str]:
+    """The logger name plus the stringified allowlisted scalar fields. Fail-closed: only allowlisted
+    keys ship, so payload-derived fields (previews, prompts) stay in the process."""
+    attributes: dict[str, str] = {}
+    name = event_dict.get("logger")
+    if name:
+        attributes["logger"] = str(name)
+    for key, value in event_dict.items():
+        if key in ("event", "logger", "exc_info") or key not in allowlist:
+            continue
+        if isinstance(value, str | int | float | bool):
+            attributes[key] = str(value)
+    return attributes
 
-    structlog leaves the event dict on `record.msg` (message under `event`). With `allowlist` set the
-    handler is fail-closed: only those keys ship and an exception contributes just its type, so
-    payload-derived fields (previews, prompts, tracebacks) stay in the process. None forwards everything.
+
+def _exception_type(event_dict: "structlog.types.EventDict") -> dict[str, str]:
+    """Only the exception's type name. The message and traceback can embed payload data."""
+    exc_info = event_dict.get("exc_info")
+    if not exc_info:
+        return {}
+    if exc_info is True:
+        exc_info = sys.exc_info()
+    if isinstance(exc_info, BaseException):
+        return {"exception_type": type(exc_info).__name__}
+    if isinstance(exc_info, tuple) and exc_info and exc_info[0] is not None:
+        return {"exception_type": exc_info[0].__name__}
+    return {}
+
+
+def otel_log_mirror_processor(
+    service_name: str,
+    *,
+    logger_prefix: str,
+    attribute_allowlist: "set[str] | frozenset[str]",
+) -> "structlog.types.Processor":
+    """Return a structlog processor that mirrors matching records into the Logs product over OTLP.
+
+    Only records whose logger name starts with `logger_prefix` are mirrored, under
+    `service.name = service_name`. Fail-soft and a no-op until OTLP_LOGS_INGEST_* are configured. It is
+    always fail-closed: only `attribute_allowlist` keys ship, and an exception contributes just its
+    type. Insert it before the terminal renderer, while the event dict is still structured and the
+    message is under `event`.
     """
-    attributes: dict[str, str] = {"logger": record.name}
-    msg = record.msg
-    if isinstance(msg, dict):
-        body = str(msg.get("event", ""))
-        for key, value in msg.items():
-            if key == "event" or (allowlist is not None and key not in allowlist):
-                continue
-            if isinstance(value, str | int | float | bool):
-                attributes[key] = str(value)
-    else:
-        body = record.getMessage()
-    if record.exc_info and record.exc_info[0] is not None:
-        if allowlist is None:
-            attributes["exception"] = logging.Formatter().formatException(record.exc_info)
-        else:
-            # The type is operational. The message and traceback can embed payload data.
-            attributes["exception_type"] = record.exc_info[0].__name__
-    return body, attributes
+    allowlist = frozenset(attribute_allowlist)
+    resource: list[Resource | None] = [None]
+    # Warm the provider now (worker startup, outside the Temporal workflow sandbox) so the
+    # BatchLogRecordProcessor background thread is never spawned lazily during a workflow task.
+    _ensure_provider(service_name)
 
-
-class OtelLogHandler(logging.Handler):
-    """A logging handler that mirrors each record into the PostHog Logs product over OTLP.
-
-    Fail-soft and a no-op until OTLP_LOGS_INGEST_* are configured, so it is safe to attach
-    unconditionally. `service_name` becomes the record's `service.name` resource, and
-    `static_attributes` ride every record. Pass `attribute_allowlist` to run fail-closed (only those
-    keys ship, and exceptions contribute just their type). Omit it to forward every scalar field.
-    """
-
-    def __init__(
-        self,
-        service_name: str,
-        *,
-        attribute_allowlist: set[str] | frozenset[str] | None = None,
-        static_attributes: dict[str, str] | None = None,
-        level: int = logging.INFO,
-    ) -> None:
-        super().__init__(level=level)
-        self._service_name = service_name
-        self._attribute_allowlist = frozenset(attribute_allowlist) if attribute_allowlist is not None else None
-        self._static_attributes = {key: str(value) for key, value in (static_attributes or {}).items()}
-        self._resource: Resource | None = None
-
-    def emit(self, record: logging.LogRecord) -> None:
-        # Fail-soft: never let telemetry break the pipeline, and never log here (it would recurse
-        # back through this handler).
+    def mirror(
+        logger: "structlog.types.WrappedLogger",
+        method_name: str,
+        event_dict: "structlog.types.EventDict",
+    ) -> "structlog.types.EventDict":
+        # Fail-soft: telemetry must never break the pipeline, and never log here (it would recurse).
         try:
-            provider = _ensure_provider(self._service_name)
+            name = event_dict.get("logger") or getattr(logger, "name", "") or ""
+            if not name.startswith(logger_prefix):
+                return event_dict
+            provider = _ensure_provider(service_name)
             if provider is None:
-                return
+                return event_dict
 
             from opentelemetry.sdk._logs import LogRecord  # noqa: PLC0415
             from opentelemetry.sdk.resources import Resource  # noqa: PLC0415
 
-            if self._resource is None:
-                self._resource = Resource.create({"service.name": self._service_name})
+            if resource[0] is None:
+                # Pin the resource: a record built without it defaults to the pod's OTEL_SERVICE_NAME,
+                # so the Logs filter on service.name would miss these records.
+                resource[0] = Resource.create({"service.name": service_name})
 
-            body, extra = _body_and_attributes(record, self._attribute_allowlist)
-            severity_text, severity_number = _severity(record.levelno)
-            timestamp = int(record.created * 1_000_000_000)
-            # Pin the resource: a record built without it defaults to the pod's OTEL_SERVICE_NAME, so
-            # the Logs filter on service.name would miss these records.
-            provider.get_logger(self._service_name, version="1").emit(
+            level_name = event_dict.get("level") or method_name
+            severity_text, severity_number = _severity(_LEVELNO_BY_LEVEL_NAME.get(level_name, logging.INFO))
+            attributes = _scalar_attributes(event_dict, allowlist)
+            attributes.update(_exception_type(event_dict))
+            timestamp = time.time_ns()
+            provider.get_logger(service_name, version="1").emit(
                 LogRecord(
                     timestamp=timestamp,
                     observed_timestamp=timestamp,
                     severity_text=severity_text,
                     severity_number=severity_number,
-                    body=body,
-                    attributes={**self._static_attributes, **extra},
-                    resource=self._resource,
+                    body=str(event_dict.get("event", "")),
+                    attributes=attributes,
+                    resource=resource[0],
                 )
             )
         except Exception:
             pass
+        return event_dict
+
+    return mirror
 
 
 def reset_otel_logs_for_tests() -> None:
