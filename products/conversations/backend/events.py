@@ -63,23 +63,22 @@ def _get_actor_distinct_id(
 # to use for organization attribution.
 _EMAIL_FALLBACK_CHANNELS = frozenset({Channel.EMAIL.value, Channel.SLACK.value, Channel.TEAMS.value})
 
-# Latest organization/customer group keys from the customer's recent events. We read the
-# dedicated $group_N columns (set on every event that carries $groups) rather than filtering on
-# $groupidentify events: posthog.group(type, key) called without properties associates the group
-# with all subsequent events but emits no $groupidentify (the documented SDK behavior), and even
-# newer SDKs only re-emit it for newly-seen groups. A $groupidentify filter would therefore
+# An org group carried by fewer than this many of the customer's events is cheap to spoof with
+# the project's public token, so require a durable signal before it can dictate attribution.
+MIN_ANALYTICS_ATTRIBUTION_EVENTS = 3
+
+# Picks the org group the customer's events carry most often (not merely the most recent) and
+# returns its event count so the caller can enforce MIN_ANALYTICS_ATTRIBUTION_EVENTS; the secondary
+# sort on the org key breaks count ties deterministically.
+#
+# We read the dedicated $group_N columns (set on every event that carries $groups) rather than
+# filtering on $groupidentify events: posthog.group(type, key) called without properties associates
+# the group with all subsequent events but emits no $groupidentify (the documented SDK behavior),
+# and even newer SDKs only re-emit it for newly-seen groups. A $groupidentify filter would therefore
 # silently miss exactly the cross-region customers this fallback exists for — those whose apps
 # don't pass group properties, or whose last group identify predates the 30-day window.
 # {org_col}/{customer_select} are interpolated from this project's own group-type indexes (see
 # _resolve_groups_from_analytics); column names can't be HogQL placeholders.
-# Only trust an org group that recurs across at least this many of the customer's events.
-# A group carried by a single (or a handful of) event(s) is cheap to spoof with the
-# project's public token, so require a durable signal before it can dictate attribution.
-MIN_ANALYTICS_ATTRIBUTION_EVENTS = 3
-
-# Pick the org group the customer's events carry most often (not merely the most recent),
-# and return its event count so the caller can enforce the durability floor above. The
-# secondary sort on the org key makes ties resolve deterministically rather than arbitrarily.
 GROUPS_FROM_EVENTS_QUERY = """
 SELECT
     {org_col} AS organization_key,
@@ -106,11 +105,10 @@ def _resolve_groups_from_analytics(team: Team, distinct_ids: list[str]) -> dict 
 
     Event-supplied groups are captured with the project's public token and are
     therefore spoofable — fine for analytics enrichment (same trust level as
-    ``$identify``), never for authorization. To keep a lone spoofed event from
-    dictating the org, only an org group that recurs across at least
-    ``MIN_ANALYTICS_ATTRIBUTION_EVENTS`` of the customer's events is trusted.
-    ``instance``/``project`` are rebuilt server-side so fallback-path events match
-    ``build_groups()`` output.
+    ``$identify``), never for authorization. The org is taken from the customer's
+    most frequent group subject to ``MIN_ANALYTICS_ATTRIBUTION_EVENTS`` so a lone
+    spoofed event can't dictate it. ``instance``/``project`` are rebuilt server-side
+    so fallback-path events match ``build_groups()`` output.
     """
     if not distinct_ids:
         return None
