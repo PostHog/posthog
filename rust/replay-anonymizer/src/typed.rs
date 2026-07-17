@@ -476,8 +476,10 @@ pub struct CommentNode {
     pub text_content: String,
 }
 
-/// An rrweb attribute value: string, number, bool, `null`, or the structured sentinels rrweb uses
-/// (e.g. the `rr_captured_*` style objects).
+/// An rrweb attribute value: string, number, bool, `null`, an array, or the structured sentinels
+/// rrweb uses (e.g. the `rr_captured_*` style objects). The variant set covers any JSON value so a
+/// scrubber-accepted attribute can never make the whole event fail to parse — the scrub path treats
+/// attribute values as generic JSON, so the typed model must be at least as permissive.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum AttrValue {
@@ -485,6 +487,7 @@ pub enum AttrValue {
     Num(f64),
     Bool(bool),
     Null,
+    Arr(Vec<AttrValue>),
     Obj(BTreeMap<String, AttrValue>),
 }
 

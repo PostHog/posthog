@@ -89,12 +89,16 @@ type SResult<T> = Result<T, Failure>;
 
 /// Panic backstop for the byte-buffer entry points (see [`crate::unwind`]): a panic on untrusted
 /// input classifies as `anonymize_failed`, so the caller drops the message like any scrub error.
+///
+/// The panic message is deliberately dropped, not interpolated into the detail: this path runs on
+/// the ingestion hot path where the detail is logged into the DLQ at volume, and a std slice/`expect`
+/// panic embeds a chunk of the offending value — i.e. raw unscrubbed replay input. A static detail
+/// keeps that PII out of logs (matching what the Node addon's own outer `catch_unwind` did before
+/// this backstop existed). The offline `anyhow` entry points keep the message, where loud,
+/// input-bearing errors are acceptable and not logged at volume.
 fn contain_panics<T>(f: impl FnOnce() -> SResult<T>) -> SResult<T> {
-    crate::unwind::contain_unwind(f, |msg| {
-        Failure::new(
-            FailKind::AnonymizeFailed,
-            format!("panic while anonymizing: {msg}"),
-        )
+    crate::unwind::contain_unwind(f, |_msg| {
+        Failure::new(FailKind::AnonymizeFailed, "panic while anonymizing")
     })
 }
 

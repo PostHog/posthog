@@ -21,8 +21,9 @@ pub(crate) fn contain_unwind<T, E>(
 
 /// Cap on the panic text carried into an error. Standard slice/`expect` panics interpolate a chunk
 /// of the offending value (`byte index N is not a char boundary ... of \`<raw input>\``), so the
-/// message can embed unscrubbed input; this error flows into DLQ detail on the ingestion path,
-/// logged at volume. Bound it — the DLQ reason (not the panic text) is what classifies the failure.
+/// message can embed unscrubbed input. The ingestion path drops the message entirely (see
+/// `snapshot::contain_panics`); the offline `anyhow` entry points keep it for diagnosis but bound
+/// it here so a pathological payload can't splice an unbounded slice of itself into the error.
 const MAX_PANIC_MESSAGE_LEN: usize = 200;
 
 fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {

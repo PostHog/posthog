@@ -76,12 +76,26 @@ pub fn anonymize_message(allow: &AllowLists, json: &mut [u8]) -> Result<Option<S
 ///
 /// `line` is scratch — the in-place parse consumes it, so on `Ok(None)` keep a prior copy of the
 /// bytes, not this buffer. Tuple lines come back with the wrapper intact and the window id
-/// untouched. Anything that is not one of the two recognized shapes — a scalar, or an array that is
-/// not a `[string, object]` pair — is an `Err`, not a silent pass-through: a scrubber must fail
-/// closed on input it doesn't understand rather than leave the caller to guess whether unrecognized
-/// bytes were safe to keep. Invalid JSON is likewise an `Err`.
+/// untouched. Anything that is not one of the two recognized shapes — a scalar, an array that is
+/// not a `[string, object]` pair, or an object with no numeric rrweb `type` — is an `Err`, not a
+/// silent pass-through: a scrubber must fail closed on input it doesn't understand rather than leave
+/// the caller to guess whether unrecognized bytes were safe to keep. Invalid JSON is likewise an
+/// `Err`.
 pub fn anonymize_line(allow: &AllowLists, line: &mut [u8]) -> Result<Option<String>> {
     anonymize_line_with_ctx(&Ctx::new(allow), line)
+}
+
+/// Fail closed on an object that is not an rrweb event. Every rrweb event carries a numeric `type`;
+/// an object without one is not something the scrubber recognizes, so — rather than pass it through
+/// unscrubbed as `Ok(None)` — reject it (pass-through events like Load still have a `type`).
+fn require_event_type(event: &Value<'_>) -> Result<()> {
+    match as_object(event)
+        .and_then(|o| o.get("type"))
+        .and_then(as_small_uint)
+    {
+        Some(_) => Ok(()),
+        None => bail!("jsonl line object has no numeric rrweb event `type`"),
+    }
 }
 
 /// [`anonymize_line`] with a caller-owned [`Ctx`], so one blur memo spans a whole session file
@@ -94,9 +108,15 @@ pub fn anonymize_line_with_ctx(ctx: &Ctx<'_>, line: &mut [u8]) -> Result<Option<
         let mut root = parse_untrusted(line).context("parse jsonl line")?;
         ctx.reset_cv_budget();
         let changed = match &mut root {
-            Value::Object(_) => route_event(ctx, &mut root)?,
+            Value::Object(_) => {
+                require_event_type(&root)?;
+                route_event(ctx, &mut root)?
+            }
             Value::Array(items) => match items.as_mut_slice() {
-                [Value::String(_), event @ Value::Object(_)] => route_event(ctx, event)?,
+                [Value::String(_), event @ Value::Object(_)] => {
+                    require_event_type(event)?;
+                    route_event(ctx, event)?
+                }
                 _ => bail!("jsonl line is an array but not a [window_id, event] tuple"),
             },
             _ => {
@@ -327,6 +347,8 @@ mod tests {
             br#"["w-1","not an event"]"#.as_slice(), // tuple with a non-object second element
             br#"[{"type":1},{"type":1}]"#.as_slice(), // array of events, not a [window_id, event] pair
             br#"["w-1",{"type":1},{"extra":1}]"#.as_slice(), // three-element array
+            br#"{"foo":"bar"}"#.as_slice(),           // object with no rrweb event `type`
+            br#"["w-1",{"foo":"bar"}]"#.as_slice(),   // tuple wrapping a non-event object
             br#"42"#.as_slice(),                      // scalar
             br#""just a string""#.as_slice(),         // scalar
             br#"{not json"#.as_slice(),               // invalid JSON

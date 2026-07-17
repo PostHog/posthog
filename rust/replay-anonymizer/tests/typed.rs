@@ -130,6 +130,40 @@ fn mutation_parses_to_scrubbed_typed_subfields() {
 }
 
 #[test]
+fn array_valued_attribute_parses_instead_of_dropping_the_event() {
+    // An attribute whose value is an array is valid JSON the scrub path passes through untouched, so
+    // the typed model must represent it (as AttrValue::Arr) rather than failing `from_value` and
+    // dropping the whole event line.
+    let allow = allow_hello();
+    let line = json!({ "type": 2, "timestamp": 1.0, "data": {
+        "node": { "type": 0, "id": 1, "childNodes": [
+            { "type": 2, "id": 2, "tagName": "div",
+              "attributes": { "rr_width": [100, "auto"] }, "childNodes": [] }
+        ]},
+        "initialOffset": { "top": 0.0, "left": 0.0 }
+    }})
+    .to_string();
+    let event = parse(&allow, &line).expect("an array-valued attribute must not drop the event");
+
+    let EventData::FullSnapshot(snap) = &event.data else {
+        panic!("expected FullSnapshot data, got {:?}", event.data);
+    };
+    let SerializedNode::Document(doc) = &snap.node.node else {
+        panic!("root must be a Document");
+    };
+    let SerializedNode::Element(div) = &doc.child_nodes[0].node else {
+        panic!("expected the div element");
+    };
+    assert_eq!(
+        div.attributes["rr_width"],
+        AttrValue::Arr(vec![
+            AttrValue::Num(100.0),
+            AttrValue::Str("auto".to_string())
+        ])
+    );
+}
+
+#[test]
 fn cv_full_snapshot_parses_like_its_uncompressed_twin_gzip_and_zstd() {
     let allow = allow_hello();
     let data = full_snapshot_data();

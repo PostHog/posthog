@@ -7,14 +7,18 @@ use ahash::AHashSet;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-/// Bounds for an untrusted allow-list document, mirroring the TS loader's hygiene
-/// (`anonymize/allow-list-loader.ts`): a malformed or huge file cannot exhaust memory.
+/// Bounds on the *retained* allow-list, mirroring the TS loader's hygiene
+/// (`anonymize/allow-list-loader.ts`). These cap what is kept, not peak parse memory — the JSON is
+/// fully materialized by `serde_json` first. That's acceptable because the document is
+/// operator-controlled config loaded once at startup, not per-request untrusted input.
 const MAX_ALLOW_LIST_ENTRIES: usize = 500_000;
 const MAX_ALLOW_LIST_ENTRY_LEN: usize = 256;
 
-// The TS pipeline's fail-safe default lists (`anonymize/default-dict.ts`), embedded so offline
-// consumers with no access to the shipped allow lists scrub with production-equivalent vocabulary
-// instead of redacting everything. `default_lists_match_the_ts_pipeline` keeps the copies in sync.
+// The fail-safe default lists, embedded so offline consumers with no access to the shipped allow
+// lists scrub with production-equivalent vocabulary instead of redacting everything. These `.txt`
+// files are the single source of truth: the crate embeds them here, and the TS pipeline's
+// `anonymize/default-dict.ts` mirrors them (a Jest test reads these files and asserts the match, so
+// the two stay in sync without either side parsing the other's source).
 const DEFAULT_TEXT_WORDS: &str = include_str!("default_text_words.txt");
 const DEFAULT_URL_SEGMENTS: &str = include_str!("default_url_segments.txt");
 
@@ -147,8 +151,6 @@ impl AllowLists {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeSet;
-    use std::path::Path;
 
     #[test]
     fn from_json_bytes_sanitizes_like_the_ts_loader() {
@@ -182,51 +184,6 @@ mod tests {
             crate::text::scrub_text(&allow, "John Fakename accepted the request"),
             Some("**** ******** accepted the request".to_string()),
             "names must still redact under the default lists"
-        );
-    }
-
-    /// Re-derives the default lists from the TS source when the monorepo checkout is present (CI
-    /// runs there); a published crate tarball carries no TS file, so the check no-ops for
-    /// crates.io consumers.
-    #[test]
-    fn default_lists_match_the_ts_pipeline() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../nodejs/src/ingestion/pipelines/sessionreplay/anonymize/default-dict.ts");
-        let Ok(ts) = std::fs::read_to_string(&path) else {
-            return;
-        };
-        let mut text: BTreeSet<&str> = BTreeSet::new();
-        let mut url: BTreeSet<&str> = BTreeSet::new();
-        let mut current: Option<&mut BTreeSet<&str>> = None;
-        for line in ts.lines() {
-            if line.contains("DEFAULT_TEXT_WORDS") {
-                current = Some(&mut text);
-            } else if line.contains("DEFAULT_URL_SEGMENTS") {
-                current = Some(&mut url);
-            } else if line.starts_with(']') {
-                current = None;
-            } else if let Some(set) = current.as_mut() {
-                let entry = line.trim();
-                if let Some(word) = entry
-                    .strip_prefix('\'')
-                    .and_then(|e| e.strip_suffix("',"))
-                    .or_else(|| entry.strip_prefix('"').and_then(|e| e.strip_suffix("\",")))
-                {
-                    set.insert(word);
-                }
-            }
-        }
-        assert!(text.len() > 1000, "TS parse must find the word list");
-        let embedded = |s: &'static str| s.lines().collect::<BTreeSet<_>>();
-        assert_eq!(
-            embedded(DEFAULT_TEXT_WORDS),
-            text,
-            "default_text_words.txt is out of sync with default-dict.ts"
-        );
-        assert_eq!(
-            embedded(DEFAULT_URL_SEGMENTS),
-            url,
-            "default_url_segments.txt is out of sync with default-dict.ts"
         );
     }
 }
