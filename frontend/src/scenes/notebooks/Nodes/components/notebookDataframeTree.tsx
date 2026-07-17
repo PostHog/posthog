@@ -8,6 +8,7 @@ import { NotebookFrameNodeSummary } from '../notebookNodeContent'
 export const DATAFRAMES_FOLDER_ID = 'notebook-dataframes'
 
 const NEVER_RAN_REASON = 'Run this cell to make it available'
+const NO_FRAME_REASON = "This cell's last run didn't produce a dataframe"
 const NOT_IN_KERNEL_REASON = 'Not in the kernel right now — run this cell to make it available'
 
 type DataframeEntry = {
@@ -30,11 +31,20 @@ type DataframeEntry = {
  *   time, re-inlined as a CTE. Listing the kernel's view alone makes a SQL frame appear or
  *   vanish depending on whether an unrelated Python cell happens to use it.
  */
+/**
+ * Drop cells that bind nothing worth showing: an empty one nobody has written yet holds no query
+ * and no result, and its name is only the default. Listing those means every blank cell you add
+ * spawns a greyed-out row (`sql_df_2`, `sql_df_3`, …) for a frame that was never conceived of.
+ * A cell with a query but no run is different — it is a real intent to bind that name.
+ */
+const listableNodes = (nodes: NotebookFrameNodeSummary[]): NotebookFrameNodeSummary[] =>
+    nodes.filter((node) => node.hasRun || node.code.trim())
+
 function mergeEntries(nodes: NotebookFrameNodeSummary[], kernelFrames: NotebookKernelFrame[]): DataframeEntry[] {
     const kernelByName = new Map(kernelFrames.map((frame) => [frame.name, frame]))
-    const boundByCell = new Set(nodes.map((node) => node.name))
+    const boundByCell = new Set(listableNodes(nodes).map((node) => node.name))
 
-    const fromNodes = nodes.map((node): DataframeEntry => {
+    const fromNodes = listableNodes(nodes).map((node): DataframeEntry => {
         const kernelFrame = kernelByName.get(node.name)
         if (kernelFrame) {
             // The kernel holds it, so prefer its shape: that reflects the frame as it is now,
@@ -49,6 +59,11 @@ function mergeEntries(nodes: NotebookFrameNodeSummary[], kernelFrames: NotebookK
         const base = { name: node.name, columns: node.columns, rowCount: node.rowCount, isTable: false }
         if (!node.hasRun) {
             return { ...base, disabledReason: NEVER_RAN_REASON }
+        }
+        if (!node.columns.length) {
+            // It ran and bound nothing — its code produces no frame, or it was DDL. Telling the
+            // user to run it would be a lie; running it again changes nothing.
+            return { ...base, disabledReason: NO_FRAME_REASON }
         }
         // A SQL cell that ran is referenceable with no kernel at all; a Python cell's frame only
         // ever exists in the kernel, so its absence from the catalog means it is really gone.

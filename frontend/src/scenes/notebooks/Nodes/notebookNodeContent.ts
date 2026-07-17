@@ -433,8 +433,14 @@ export type NotebookFrameNodeSummary = {
     /** [column name, type] pairs from the last run, empty when the cell has never produced a frame. */
     columns: [string, string][]
     rowCount: number | null
-    /** A cell with no successful run yet can't be referenced — the backend resolves refs to the latest DONE run. */
+    /**
+     * The cell has a stored result. A cell that has never run can't be referenced at all — the
+     * backend resolves refs to the latest DONE run — but a cell that ran and produced no frame
+     * (its code binds nothing, or it was DDL) is a different story, and `columns` tells them apart.
+     */
     hasRun: boolean
+    /** Empty for a cell nobody has written yet, which binds nothing worth listing. */
+    code: string
 }
 
 const frameNodeColumns = (result: any): [string, string][] => {
@@ -488,9 +494,8 @@ export const collectNotebookFrameNodes = (content?: JSONContent | null): Noteboo
                 nodeType: isSql ? 'sql' : 'python',
                 columns: frameNodeColumns(result),
                 rowCount: typeof result?.row_count === 'number' ? result.row_count : null,
-                // A run that produced no frame (stdout-only Python, a DDL statement) has a result
-                // but no columns — it binds nothing referenceable.
-                hasRun: Boolean(result) && frameNodeColumns(result).length > 0,
+                hasRun: Boolean(result),
+                code: typeof attrs.code === 'string' ? attrs.code : '',
             })
         }
         if (node.type === NotebookNodeType.MarkdownNotebook) {

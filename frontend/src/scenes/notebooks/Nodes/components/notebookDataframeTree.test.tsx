@@ -3,21 +3,23 @@ import { NotebookFrameNodeSummary } from '../notebookNodeContent'
 import { buildDataframeTreeSection } from './notebookDataframeTree'
 
 describe('buildDataframeTreeSection', () => {
-    const sqlNode = (name: string, hasRun = true): NotebookFrameNodeSummary => ({
+    const sqlNode = (name: string, hasRun = true, code = 'SELECT 1'): NotebookFrameNodeSummary => ({
         nodeId: `n-${name}`,
         name,
         nodeType: 'sql',
         columns: hasRun ? [['id', 'String']] : [],
         rowCount: hasRun ? 50 : null,
         hasRun,
+        code,
     })
-    const pythonNode = (name: string, hasRun = true): NotebookFrameNodeSummary => ({
+    const pythonNode = (name: string, hasRun = true, code = 'df = 1'): NotebookFrameNodeSummary => ({
         nodeId: `n-${name}`,
         name,
         nodeType: 'python',
         columns: hasRun ? [['count', 'int64']] : [],
         rowCount: hasRun ? 3 : null,
         hasRun,
+        code,
     })
     const kernelFrame = (name: string, kind: NotebookKernelFrame['kind'] = 'frame'): NotebookKernelFrame => ({
         name,
@@ -74,6 +76,37 @@ describe('buildDataframeTreeSection', () => {
 
     it('has no section when there is nothing to list', () => {
         expect(buildDataframeTreeSection([], [], '')).toEqual([])
+    })
+
+    it('ignores an empty cell nobody has written yet', () => {
+        // A blank cell takes the default returnVariable, so it collides with the first one and is
+        // renamed sql_df_2 — listing it means every new cell adds a greyed-out row for a frame
+        // the user never conceived of.
+        const section = buildDataframeTreeSection([sqlNode('sql_df'), sqlNode('sql_df_2', false, '')], [], '')
+        expect(children(section)).toEqual([['sql_df', undefined]])
+    })
+
+    it('says a cell that ran but bound nothing produced no dataframe', () => {
+        // It has a result with no columns: its code binds no frame. "Run this cell" would be a
+        // lie — it ran, and running it again changes nothing.
+        const ranEmpty: NotebookFrameNodeSummary = {
+            nodeId: 'n-new-df',
+            name: 'new-df',
+            nodeType: 'python',
+            columns: [],
+            rowCount: 0,
+            hasRun: true,
+            code: 'top50 = people.value_counts()',
+        }
+        expect(children(buildDataframeTreeSection([ranEmpty], [], ''))).toEqual([
+            ['new-df', "This cell's last run didn't produce a dataframe"],
+        ])
+    })
+
+    it('still lists a written cell that has not run', () => {
+        // Written but un-run is a real intent to bind that name, so it stays with a nudge to run.
+        const section = buildDataframeTreeSection([sqlNode('draft', false, 'SELECT 1')], [], '')
+        expect(children(section)).toEqual([['draft', 'Run this cell to make it available']])
     })
 
     it.each([
