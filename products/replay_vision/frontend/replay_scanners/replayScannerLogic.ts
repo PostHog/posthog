@@ -26,8 +26,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
+    visionScannersAffectedCohortCreate,
     visionScannersCreate,
     visionScannersEstimateCreate,
+    visionScannersImpactRetrieve,
     visionScannersObservationsList,
     visionScannersObservationsStatsRetrieve,
     visionScannersObserveCreate,
@@ -40,6 +42,7 @@ import type {
     EstimateResponseApi,
     ObservationStatsApi,
     ReplayObservationApi,
+    ScannerImpactApi,
     TagSuggestionApi,
 } from '../generated/api.schemas'
 import type { ScannerTypeEnumApi } from '../generated/api.schemas'
@@ -565,6 +568,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScanner: true,
         loadScannerSuccess: (scanner: ReplayScanner) => ({ scanner }),
         loadScannerFailure: true,
+        saveAffectedCohort: (tag?: string) => ({ tag }),
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
         setSubmitIntent: (intent: 'save' | 'advance') => ({ intent }),
         // Fired only after an actual API write, unlike submitScannerSuccess (which the advance path emits too).
@@ -702,6 +706,51 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     })),
 
     loaders(({ props, values }) => ({
+        scannerImpact: [
+            null as ScannerImpactApi | null,
+            {
+                loadScannerImpact: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId || props.id === 'new') {
+                        return null
+                    }
+                    return await visionScannersImpactRetrieve(String(teamId), props.id)
+                },
+            },
+        ],
+        affectedCohort: [
+            null as { cohort_id: number } | null,
+            {
+                saveAffectedCohort: async ({ tag }) => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId || props.id === 'new') {
+                        return values.affectedCohort
+                    }
+                    try {
+                        const response = await visionScannersAffectedCohortCreate(
+                            String(teamId),
+                            props.id,
+                            tag ? { tag } : {}
+                        )
+                        lemonToast.success(
+                            `Cohort "${response.name}" created with ${response.users_in_cohort.toLocaleString()} ${
+                                response.users_in_cohort === 1 ? 'person' : 'people'
+                            }`,
+                            {
+                                button: {
+                                    label: 'View cohort',
+                                    action: () => router.actions.push(urls.cohort(response.cohort_id)),
+                                },
+                            }
+                        )
+                        return { cohort_id: response.cohort_id }
+                    } catch (error: any) {
+                        lemonToast.error(`Failed to create cohort${error?.detail ? `: ${error.detail}` : ''}`)
+                        return values.affectedCohort
+                    }
+                },
+            },
+        ],
         tagSuggestions: [
             [] as TagSuggestionApi[],
             {
@@ -731,6 +780,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     })),
 
     reducers({
+        // Which tag's cohort is being created, so tag rows can show a per-row spinner.
+        savingCohortTag: [
+            null as string | null,
+            {
+                saveAffectedCohort: (_, { tag }) => tag ?? null,
+                saveAffectedCohortSuccess: () => null,
+                saveAffectedCohortFailure: () => null,
+            },
+        ],
         originalScanner: [
             null as ReplayScanner | null,
             {
@@ -1145,6 +1203,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (values.observationsSort?.columnKey === 'result' && scanner.scanner_type) {
                     actions.loadObservations()
                     actions.loadObservationStats()
+                }
+                // Impact needs the scanner type known; only monitors have a qualifier-free predicate.
+                if (props.id !== 'new' && scanner.scanner_type === 'monitor') {
+                    actions.loadScannerImpact()
                 }
             },
 

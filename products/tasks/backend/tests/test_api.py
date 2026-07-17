@@ -9470,6 +9470,33 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         mock_workflow.assert_not_called()
 
+    @patch("products.tasks.backend.temporal.client.execute_build_sandbox_image_workflow")
+    @patch("products.tasks.backend.logic.services.image_spec.validate_spec_buildable")
+    def test_build_rejected_when_refresh_claims_image_after_initial_read(self, mock_validate, mock_workflow):
+        image = _make_custom_image(
+            team=self.team,
+            user=self.user,
+            name="img",
+            status=SandboxCustomImage.Status.READY,
+            spec={"version": 1, "apt_packages": ["git"]},
+        )
+
+        mock_validate.side_effect = lambda *_args: (
+            SandboxCustomImage.objects.for_team(self.team.id)
+            .filter(id=image.id, status=SandboxCustomImage.Status.READY)
+            .update(status=SandboxCustomImage.Status.BUILDING)
+        )
+
+        response = self.client.post(
+            self.detail_url(image.id) + "build/", {"spec_yaml": "version: 1\napt_packages: [jq]\n"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_workflow.assert_not_called()
+        image.refresh_from_db()
+        self.assertEqual(image.status, SandboxCustomImage.Status.BUILDING)
+        self.assertEqual(image.spec["apt_packages"], ["git"])
+
     def test_other_team_image_not_reachable(self):
         other_org = Organization.objects.create(name="Other Org")
         other_team = Team.objects.create(organization=other_org, name="Other Team")
