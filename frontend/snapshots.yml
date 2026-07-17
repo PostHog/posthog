@@ -409,9 +409,9 @@ snapshots:
     components-definition-popover--action--light:
         hash: v1.k794b7964.f4bdb784a34e7a4af0c33043858f96c15234c1a161a635ad793ac749159d2fd2.xZjT6j6vvsEbrfG4iwhv0aoiOumGvVSJajzL3CNmZ8w
     components-definition-popover--data-warehouse-column-mapping--dark:
-        hash: v1.k794b7964.c38f182b346c519d1332cfd066782c3b4b9e0b5661fbe926253da902fc3c388b.micG7HfZSdoQxZl9DsRJk9wX2So89qflq-sxr9DYS4A
+        hash: v1.k794b7964.0ee1ae1caf0ca944fb346482ec211be87e2d9d60bdd8a2a9d77dd912ba1d8478.uULoWLevn28NDuEgq5QLrfOFU9pnVjHLjlDscwW9Q9E
     components-definition-popover--data-warehouse-column-mapping--light:
-        hash: v1.k794b7964.3201bcfb76a5bc9e9144f88ccb819af400442196804dc0ab84e1ecac6e141e28.U68Q077AoH6AtdHda3iCWWJelz2JyHqHs8JpJA_Onao
+        hash: v1.k794b7964.af82e8d5620ef50e40b5d55f260024fd9247480883ddd2a2ba2718f7cf8396ba.IcUjNqlNOxFbqF93utorC6_HCChPGXD7bVi7i8YckEE
     components-definition-popover--event--dark:
         hash: v1.k794b7964.4a10c0206e60aa629075aac850bcebdb2b5980a7d6953926911f1ebb7114a96e.Cpyg354rVEyXVrlBzOsJJGSmwPL4-YEhXboxDPMVY_s
     components-definition-popover--event--light:
