@@ -125,5 +125,6 @@ Create an API key in the [Groq console](https://console.groq.com/keys). Groq exp
         return groq_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )
