@@ -230,8 +230,10 @@ def get_rows(
         raise OctopusDeployHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
 
     # One session reused across every page (and space) so urllib3 keeps the connection alive
-    # instead of re-handshaking per request.
-    session = make_tracked_session()
+    # instead of re-handshaking per request. `redact_values` masks the API key from logged
+    # URLs and captured HTTP samples (the X-Octopus-ApiKey header isn't in the sampler's
+    # generic denylist).
+    session = make_tracked_session(redact_values=(api_key,))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
@@ -313,7 +315,9 @@ def validate_credentials(
     try:
         # Don't follow redirects: the validated host could 3xx to an internal address, defeating
         # the host check above (SSRF).
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10, allow_redirects=False)
+        response = make_tracked_session(redact_values=(api_key,)).get(
+            url, headers=_get_headers(api_key), timeout=10, allow_redirects=False
+        )
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
