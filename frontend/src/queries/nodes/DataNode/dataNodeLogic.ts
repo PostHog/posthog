@@ -870,6 +870,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         const hasQueryChanged = !compareDataNodeQuery(props.query, oldProps.query, {
             ignoreVisualizationOnlyChanges: true,
         })
+        // Insight visualizations render their whole shape (chart, funnel step labels) from the
+        // cached response, so a stale response from the previously viewed query is actively
+        // misleading. For example, switching between two funnels keeps the old step labels until
+        // a reload finishes. The kind-only check above misses same-kind transitions, so clear
+        // here whenever the query meaningfully changes. Raw data tables (events, HogQL)
+        // intentionally keep their results while reloading, so this is scoped to insight nodes.
+        if (oldProps.query && hasQueryChanged && isInsightQueryNode(props.query)) {
+            actions.clearResponse()
+        }
         const queryVarsHaveChanged = haveVariablesOrFiltersChanged(props.query, oldProps.query)
 
         const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
