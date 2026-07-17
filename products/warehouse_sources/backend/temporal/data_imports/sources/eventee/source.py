@@ -18,7 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.eventee.eventee import (
     eventee_source,
     validate_credentials as validate_eventee_credentials,
@@ -96,23 +99,14 @@ All Eventee tables are full refresh only — the API exposes no incremental sync
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
         # Every endpoint is a snapshot with no server-side timestamp filter, so all are full refresh
-        # only (no incremental/append).
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                description="Full refresh only — Eventee exposes no incremental sync filter",
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        # only (no incremental/append) — INCREMENTAL_FIELDS is empty, so build_endpoint_schemas
+        # produces supports_incremental=False/supports_append=False for every table.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            descriptions=dict.fromkeys(ENDPOINTS, "Full refresh only — Eventee exposes no incremental sync filter"),
+        )
 
     def validate_credentials(
         self, config: EventeeSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -126,5 +120,6 @@ All Eventee tables are full refresh only — the API exposes no incremental sync
         return eventee_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )
