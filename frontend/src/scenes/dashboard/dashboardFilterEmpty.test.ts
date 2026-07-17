@@ -34,6 +34,7 @@ describe('isDashboardFilterEmpty', () => {
             },
         ],
         ['breakdown_filter set', { breakdown_filter: { breakdown: 'browser' } }],
+        ['interval set', { interval: 'week' }],
     ]
 
     test.each(nonEmptyCases)('returns false for %s', (_, filter) => {

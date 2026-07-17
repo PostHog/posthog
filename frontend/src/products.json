@@ -184,6 +184,7 @@
             "type": null,
             "intents": ["metrics"]
         },
+        { "path": "Tasks", "category": "Tools", "iconType": "task", "type": "task", "intents": ["tasks"] },
         {
             "path": "Product analytics",
             "category": "Analytics",
@@ -205,6 +206,7 @@
             "type": "product_tour",
             "intents": ["product_tours"]
         },
+        { "path": "Pulse", "category": "Unreleased", "iconType": "activity", "type": null, "intents": ["pulse"] },
         {
             "path": "Session replay",
             "category": "Behavior",

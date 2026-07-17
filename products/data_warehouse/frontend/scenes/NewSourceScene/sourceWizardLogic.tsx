@@ -1134,6 +1134,7 @@ export interface sourceWizardLogicActions {
             | 'Productboard'
             | 'Productive'
             | 'PromptingCompany'
+            | 'PromptWatch'
             | 'PulumiCloud'
             | 'Pylon'
             | 'PyPI'
