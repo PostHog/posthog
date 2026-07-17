@@ -35180,10 +35180,8 @@ export namespace Schemas {
      * * `not_configured` - not_configured
      * * `waiting` - waiting
      * * `backfilling` - backfilling
-     * * `catching_up` - catching_up
      * * `up_to_date` - up_to_date
      * * `needs_attention` - needs_attention
-     * * `unknown` - unknown
      * * `sync_paused` - sync_paused
      */
     export type ManagedWarehouseReadinessStateEnum = typeof ManagedWarehouseReadinessStateEnum[keyof typeof ManagedWarehouseReadinessStateEnum];
@@ -35193,10 +35191,8 @@ export namespace Schemas {
       NotConfigured: 'not_configured',
       Waiting: 'waiting',
       Backfilling: 'backfilling',
-      CatchingUp: 'catching_up',
       UpToDate: 'up_to_date',
       NeedsAttention: 'needs_attention',
-      Unknown: 'unknown',
       SyncPaused: 'sync_paused',
     } as const;
 
@@ -35211,10 +35207,8 @@ export namespace Schemas {
        * * `not_configured` - not_configured
        * * `waiting` - waiting
        * * `backfilling` - backfilling
-       * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown
        * * `sync_paused` - sync_paused */
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of the current readiness state. */
@@ -35250,10 +35244,8 @@ export namespace Schemas {
        * * `not_configured` - not_configured
        * * `waiting` - waiting
        * * `backfilling` - backfilling
-       * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown
        * * `sync_paused` - sync_paused */
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of this source's readiness state. */
@@ -35263,10 +35255,10 @@ export namespace Schemas {
       /** Number of schemas whose one-time historical copy into the warehouse has completed. */
       backfilled_schemas: number;
       /**
-         * Imported batches waiting to be applied across this source's schemas, or null when queue status is unavailable.
+         * Most recent time an imported batch was applied to the warehouse across this source's schemas, or null if no apply has been recorded.
          * @nullable
          */
-      pending_batches: number | null;
+      last_applied_at: string | null;
       /**
          * Most recent upstream source import completion across this source's schemas.
          * @nullable
@@ -35280,10 +35272,8 @@ export namespace Schemas {
        * * `not_configured` - not_configured
        * * `waiting` - waiting
        * * `backfilling` - backfilling
-       * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown
        * * `sync_paused` - sync_paused */
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of imported source readiness. */
@@ -35298,10 +35288,8 @@ export namespace Schemas {
        * * `not_configured` - not_configured
        * * `waiting` - waiting
        * * `backfilling` - backfilling
-       * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown
        * * `sync_paused` - sync_paused */
       overall_readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Events backfill readiness. */
@@ -35330,10 +35318,8 @@ export namespace Schemas {
        * * `not_configured` - not_configured
        * * `waiting` - waiting
        * * `backfilling` - backfilling
-       * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown
        * * `sync_paused` - sync_paused */
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of the table's readiness state. */
@@ -35348,17 +35334,7 @@ export namespace Schemas {
          */
       total_chunks: number | null;
       /**
-         * Imported batches waiting to be applied, or null when queue status is unavailable.
-         * @nullable
-         */
-      pending_batches: number | null;
-      /**
-         * Creation time of the oldest unapplied imported batch.
-         * @nullable
-         */
-      oldest_pending_at: string | null;
-      /**
-         * When an imported batch was most recently applied to the warehouse.
+         * When an imported batch was most recently applied to the warehouse, or null if no apply has been recorded for this table.
          * @nullable
          */
       last_applied_at: string | null;
@@ -66770,6 +66746,10 @@ export namespace Schemas {
       schemas_reset?: number;
     };
 
+    export type EnvironmentsExternalDataSourcesResumeCdcCreate200 = {
+      success?: boolean;
+    };
+
     export type EnvironmentsExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
       valid?: boolean;
       errors?: string[];
@@ -74181,6 +74161,10 @@ export namespace Schemas {
       schemas_reset?: number;
     };
 
+    export type ExternalDataSourcesResumeCdcCreate200 = {
+      success?: boolean;
+    };
+
     export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
       valid?: boolean;
       errors?: string[];
@@ -77690,6 +77674,25 @@ export namespace Schemas {
 
 
     export const ReviewHogReviewsListScope = {
+      Mine: 'mine',
+      Everyone: 'everyone',
+    } as const;
+
+    export type ReviewHogReviewsPerspectiveStatsRetrieveParams = {
+    /**
+     * Whose reviews to aggregate: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.
+     *
+     * * `mine` - mine
+     * * `everyone` - everyone
+     * @minLength 1
+     */
+    scope?: ReviewHogReviewsPerspectiveStatsRetrieveScope;
+    };
+
+    export type ReviewHogReviewsPerspectiveStatsRetrieveScope = typeof ReviewHogReviewsPerspectiveStatsRetrieveScope[keyof typeof ReviewHogReviewsPerspectiveStatsRetrieveScope];
+
+
+    export const ReviewHogReviewsPerspectiveStatsRetrieveScope = {
       Mine: 'mine',
       Everyone: 'everyone',
     } as const;
