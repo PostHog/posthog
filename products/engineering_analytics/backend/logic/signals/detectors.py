@@ -37,7 +37,9 @@ logger = structlog.get_logger(__name__)
 FLAKY_WINDOW_DAYS = 7
 FLAKY_MIN_RUNS = 3
 
-# Broken default branch: latest completed run failed and success rate is at or below the floor.
+# Broken default branch: latest completed run failed, and the rate over runs that reached a verdict
+# is at or below the floor. Cancelled and skipped runs are excluded from that rate — see the
+# conclusive_run_count note on WorkflowHealthItem.
 BROKEN_DEFAULT_BRANCH_WINDOW_HOURS = 24
 BROKEN_DEFAULT_BRANCH_MIN_RUNS = 3
 BROKEN_DEFAULT_BRANCH_MAX_SUCCESS_RATE = 0.5
