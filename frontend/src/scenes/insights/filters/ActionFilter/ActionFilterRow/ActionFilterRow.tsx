@@ -356,7 +356,10 @@ export function ActionFilterRow({
         ? dataWarehouseGroupType
         : filter.type === EntityTypes.ACTIONS
           ? TaxonomicFilterGroupType.Actions
-          : filter.type === EntityTypes.EVENTS && !isAllEventsEntityFilter(filter) && filter.id != null
+          : filter.type === EntityTypes.EVENTS &&
+              !isAllEventsEntityFilter(filter) &&
+              filter.id != null &&
+              filter.id !== ''
             ? TaxonomicFilterGroupType.Events
             : TaxonomicFilterGroupType.SuggestedFilters
 

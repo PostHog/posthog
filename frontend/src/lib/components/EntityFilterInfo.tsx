@@ -51,6 +51,9 @@ function getUnderlyingEntity(filter: EntityFilter | ActionFilter): UnderlyingEnt
 interface EntityFilterDisplayInfo {
     /** The label users see for the series: `custom_name`, falling back to `name`/`id`. */
     displayName?: string
+    /** The non-custom label (`name`/`id`) — the reveal for renamed series without a
+     *  single underlying key (an all-events series). */
+    baseName?: string
     underlying: UnderlyingEntity | null
     /** True when the label alone doesn't reveal the underlying entity. */
     isRenamed: boolean
@@ -73,8 +76,12 @@ function getEntityFilterDisplayInfo(
     const underlying = getUnderlyingEntity(filter)
     return {
         displayName,
+        baseName: name,
         underlying,
-        isRenamed: !!displayName && !!underlying && underlying.display !== displayName,
+        // A label equal to either form of the underlying key already reveals it — e.g. a
+        // name-less `$pageview` series displays the raw key itself, so it isn't a rename.
+        isRenamed:
+            !!displayName && !!underlying && underlying.display !== displayName && underlying.raw !== displayName,
     }
 }
 
@@ -148,11 +155,17 @@ export function EntityFilterInfo({
     showIcon = false,
 }: EntityFilterInfoProps): JSX.Element {
     const isColumn = layout === 'column'
-    const { displayName, underlying } = getEntityFilterDisplayInfo(filter, filterGroupType)
+    const { displayName, baseName, underlying, isRenamed } = getEntityFilterDisplayInfo(filter, filterGroupType)
 
-    // Only reveal the underlying entity when the label doesn't already show it.
-    const underlyingName = underlying && underlying.display !== displayName ? underlying.display : undefined
-    const showTooltip = !!displayName && !!underlying && underlying.raw !== displayName
+    // Reveal the underlying entity (and the tooltip) only when the label hides it — an
+    // unrenamed series keeps a single plain label. A renamed series without a single
+    // underlying key (an all-events series) falls back to revealing its base name.
+    const underlyingName = isRenamed
+        ? underlying?.display
+        : filter?.custom_name && baseName && baseName !== displayName
+          ? baseName
+          : undefined
+    const showTooltip = isRenamed
 
     const icon = showIcon
         ? getEventDefinitionIcon({

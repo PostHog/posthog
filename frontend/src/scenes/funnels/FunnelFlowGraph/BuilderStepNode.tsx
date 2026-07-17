@@ -1,7 +1,7 @@
 import { Handle, Position } from '@xyflow/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React from 'react'
+import React, { useMemo } from 'react'
 
 import { IconCollapse, IconPlayFilled, IconX } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
@@ -145,6 +145,9 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
     const canRemove = stepCount > 1
     const hasEvent = !!step.action_id
     const hasConversionData = step.count != null && step.count > 0
+    // Stable identity — a fresh filter each render would defeat the picker's
+    // rename memo and re-render every visible list row while it is open.
+    const stepFilter = useMemo(() => (hasEvent ? getActionFilterFromFunnelStep(step) : undefined), [hasEvent, step])
 
     return (
         <StepNodeShell
@@ -164,15 +167,11 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
                         groupType={TaxonomicFilterGroupType.Events}
                         groupTypes={taxonomicGroupTypes}
                         value={hasEvent ? (step.action_id as string) : undefined}
-                        filter={hasEvent ? getActionFilterFromFunnelStep(step) : undefined}
+                        filter={stepFilter}
                         onChange={(value, groupType, item) => {
                             updateStepEvent(stepIndex, value as string, groupType, item)
                         }}
-                        renderValue={
-                            hasEvent
-                                ? () => <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
-                                : undefined
-                        }
+                        renderValue={stepFilter ? () => <EntityFilterInfo filter={stepFilter} /> : undefined}
                         type="secondary"
                         size="small"
                         fullWidth

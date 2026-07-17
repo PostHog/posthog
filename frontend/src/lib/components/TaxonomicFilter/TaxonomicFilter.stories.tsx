@@ -14,7 +14,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import { actionsModel } from '~/models/actionsModel'
-import { type AnyPropertyFilter, AvailableFeature, PropertyFilterType, PropertyOperator } from '~/types'
+import { type AnyPropertyFilter, AvailableFeature, EntityTypes, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
 import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
@@ -528,6 +528,73 @@ export const CategoryDropdownPill: Story = {
         docs: {
             description: {
                 story: 'Test variant "pill": left-hand Categories column is hidden; the current category is shown as a pill in the right-hand suffix of the search input.',
+            },
+        },
+    },
+}
+
+// The committed selection of a renamed series ('signed up', renamed "Completed sign-up")
+// is promoted to the top of the list, labelled with the rename and revealing the
+// underlying event as secondary text (tooltip on hover).
+const RENAMED_SERIES_ARGS: TaxonomicFilterProps = {
+    groupType: TaxonomicFilterGroupType.Events,
+    value: 'signed up',
+    filter: {
+        type: EntityTypes.EVENTS,
+        id: 'signed up',
+        name: 'signed up',
+        custom_name: 'Completed sign-up',
+        order: 0,
+    },
+    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+}
+
+const RENAMED_SERIES_PARAMETERS = {
+    testOptions: { waitForSelector: '.taxonomic-infinite-list' },
+}
+
+export const RenamedSeriesSelected: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        ...RENAMED_SERIES_ARGS,
+        taxonomicFilterLogicKey: 'renamed-series-selected',
+    },
+    parameters: {
+        ...RENAMED_SERIES_PARAMETERS,
+        docs: {
+            description: {
+                story: 'Reopening the picker on a renamed series: the committed selection leads the Events list, labelled "Completed sign-up" with the underlying `signed up` event shown alongside (and in a tooltip on hover), so the row connects to the series the user clicked.',
+            },
+        },
+    },
+}
+
+export const RenamedSeriesSelectedPill: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        ...RENAMED_SERIES_ARGS,
+        taxonomicFilterLogicKey: 'renamed-series-selected-pill',
+    },
+    parameters: {
+        ...RENAMED_SERIES_PARAMETERS,
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill' },
+        docs: {
+            description: {
+                story: "Same renamed-series selection in the pill category-dropdown variant: the Categories column is folded into the search input's pill, and the promoted committed row still shows the rename with the underlying event.",
             },
         },
     },

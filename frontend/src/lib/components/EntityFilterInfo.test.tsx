@@ -37,6 +37,12 @@ describe('EntityFilterInfo', () => {
             'Checkout',
             'Completed purchase',
         ],
+        [
+            'custom_name on an all-events series',
+            { type: EntityTypes.EVENTS, id: null, name: 'All events', custom_name: 'Total traffic' },
+            'Total traffic',
+            'All events',
+        ],
     ] as [string, EntityFilter | ActionFilter, string, string][])(
         'shows the underlying entity next to a series renamed via %s',
         (_, filter, label, underlying) => {
@@ -53,6 +59,8 @@ describe('EntityFilterInfo', () => {
             'user signed up',
         ],
         ['a core event', { type: EntityTypes.EVENTS, id: '$pageview', name: '$pageview' }, 'Pageview'],
+        // API-created series often carry no name at all — the raw id label is not a rename
+        ['a name-less core event', { type: EntityTypes.EVENTS, id: '$pageview' }, '$pageview'],
         ['an all-events series', { type: EntityTypes.EVENTS, id: null, name: 'All events' }, 'All events'],
     ] as [string, EntityFilter, string][])('shows a single label for an unrenamed series on %s', (_, filter, label) => {
         const { container } = render(<EntityFilterInfo filter={filter} />)
