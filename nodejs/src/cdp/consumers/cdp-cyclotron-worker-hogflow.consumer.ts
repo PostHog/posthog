@@ -3,6 +3,7 @@ import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
 import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { LlmRequestProducer } from '../services/llm/llm-request-producer'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
@@ -11,8 +12,35 @@ import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     protected override name = 'CdpCyclotronWorkerHogFlow'
 
-    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps, jobQueue: JobQueue) {
+    constructor(
+        config: PluginsServerConfig,
+        deps: CdpConsumerBaseDeps,
+        jobQueue: JobQueue,
+        // Optional so non-LLM deployments (and tests) don't need it wired; when absent, LLM
+        // dispatches are dropped and the parked jobs fall back to their timeout backstop.
+        private llmRequestProducer?: LlmRequestProducer
+    ) {
         super(config, deps, jobQueue, 'hogflow')
+    }
+
+    // Flush LLM step dispatches AFTER the parked jobs have been persisted (see the base worker's
+    // runBackgroundTasks). Best-effort: a failure here is logged, not thrown, and the parked job's
+    // timeout backstop covers a dropped dispatch.
+    protected override async dispatchPostPersistSideEffects(
+        invocationResults: CyclotronJobInvocationResult[]
+    ): Promise<void> {
+        if (!this.llmRequestProducer) {
+            return
+        }
+        const requests = invocationResults.flatMap((result) => result.llmRequests ?? [])
+        if (requests.length === 0) {
+            return
+        }
+        try {
+            await Promise.all(requests.map((request) => this.llmRequestProducer!.dispatch(request)))
+        } catch (err) {
+            logger.error('Failed to dispatch LLM step requests', { err })
+        }
     }
 
     @instrumented('cdpConsumer.handleEachBatch.executeInvocations')

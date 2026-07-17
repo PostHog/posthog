@@ -217,6 +217,30 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
     }),
+    // Generic LLM step. Dispatches a prompt to the cdp-llm-executor fleet, parks the job, and is
+    // woken by id when the completion lands. Message content is a CyclotronInput so it can be
+    // templated against workflow state (liquid `{{ variables.x }}` / hog) exactly like other steps.
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('llm'),
+        config: z.object({
+            model: z.string(),
+            messages: z.array(
+                z.object({
+                    role: z.enum(['system', 'user', 'assistant']),
+                    content: CyclotronInputSchema,
+                })
+            ),
+            response_format: z.enum(['text', 'json_schema']).optional(),
+            json_schema: z.any().optional(),
+            temperature: z.number().optional(),
+            max_tokens: z.number().optional(),
+            tools: z.array(z.any()).optional(),
+            // Timeout backstop. If the executor never wakes the job (crash, lost message), this
+            // fires and the step takes its on_error path. Must exceed the expected call duration.
+            max_wait_duration: z.string(),
+        }),
+    }),
     // Exit
     z.object({
         ..._commonActionFields,

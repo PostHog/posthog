@@ -33,6 +33,7 @@ import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './cdp/consumers/cdp-hogflow-subscription-matcher.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
+import { CdpLlmExecutorConsumer } from './cdp/consumers/cdp-llm-executor.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
 import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consumer'
@@ -47,11 +48,13 @@ import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka
 import { CyclotronJobQueuePostgres } from './cdp/services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
+import { KafkaLlmRequestProducer } from './cdp/services/llm/llm-request-producer'
 import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
 import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
+import { KafkaProducerWrapper } from './common/kafka/producer'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 
@@ -107,6 +110,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpCohortMembership ||
             capabilities.cdpCyclotronWorkerBatchResolve ||
             capabilities.cdpHogflowSubscriptionMatcher ||
+            capabilities.cdpLlmExecutor ||
             capabilities.cdpRerunWorker
         )
         // The janitor records poison-pill give-ups as failed invocation results,
@@ -290,10 +294,16 @@ export class PluginServer implements NodeServer {
                 // instances naturally; locally we'd silently double-process when
                 // both capabilities are enabled in the same process.
                 const queue = new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
+                // Producer for LLM step dispatches. Its own wrapper so the hogflow worker can emit to
+                // the cdp_llm_requests topic without threading the CDP output registry through here.
+                const llmProducer = new KafkaLlmRequestProducer(
+                    await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'CDP_PRODUCER')
+                )
                 const worker = new CdpCyclotronWorkerHogFlow(
                     this.config,
                     this.withEmailValidationValkey(cdpDeps!),
-                    queue
+                    queue,
+                    llmProducer
                 )
                 await worker.start()
                 return worker.service
@@ -412,6 +422,14 @@ export class PluginServer implements NodeServer {
         if (capabilities.cdpHogflowSubscriptionMatcher) {
             serviceLoaders.push(async () => {
                 const consumer = new CdpHogflowSubscriptionMatcherConsumer(this.config, cdpDeps!)
+                await consumer.start()
+                return consumer.service
+            })
+        }
+
+        if (capabilities.cdpLlmExecutor) {
+            serviceLoaders.push(async () => {
+                const consumer = new CdpLlmExecutorConsumer(this.config, cdpDeps!)
                 await consumer.start()
                 return consumer.service
             })

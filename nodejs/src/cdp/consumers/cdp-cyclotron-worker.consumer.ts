@@ -169,8 +169,21 @@ export class CdpCyclotronWorker<
         await this.queueInvocationResults(invocationResults)
 
         // After this point we parallelize and any issues are logged rather than thrown
-        // as retrying now would end up in duplicate messages
-        await Promise.allSettled([this.flushMonitoring(invocationResults), this.observeResults(invocationResults)])
+        // as retrying now would end up in duplicate messages. dispatchPostPersistSideEffects runs
+        // here (after the terminal DB write above) so anything it emits - e.g. an LLM step's
+        // dispatch to the executor fleet - can only become visible once the parked job exists.
+        await Promise.allSettled([
+            this.flushMonitoring(invocationResults),
+            this.observeResults(invocationResults),
+            this.dispatchPostPersistSideEffects(invocationResults),
+        ])
+    }
+
+    // Hook for post-persist side effects. No-op in the base worker; the hogflow worker overrides it
+    // to flush LLM step dispatches. Best-effort by design (allSettled above): a dropped dispatch is
+    // caught by the parked job's timeout backstop rather than stranding the run.
+    protected dispatchPostPersistSideEffects(_invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
+        return Promise.resolve()
     }
 
     @instrumented({ key: 'cdpConsumer.backgroundTask.monitoringFlush', timeoutMs: 15_000, sendException: false })

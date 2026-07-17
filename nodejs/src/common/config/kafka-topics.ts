@@ -5,6 +5,10 @@ export const suffix = isTestEnv() ? '_test' : ''
 export const prefix = process.env.KAFKA_PREFIX || ''
 
 export const KAFKA_EVENTS_JSON = `${prefix}clickhouse_events_json${suffix}`
+// Dispatch topic for the generic LLM workflow step. The hogflow worker produces a request here
+// after parking the job; the cdp-llm-executor fleet consumes it, calls the LLM gateway, and wakes
+// the parked job by id. Partitioned by team_id for per-team fairness.
+export const KAFKA_CDP_LLM_REQUESTS = `${prefix}cdp_llm_requests${suffix}`
 export const KAFKA_EVENTS_RECENT_JSON = `${prefix}kafka_events_recent_json${suffix}`
 export const KAFKA_PERSON = `${prefix}clickhouse_person${suffix}`
 export const KAFKA_PERSON_OVERRIDES = `${prefix}clickhouse_person_overrides${suffix}`

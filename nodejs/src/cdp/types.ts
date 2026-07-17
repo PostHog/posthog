@@ -4,6 +4,7 @@ import { VMState } from '@posthog/hogvm'
 
 import { CyclotronInputType, CyclotronInvocationQueueParametersType } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { LlmStepCompletion, LlmStepError, LlmStepRequest } from '~/cdp/services/llm/llm-step.types'
 
 import {
     ClickHouseTimestamp,
@@ -299,6 +300,10 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     warehouseWebhookPayloads: WarehouseWebhookPayload[]
     emailAssets: MessageAssetRow[]
     execResult?: unknown
+    // LLM step dispatch requests, flushed to Kafka by the hogflow worker *after* the parked job is
+    // persisted (see cdp-cyclotron-worker.consumer runBackgroundTasks). Emitting post-persist is
+    // what keeps the executor from waking a row that isn't parked yet.
+    llmRequests?: LlmStepRequest[]
 }
 
 export type CyclotronJobInvocationHogFunctionContext = {
@@ -373,6 +378,16 @@ export type HogFlowInvocationContext = {
         // the cdp_hogflow_wait_poll_only_advance metric — the signal that proves whether the poll
         // ever catches a wake the subscription streams missed, gating its eventual removal.
         pollReparked?: boolean
+        // --- Generic LLM step (see services/hogflows/actions/llm.ts) ---
+        // Nonce minted when the step dispatches its request and parks. Its presence marks the step
+        // as "already dispatched", so a plain timeout dequeue (no result written) is
+        // distinguishable from fresh entry. The cdp-llm-executor must present it to wake the job.
+        llmRequestId?: string
+        llmDispatchedAt?: number
+        // Written by the cdp-llm-executor when it wakes the job with a completion / terminal error.
+        // The handler reads whichever is set on resume and clears it.
+        llmResult?: LlmStepCompletion
+        llmError?: LlmStepError
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
