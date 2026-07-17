@@ -106,8 +106,10 @@ class TestSharedStartCall(APIBaseTest):
     def _url(self, token: str) -> str:
         return f"/api/user_interviews/share/{token}/start_call/"
 
+    _SESSION_ID_V7 = "018f0b7a-0000-7000-8000-000000000000"
+
     @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
-    def test_carries_respondent_name_and_linkage_into_metadata(self) -> None:
+    def test_carries_respondent_name_and_valid_linkage_into_metadata(self) -> None:
         config = self._shared_config()
         self.client.logout()
         response = self.client.post(
@@ -116,7 +118,7 @@ class TestSharedStartCall(APIBaseTest):
                 "name": "Robin",
                 "respondent_key": "resp-123",
                 "distinct_id": "person-abc",
-                "session_id": "sess-xyz",
+                "session_id": self._SESSION_ID_V7,
             },
             format="json",
         )
@@ -125,10 +127,26 @@ class TestSharedStartCall(APIBaseTest):
         assert metadata["shared"] == "true"
         assert metadata["respondent_name"] == "Robin"
         assert metadata["distinct_id"] == "person-abc"
-        assert metadata["session_id"] == "sess-xyz"
+        assert metadata["session_id"] == self._SESSION_ID_V7
         assert metadata["sharing_access_token"] == config.access_token
         # The self-reported name greets the respondent.
         assert "Robin" in response.json()["assistant_overrides"]["firstMessage"]
+
+    @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
+    def test_drops_invalid_linkage_but_still_starts(self) -> None:
+        # Invalid linkage is a reason to ignore the hint, not to reject the interview: a non-UUIDv7
+        # session_id and an illegal distinct_id ("anonymous") are dropped, and the call still starts.
+        config = self._shared_config()
+        self.client.logout()
+        response = self.client.post(
+            self._url(config.access_token),
+            data={"name": "Robin", "distinct_id": "anonymous", "session_id": "not-a-uuid"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        metadata = response.json()["assistant_overrides"]["metadata"]
+        assert metadata["distinct_id"] == ""
+        assert metadata["session_id"] == ""
 
     @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
     def test_honeypot_filled_is_rejected(self) -> None:
@@ -164,7 +182,7 @@ class TestSharedVapiWebhook(APIBaseTest):
                         "respondent_name": name,
                         "respondent_key": respondent_key,
                         "distinct_id": "person-abc",
-                        "session_id": "sess-xyz",
+                        "session_id": "018f0b7a-0000-7000-8000-000000000000",
                     },
                 },
                 "transcript": transcript,
@@ -195,7 +213,7 @@ class TestSharedVapiWebhook(APIBaseTest):
         assert interview.topic_id == config.user_interview_topic_id
         assert interview.respondent_name == "Robin"
         assert interview.distinct_id == "person-abc"
-        assert interview.session_id == "sess-xyz"
+        assert interview.session_id == "018f0b7a-0000-7000-8000-000000000000"
         assert interview.interviewee_emails == []
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")

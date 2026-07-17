@@ -41,6 +41,7 @@ from posthog.rate_limit import IPThrottle
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from ..facade.api import derive_auto_classifications
+from ..logic import valid_distinct_id, valid_session_id
 from ..models import UserInterview, UserInterviewClassification, UserInterviewTopic
 
 logger = structlog.get_logger(__name__)
@@ -394,8 +395,10 @@ def start_call(request: Request, access_token: str) -> Response:
             "shared": "true",
             "respondent_name": respondent_name,
             "respondent_key": respondent_key,
-            "distinct_id": _clean_field(body.get("distinct_id"), _LINKAGE_ID_MAX_CHARS),
-            "session_id": _clean_field(body.get("session_id"), _LINKAGE_ID_MAX_CHARS),
+            # Validated at this trust boundary so only clean linkage reaches Vapi metadata and the
+            # webhook. Invalid values are dropped, not rejected.
+            "distinct_id": valid_distinct_id(body.get("distinct_id")),
+            "session_id": valid_session_id(body.get("session_id")),
         }
 
     first_message_template = _resolve_first_message_template(sharing_config.team)
@@ -597,8 +600,11 @@ def vapi_webhook(request: Request) -> Response:
         topic = cast(UserInterviewTopic, topic_share)
         respondent_name = _clean_field(merged_metadata.get("respondent_name"), _RESPONDENT_NAME_MAX_CHARS)
         respondent_key = _clean_field(merged_metadata.get("respondent_key"), _RESPONDENT_KEY_MAX_CHARS)
-        distinct_id = _clean_field(merged_metadata.get("distinct_id"), _LINKAGE_ID_MAX_CHARS)
-        session_id = _clean_field(merged_metadata.get("session_id"), _LINKAGE_ID_MAX_CHARS)
+        # Re-validate at this second trust boundary too (defense in depth) — start_call already
+        # cleans these, but re-running the validators keeps the stored linkage well-formed
+        # regardless of what round-trips through Vapi.
+        distinct_id = valid_distinct_id(merged_metadata.get("distinct_id"))
+        session_id = valid_session_id(merged_metadata.get("session_id"))
         interviewee_identifier = _clean_field(
             merged_metadata.get("interviewee_identifier"), _LINKAGE_ID_MAX_CHARS
         ) or _shared_interviewee_identifier(respondent_name, respondent_key)

@@ -7,6 +7,7 @@ products must keep going through the facade.
 """
 
 import re
+import uuid
 from uuid import UUID
 
 from products.user_interviews.backend.facade.contracts import IntervieweeIdentity
@@ -15,6 +16,61 @@ from products.user_interviews.backend.models import (
     UserInterview,
     UserInterviewClassification,
 )
+
+# distinct_id rules ported from rust/capture (`CAPTURE_V1_DISTINCT_ID_MAX_SIZE` and
+# `ILLEGAL_DISTINCT_IDS` in v1/analytics/constants.rs). On the shared interview link these are
+# best-effort person/session linkage hints from an untrusted public page, so an invalid value is
+# dropped (ignored), never a reason to reject the interview.
+DISTINCT_ID_MAX_CHARS = 200
+ILLEGAL_DISTINCT_IDS = frozenset(
+    {
+        "0",
+        "00000000-0000-0000-0000-000000000000",
+        "[object object]",
+        "anonymous",
+        "anonymous-user",
+        "backend",
+        "distinct_id",
+        "distinctid",
+        "email",
+        "false",
+        "guest",
+        "id",
+        "nan",
+        "none",
+        "not_authenticated",
+        "null",
+        "system",
+        "true",
+        "undefined",
+        "user",
+    }
+)
+
+
+def valid_distinct_id(value: object) -> str:
+    """Return a usable distinct_id, or "" if it fails the canonical capture rules (empty, longer
+    than the 200-char limit, or a known-bad sentinel). Dropped, not rejected — it's a linkage hint.
+    A too-long id is dropped rather than truncated: a truncated distinct_id would never match a real
+    person, so keeping it would be misleading."""
+    if not value:
+        return ""
+    candidate = str(value).strip()
+    if not candidate or len(candidate) > DISTINCT_ID_MAX_CHARS or candidate.lower() in ILLEGAL_DISTINCT_IDS:
+        return ""
+    return candidate
+
+
+def valid_session_id(value: object) -> str:
+    """Return the session_id only if it's a valid UUIDv7 (PostHog session IDs are UUIDv7), else "".
+    Dropped, not rejected — it's a best-effort linkage hint."""
+    if not value:
+        return ""
+    candidate = str(value).strip()
+    try:
+        return candidate if uuid.UUID(candidate).version == 7 else ""
+    except ValueError:
+        return ""
 
 
 def parse_interviewee_identifier(identifier: str) -> IntervieweeIdentity:
