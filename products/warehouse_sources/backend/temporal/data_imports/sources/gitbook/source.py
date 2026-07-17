@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GitBookSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.gitbook import (
     GitBookResumeConfig,
@@ -29,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.gi
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.settings import (
     ENDPOINTS,
     GITBOOK_ENDPOINTS,
+    INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -93,19 +97,9 @@ You can create a personal access token under **Account settings → Developer** 
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — GitBook's list endpoints expose no server-side
         # updated-after/since filter, so there is no timestamp cursor to advance an incremental sync.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # INCREMENTAL_FIELDS is empty, so build_endpoint_schemas yields supports_incremental=False,
+        # supports_append=False, incremental_fields=[] for every endpoint.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: GitBookSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -129,6 +123,7 @@ You can create a personal access token under **Account settings → Developer** 
         return gitbook_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
