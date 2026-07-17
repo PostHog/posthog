@@ -101,11 +101,14 @@ async def replay_signals(
         if selected.mode == "oracle-on":
             modes = cast(dict[str, dict[str, object]], pipeline.configuration["modes"])
             engine_config = cast(dict[str, object], pipeline.configuration["engine_config"])
+            max_tokens = engine_config["member_repair_llm_max_tokens"]
+            if isinstance(max_tokens, bool) or not isinstance(max_tokens, int):
+                raise ValueError("member_repair_llm_max_tokens must be an integer")
             oracle_service = OracleService(
                 providers.oracle,
                 run_dir / "cache" / "oracle",
                 model=str(modes["oracle-on"]["oracle_model"]),
-                max_tokens=int(engine_config["member_repair_llm_max_tokens"]),
+                max_tokens=max_tokens,
             )
         replay = await PythonPipeline(
             signals,

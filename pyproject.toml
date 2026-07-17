@@ -451,8 +451,9 @@ strict_equality = true
 ignore_missing_imports = true
 exclude_gitignore = true
 # conftest.py: the root pytest bootstrap collides with services/stripe-mock/tests/conftest.py
-# (both resolve to top-level module "conftest")
-exclude = ["^(bin/.*|tools/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
+# (both resolve to top-level module "conftest"). The standalone Signals training project is
+# checked by ty and its own pinned toolchain; its vendored model builders are not mypy-compatible.
+exclude = ["^(bin/.*|tools/.*|products/[^/]+/skills/[^/]+/scripts/.*|products/signals/pipeline_training/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"
@@ -466,6 +467,11 @@ ignore_errors = true
 module = "posthog.tasks.*"
 disallow_untyped_defs = true
 check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+# The frozen numeric interpreter consumes schema-validated manifests and remains covered by ty.
+module = "products.signals.backend.grouping_replay.engine"
+ignore_errors = true
 
 [tool.django-stubs]
 django_settings_module = "posthog.settings"

@@ -10,7 +10,7 @@ import tempfile
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypedDict
+from typing import TypedDict, cast
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
@@ -112,7 +112,7 @@ class Command(BaseCommand):
                 }
             )
 
-        manifest = {
+        manifest: dict[str, object] = {
             "schema_version": EXPORT_SCHEMA_VERSION,
             "created_at": datetime.now(UTC).isoformat(),
             "source": {
@@ -273,7 +273,7 @@ def _report_rows(
             signal["report_id"] = report_id
             unassigned += 1
         member_ids_by_report[report_id].append(str(signal["document_id"]))
-        total_weight_by_report[report_id] += float(signal["weight"])
+        total_weight_by_report[report_id] += float(cast(int | float, signal["weight"]))
 
     valid_ids: list[uuid.UUID] = []
     invalid_ids: set[str] = set()

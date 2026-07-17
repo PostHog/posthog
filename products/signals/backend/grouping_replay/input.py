@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from products.signals.backend.grouping_replay.artifacts import sha256_file
 from products.signals.backend.grouping_replay.engine import load_rows
@@ -32,9 +33,9 @@ def _directory_sha256(root: Path, paths: list[Path]) -> str:
 def load_input(path: Path) -> LoadedInput:
     resolved = path.resolve()
     if resolved.is_file():
-        rows = load_rows(resolved)
-        _validate_replay_rows(rows)
-        return LoadedInput(rows=rows, source_name=resolved.name, sha256=sha256_file(resolved))
+        loaded_rows = load_rows(resolved)
+        _validate_replay_rows(loaded_rows)
+        return LoadedInput(rows=loaded_rows, source_name=resolved.name, sha256=sha256_file(resolved))
     if not resolved.is_dir():
         raise FileNotFoundError(resolved)
     exported_signals = resolved / "signals.jsonl"
@@ -62,7 +63,7 @@ def load_input(path: Path) -> LoadedInput:
                 )
     # Match the materialized training corpus and Rust replay tie-break exactly. Input position is
     # retained as provenance, but equal timestamps must not make assignment depend on file layout.
-    rows.sort(key=lambda row: (float(row["timestamp"]), str(row["document_id"])))
+    rows.sort(key=lambda row: (cast(float, row["timestamp"]), str(row["document_id"])))
     _validate_replay_rows(rows)
     return LoadedInput(
         rows=rows,

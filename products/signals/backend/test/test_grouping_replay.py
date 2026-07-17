@@ -27,6 +27,7 @@ from products.signals.backend.grouping_replay.cache import append_jsonl
 from products.signals.backend.grouping_replay.engine import (
     CONCERN_SPLIT_BUDGET,
     PythonPipeline,
+    Signal,
     load_rows,
     materialize_signals,
 )
@@ -144,7 +145,7 @@ class TestGroupingReplayContracts(SimpleTestCase):
 
     def test_oversize_shuffler_attempt_is_recorded_before_returning(self) -> None:
         pipeline = PythonPipeline.__new__(PythonPipeline)
-        pipeline.signals = [SimpleNamespace(id=f"signal-{index}") for index in range(302)]
+        pipeline.signals = cast(list[Signal], [SimpleNamespace(id=f"signal-{index}") for index in range(302)])
         pipeline.report_of = ["left"] * 301 + ["right"]
         pipeline.reports = {"left": list(range(301)), "right": [301]}
         pipeline.shuffler_events = []
@@ -373,8 +374,9 @@ class TestGroupingReplayContracts(SimpleTestCase):
             filter_reports.return_value.order_by.return_value = []
             reports, warnings = _report_rows(team_id=1, signals=signals)
 
-        assert {member for report in reports for member in report["member_ids"]} == {"assigned", "unassigned"}
-        assert len([member for report in reports for member in report["member_ids"]]) == 2
+        report_members = [cast(list[str], report["member_ids"]) for report in reports]
+        assert {member for members in report_members for member in members} == {"assigned", "unassigned"}
+        assert len([member for members in report_members for member in members]) == 2
         assert signals[1]["report_id"] == "unassigned:unassigned"
         assert {warning["code"] for warning in warnings} == {"missing_report_metadata", "unassigned_signals"}
 

@@ -6,12 +6,13 @@ import math
 import hashlib
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from posthog.models import Team
 
-from products.signals.backend.grouping_replay import ReplayOptions, replay_signals_sync
+from products.signals.backend.grouping_replay import ReplayMode, ReplayOptions, replay_signals_sync
 
 EXPORT_SCHEMA_VERSION = "posthog-signals-grouping-export/v1"
 EMBEDDING_DIMENSIONS = 1536
@@ -73,7 +74,7 @@ class Command(BaseCommand):
         mode_value = options.get("mode")
         if mode_value not in {"oracle-off", "oracle-on"}:
             raise CommandError("--mode must be oracle-off or oracle-on")
-        mode = str(mode_value)
+        mode = cast(ReplayMode, mode_value)
         experimental_oracle = options.get("experimental_oracle_on") is True
         if mode == "oracle-on" and not experimental_oracle:
             raise CommandError("oracle-on requires the explicit --experimental-oracle-on acknowledgement")
