@@ -255,7 +255,10 @@ class TestEngineActivities(BaseTest):
     def test_emit_produces_internal_event(self) -> None:
         action = _action(self.team, delivery_config=[{"type": "slack", "integration_id": 1, "channel": "#general"}])
         run = VisionActionRun(
-            vision_action=action, team=self.team, idempotency_key="k", output={"slack": "hello *world*"}
+            vision_action=action,
+            team=self.team,
+            idempotency_key="k",
+            output={"slack": "hello *world*", "slack_blocks": [{"type": "section"}]},
         )
         run.save()
 
@@ -272,6 +275,7 @@ class TestEngineActivities(BaseTest):
         self.assertEqual(event.uuid, str(run.id))
         self.assertEqual(event.properties["vision_action_id"], str(action.id))
         self.assertEqual(event.properties["slack_text"], "hello *world*")
+        self.assertEqual(event.properties["slack_blocks"], [{"type": "section"}])
 
     def test_emit_noops_without_delivery(self) -> None:
         # No destinations configured → nothing to emit; the run row itself is the in-app artifact.

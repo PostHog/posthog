@@ -2,6 +2,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
+from parameterized import parameterized
+
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_CACHE_KEY_PREFIX,
     GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX,
@@ -118,6 +120,14 @@ class TestGetGroupTypesForProject(SimpleTestCase):
 
         assert result == stale_data
 
+    def test_unconfigured_client_falls_back_instead_of_raising(self):
+        # Worker without PERSONHOG_ADDR: require_personhog_client() raises RuntimeError.
+        # It must reach the DatabaseError fallback, not escape and crash the caller.
+        with patch(_CLIENT_PATCH, return_value=None):
+            result = get_group_types_for_project(self.project_id)
+
+        assert result == []
+
 
 class TestGetGroupTypesForTeam(SimpleTestCase):
     def setUp(self):
@@ -150,6 +160,12 @@ class TestGetGroupTypesForTeam(SimpleTestCase):
         mock_fetch_personhog.side_effect = RuntimeError("grpc timeout")
 
         result = get_group_types_for_team(self.team_id)
+
+        assert result == []
+
+    def test_unconfigured_client_returns_empty_instead_of_raising(self):
+        with patch(_CLIENT_PATCH, return_value=None):
+            result = get_group_types_for_team(self.team_id)
 
         assert result == []
 
@@ -472,6 +488,12 @@ class TestCountGroupTypeMappingsPerTeam(SimpleTestCase):
         self._mock_client.count_group_type_mappings.side_effect = RuntimeError("grpc timeout")
 
         result = count_group_type_mappings_per_team()
+
+        assert result == []
+
+    def test_unconfigured_client_returns_empty_instead_of_raising(self):
+        with patch(_CLIENT_PATCH, return_value=None):
+            result = count_group_type_mappings_per_team()
 
         assert result == []
 
@@ -847,6 +869,36 @@ class TestProjectHasGroupTypesAuthoritatively(SimpleTestCase):
         invalidate_group_types_cache(888)
 
         assert get_safe_cache(marker_key) is None
+
+
+# Missing client (PERSONHOG_ADDR unset) raises RuntimeError; read paths must recover
+# like a DatabaseError instead of letting it escape and 500 the caller.
+class TestUnconfiguredClientDegradesGracefully(SimpleTestCase):
+    def setUp(self):
+        self.project_id = 314159
+        _clear_cache(self.project_id)
+        safe_cache_delete(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{self.project_id}")
+        self._client_patcher = patch(_CLIENT_PATCH, return_value=None)
+        self._client_patcher.start()
+
+    def tearDown(self):
+        self._client_patcher.stop()
+        _clear_cache(self.project_id)
+        safe_cache_delete(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{self.project_id}")
+
+    @parameterized.expand(
+        [
+            ("project", lambda self: get_group_types_for_project(self.project_id)),
+            ("team", lambda self: get_group_types_for_team(42)),
+            ("count", lambda self: count_group_type_mappings_per_team()),
+        ]
+    )
+    def test_read_path_returns_empty(self, _name, call):
+        assert call(self) == []
+
+    def test_project_has_group_types_fails_closed(self):
+        # Unconfirmable state must not be treated as "safe to empty" — fail closed to True.
+        assert project_has_group_types_authoritatively(self.project_id) is True
 
 
 class TestDictToGroupTypeMappingModel(SimpleTestCase):

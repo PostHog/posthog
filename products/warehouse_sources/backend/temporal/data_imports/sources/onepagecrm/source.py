@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class OnepagecrmSource(ResumableSource[OnepagecrmSourceConfig, OnepagecrmResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://developer.onepagecrm.com/api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -77,7 +80,6 @@ You can find your User ID and API key in [OnePageCRM](https://app.onepagecrm.com
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

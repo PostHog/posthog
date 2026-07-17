@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LightspeedRetailSource(ResumableSource[LightspeedRetailSourceConfig, LightspeedRetailResumeConfig]):
+    supported_versions = ("2.0",)
+    default_version = "2.0"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

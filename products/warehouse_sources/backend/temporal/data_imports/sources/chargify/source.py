@@ -40,6 +40,7 @@ SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
 
 @SourceRegistry.register
 class ChargifySource(ResumableSource[ChargifySourceConfig, ChargifyResumeConfig]):
+    api_docs_url = "https://developers.maxio.com/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -142,7 +143,6 @@ class ChargifySource(ResumableSource[ChargifySourceConfig, ChargifyResumeConfig]
             label="Chargify",
             keywords=["maxio", "advanced billing"],
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Chargify (Maxio Advanced Billing) API key and site subdomain to pull your billing data into the PostHog Data warehouse.
 
 You can create an API key under **Settings → Integrations → API Access** in your Chargify site. Your subdomain is the first part of your site URL — for `acme.chargify.com` the subdomain is `acme`.""",

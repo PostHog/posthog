@@ -6,7 +6,7 @@ use quick_cache::sync::Cache;
 use rand::Rng;
 use std::collections::HashMap;
 use std::future::Future;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tonic::transport::Channel;
 use tonic::{Code, Status};
@@ -108,6 +108,10 @@ where
 
 pub struct GroupTypeResolver {
     cache: Cache<String, i32>,
+    // Stores the expiry Instant for a resolution miss. quick_cache has no native TTL, so we
+    // check the stored expiry on read and treat the entry as live only while unexpired.
+    negative_cache: Cache<String, Instant>,
+    negative_ttl: Duration,
     personhog_client: Option<PersonHogServiceClient<Channel>>,
     max_retries: u32,
     initial_backoff_ms: u64,
@@ -117,6 +121,8 @@ pub struct GroupTypeResolver {
 impl GroupTypeResolver {
     pub fn new(config: &Config) -> Self {
         let cache = Cache::new(config.group_type_cache_size);
+        let negative_cache = Cache::new(config.group_type_negative_cache_size);
+        let negative_ttl = Duration::from_secs(config.group_type_negative_ttl_secs);
 
         let personhog_client = if !config.personhog_addr.is_empty() {
             let timeout = std::time::Duration::from_millis(config.personhog_timeout_ms);
@@ -152,10 +158,25 @@ impl GroupTypeResolver {
 
         Self {
             cache,
+            negative_cache,
+            negative_ttl,
             personhog_client,
             max_retries: config.personhog_max_retries,
             initial_backoff_ms: config.personhog_initial_backoff_ms,
             max_backoff_ms: config.personhog_max_backoff_ms,
+        }
+    }
+
+    /// Returns true if `cache_key` has a live (unexpired) resolution-miss entry. Expired
+    /// entries are removed so the next lookup re-attempts resolution via personhog.
+    fn is_negatively_cached(&self, cache_key: &str) -> bool {
+        match self.negative_cache.get(cache_key) {
+            Some(expiry) if Instant::now() < expiry => true,
+            Some(_) => {
+                self.negative_cache.remove(cache_key);
+                false
+            }
+            None => false,
         }
     }
 
@@ -178,6 +199,11 @@ impl GroupTypeResolver {
                 metrics::counter!(GROUP_TYPE_CACHE, &[("action", "hit")]).increment(1);
                 update.group_type_index =
                     update.group_type_index.take().map(|gti| gti.resolve(index));
+            } else if self.is_negatively_cached(&cache_key) {
+                // Known-unresolvable within the TTL window: skip the personhog lookup and
+                // leave the update Unresolved so batch_ingestion drops it and evicts it from
+                // the shared dedup cache, letting a later event retry once the TTL lapses.
+                metrics::counter!(GROUP_TYPE_CACHE, &[("action", "negative_hit")]).increment(1);
             } else {
                 to_resolve.push((idx, group_name.clone(), update.team_id));
             }
@@ -216,9 +242,13 @@ impl GroupTypeResolver {
                         "Failed to resolve group type index for group name: {group_name} and team id: {team_id}"
                     );
 
-                    if let Update::Property(update) = &mut updates[idx] {
-                        update.group_type_index = None;
-                    }
+                    // Record the miss so repeated unresolvable keys don't re-hit personhog for
+                    // the TTL window. We deliberately leave update.group_type_index as
+                    // Some(Unresolved(name)) (rather than None): batch_ingestion drops it either
+                    // way, but preserving the name keeps the shared-cache key recoverable so the
+                    // dropped entry can be evicted and retried instead of poisoning the cache.
+                    self.negative_cache
+                        .insert(cache_key, Instant::now() + self.negative_ttl);
                 }
             }
         }

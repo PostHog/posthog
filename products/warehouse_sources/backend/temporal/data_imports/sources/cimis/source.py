@@ -42,6 +42,7 @@ class CimisSource(SimpleSource[CimisSourceConfig]):
     # get_schemas iterates a static endpoint catalog with no I/O, so the table list is safe to surface
     # in public docs without credentials.
     lists_tables_without_credentials = True
+    api_docs_url = "https://et.water.ca.gov/Rest/Index"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -54,7 +55,6 @@ class CimisSource(SimpleSource[CimisSourceConfig]):
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="CIMIS",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Pull California weather and reference evapotranspiration (ETo) data from the [California Irrigation Management Information System (CIMIS)](https://cimis.water.ca.gov/) into the PostHog Data warehouse.
 
 CIMIS is a free service. Register for a free account and create a **web-services appKey** in your [CIMIS account](https://et.water.ca.gov/Account/Login), then paste it below.

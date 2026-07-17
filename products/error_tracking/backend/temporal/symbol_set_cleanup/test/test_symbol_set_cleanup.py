@@ -1,10 +1,11 @@
 import uuid
+from collections.abc import Callable
 from datetime import timedelta
 
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, call, patch
 
 from django.utils import timezone
 
@@ -13,12 +14,28 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.error_tracking.backend.models import ErrorTrackingStackFrame, ErrorTrackingSymbolSet
-from products.error_tracking.backend.temporal.symbol_set_cleanup.activities import cleanup_symbol_sets_activity
+from products.error_tracking.backend.temporal.symbol_set_cleanup.activities import (
+    _delete_symbol_set_contents_with_pacing,
+    cleanup_symbol_sets_activity,
+)
 from products.error_tracking.backend.temporal.symbol_set_cleanup.types import (
     SymbolSetCleanupInputs,
     SymbolSetCleanupResult,
 )
 from products.error_tracking.backend.temporal.symbol_set_cleanup.workflow import ErrorTrackingSymbolSetCleanupWorkflow
+
+
+class TestDeleteSymbolSetContentsWithPacing:
+    @patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.time.sleep")
+    @patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.delete_symbol_set_contents_many")
+    def test_paces_storage_delete_requests(self, delete_contents, sleep) -> None:
+        storage_ptrs = [f"symbols/{index}" for index in range(1001)]
+        delete_contents.return_value = []
+
+        assert _delete_symbol_set_contents_with_pacing(storage_ptrs) == []
+
+        assert delete_contents.call_args_list == [call(storage_ptrs[:1000]), call(storage_ptrs[1000:])]
+        sleep.assert_called_once_with(0.1)
 
 
 class TestSymbolSetCleanupActivity(BaseTest):
@@ -152,14 +169,14 @@ class TestSymbolSetCleanupActivity(BaseTest):
 
 async def _run_workflow_with_mock_activity(
     inputs: SymbolSetCleanupInputs | None,
-    activity_result: SymbolSetCleanupResult,
-) -> tuple[SymbolSetCleanupResult, SymbolSetCleanupInputs]:
-    captured: dict[str, SymbolSetCleanupInputs] = {}
+    activity_result: Callable[[SymbolSetCleanupInputs], SymbolSetCleanupResult],
+) -> tuple[SymbolSetCleanupResult, list[SymbolSetCleanupInputs]]:
+    captured: list[SymbolSetCleanupInputs] = []
 
     @activity.defn(name="cleanup_symbol_sets_activity")
     async def mock_activity(activity_inputs: SymbolSetCleanupInputs) -> SymbolSetCleanupResult:
-        captured["inputs"] = activity_inputs
-        return activity_result
+        captured.append(activity_inputs)
+        return activity_result(activity_inputs)
 
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -177,7 +194,7 @@ async def _run_workflow_with_mock_activity(
                 task_queue=task_queue,
             )
 
-    return result, captured["inputs"]
+    return result, captured
 
 
 class TestSymbolSetCleanupWorkflow:
@@ -186,26 +203,65 @@ class TestSymbolSetCleanupWorkflow:
         assert ErrorTrackingSymbolSetCleanupWorkflow.parse_inputs([]) == SymbolSetCleanupInputs(
             days_old=30,
             delete_unused=True,
-            total_per_run=500000,
+            total_per_run=1000000,
             batch_size=10000,
+            parallelism=8,
             dry_run=False,
         )
 
     @pytest.mark.asyncio
-    async def test_workflow_calls_activity_with_defaults(self) -> None:
-        expected = SymbolSetCleanupResult(objects_processed=1, objects_deleted=1, objects_failed=0)
+    async def test_workflow_splits_total_limit_across_parallel_activities(self) -> None:
+        inputs = SymbolSetCleanupInputs(total_per_run=10, batch_size=5, parallelism=3)
 
-        result, activity_inputs = await _run_workflow_with_mock_activity(None, expected)
+        result, activity_inputs = await _run_workflow_with_mock_activity(
+            inputs,
+            lambda activity_inputs: SymbolSetCleanupResult(
+                objects_processed=activity_inputs.total_per_run,
+                objects_deleted=activity_inputs.total_per_run,
+                objects_failed=0,
+            ),
+        )
 
-        assert result == expected
-        assert activity_inputs == SymbolSetCleanupInputs()
+        assert result == SymbolSetCleanupResult(objects_processed=10, objects_deleted=10, objects_failed=0)
+        assert sorted(activity_input.total_per_run for activity_input in activity_inputs) == [3, 3, 4]
+        assert all(activity_input.batch_size == 5 for activity_input in activity_inputs)
+        assert all(activity_input.parallelism == 1 for activity_input in activity_inputs)
 
     @pytest.mark.asyncio
-    async def test_workflow_forwards_inputs(self) -> None:
-        inputs = SymbolSetCleanupInputs(days_old=10, delete_unused=False, total_per_run=100, batch_size=5, dry_run=True)
+    async def test_workflow_runs_dry_run_once(self) -> None:
+        inputs = SymbolSetCleanupInputs(
+            days_old=10,
+            delete_unused=False,
+            total_per_run=100,
+            batch_size=5,
+            parallelism=3,
+            dry_run=True,
+        )
         expected = SymbolSetCleanupResult(objects_processed=0, objects_deleted=0, objects_failed=0, eligible_count=3)
 
-        result, activity_inputs = await _run_workflow_with_mock_activity(inputs, expected)
+        result, activity_inputs = await _run_workflow_with_mock_activity(inputs, lambda _: expected)
 
         assert result == expected
-        assert activity_inputs == inputs
+        assert activity_inputs == [inputs]
+
+    @pytest.mark.asyncio
+    async def test_workflow_preserves_single_activity_for_unpatched_histories(self) -> None:
+        inputs = SymbolSetCleanupInputs(total_per_run=100, parallelism=4)
+        expected = SymbolSetCleanupResult(objects_processed=100, objects_deleted=100, objects_failed=0)
+
+        with (
+            patch(
+                "products.error_tracking.backend.temporal.symbol_set_cleanup.workflow.workflow.patched",
+                return_value=False,
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.symbol_set_cleanup.workflow.workflow.execute_activity",
+                new_callable=AsyncMock,
+                return_value=expected,
+            ) as execute_activity,
+        ):
+            result = await ErrorTrackingSymbolSetCleanupWorkflow().run(inputs)
+
+        assert result == expected
+        execute_activity.assert_awaited_once()
+        assert execute_activity.call_args.args[1] == inputs

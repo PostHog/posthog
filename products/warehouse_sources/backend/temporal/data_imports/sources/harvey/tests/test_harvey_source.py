@@ -59,7 +59,6 @@ class TestHarveySource:
 
         assert config.name.value == "Harvey"
         assert config.label == "Harvey"
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.iconPath == "/static/services/harvey.svg"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/harvey"

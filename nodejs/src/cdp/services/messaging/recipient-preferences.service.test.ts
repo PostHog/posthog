@@ -94,7 +94,10 @@ describe('RecipientPreferencesService', () => {
             {} as Record<string, any>
         )
 
-        return createExampleInvocation(hogFlow, { inputs })
+        // HogFlow only overlaps HogFunctionType structurally; updated_at diverges (Date|number vs string)
+        return createExampleInvocation(hogFlow as unknown as Parameters<typeof createExampleInvocation>[0], {
+            inputs,
+        })
     }
 
     describe('shouldSkipAction', () => {

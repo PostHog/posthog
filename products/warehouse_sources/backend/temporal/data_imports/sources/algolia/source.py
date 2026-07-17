@@ -43,6 +43,8 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class AlgoliaSource(ResumableSource[AlgoliaSourceConfig, AlgoliaResumeConfig]):
+    api_docs_url = "https://www.algolia.com/doc/rest-api/search"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ALGOLIA
@@ -54,7 +56,6 @@ class AlgoliaSource(ResumableSource[AlgoliaSourceConfig, AlgoliaResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Algolia",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Algolia Application ID and an API key to pull your Algolia data into the PostHog Data warehouse.
 
 You can find your Application ID and create API keys in your [Algolia dashboard](https://dashboard.algolia.com/account/api-keys/all).

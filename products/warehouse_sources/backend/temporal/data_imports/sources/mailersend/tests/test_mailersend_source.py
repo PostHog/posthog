@@ -29,8 +29,6 @@ class TestMailerSendSourceConfig:
         config = MailerSendSource().get_source_config
         assert config.label == "MailerSend"
         assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
-        # Stays hidden behind the unreleased flag while in alpha.
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
 
     def test_single_secret_api_token_field(self) -> None:

@@ -27,7 +27,13 @@ from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.logic.sources import GitHubTables, resolve_github_tables
-from products.engineering_analytics.backend.logic.views import job_costs, pull_requests, workflow_jobs, workflow_runs
+from products.engineering_analytics.backend.logic.views import (
+    job_costs,
+    pull_requests,
+    team_members,
+    workflow_jobs,
+    workflow_runs,
+)
 
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
@@ -61,11 +67,18 @@ class CuratedGitHubSource:
 
     @classmethod
     def for_team(
-        cls, team: Team, *, source_id: str | None = None, user_access_control: "UserAccessControl | None" = None
+        cls,
+        team: Team,
+        *,
+        source_id: str | None = None,
+        repo: str | None = None,
+        user_access_control: "UserAccessControl | None" = None,
     ) -> "CuratedGitHubSource":
         return cls(
             team=team,
-            tables=resolve_github_tables(team=team, source_id=source_id, user_access_control=user_access_control),
+            tables=resolve_github_tables(
+                team=team, source_id=source_id, repo=repo, user_access_control=user_access_control
+            ),
             user_access_control=user_access_control,
         )
 
@@ -84,6 +97,12 @@ class CuratedGitHubSource:
         if not self._tables.workflow_jobs:
             return None
         return f"({workflow_jobs.build_query(self._tables.workflow_jobs)})"
+
+    def members_source(self) -> str | None:
+        """Curated team-membership ``SELECT`` subquery, or None when the optional table isn't synced."""
+        if not self._tables.team_members:
+            return None
+        return f"({team_members.build_query(self._tables.team_members)})"
 
     def job_cost_source(self) -> str | None:
         """Per-job cost ``SELECT`` subquery — the same view body ``engineering_analytics_job_costs``

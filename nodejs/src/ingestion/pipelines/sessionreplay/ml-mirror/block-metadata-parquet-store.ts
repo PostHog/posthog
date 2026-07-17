@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto'
 import { logger } from '~/common/utils/logger'
 
 import { MlBlockMetadataRow } from './block-metadata-row'
+import { MlParquetSinkMetrics } from './metrics'
 import { rowsToParquetBuffer } from './parquet-writer'
 
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
@@ -30,16 +31,26 @@ export class BlockMetadataParquetStore {
         }
         // Sorting clusters a recording's blocks together for better compression and reads.
         rows.sort((a, b) => cmp(a.team_id, b.team_id) || cmp(a.session_id, b.session_id))
-        const body = await rowsToParquetBuffer(rows)
-        const key = this.objectKey(minEventDate(rows))
-        await this.s3Client.send(
-            new PutObjectCommand({
-                Bucket: this.bucket,
-                Key: key,
-                Body: body,
-                ContentType: 'application/vnd.apache.parquet',
-            })
-        )
+        let body: Buffer
+        let key: string
+        try {
+            // Encoding, key derivation, and upload all count as write failures: each leaves the batch to
+            // replay from Kafka, so the counter must see them, not just the S3 send.
+            body = await rowsToParquetBuffer(rows)
+            key = this.objectKey(minEventDate(rows))
+            await this.s3Client.send(
+                new PutObjectCommand({
+                    Bucket: this.bucket,
+                    Key: key,
+                    Body: body,
+                    ContentType: 'application/vnd.apache.parquet',
+                })
+            )
+        } catch (error) {
+            MlParquetSinkMetrics.incWriteError()
+            throw error
+        }
+        MlParquetSinkMetrics.observeWrite(rows.length, body.length)
         logger.info('🪶', 'ml_parquet_metadata_written', { rows: rows.length, bytes: body.length, key })
     }
 

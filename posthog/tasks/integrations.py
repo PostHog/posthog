@@ -5,6 +5,7 @@ from posthog.models.integration import (
     GitHubIntegration,
     GoogleCloudIntegration,
     defer_repository_cache_fields,
+    refresh_backoff_active,
 )
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
@@ -24,7 +25,7 @@ def refresh_integrations() -> int:
     for integration in oauth_integrations:
         oauth_integration = OauthIntegration(integration)
 
-        if oauth_integration.access_token_expired():
+        if not refresh_backoff_active(integration) and oauth_integration.access_token_expired():
             refresh_integration.delay(integration.id)
 
     gcloud_integrations = defer_repository_cache_fields(
@@ -34,7 +35,7 @@ def refresh_integrations() -> int:
     for integration in gcloud_integrations:
         gcloud_integration = GoogleCloudIntegration(integration)
 
-        if gcloud_integration.access_token_expired():
+        if not refresh_backoff_active(integration) and gcloud_integration.access_token_expired():
             refresh_integration.delay(integration.id)
 
     github_integrations = defer_repository_cache_fields(Integration.objects.filter(kind="github").all())
@@ -42,7 +43,7 @@ def refresh_integrations() -> int:
     for integration in github_integrations:
         github_integration = GitHubIntegration(integration)
 
-        if github_integration.access_token_expired():
+        if not refresh_backoff_active(integration) and github_integration.access_token_expired():
             refresh_integration.delay(integration.id)
 
     firebase_integrations = defer_repository_cache_fields(Integration.objects.filter(kind="firebase").all())
@@ -50,7 +51,7 @@ def refresh_integrations() -> int:
     for integration in firebase_integrations:
         firebase_integration = FirebaseIntegration(integration)
 
-        if firebase_integration.access_token_expired():
+        if not refresh_backoff_active(integration) and firebase_integration.access_token_expired():
             refresh_integration.delay(integration.id)
 
     return 0
@@ -62,6 +63,11 @@ def refresh_integration(id: int) -> int:
     from posthog.models.integration import Integration, OauthIntegration
 
     integration = defer_repository_cache_fields(Integration.objects.all()).get(id=id)
+
+    # Re-check backoff against the just-loaded row: a failure recorded after this task was
+    # enqueued must not be retried ahead of its scheduled next attempt.
+    if refresh_backoff_active(integration):
+        return 0
 
     # Re-check freshness against the just-loaded row before minting. Under an INTEGRATIONS queue
     # backlog several duplicate refreshes can pile up for the same row; the first mints a fresh token

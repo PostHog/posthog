@@ -46,8 +46,6 @@ class TestUpstashSource:
         assert config.label == "Upstash"
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Hidden until exercised against the live API.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/upstash"
 
     def test_source_config_fields(self) -> None:

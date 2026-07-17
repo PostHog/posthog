@@ -96,6 +96,7 @@ ActivityScope = Literal[
     "StreamlitApp",
     "Metric",
     "TableCertification",
+    "Billing",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -256,6 +257,11 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     ],
     "ExternalDataSource": [
         "job_inputs",
+    ],
+    "HogFlow": [
+        # Full content snapshot including action inputs (auth headers, API keys) — record that a
+        # draft was staged/published/discarded, never its contents.
+        "draft",
     ],
     "OrganizationDomain": [
         "_scim_bearer_token",

@@ -743,17 +743,21 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
 
     from_email = formataddr((config.from_name or author_name, config.from_email))
 
+    # Tickets created before To/Cc participant filtering may still have the requester
+    # persisted in cc_participants; drop them here so they aren't delivered to twice.
+    cc = [addr for addr in (ticket.cc_participants or []) if addr.lower() != ticket.email_from.lower()]
+
     email_message = mail.EmailMultiAlternatives(
         subject=subject,
         body=txt_body,
         from_email=from_email,
         to=[ticket.email_from],
-        cc=ticket.cc_participants or [],
+        cc=cc,
         headers=headers,
     )
     email_message.attach_alternative(html_body, "text/html")
 
-    recipients = [ticket.email_from, *(ticket.cc_participants or [])]
+    recipients = [ticket.email_from, *cc]
     mime_bytes = email_message.message().as_bytes(linesep="\r\n")
 
     try:
@@ -1176,7 +1180,7 @@ def _sync_one_ticket_thread_replies(
                     activity=activity,
                     tenant_id=tenant_id,
                     is_thread_reply=True,
-                    images=reply_images,
+                    attachments=reply_images,
                 )
             except Exception:
                 logger.exception(
@@ -1449,7 +1453,7 @@ def _poll_one_shared_channel(
                         # Shared channel: confirm via Graph (bot connector can't post here),
                         # reusing the token we already hold for the delta read.
                         graph_post_context={"teams_team_id": teams_team_id, "token": token},
-                        images=images,
+                        attachments=images,
                     )
                 except Exception:
                     logger.exception(
