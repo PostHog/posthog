@@ -1,12 +1,8 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from products.replay_vision.backend.models.replay_scanner import ReplayScanner
-
-# Persisted verbatim into ReplayScannerPromptSuggestion.changes, and read by the frontend change cards.
-CHANGE_KINDS = ("prompt", "tags", "scale", "length", "flag")
-CHANGE_OPS = ("set", "add", "remove", "rename")
 
 
 @dataclass(frozen=True)
@@ -29,15 +25,6 @@ class ConfigChange:
         }
 
 
-@dataclass(frozen=True)
-class ProposalContext:
-    scanner: "ReplayScanner"
-    base_config: dict[str, Any]
-    user_content: str
-    distinct_id: str
-
-
-@runtime_checkable
 class ConfigProposer(Protocol):
     scanner_type: str
 
@@ -54,3 +41,11 @@ def set_change(field_name: str, kind: str, before: Any, after: Any, rationale: s
     if before == after:
         return []
     return [ConfigChange(field=field_name, kind=kind, op="set", before=before, after=after, rationale=rationale)]
+
+
+def prompt_change(base_config: dict[str, Any], suggested_config: dict[str, Any], rationale: str) -> list[ConfigChange]:
+    # The suggested prompt is already stripped by to_config_patch. Strip the base too so a whitespace-only
+    # difference in the stored prompt is not treated as a change.
+    return set_change(
+        "prompt", "prompt", (base_config.get("prompt") or "").strip(), suggested_config.get("prompt", ""), rationale
+    )

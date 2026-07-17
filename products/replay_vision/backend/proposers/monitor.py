@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Any
 
-from products.replay_vision.backend.proposers.base import ConfigChange, set_change
+from products.replay_vision.backend.proposers.base import ConfigChange, prompt_change, set_change
 
 if TYPE_CHECKING:
     from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -51,11 +51,7 @@ class MonitorProposer:
         self, base_config: dict[str, Any], suggested_config: dict[str, Any], llm_output: dict[str, Any]
     ) -> list[ConfigChange]:
         rationale = str(llm_output.get("rationale", "")).strip()
-        # The suggested prompt is already stripped in to_config_patch. Strip the base too so a whitespace-only
-        # difference in the stored prompt is not treated as a change.
-        changes = set_change(
-            "prompt", "prompt", (base_config.get("prompt") or "").strip(), suggested_config.get("prompt", ""), rationale
-        )
+        changes = prompt_change(base_config, suggested_config, rationale)
         changes += set_change(
             "allow_inconclusive",
             "flag",

@@ -318,9 +318,10 @@ class ReplayScannerPromptSuggestionViewSet(
         request=None,
         responses={200: ReplayScannerPromptSuggestionSerializer},
         description=(
-            "Apply this suggestion: write its prompt to the scanner (bumping the scanner version) and mark "
-            "the suggestion applied. Only the current pending suggestion can be applied. Requires session "
-            "recording edit access."
+            "Apply this suggestion: write its full suggested config to the scanner (the prompt plus any "
+            "type-specific config such as classifier tags or the monitor allow_inconclusive flag), bumping "
+            "the scanner version, and mark the suggestion applied. Only the current pending suggestion can be "
+            "applied. Requires session recording edit access."
         ),
     )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])

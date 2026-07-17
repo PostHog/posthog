@@ -257,7 +257,8 @@ def grounding_briefing(scanner: ReplayScanner) -> str:
 
     Uses the scanner's creator as the acting user for the sibling-vocabulary RBAC check, mirroring the
     creator-as-actor pattern the sweep activities use for other unattended scanner reads. Falls back to no
-    sibling evidence when the scanner has no creator (e.g. seeded outside the API).
+    sibling evidence when the scanner has no creator (e.g. seeded outside the API, or after the creating
+    user is deleted, since created_by is SET_NULL).
     """
     config = scanner.scanner_config if isinstance(scanner.scanner_config, dict) else {}
     user_access_control = None

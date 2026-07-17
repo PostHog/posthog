@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Any
 
 from products.replay_vision.backend import tag_suggestions
-from products.replay_vision.backend.proposers.base import ConfigChange, set_change
+from products.replay_vision.backend.proposers.base import ConfigChange, prompt_change
 
 if TYPE_CHECKING:
     from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -64,11 +64,7 @@ class ClassifierProposer:
         self, base_config: dict[str, Any], suggested_config: dict[str, Any], llm_output: dict[str, Any]
     ) -> list[ConfigChange]:
         rationale = str(llm_output.get("rationale", "")).strip()
-        # The suggested prompt is already stripped in to_config_patch. Strip the base too so a whitespace-only
-        # difference in the stored prompt is not treated as a change.
-        changes = set_change(
-            "prompt", "prompt", (base_config.get("prompt") or "").strip(), suggested_config.get("prompt", ""), rationale
-        )
+        changes = prompt_change(base_config, suggested_config, rationale)
         # Emit a change only for an op that actually alters the vocabulary, walking a working copy exactly as
         # _apply_tag_ops does, so a no-op op (adding a present tag, removing or renaming an absent one) does
         # not mark an unchanged config as pending.
@@ -77,18 +73,23 @@ class ClassifierProposer:
             kind, tag, to = str(op["op"]), op["tag"], op.get("to")
             if kind == "add" and tag not in working:
                 working.append(tag)
-                after = tag
+                before, after = None, tag
             elif kind == "remove" and tag in working:
                 working.remove(tag)
-                after = None
+                before, after = tag, None
             elif kind == "rename" and tag in working and to:
                 working[working.index(tag)] = to
-                after = to
+                before, after = tag, to
             else:
                 continue
             changes.append(
                 ConfigChange(
-                    field="tags", kind="tags", op=kind, before=tag, after=after, rationale=str(op.get("rationale", ""))
+                    field="tags",
+                    kind="tags",
+                    op=kind,
+                    before=before,
+                    after=after,
+                    rationale=str(op.get("rationale", "")),
                 )
             )
         return changes

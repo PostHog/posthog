@@ -1,4 +1,4 @@
-from products.replay_vision.backend.proposers.base import ConfigChange, ConfigProposer, ProposalContext
+from products.replay_vision.backend.proposers.base import ConfigChange, ConfigProposer
 from products.replay_vision.backend.proposers.classifier import ClassifierProposer
 from products.replay_vision.backend.proposers.monitor import MonitorProposer
 
@@ -12,4 +12,4 @@ def get_proposer(scanner_type: str) -> ConfigProposer:
     return _PROPOSERS[scanner_type]
 
 
-__all__ = ["ConfigChange", "ConfigProposer", "ProposalContext", "get_proposer"]
+__all__ = ["ConfigChange", "ConfigProposer", "get_proposer"]
