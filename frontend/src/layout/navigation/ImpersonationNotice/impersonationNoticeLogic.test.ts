@@ -709,6 +709,39 @@ describe('impersonationNoticeLogic', () => {
         })
     })
 
+    describe('orderedMembers selector', () => {
+        it('sorts the current user in place by power then name, not hoisted to the top', async () => {
+            userLogic.actions.loadUserSuccess({
+                ...MOCK_IMPERSONATED_USER,
+                first_name: 'Casey',
+                last_name: '',
+                organization: { ...MOCK_DEFAULT_ORGANIZATION, membership_level: OrganizationMembershipLevel.Admin },
+            })
+
+            membersLogic.actions.loadAllMembersSuccess([
+                mockMember('Zed', OrganizationMembershipLevel.Owner, 10, 'uuid-zed'),
+                mockMember('Ash', OrganizationMembershipLevel.Admin, 11, 'uuid-ash'),
+                mockMember('Bea', OrganizationMembershipLevel.Member, 12, 'uuid-bea'),
+            ])
+
+            // Owner first (Zed), then Admins A→Z (Ash before the current user Casey), then Member (Bea).
+            const names = logic.values.orderedMembers.map((member) => member.user.first_name)
+            expect(names).toEqual(['Zed', 'Ash', 'Casey', 'Bea'])
+        })
+
+        it('still lists the current user when they are the only member', async () => {
+            userLogic.actions.loadUserSuccess({ ...MOCK_IMPERSONATED_USER, first_name: 'Casey', last_name: '' })
+
+            // The members endpoint returns just the current user (matched by uuid).
+            membersLogic.actions.loadAllMembersSuccess([
+                mockMember('Casey', OrganizationMembershipLevel.Member, 1, MOCK_DEFAULT_USER.uuid),
+            ])
+
+            expect(logic.values.changeableMembers).toEqual([])
+            expect(logic.values.orderedMembers.map((member) => member.user.first_name)).toEqual(['Casey'])
+        })
+    })
+
     describe('changeUser listener', () => {
         function mockLocationReload(): { reload: jest.Mock; restore: () => void } {
             const originalLocation = window.location

@@ -151,10 +151,10 @@ function ImpersonationNoticeContent(): JSX.Element {
         isReadOnly,
         isUpgradeModalOpen,
         isImpersonationUpgradeInProgress,
+        orderedMembers,
         changeableMembers,
         isChangingUser,
         membersLoading,
-        me: currentMember,
     } = useValues(impersonationNoticeLogic)
     const {
         closeUpgradeModal,
@@ -173,26 +173,27 @@ function ImpersonationNoticeContent(): JSX.Element {
     // used to pre-fill the change-user and upgrade modals.
     const storedReason = user?.is_impersonated_reason
 
-    // The current user always leads the list, disabled, so their access level is visible at a glance.
-    // Other members follow and are clickable to switch into.
+    // Everyone is listed in power/name order. The current user's row is disabled and marked, so their
+    // access level is visible without hoisting them out of order.
     const changeUserItems = [
-        ...(currentMember
-            ? [
-                  {
-                      key: currentMember.user.uuid,
-                      label: <ChangeUserMenuItemLabel member={currentMember} isCurrentUser />,
-                      disabledReason: "You're currently signed in as this user",
-                  },
-              ]
+        ...orderedMembers.map((member) => {
+            const isCurrentUser = member.user.uuid === user?.uuid
+            return {
+                key: member.user.uuid,
+                label: <ChangeUserMenuItemLabel member={member} isCurrentUser={isCurrentUser} />,
+                disabledReason: isCurrentUser
+                    ? "You're currently signed in as this user"
+                    : isChangingUser
+                      ? 'Switching user…'
+                      : undefined,
+                // Always confirm via the modal (reason pre-filled) rather than switching silently.
+                onClick: isCurrentUser ? undefined : () => setPendingUserId(member.user.id),
+            }
+        }),
+        // When the current user is the only member, spell it out so a lone disabled row doesn't look like a bug.
+        ...(changeableMembers.length === 0
+            ? [{ label: membersLoading ? 'Loading…' : 'No other members', disabledReason: ' ' }]
             : []),
-        ...changeableMembers.map((member) => ({
-            key: member.user.uuid,
-            label: <ChangeUserMenuItemLabel member={member} />,
-            disabledReason: isChangingUser ? 'Switching user…' : undefined,
-            // Always confirm via the modal (reason pre-filled) rather than switching silently.
-            onClick: () => setPendingUserId(member.user.id),
-        })),
-        ...(changeableMembers.length === 0 && membersLoading ? [{ label: 'Loading…', disabledReason: ' ' }] : []),
     ]
 
     const handleSessionExpired = useCallback((): void => {
