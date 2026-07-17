@@ -340,7 +340,7 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                 )}
 
                 {isProperty && editDefinition.id !== 'new' && currentTeamId && (
-                    <FlaggedFeature flag={FEATURE_FLAGS.PROPERTY_ACCESS_CONTROL}>
+                    <>
                         <SceneDivider />
                         <SceneSection
                             title="Access control"
@@ -353,7 +353,7 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                                 />
                             </PayGateMini>
                         </SceneSection>
-                    </FlaggedFeature>
+                    </>
                 )}
             </SceneContent>
         </Form>
