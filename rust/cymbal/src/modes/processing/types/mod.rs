@@ -325,7 +325,7 @@ mod test {
     }
 
     #[test]
-    fn it_rejects_invalid_error_props() {
+    fn it_handles_missing_and_null_exception_fields() {
         let raw: &'static str = r#"{
             "$exception_list": []
         }"#;
@@ -345,6 +345,9 @@ mod test {
             serde_json::from_str(raw).expect("Can deserialize with missing value");
         assert_eq!(props.exception_list[0].exception_message, "");
 
+        // A missing `type` no longer fails the whole event; it defaults so the
+        // exception still becomes a usable issue rather than being tagged
+        // $cymbal_errors and dropped.
         let raw: &'static str = r#"{
             "$exception_list": [{
                 "typo": "UnhandledRejection",
@@ -352,12 +355,23 @@ mod test {
             }]
         }"#;
 
-        let props: Result<RawErrProps, Error> = serde_json::from_str(raw);
-        assert!(props.is_err());
-        assert_eq!(
-            props.unwrap_err().to_string(),
-            "missing field `type` at line 5 column 13"
-        );
+        let props: RawErrProps =
+            serde_json::from_str(raw).expect("Can deserialize with missing type");
+        assert_eq!(props.exception_list[0].exception_type, "Error");
+        assert_eq!(props.exception_list[0].exception_message, "x");
+
+        // Explicit nulls for `type` and `value` are coerced to defaults too.
+        let raw: &'static str = r#"{
+            "$exception_list": [{
+                "type": null,
+                "value": null
+            }]
+        }"#;
+
+        let props: RawErrProps =
+            serde_json::from_str(raw).expect("Can deserialize with null type and value");
+        assert_eq!(props.exception_list[0].exception_type, "Error");
+        assert_eq!(props.exception_list[0].exception_message, "");
     }
 
     #[test]
