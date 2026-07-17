@@ -149,6 +149,30 @@ def _request(
     return response
 
 
+def _redact_key(row: dict[str, Any], dotted_key: str) -> dict[str, Any]:
+    """Return ``row`` with a possibly-nested field removed. ``"config"`` drops a top-level field;
+    ``"config.idpPrivateKey"`` walks into ``config`` and drops its ``idpPrivateKey``. Only the nodes
+    on the path are copied, so the upstream row is left unmodified; a missing or non-dict node is a
+    no-op."""
+    head, _, rest = dotted_key.partition(".")
+    if head not in row:
+        return row
+    if not rest:
+        return {k: v for k, v in row.items() if k != head}
+    nested = row[head]
+    if not isinstance(nested, dict):
+        return row
+    return {**row, head: _redact_key(nested, rest)}
+
+
+def _redact_row(row: Any, redact_keys: list[str]) -> Any:
+    if not isinstance(row, dict):
+        return row
+    for key in redact_keys:
+        row = _redact_key(row, key)
+    return row
+
+
 def _parse_search_after(raw: str | None, logger: FilteringBoundLogger) -> list[Any] | None:
     """Decode the ``X-Search_After`` response header (a JSON-encoded array) into the cursor
     to send as ``search_after`` in the next query body."""
@@ -351,7 +375,7 @@ def get_rows(
     session = _make_session(api_key, org_id)
 
     if config.api == "insights":
-        yield from _get_event_rows(
+        pages = _get_event_rows(
             session,
             _insights_base_url(region),
             config,
@@ -361,7 +385,16 @@ def get_rows(
             db_incremental_field_last_value,
         )
     else:
-        yield from _get_rest_rows(session, _console_base_url(region), config, logger, resumable_source_manager)
+        pages = _get_rest_rows(session, _console_base_url(region), config, logger, resumable_source_manager)
+
+    # Strip secret-bearing fields (e.g. an SSO app's SAML private key) before any row reaches the
+    # warehouse. Redaction happens here, outside the paginators, so state checkpointing still runs
+    # on the raw upstream response shape.
+    if config.redact_keys:
+        for page in pages:
+            yield [_redact_row(row, config.redact_keys) for row in page]
+    else:
+        yield from pages
 
 
 def jumpcloud_source(

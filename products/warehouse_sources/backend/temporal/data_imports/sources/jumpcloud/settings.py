@@ -22,6 +22,10 @@ class JumpcloudEndpointConfig:
     # keeps limit/skip pagination stable as rows are inserted mid-sync. The v2 group
     # endpoints don't document a sort param, so they rely on the API's default ordering.
     sort: str | None = None
+    # Fields to strip from every row before it's emitted, to keep secret-bearing fields out of
+    # the warehouse where any table reader could see them. Each entry is a dotted path, so nested
+    # fields can be redacted (e.g. `config.idpPrivateKey`); a bare name targets a top-level field.
+    redact_keys: list[str] = field(default_factory=list)
 
 
 # Core directory resources plus the Directory Insights activity event log. The REST entity
@@ -61,6 +65,10 @@ JUMPCLOUD_ENDPOINTS: dict[str, JumpcloudEndpointConfig] = {
         api="v1",
         # The application object documents no creation timestamp, so no datetime partitioning.
         sort="_id",
+        # SSO application objects carry the SAML IdP signing key at `config.idpPrivateKey.value`.
+        # Landing it in the warehouse would let any table reader forge assertions for apps that
+        # trust it, so drop the whole private-key object before the row is emitted.
+        redact_keys=["config.idpPrivateKey"],
     ),
     "events": JumpcloudEndpointConfig(
         name="events",

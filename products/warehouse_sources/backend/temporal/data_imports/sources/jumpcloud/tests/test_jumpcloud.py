@@ -176,6 +176,27 @@ class TestRestRows:
         _, urls = self._collect("users", [[{"_id": "a"}]], manager, monkeypatch, region="eu")
         assert urls[0].startswith("https://console.eu.jumpcloud.com/")
 
+    def test_applications_strips_saml_private_key_before_emitting(self, monkeypatch: Any) -> None:
+        # An SSO application row carries its SAML IdP signing key at `config.idpPrivateKey.value`;
+        # it must never reach the warehouse, while the rest of the config is kept.
+        row = {
+            "_id": "app1",
+            "name": "Okta",
+            "config": {
+                "idpPrivateKey": {"value": "-----BEGIN PRIVATE KEY-----secret"},
+                "idpEntityId": {"value": "https://idp.example"},
+            },
+        }
+        manager = _FakeResumableManager()
+        rows, _ = self._collect("applications", [[row]], manager, monkeypatch)
+        assert rows == [
+            {
+                "_id": "app1",
+                "name": "Okta",
+                "config": {"idpEntityId": {"value": "https://idp.example"}},
+            }
+        ]
+
     def test_v1_non_wrapped_payload_raises_value_error(self, monkeypatch: Any) -> None:
         def fake_request(session: Any, method: str, url: str, logger: Any, json_body: Any = None) -> Any:
             response = MagicMock()
