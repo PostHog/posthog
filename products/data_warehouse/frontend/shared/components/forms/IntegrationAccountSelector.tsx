@@ -138,11 +138,12 @@ function IntegrationAccountFieldWithDropdown({
     const suggestions = useMemo<InputSuggestion[]>(() => {
         const sorted = [...accounts].sort((a, b) => Number(b.is_primary) - Number(a.is_primary))
         return sorted.map((account) => {
-            // When display_name === value (e.g. GSC site url), "value (value)" is redundant.
+            // Prefer secondary_text in the parens when a source provides it (Google Ads shows the dashed
+            // customer id, Bing its account number) — the recognizable form. The bare value stays
+            // searchable below. When display_name === value (e.g. GSC site url), "value (value)" is redundant.
+            const parenText = account.secondary_text || account.value
             const labelText =
-                account.display_name === account.value
-                    ? account.display_name
-                    : `${account.display_name} (${account.value})`
+                account.display_name === account.value ? account.display_name : `${account.display_name} (${parenText})`
             const searchText = [
                 account.display_name === account.value ? '' : account.display_name,
                 account.value,
