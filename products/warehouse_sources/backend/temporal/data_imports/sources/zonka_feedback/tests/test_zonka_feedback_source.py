@@ -10,6 +10,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.source import ZonkaFeedbackSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.zonka_feedback import (
+    ZONKA_API_VERSION_V1,
+    ZONKA_API_VERSION_V2_1,
     ZonkaFeedbackResumeConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -147,12 +149,22 @@ class TestZonkaFeedbackSource:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is ZonkaFeedbackResumeConfig
 
+    def test_version_declaration_defaults_to_v2_1(self) -> None:
+        # New/unpinned sources must resolve to v2.1; an existing pin is honored verbatim so sources
+        # pinned to v1 keep syncing against the version they were created on.
+        assert self.source.supported_versions == (ZONKA_API_VERSION_V1, ZONKA_API_VERSION_V2_1)
+        assert self.source.default_version == ZONKA_API_VERSION_V2_1
+        assert self.source.resolve_api_version(None) == ZONKA_API_VERSION_V2_1
+        assert self.source.resolve_api_version(ZONKA_API_VERSION_V1) == ZONKA_API_VERSION_V1
+
+    @parameterized.expand([(ZONKA_API_VERSION_V1,), (ZONKA_API_VERSION_V2_1,)])
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.source.zonka_feedback_source"
     )
-    def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
+    def test_source_for_pipeline_plumbs_arguments(self, api_version: str, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "responses"
+        inputs.api_version = api_version
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -163,6 +175,8 @@ class TestZonkaFeedbackSource:
         assert kwargs["data_center"] == "us1"
         assert kwargs["endpoint"] == "responses"
         assert kwargs["resumable_source_manager"] is manager
+        # The resolved pin must reach the request layer so each source syncs on its own version.
+        assert kwargs["api_version"] == api_version
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
         inputs = mock.MagicMock()

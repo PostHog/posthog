@@ -12,6 +12,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feed
     ZONKA_FEEDBACK_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.zonka_feedback import (
+    ZONKA_API_VERSION_V1,
+    ZONKA_API_VERSION_V2_1,
     ZonkaFeedbackResumeConfig,
     ZonkaFeedbackRetryableError,
     base_url,
@@ -105,6 +107,34 @@ class TestGetRows:
         assert rows == []
         assert manager.saved == []
 
+    @parameterized.expand([(ZONKA_API_VERSION_V1,), (ZONKA_API_VERSION_V2_1,)])
+    def test_threads_api_version_to_url_builder(self, api_version: str) -> None:
+        # The resolved version must reach the URL builder so a source syncs against its pinned
+        # version; guards the request layer against silently dropping the version.
+        seen: list[str] = []
+
+        def fake_base_url(data_center: str, version: str = ZONKA_API_VERSION_V2_1) -> str:
+            seen.append(version)
+            return "https://us1.apis.zonkafeedback.com"
+
+        # parameterized.expand can't also receive the `monkeypatch` fixture, so manage our own.
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(zonka_feedback, "base_url", fake_base_url)
+            mp.setattr(zonka_feedback, "_fetch_page", lambda *a, **k: _page([]))
+            mp.setattr(zonka_feedback, "make_tracked_session", lambda **kwargs: MagicMock())
+
+            list(
+                get_rows(
+                    auth_token="zonka-token",
+                    data_center="us1",
+                    endpoint="responses",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                    api_version=api_version,
+                )
+            )
+        assert seen == [api_version]
+
 
 class TestFetchPage:
     def _session_returning(self, status_code: int, body: dict | None = None) -> MagicMock:
@@ -155,6 +185,17 @@ class TestBaseUrl:
     )
     def test_base_url_per_data_center(self, _name: str, data_center: str, expected: str) -> None:
         assert base_url(data_center) == expected
+
+    @parameterized.expand(
+        [
+            ("v1", ZONKA_API_VERSION_V1),
+            ("v2_1", ZONKA_API_VERSION_V2_1),
+            # A pin naming an undeclared version still resolves to a valid host rather than failing.
+            ("undeclared", "v9.9"),
+        ]
+    )
+    def test_base_url_resolves_every_version_to_region_host(self, _name: str, api_version: str) -> None:
+        assert base_url("us1", api_version) == "https://us1.apis.zonkafeedback.com"
 
     @parameterized.expand(
         [

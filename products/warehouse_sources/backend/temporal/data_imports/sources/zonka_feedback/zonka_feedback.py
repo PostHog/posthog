@@ -13,9 +13,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feed
     ZONKA_FEEDBACK_ENDPOINTS,
 )
 
+# Vendor API version labels — opaque strings, never parsed or ordered. v2.1 is Zonka's current
+# stable API; v1 is the legacy label PostHog first shipped against.
+ZONKA_API_VERSION_V1 = "v1"
+ZONKA_API_VERSION_V2_1 = "v2.1"
+
 # Zonka Feedback hosts data per region; the account's data center is the subdomain of the API host.
 # US=us1, EU=e, IN=in are the documented, verifiable identifiers.
 DATA_CENTER_IDS: tuple[str, ...] = ("us1", "e", "in")
+
+# Zonka versions its REST API through the account's region subdomain, not a URL path segment or a
+# version header, so every supported version targets the same host template. Keyed by version so a
+# future version that moves host families or adds a path prefix is a localized change here.
+_HOST_TEMPLATE_BY_VERSION: dict[str, str] = {
+    ZONKA_API_VERSION_V1: "https://{data_center}.apis.zonkafeedback.com",
+    ZONKA_API_VERSION_V2_1: "https://{data_center}.apis.zonkafeedback.com",
+}
+
 # The list endpoints default to 25 items per page and allow overriding the page size. We request a
 # larger page to cut round trips; pagination terminates on the first empty page, so the request is
 # correct whether or not the server honours the larger size.
@@ -37,13 +51,16 @@ class ZonkaFeedbackResumeConfig:
     next_page: int = 1
 
 
-def base_url(data_center: str) -> str:
+def base_url(data_center: str, api_version: str = ZONKA_API_VERSION_V2_1) -> str:
     # Validate against the fixed allowlist before interpolating: a `data_center` carrying URL
     # delimiters (`/`, `#`, `@`) could otherwise retarget the request at an attacker host and leak
     # the bearer token during validation or sync.
     if data_center not in DATA_CENTER_IDS:
         raise ValueError("Unknown Zonka Feedback data center")
-    return f"https://{data_center}.apis.zonkafeedback.com"
+    # A pin can name a version no longer declared; honor it by falling back to the current host
+    # template rather than failing the sync, matching `resolve_api_version`'s honor-the-pin stance.
+    template = _HOST_TEMPLATE_BY_VERSION.get(api_version, _HOST_TEMPLATE_BY_VERSION[ZONKA_API_VERSION_V2_1])
+    return template.format(data_center=data_center)
 
 
 def _headers(auth_token: str) -> dict[str, str]:
@@ -91,9 +108,10 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[ZonkaFeedbackResumeConfig],
+    api_version: str = ZONKA_API_VERSION_V2_1,
 ) -> Iterator[list[dict[str, Any]]]:
     config = ZONKA_FEEDBACK_ENDPOINTS[endpoint]
-    url = f"{base_url(data_center)}{config.path}"
+    url = f"{base_url(data_center, api_version)}{config.path}"
     # `redact_values` masks the auth token in logged URLs and captured samples. `allow_redirects=False`
     # pins the credentialed request to the validated Zonka Feedback host so a 3xx from a compromised
     # or misconfigured endpoint can't retarget the bearer token at another origin.
@@ -130,6 +148,7 @@ def zonka_feedback_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[ZonkaFeedbackResumeConfig],
+    api_version: str = ZONKA_API_VERSION_V2_1,
 ) -> SourceResponse:
     config = ZONKA_FEEDBACK_ENDPOINTS[endpoint]
 
@@ -141,6 +160,7 @@ def zonka_feedback_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=api_version,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,
