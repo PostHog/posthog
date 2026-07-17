@@ -1,32 +1,28 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-from urllib3.util.retry import Retry
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.settings import (
     EPOCH_MILLIS_FIELDS,
     GAINSIGHT_PX_ENDPOINTS,
     GAINSIGHT_PX_HOSTS,
 )
 
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRIES = 5
-# A defensive upper bound on pages fetched per endpoint. The loops terminate on the API's own
-# last-page signals; this only guards against a mis-signalling API scrolling forever.
-MAX_PAGES = 100_000
-
-
-class GainsightPxRetryableError(Exception):
-    pass
+# Gainsight PX carries the API key in this custom header. Passing it through the framework `auth`
+# (api_key/header) means its value is scrubbed from every raised error and captured sample.
+API_KEY_HEADER = "X-APTRINSIC-API-KEY"
 
 
 @dataclasses.dataclass
@@ -35,10 +31,6 @@ class GainsightPxResumeConfig:
     scroll_id: str | None = None
     # Next page index for page-number-paginated endpoints (features/segments/…). None starts at 0.
     page_number: int | None = None
-
-
-def _get_headers(api_key: str) -> dict[str, str]:
-    return {"X-APTRINSIC-API-KEY": api_key, "Accept": "application/json"}
 
 
 def _base_url(region: str) -> str:
@@ -63,168 +55,187 @@ def _normalize_row(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
-@retry(
-    retry=retry_if_exception_type(
-        (
-            GainsightPxRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(MAX_RETRIES),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> dict[str, Any]:
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+class _ScrollPaginator(BasePaginator):
+    """Scroll (cursor) pagination for users/accounts.
 
-    # 429 (rate limit) and 5xx are transient — retry. Everything else (401/403/400/404) is terminal;
-    # `raise_for_status` surfaces it and `get_non_retryable_errors` maps auth failures to a message.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise GainsightPxRetryableError(f"Gainsight PX API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Gainsight PX API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
-
-
-def validate_credentials(api_key: str, region: str) -> bool:
-    url = _build_url(f"{_base_url(region)}/accounts", {"pageSize": 1})
-    try:
-        # `retry=Retry(total=0)` leaves retries to tenacity elsewhere; `redact_values` masks the API
-        # key in captured samples since `X-APTRINSIC-API-KEY` isn't a name-redacted auth header.
-        session = make_tracked_session(retry=Retry(total=0), redact_values=(api_key,))
-        response = session.get(url, headers=_get_headers(api_key), timeout=REQUEST_TIMEOUT_SECONDS)
-        return response.status_code == 200
-    except (requests.ConnectionError, requests.Timeout):
-        # Only transient network failures should read as "invalid credentials"; programming errors
-        # (TypeError, AttributeError, …) must surface rather than being masked as a bad key.
-        return False
-
-
-def _iter_scroll_pages(
-    session: requests.Session,
-    base: str,
-    endpoint: str,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[GainsightPxResumeConfig],
-    resume: GainsightPxResumeConfig | None,
-) -> Iterator[list[dict[str, Any]]]:
-    """Page a scroll-paginated endpoint (users/accounts), yielding one page of rows at a time.
-
-    Gainsight PX warns not to rely on `scrollId` becoming null, so the loop stops when a page returns
-    fewer records than requested. State is saved AFTER yielding each page so a crash re-yields the
-    last page (merge dedupes on the primary key) rather than skipping it.
+    Gainsight PX warns not to rely on `scrollId` becoming null, so the loop also stops when a page
+    returns fewer records than requested. State points at the next scroll cursor; it is only offered
+    for resume while another page remains, so a crash re-yields the last page (merge dedupes).
     """
-    config = GAINSIGHT_PX_ENDPOINTS[endpoint]
-    scroll_id = resume.scroll_id if resume else None
 
-    for _ in range(MAX_PAGES):
-        params: dict[str, Any] = {"pageSize": config.page_size}
-        if scroll_id:
-            params["scrollId"] = scroll_id
+    def __init__(self, page_size: int, scroll_id: Optional[str] = None) -> None:
+        super().__init__()
+        self._page_size = page_size
+        self._scroll_id = scroll_id
 
-        data = _fetch_page(session, _build_url(f"{base}{config.path}", params), headers, logger)
-        records = data.get(config.data_key) or []
-        if records:
-            yield [_normalize_row(record) for record in records]
+    def init_request(self, request: Request) -> None:
+        # Honour a seeded resume cursor on the first request.
+        if self._scroll_id is not None:
+            if request.params is None:
+                request.params = {}
+            request.params["scrollId"] = self._scroll_id
 
-        next_scroll_id = data.get("scrollId")
-        if len(records) < config.page_size or not next_scroll_id:
-            return
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            next_scroll_id = response.json().get("scrollId")
+        except Exception:
+            next_scroll_id = None
 
-        scroll_id = next_scroll_id
-        resumable_source_manager.save_state(GainsightPxResumeConfig(scroll_id=scroll_id))
-    else:
-        logger.warning(f"Gainsight PX: hit MAX_PAGES page cap for endpoint={endpoint}")
+        records = data or []
+        if len(records) < self._page_size or not next_scroll_id:
+            self._has_next_page = False
+            self._scroll_id = None
+        else:
+            self._scroll_id = next_scroll_id
+            self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        if self._scroll_id is not None:
+            request.params["scrollId"] = self._scroll_id
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if self._has_next_page and self._scroll_id is not None:
+            return {"scroll_id": self._scroll_id}
+        return None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        scroll_id = state.get("scroll_id")
+        if scroll_id is not None:
+            self._scroll_id = scroll_id
+            self._has_next_page = True
 
 
-def _iter_numbered_pages(
-    session: requests.Session,
-    base: str,
-    endpoint: str,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[GainsightPxResumeConfig],
-    resume: GainsightPxResumeConfig | None,
-) -> Iterator[list[dict[str, Any]]]:
-    """Page a page-number-paginated endpoint (features/segments/engagements/articles/kcbot).
+class _PageNumberPaginator(BasePaginator):
+    """Page-number pagination for features/segments/engagements/articles/kc_bots.
 
     These responses carry an `isLastPage` flag; we also stop on a short page as a belt-and-braces
-    guard. State (the next page index) is saved after each yielded page for the same reason as scroll.
+    guard. State (the next page index) is offered for resume only while another page remains.
     """
-    config = GAINSIGHT_PX_ENDPOINTS[endpoint]
-    page_number = resume.page_number if resume and resume.page_number is not None else 0
 
-    for _ in range(MAX_PAGES):
-        params = {"pageSize": config.page_size, "pageNumber": page_number}
-        data = _fetch_page(session, _build_url(f"{base}{config.path}", params), headers, logger)
-        records = data.get(config.data_key) or []
-        if records:
-            yield [_normalize_row(record) for record in records]
+    def __init__(self, page_size: int, page_number: int = 0) -> None:
+        super().__init__()
+        self._page_size = page_size
+        self._page_number = page_number
 
-        if data.get("isLastPage") or len(records) < config.page_size:
-            return
+    def init_request(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params["pageNumber"] = self._page_number
 
-        page_number += 1
-        resumable_source_manager.save_state(GainsightPxResumeConfig(page_number=page_number))
-    else:
-        logger.warning(f"Gainsight PX: hit MAX_PAGES page cap for endpoint={endpoint}")
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            is_last_page = bool(response.json().get("isLastPage"))
+        except Exception:
+            is_last_page = False
 
+        records = data or []
+        if is_last_page or len(records) < self._page_size:
+            self._has_next_page = False
+        else:
+            self._page_number += 1
+            self._has_next_page = True
 
-def get_rows(
-    api_key: str,
-    region: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[GainsightPxResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = GAINSIGHT_PX_ENDPOINTS[endpoint]
-    base = _base_url(region)
-    headers = _get_headers(api_key)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    # `retry=Retry(total=0)` leaves retries to tenacity in `_fetch_page` (rather than stacking urllib3
-    # retries under them); `redact_values` masks the API key in captured samples since the custom
-    # `X-APTRINSIC-API-KEY` header isn't one of the name-redacted auth headers.
-    session = make_tracked_session(retry=Retry(total=0), redact_values=(api_key,))
+    def update_request(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params["pageNumber"] = self._page_number
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"page_number": self._page_number} if self._has_next_page else None
 
-    if config.pagination == "scroll":
-        yield from _iter_scroll_pages(session, base, endpoint, headers, logger, resumable_source_manager, resume)
-    else:
-        yield from _iter_numbered_pages(session, base, endpoint, headers, logger, resumable_source_manager, resume)
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        page_number = state.get("page_number")
+        if page_number is not None:
+            self._page_number = int(page_number)
+            self._has_next_page = True
 
 
 def gainsight_px_source(
     api_key: str,
     region: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[GainsightPxResumeConfig],
 ) -> SourceResponse:
     config = GAINSIGHT_PX_ENDPOINTS[endpoint]
     partition_key = config.partition_key
 
+    paginator: BasePaginator
+    if config.pagination == "scroll":
+        paginator = _ScrollPaginator(page_size=config.page_size)
+    else:
+        paginator = _PageNumberPaginator(page_size=config.page_size)
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": _base_url(region),
+            # Only the non-secret Accept header goes here; the API key rides on framework `auth` so
+            # its value is redacted from errors and samples.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "api_key", "api_key": api_key, "name": API_KEY_HEADER, "location": "header"},
+            "paginator": paginator,
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"pageSize": config.page_size},
+                    "data_selector": config.data_key,
+                },
+                "data_map": _normalize_row,
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            if config.pagination == "scroll" and resume.scroll_id is not None:
+                initial_paginator_state = {"scroll_id": resume.scroll_id}
+            elif config.pagination == "page" and resume.page_number is not None:
+                initial_paginator_state = {"page_number": resume.page_number}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes) rather than skipping it.
+        if not state:
+            return
+        if config.pagination == "scroll" and state.get("scroll_id") is not None:
+            resumable_source_manager.save_state(GainsightPxResumeConfig(scroll_id=str(state["scroll_id"])))
+        elif config.pagination == "page" and state.get("page_number") is not None:
+            resumable_source_manager.save_state(GainsightPxResumeConfig(page_number=int(state["page_number"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,  # every Gainsight PX endpoint is full refresh
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            region=region,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if partition_key else None,
         partition_format="month" if partition_key else None,
         partition_keys=[partition_key] if partition_key else None,
+        column_hints=resource.column_hints,
     )
+
+
+def validate_credentials(api_key: str, region: str) -> bool:
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        _build_url(f"{_base_url(region)}/accounts", {"pageSize": 1}),
+        headers={API_KEY_HEADER: api_key, "Accept": "application/json"},
+    )
+    return ok
