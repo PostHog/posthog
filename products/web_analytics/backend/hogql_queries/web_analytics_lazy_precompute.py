@@ -319,9 +319,21 @@ _SESSIONS_SIDE_ANCHOR = "or(sessions.$pageview_count > 0, sessions.$screen_count
 # membership the join insert template produces (full filters; a session qualifies
 # via ANY matching event in the padded window). `build_direct_session_id_in_pushdown`
 # rewrites the IN below the per-session GROUP BY when the caller passes modifiers
-# with `sessionIdPushdown=True` to `ensure_precomputed`. No selectivity preflight
-# here: insert jobs are day-windowed, so the id set is bounded by one day of
-# matching sessions, and the OOM-pin machinery caps repeat offenders.
+# with `sessionIdPushdown=True` to `ensure_precomputed`.
+#
+# No selectivity preflight, deliberately. The concern a preflight would guard —
+# a broad filter putting a whole day of a huge team's sessions into the GLOBAL IN
+# set — is bounded and strictly cheaper than the alternative it replaces: the id
+# set costs ~190 MiB per million ids, a single day of the largest teams runs
+# low-single-digit millions of sessions, and the SAME key on the JOIN template
+# builds per-shard hash tables of those sessions PLUS their events (prod-measured
+# 4-8x the memory and read of the id-set shape). Falling back to the join on
+# "set too big" would therefore increase resource use, not cap it. Distinct-key
+# amplification (minting cache keys via filter values) is a property of filtered
+# precompute as such, not of this shape, and is bounded by the same controls as
+# today: the `WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS` allowlist, per-insert memory
+# limits (`_get_insert_settings`), and the OOM-pin machinery capping repeat
+# offenders to 1-day windows.
 _INSERT_SESSION_ID_SET_FILTER_SQL = """sessions.session_id_v7 IN (
             SELECT DISTINCT events.$session_id_uuid
             FROM events
