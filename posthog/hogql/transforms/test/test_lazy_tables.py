@@ -125,7 +125,8 @@ class TestLazyJoins(BaseTest):
     def test_namespace_mounted_lazy_table_is_expanded(self, _name: str, query: str) -> None:
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=HogQLQueryModifiers())
         node = prepare_ast_for_printing(parse_select(query), context, "clickhouse")
-        assert node is not None
+        assert isinstance(node, ast.SelectQuery)
+        assert node.select_from is not None
         # The namespaced lazy table must be expanded into an aggregating subquery, not left as a bare table.
         assert isinstance(node.select_from.table, ast.SelectQuery)
 
