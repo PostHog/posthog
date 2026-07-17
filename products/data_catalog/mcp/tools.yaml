@@ -14,6 +14,7 @@ tools:
         enabled: true
         scopes:
             - data_catalog_approval:write
+            - data_catalog:read
         annotations:
             readOnly: false
             destructive: false
@@ -21,7 +22,7 @@ tools:
         title: Certify a table/view
         description: |
             Mark a table or view as certified (prefer this source). Requires human typed confirmation.
-        feature_flag: data-catalog
+        feature_flag: product-data-catalog
         confirmed_action:
             message: >
                 About to mark certification '{id}' as certified (agents should prefer this source). Reply 'confirm' to
@@ -32,6 +33,7 @@ tools:
         enabled: true
         scopes:
             - data_catalog_approval:write
+            - data_catalog:read
         annotations:
             readOnly: false
             destructive: false
@@ -39,7 +41,7 @@ tools:
         title: Deprecate a table/view
         description: |
             Mark a table or view as deprecated (avoid this source). Requires human typed confirmation.
-        feature_flag: data-catalog
+        feature_flag: product-data-catalog
         confirmed_action:
             message: >
                 About to mark certification '{id}' as deprecated (agents should avoid this source). Reply 'confirm' to
@@ -58,7 +60,7 @@ tools:
         description: >
             Propose a trust mark on a warehouse table or view. Address the target by id, or by name (an ambiguous name
             returns the candidate ids to pick from).
-        feature_flag: data-catalog
+        feature_flag: product-data-catalog
     data-catalog-certifications-destroy:
         operation: data_catalog_certifications_destroy
         enabled: false
@@ -73,6 +75,7 @@ tools:
         enabled: true
         scopes:
             - data_catalog_approval:write
+            - data_catalog:read
         annotations:
             readOnly: false
             destructive: false
@@ -81,7 +84,7 @@ tools:
         description: >
             Bless a metric as canonical. Blocked while the metric is drifted from its source insight (refresh or unlink
             it first). Requires human typed confirmation — an agent cannot self-approve.
-        feature_flag: data-catalog
+        feature_flag: product-data-catalog
         confirmed_action:
             message: |
                 About to approve metric '{name}' as a canonical, human-vouched metric. Reply 'confirm' to proceed.
@@ -107,7 +110,7 @@ tools:
             queries. If you derived a number and no metric exists for it, offer to save the derivation as a proposed
             metric. There is no list tool: discover existing metrics with execute-sql over
             system.information_schema.metrics.
-        feature_flag: data-catalog
+        feature_flag: product-data-catalog
     data-catalog-metric-run:
         operation: data_catalog_metrics_run_create
         enabled: true
@@ -125,7 +128,7 @@ tools:
             for you to follow. Prefer running the canonical metric over re-deriving the number yourself. A result is
             canonical only when the response has status 'approved' AND is_drifted false - never present a 'proposed' or
             drifted metric's result as canonical.
-        feature_flag: data-catalog
+        feature_flag: product-data-catalog
     data-catalog-metric-update:
         operation: data_catalog_metrics_partial_update
         enabled: true
@@ -139,7 +142,7 @@ tools:
         description: >
             Update a metric's fields. Editing the definition of an approved metric resets it to 'proposed' (it must be
             re-approved by a human).
-        feature_flag: data-catalog
+        feature_flag: product-data-catalog
     data-catalog-metrics-destroy:
         operation: data_catalog_metrics_destroy
         enabled: false
@@ -160,6 +163,9 @@ tools:
         enabled: true
         scopes:
             - data_catalog_approval:write
+            - data_catalog:read
+            - query:read
+            - warehouse_view:write
         annotations:
             readOnly: false
             destructive: false
@@ -168,7 +174,7 @@ tools:
         description: >
             Promote a relationship proposal to a real warehouse join after re-validating and probing it. Requires human
             typed confirmation.
-        feature_flag: data-catalog
+        feature_flag: product-data-catalog
         confirmed_action:
             message: >
                 About to accept relationship proposal '{id}', promoting it to a real warehouse join. Reply 'confirm' to
@@ -194,12 +200,13 @@ tools:
             Propose a reviewed join between two warehouse tables, with confidence and sampling evidence (match rates,
             sample values). Both tables must exist. Proposals are deduped undirected, so do not propose the reverse of
             an existing pair.
-        feature_flag: data-catalog
+        feature_flag: product-data-catalog
     data-catalog-relationship-reject:
         operation: data_catalog_relationship_proposals_reject_create
         enabled: true
         scopes:
             - data_catalog_approval:write
+            - data_catalog:read
         annotations:
             readOnly: false
             destructive: false
@@ -208,7 +215,7 @@ tools:
         description: >
             Reject a relationship proposal. Persists forever so the pair is never re-proposed. Requires human typed
             confirmation.
-        feature_flag: data-catalog
+        feature_flag: product-data-catalog
         confirmed_action:
             message: >
                 About to reject relationship proposal '{id}'. This permanently suppresses re-proposing the pair. Reply
