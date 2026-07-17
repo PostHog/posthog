@@ -51,7 +51,10 @@ class HubspotSourceOldConfig(config.Config):
 @SourceRegistry.register
 class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig, HubspotResumeConfig], OAuthMixin):
     supported_versions = (HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_2026_03)
-    default_version = HUBSPOT_API_VERSION_2026_03
+    # 2026-03 is available for opt-in, but new sources stay on v3 until the date-versioned
+    # objects/search/association-batch-read paths are confirmed against the live HubSpot API.
+    # Flip the default once a real 2026-03 sync has been verified end to end.
+    default_version = HUBSPOT_API_VERSION_V3
     api_docs_url = "https://developers.hubspot.com/docs/api-reference/latest/overview"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

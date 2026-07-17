@@ -257,13 +257,13 @@ def test_missing_token_error_is_non_retryable(error_msg: str) -> None:
 
 
 class TestApiVersion:
-    def test_defaults_to_latest_date_version(self) -> None:
+    def test_defaults_to_v3_until_date_version_is_verified(self) -> None:
         src = HubspotSource()
-        assert src.default_version == HUBSPOT_API_VERSION_2026_03
-        # A source with no pin (a newly created one) resolves to the new default...
-        assert src.resolve_api_version(None) == HUBSPOT_API_VERSION_2026_03
-        # ...while an existing v3 pin is honored verbatim so its syncs are unaffected.
-        assert src.resolve_api_version(HUBSPOT_API_VERSION_V3) == HUBSPOT_API_VERSION_V3
+        assert src.default_version == HUBSPOT_API_VERSION_V3
+        # A source with no pin (a newly created one) resolves to the v3 default...
+        assert src.resolve_api_version(None) == HUBSPOT_API_VERSION_V3
+        # ...while a 2026-03 pin is honored verbatim so opt-in sources use the date version.
+        assert src.resolve_api_version(HUBSPOT_API_VERSION_2026_03) == HUBSPOT_API_VERSION_2026_03
 
     def test_both_versions_supported(self) -> None:
         assert set(HubspotSource().supported_versions) == {HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_2026_03}
@@ -295,7 +295,7 @@ class TestApiVersion:
     @pytest.mark.parametrize(
         "pin,expected",
         [
-            (None, HUBSPOT_API_VERSION_2026_03),
+            (None, HUBSPOT_API_VERSION_V3),
             (HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_V3),
             (HUBSPOT_API_VERSION_2026_03, HUBSPOT_API_VERSION_2026_03),
         ],

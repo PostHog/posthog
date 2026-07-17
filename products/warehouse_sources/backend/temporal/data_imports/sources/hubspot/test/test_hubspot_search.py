@@ -242,6 +242,7 @@ class TestBatchReadAssociations:
             refresh_token="r",
             source_id=None,
             logger=MagicMock(),
+            api_version=HUBSPOT_API_VERSION_V3,
         )
         assert result == {}
 
@@ -267,6 +268,7 @@ class TestBatchReadAssociations:
                 refresh_token="r",
                 source_id=None,
                 logger=MagicMock(),
+                api_version=HUBSPOT_API_VERSION_V3,
             )
 
         assert calls[0]["url"].endswith("/crm/v4/associations/contacts/deals/batch/read")
@@ -328,6 +330,7 @@ class TestBatchReadAssociations:
                 refresh_token="r",
                 source_id=None,
                 logger=MagicMock(),
+                api_version=HUBSPOT_API_VERSION_V3,
             )
 
         assert len(posts) == 3
@@ -349,6 +352,7 @@ class TestBatchReadAssociations:
                 refresh_token="r",
                 source_id=None,
                 logger=MagicMock(),
+                api_version=HUBSPOT_API_VERSION_V3,
             )
         assert result == {}
 
@@ -444,6 +448,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=_RECENT_SEED_ISO,
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -482,6 +487,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=seed_iso,
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -519,6 +525,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value="2024-01-01T00:00:00.000Z",  # ignored on resume
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS + 999_999_999,  # ignored on resume (sync_end_ms from state wins)
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -579,6 +586,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=_RECENT_SEED_ISO,
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -619,6 +627,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=sync_start_iso,
                     include_custom_props=False,
                     now_ms=sync_end,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -651,6 +660,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=_RECENT_SEED_ISO,
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -694,6 +704,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=_RECENT_SEED_ISO,
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -738,6 +749,7 @@ class TestGetRowsViaSearch:
                         db_incremental_field_last_value=str(identical_cursor - 1),
                         include_custom_props=False,
                         now_ms=identical_cursor + 1_000,
+                        api_version=HUBSPOT_API_VERSION_V3,
                     )
                 )
 
@@ -772,6 +784,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=sync_start_iso,
                     include_custom_props=False,
                     now_ms=sync_end,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -810,6 +823,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=_RECENT_SEED_ISO,
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -848,6 +862,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=_RECENT_SEED_ISO,
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -883,6 +898,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=_RECENT_SEED_ISO,
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -913,6 +929,7 @@ class TestGetRowsViaSearch:
                     db_incremental_field_last_value=_RECENT_SEED_ISO,
                     include_custom_props=False,
                     now_ms=_FIXED_NOW_MS,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -1003,6 +1020,7 @@ class TestGetRowsFullRefresh:
                     logger=logger,
                     resumable_source_manager=manager,
                     include_custom_props=False,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -1035,6 +1053,7 @@ class TestGetRowsFullRefresh:
                     logger=logger,
                     resumable_source_manager=manager,
                     include_custom_props=False,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 
@@ -1072,6 +1091,7 @@ class TestGetRowsFullRefresh:
                     logger=logger,
                     resumable_source_manager=manager,
                     include_custom_props=False,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
             )
 

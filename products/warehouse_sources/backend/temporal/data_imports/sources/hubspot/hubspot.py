@@ -257,7 +257,10 @@ def get_rows(
     include_custom_props: bool = True,
     selected_properties: list[str] | None = None,
     source_id: str | None = None,
-    api_version: str = HUBSPOT_API_VERSION_V3,
+    *,
+    # Required (no default) so a caller can't silently downgrade a pinned source to v3 by
+    # forgetting to thread the resolved version — this function builds a CRM URL.
+    api_version: str,
 ) -> Iterator[Any]:
     """Full-refresh (and seed-incremental) fetch via the paginated GET endpoint."""
     config = HUBSPOT_ENDPOINTS[endpoint]
@@ -402,7 +405,10 @@ def _batch_read_associations(
     refresh_token: str,
     source_id: str | None,
     logger: FilteringBoundLogger,
-    api_version: str = HUBSPOT_API_VERSION_V3,
+    *,
+    # Required (no default) so a caller can't silently downgrade a pinned source to v3 by
+    # forgetting to thread the resolved version — this function builds a CRM URL.
+    api_version: str,
 ) -> dict[str, list[dict[str, Any]]]:
     """POST /crm/v4/associations/{from}/{to}/batch/read in chunks of ASSOCIATIONS_BATCH_SIZE.
 
@@ -528,7 +534,10 @@ def get_rows_via_search(
     selected_properties: list[str] | None = None,
     source_id: str | None = None,
     now_ms: Optional[int] = None,
-    api_version: str = HUBSPOT_API_VERSION_V3,
+    *,
+    # Required (no default) so a caller can't silently downgrade a pinned source to v3 by
+    # forgetting to thread the resolved version — this function builds CRM URLs.
+    api_version: str,
 ) -> Iterator[Any]:
     """Incremental fetch via POST /crm/v3/objects/{entity}/search.
 

@@ -12,7 +12,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 
 from .auth import HubspotRetryableError, hubspot_refresh_access_token
-from .settings import HUBSPOT_API_VERSION_V3, OBJECT_TYPE_PLURAL, apply_crm_api_version
+from .settings import OBJECT_TYPE_PLURAL, apply_crm_api_version
 
 BASE_URL = "https://api.hubapi.com/"
 
@@ -215,7 +215,10 @@ def _get_property_names(
     refresh_token: str,
     object_type: str,
     source_id: str | None = None,
-    api_version: str = HUBSPOT_API_VERSION_V3,
+    *,
+    # Required (no default) so a caller can't silently downgrade a pinned source to v3 by
+    # forgetting to thread the resolved version — this function builds a CRM URL.
+    api_version: str,
 ) -> list[str]:
     """
     Retrieve property names for a given entity from the HubSpot API.
