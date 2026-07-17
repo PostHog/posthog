@@ -180,7 +180,7 @@ describe('example: agent-builder bundle', () => {
             await closeSharedPool()
         })
 
-        it('rejects service-only auth and forwards the accepted user bearer to the nested MCP', async () => {
+        it('rejects service-only auth and forwards accepted chat and MCP bearers to the nested MCP', async () => {
             const { spec, files } = await loadBundle()
             await cluster.deployAgent({ slug: 'agent-builder-auth', spec, files })
 
@@ -213,6 +213,38 @@ describe('example: agent-builder bundle', () => {
             expect(userMcp.body.result?.tools).toEqual(
                 expect.arrayContaining([expect.objectContaining({ name: 'ask' })])
             )
+
+            const userMcpCall = await request(cluster.ingress)
+                .post('/agents/agent-builder-auth/mcp')
+                .set('authorization', `Bearer ${userBearer}`)
+                .send({
+                    jsonrpc: '2.0',
+                    id: 3,
+                    method: 'tools/call',
+                    params: { name: 'ask', arguments: { message: 'create another agent' } },
+                })
+            expect(userMcpCall.body.error).toBeUndefined()
+            const mcpSession = JSON.parse(userMcpCall.body.result.content[0].text) as { session_id: string }
+            await cluster.drain()
+            expect(mcpTargets).toHaveLength(2)
+
+            await cluster.credentialBroker.clear(mcpSession.session_id)
+            const userMcpContinuation = await request(cluster.ingress)
+                .post('/agents/agent-builder-auth/mcp')
+                .set('authorization', `Bearer ${userBearer}`)
+                .send({
+                    jsonrpc: '2.0',
+                    id: 4,
+                    method: 'tools/call',
+                    params: {
+                        name: 'ask',
+                        arguments: { message: 'continue editing', session_id: mcpSession.session_id },
+                    },
+                })
+            expect(userMcpContinuation.body.error).toBeUndefined()
+            await cluster.drain()
+            expect(mcpTargets).toHaveLength(3)
+            expect(mcpTargets.every((target) => target.headers.Authorization === `Bearer ${userBearer}`)).toBe(true)
         })
     })
 
