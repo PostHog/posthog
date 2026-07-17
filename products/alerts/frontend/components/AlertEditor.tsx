@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { ReactNode } from 'react'
 
 import { IconChevronLeft } from '@posthog/icons'
@@ -6,6 +5,7 @@ import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { cn } from 'lib/utils/css-classes'
 
 export interface AlertEditorHeaderProps {
     title: string
@@ -16,7 +16,15 @@ export interface AlertEditorHeaderProps {
 export function AlertEditorHeader({ title, description, onBack }: AlertEditorHeaderProps): JSX.Element {
     return (
         <div className="flex items-center gap-2">
-            {onBack ? <LemonButton icon={<IconChevronLeft />} onClick={onBack} size="xsmall" /> : null}
+            {onBack ? (
+                <LemonButton
+                    icon={<IconChevronLeft />}
+                    onClick={onBack}
+                    size="xsmall"
+                    tooltip="Go back"
+                    aria-label="Go back"
+                />
+            ) : null}
             <div>
                 <h3 className="text-lg font-bold m-0">{title}</h3>
                 {description ? <p className="text-muted text-sm mt-2 mb-0">{description}</p> : null}
@@ -74,7 +82,7 @@ export function AlertEditor({
     ...actionsProps
 }: AlertEditorProps): JSX.Element {
     return (
-        <div className={clsx('flex h-full min-h-0 flex-col overflow-hidden', className)}>
+        <div className={cn('flex h-full min-h-0 flex-col overflow-hidden', className)}>
             <header className="border-b p-4">
                 <AlertEditorHeader title={title} description={description} onBack={onBack} />
             </header>

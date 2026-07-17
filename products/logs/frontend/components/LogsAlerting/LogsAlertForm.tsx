@@ -16,7 +16,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
-import { AlertEditorFormDetails, AlertEditorSection } from 'products/alerts/frontend/components/AlertEditor'
+import { AlertEditorSection } from 'products/alerts/frontend/components/AlertEditor'
 import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
 import { SeverityLevelsFilter } from 'products/logs/frontend/components/LogsViewer/Filters/SeverityLevelsFilter'
 import { LogsAlertThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
@@ -110,8 +110,6 @@ export function LogsAlertForm(): JSX.Element {
 
     return (
         <div className="space-y-6 max-w-2xl">
-            <AlertEditorFormDetails />
-
             <AlertEditorSection title="Filters" description="Every 5 minutes, query for logs matching these filters.">
                 <LemonField name="severityLevels" label="Severity">
                     <SeverityLevelsFilter

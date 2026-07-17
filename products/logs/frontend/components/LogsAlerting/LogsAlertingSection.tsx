@@ -6,7 +6,7 @@ import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
-import { AlertEditor } from 'products/alerts/frontend/components/AlertEditor'
+import { AlertEditor, AlertEditorFormDetails } from 'products/alerts/frontend/components/AlertEditor'
 import {
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
@@ -129,7 +129,10 @@ function LogsAlertModalContent({ editingAlert }: { editingAlert: LogsAlertConfig
                                 ) : null}
                             </LemonBanner>
                         ) : null}
-                        <LogsAlertForm />
+                        <div className="space-y-6 max-w-2xl">
+                            <AlertEditorFormDetails />
+                            <LogsAlertForm />
+                        </div>
                     </AlertEditor>
                 </Form>
 
