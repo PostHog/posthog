@@ -2,7 +2,7 @@
  * Example bundle wiring check — `services/agent-tests/src/examples/agent-builder/`.
  *
  * The Agent Builder authors + operates other agents through the PostHog MCP
- * (one `spec.mcps[]` entry authed by the `posthog` identity provider), acting
+ * (one `spec.mcps[]` entry authed by the trigger-edge PostHog bearer), acting
  * as the asking user. It keeps only its own runtime natives (`@posthog/memory-*`
  * plus `@posthog/web-search`) and the PostHog Code client/UI tools. Destructive authoring ops
  * (`promote` / `archive` / `destroy`) are approval-gated on the MCP `tools[]`
@@ -65,7 +65,7 @@ describe('example: agent-builder bundle', () => {
         expect(files['agent.md'].length).toBeGreaterThan(500)
     })
 
-    it('authors through one direct-tools PostHog MCP authed by the posthog identity provider', async () => {
+    it('authors through one direct-tools PostHog MCP authed by the trigger-edge bearer', async () => {
         const { spec, files } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         expect(parsed.mcps).toHaveLength(1)
@@ -105,15 +105,17 @@ describe('example: agent-builder bundle', () => {
         expect(types).not.toContain('slack')
     })
 
-    it('declares a posthog identity provider with the scopes authoring needs', async () => {
-        const { spec } = await loadBundle()
+    it('uses trigger-edge PostHog auth without provisioning a second OAuth connection', async () => {
+        const { spec, files } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
-        const posthog = parsed.identity_providers.find((p) => p.kind === 'posthog')
-        expect(posthog).not.toBeUndefined()
-        const scopes = posthog?.scopes ?? []
-        // user:read backs the MCP's /api/users/@me/ bootstrap; agents:write backs
-        // authoring other agents. Both are load-bearing — pin them.
-        expect(scopes).toEqual(expect.arrayContaining(['user:read', 'agents:read', 'agents:write']))
+        expect(parsed.identity_providers).toEqual([])
+        const chat = parsed.triggers.find((trigger) => trigger.type === 'chat')
+        const posthogMode =
+            chat?.type === 'chat' ? chat.auth?.modes.find((mode) => mode.type === 'posthog') : undefined
+        expect(posthogMode?.type === 'posthog' ? posthogMode.scopes : []).toEqual(
+            expect.arrayContaining(['agents:read', 'agents:write', 'agent_session:read'])
+        )
+        expect(files['agent.md']).toContain('Never ask the user to connect or reconnect PostHog')
     })
 
     it('declares the client tools the console UI implements', async () => {

@@ -317,21 +317,7 @@
             ]
         }
     ],
-    "identity_providers": [
-        {
-            "kind": "posthog",
-            "scopes": [
-                "openid",
-                "profile",
-                "email",
-                "user:read",
-                "agents:read",
-                "agents:write",
-                "query:read",
-                "insight:read"
-            ]
-        }
-    ],
+    "identity_providers": [],
     "secrets": [],
     "limits": {
         "max_turns": 80,

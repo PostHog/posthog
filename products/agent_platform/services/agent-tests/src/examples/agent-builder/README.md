@@ -113,10 +113,10 @@ a session without the user credential required by the nested authoring MCP, so
 the bundle fails closed instead.
 
 The PostHog MCP is a first-party implementation detail of the builder, not a
-connection the user configures. MCP startup only reuses an existing trigger or
-linked credential; it never starts OAuth or reconnects automatically. The
-identity-connect tool remains available for agents that intentionally support
-account linking, but startup never invokes it.
+connection the user configures. The Builder does not declare a PostHog identity
+provider. Its MCP resolves the trigger-edge `posthog_api` credential through the
+platform's seed-only PostHog provider, so there is no account-linking path and no
+second OAuth flow.
 
 The Agent Builder chat therefore does not use the ingress OAuth callback route.
 PostHog Code supplies the signed-in user's OAuth access token at the trigger
@@ -138,7 +138,7 @@ These are platform-side, not bundle-side — and they're in place:
    `set_secret` entries parse and validate.
 2. **Runtime MCP support** — the runner opens the clients declared in
    `spec.mcps` at session start. (The Agent Builder declares exactly
-   one — the PostHog MCP, authed by the `posthog` identity provider —
+   one — the PostHog MCP, authed by the trigger-edge PostHog bearer —
    which carries its whole authoring surface.)
 3. **OAuth principal threading** — the session principal threads
    through every tool call, so writes attribute to the user.

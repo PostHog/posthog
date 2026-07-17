@@ -46,7 +46,8 @@ type ToolRefInput = z.input<typeof ToolRefSchema>
 function makeRev(
     toolRefs: ToolRefInput[],
     skills: AgentRevision['spec']['skills'] = [],
-    mcps: McpRef[] = []
+    mcps: McpRef[] = [],
+    identityProviders: AgentRevision['spec']['identity_providers'] = []
 ): AgentRevision {
     return {
         id: 'rev1',
@@ -57,7 +58,13 @@ function makeRev(
         state: 'live',
         bundle_uri: 's3://',
         bundle_sha256: null,
-        spec: AgentSpecSchema.parse({ model: 'test/x', tools: toolRefs, skills, mcps }),
+        spec: AgentSpecSchema.parse({
+            model: 'test/x',
+            tools: toolRefs,
+            skills,
+            mcps,
+            identity_providers: identityProviders,
+        }),
         encrypted_env: null,
     }
 }
@@ -202,14 +209,14 @@ describe('buildAgentTools', () => {
         expect(withSkills.tools.map((t) => t.label)).toContain('@posthog/load-skill')
     })
 
-    it('auto-includes @posthog/identity-connect when the agent has a linkable identity', async () => {
+    it('auto-includes @posthog/identity-connect only for declared linkable identities', async () => {
         // No identity surface → no connect tool (it would just error on use).
         const none = await buildAgentTools(makeRev([]), makeDeps(makeRev([])))
         expect(none.tools.map((t) => t.label)).not.toContain('@posthog/identity-connect')
 
-        // An MCP that authenticates through a provider makes connect available so
-        // the agent can hand the user a (re)link on demand.
-        const rev = makeRev(
+        // An MCP can use the implicit seed-only PostHog provider. It authenticates
+        // from the trigger bearer and deliberately has no OAuth connect flow.
+        const seedOnly = makeRev(
             [],
             [],
             [
@@ -223,8 +230,17 @@ describe('buildAgentTools', () => {
                 },
             ]
         )
-        const built = await buildAgentTools(rev, makeDeps(rev))
-        expect(built.tools.map((t) => t.label)).toContain('@posthog/identity-connect')
+        const seedOnlyBuilt = await buildAgentTools(seedOnly, makeDeps(seedOnly))
+        expect(seedOnlyBuilt.tools.map((t) => t.label)).not.toContain('@posthog/identity-connect')
+
+        const linkable = makeRev(
+            [],
+            [],
+            seedOnly.spec.mcps,
+            [{ kind: 'posthog', id: 'posthog', scopes: ['user:read'] }]
+        )
+        const linkableBuilt = await buildAgentTools(linkable, makeDeps(linkable))
+        expect(linkableBuilt.tools.map((t) => t.label)).toContain('@posthog/identity-connect')
     })
 
     describe('@posthog/web-search gating', () => {
