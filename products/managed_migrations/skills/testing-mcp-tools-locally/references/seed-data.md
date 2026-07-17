@@ -3,6 +3,19 @@
 Run this via `hogli dev:shell-plus -y -- -c "<script>"`.
 It creates 6 batch imports covering all statuses and edge cases.
 
+## Contents
+
+The script seeds six batch imports, each exercising a distinct state:
+
+1. Running — actively processing with partial progress
+2. Completed — all parts done, no lease
+3. Failed — parse error with high backoff attempt
+4. Paused — expired lease
+5. Waiting to start — running status but no lease
+6. Retrying — running with active backoff
+
+- [Edge cases covered](#edge-cases-covered) — table mapping each record to its key diagnostic signal
+
 ```python
 from products.managed_migrations.backend.models.batch_imports import BatchImport
 from posthog.models import Team, User
