@@ -570,6 +570,16 @@ def _prepare_query(
     clickhouse_driver at this moment in time decides based on the
     below predicate.
     """
+    if not isinstance(query, str):
+        # A non-string query (e.g. a `cluster.Query` object from a ClickHouse migration) would
+        # otherwise blow up further down with a cryptic "argument of type 'Query' is not iterable"
+        # when we run the `"--" in rendered_sql` comment check. Fail loudly with an actionable
+        # message pointing at the real problem instead.
+        raise TypeError(
+            f"sync_execute expected a SQL string but got {type(query).__name__}. "
+            "Pass the raw SQL string (e.g. `query.query` for a cluster.Query) rather than the wrapper object."
+        )
+
     prepared_args: Optional[QueryArgs] = None
     if isinstance(args, list | tuple | types.GeneratorType):
         # If we get one of these it means we have an insert, let the clickhouse

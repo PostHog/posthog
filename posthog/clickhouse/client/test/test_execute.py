@@ -2,7 +2,8 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.client.execute import _prepare_query, sync_execute
+from posthog.clickhouse.cluster import Query
 from posthog.clickhouse.query_tagging import tags_context
 
 
@@ -48,3 +49,11 @@ def test_endpoints_tag_workload_routing(client_from_pool, workload, expected_wor
         sync_execute("SELECT 1", workload=workload, flush=False)
 
     assert client_from_pool.call_args[0][0] == expected_workload
+
+
+def test_prepare_query_rejects_non_string_query():
+    # A ClickHouse migration builds a cluster.Query wrapper; if one reaches _prepare_query the
+    # comment-strip substring check used to explode with a cryptic "argument of type 'Query' is
+    # not iterable". Guard so it fails loudly with an actionable message instead.
+    with pytest.raises(TypeError, match="expected a SQL string but got Query"):
+        _prepare_query(query=Query("SELECT 1"), args=None)
