@@ -1,9 +1,11 @@
+import threading
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
 from unittest.mock import MagicMock
 
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory import jfrog_artifactory
@@ -429,4 +431,33 @@ class TestRequestBodyCap:
                 _request(session, "GET", "https://acme.jfrog.io/api/x", {}, MagicMock())
 
         assert RESPONSE_LIMIT_ERROR in str(exc.value)
+        assert session.request.call_count == 1
+
+    def test_blocking_read_past_deadline_is_aborted(self) -> None:
+        # A hostile host can block mid-read (never filling a chunk) so the in-loop deadline check
+        # never runs. The off-thread watchdog must close the response to unblock the read and abort
+        # with a non-retryable error, rather than leaving the worker hung.
+        released = threading.Event()
+
+        def _blocking_iter(chunk_size: int | None = None) -> Any:
+            yield b'{"a":'
+            released.wait(timeout=5)
+            raise requests.exceptions.ChunkedEncodingError("connection closed")
+
+        response = MagicMock()
+        response.status_code = 200
+        response.ok = True
+        response.iter_content.side_effect = _blocking_iter
+        response.close.side_effect = lambda: released.set()
+
+        session = MagicMock()
+        session.request.return_value = response
+
+        with pytest.raises(JfrogArtifactoryResponseTooLargeError) as exc:
+            with pytest.MonkeyPatch.context() as mp:
+                mp.setattr(jfrog_artifactory, "MAX_TRANSFER_SECONDS", 0.05)
+                _request(session, "GET", "https://acme.jfrog.io/api/x", {}, MagicMock())
+
+        assert RESPONSE_LIMIT_ERROR in str(exc.value)
+        response.close.assert_called()
         assert session.request.call_count == 1

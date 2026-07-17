@@ -1,5 +1,6 @@
 import json
 import time
+import threading
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -58,19 +59,48 @@ def _read_capped_body(response: requests.Response, url: str) -> bytes:
     started = time.monotonic()
     total = 0
     chunks: list[bytes] = []
-    for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
-        if not chunk:
-            continue
-        total += len(chunk)
-        if total > MAX_RESPONSE_BYTES:
-            raise JfrogArtifactoryResponseTooLargeError(
-                f"{RESPONSE_LIMIT_ERROR}: {url} returned more than {MAX_RESPONSE_BYTES} bytes"
-            )
-        if time.monotonic() - started > MAX_TRANSFER_SECONDS:
+    timed_out = threading.Event()
+
+    def _abort_on_deadline() -> None:
+        # A hostile host can trickle bytes just often enough to keep the socket-read timeout at bay
+        # while never filling a chunk, so `iter_content` blocks and the in-loop deadline check below
+        # never runs. This watchdog fires off-thread and closes the response, which unblocks the
+        # pending read (it raises), enforcing the deadline independently of the blocking read.
+        timed_out.set()
+        response.close()
+
+    watchdog = threading.Timer(MAX_TRANSFER_SECONDS, _abort_on_deadline)
+    watchdog.start()
+    try:
+        for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
+            if timed_out.is_set():
+                raise JfrogArtifactoryResponseTooLargeError(
+                    f"{RESPONSE_LIMIT_ERROR}: {url} transfer exceeded {MAX_TRANSFER_SECONDS}s"
+                )
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > MAX_RESPONSE_BYTES:
+                raise JfrogArtifactoryResponseTooLargeError(
+                    f"{RESPONSE_LIMIT_ERROR}: {url} returned more than {MAX_RESPONSE_BYTES} bytes"
+                )
+            if time.monotonic() - started > MAX_TRANSFER_SECONDS:
+                raise JfrogArtifactoryResponseTooLargeError(
+                    f"{RESPONSE_LIMIT_ERROR}: {url} transfer exceeded {MAX_TRANSFER_SECONDS}s"
+                )
+            chunks.append(chunk)
+    except JfrogArtifactoryResponseTooLargeError:
+        raise
+    except Exception:
+        # The watchdog closing the socket surfaces here as a transport error; translate it into the
+        # deadline error rather than a retryable one, since retrying won't speed the host up.
+        if timed_out.is_set():
             raise JfrogArtifactoryResponseTooLargeError(
                 f"{RESPONSE_LIMIT_ERROR}: {url} transfer exceeded {MAX_TRANSFER_SECONDS}s"
-            )
-        chunks.append(chunk)
+            ) from None
+        raise
+    finally:
+        watchdog.cancel()
     return b"".join(chunks)
 
 
