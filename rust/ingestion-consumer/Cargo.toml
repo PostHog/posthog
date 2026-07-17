@@ -10,6 +10,7 @@ chrono = { workspace = true }
 common-alloc = { path = "../common/alloc" }
 dashmap = { workspace = true }
 envconfig = { workspace = true }
+flate2 = { workspace = true }
 futures = { workspace = true }
 k8s-openapi = { version = "0.24", features = ["latest"] }
 kube = { version = "0.98", features = ["client", "runtime"] }
@@ -24,6 +25,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # with both aws-lc-rs and ring in the tree. Matches personhog-router/cymbal.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
@@ -31,5 +33,5 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [dev-dependencies]
-serde_json = { workspace = true }
+tower-http = { workspace = true }
 uuid = { workspace = true }

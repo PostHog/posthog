@@ -186,6 +186,13 @@ pub struct Config {
     #[envconfig(from = "INGESTION_WORKER_CONCURRENT_BATCHES", default = "1")]
     pub ingestion_worker_concurrent_batches: usize,
 
+    /// Gzip-compress /ingest request bodies (`Content-Encoding: gzip`). Batch
+    /// bodies are JSON wrapping JSON-text Kafka messages, so they compress
+    /// several-fold; the worker's Express body parser inflates transparently.
+    /// Kill switch in case compression CPU cost is ever implicated.
+    #[envconfig(from = "INGESTION_TRANSPORT_COMPRESSION_ENABLED", default = "true")]
+    pub transport_compression_enabled: bool,
+
     /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header)
     #[envconfig(default = "")]
     pub internal_api_secret: String,
