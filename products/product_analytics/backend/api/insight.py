@@ -460,7 +460,11 @@ class InsightBasicSerializer(
 
         if should_serve_deprecated_dashboards_field(self.context):
             _record_deprecated_dashboards_field_used(self.context, usage="read")
-            representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
+            # Exclude soft-deleted tiles, matching the write-echo correction and the frontend's
+            # dashboard_tiles-based derivation.
+            representation["dashboards"] = [
+                tile["dashboard_id"] for tile in representation["dashboard_tiles"] if not tile.get("deleted")
+            ]
         else:
             representation.pop("dashboards", None)
 
