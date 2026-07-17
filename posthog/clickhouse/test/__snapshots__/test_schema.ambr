@@ -4675,6 +4675,25 @@
   
   '''
 # ---
+# name: test_create_table_query[precalculated_events]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS precalculated_events
+  (
+      team_id Int64,
+      date Date,
+      distinct_id String,
+      person_id UUID,
+      condition String,
+      uuid UUID,
+      source String,
+      _timestamp DateTime64(6),
+      _partition UInt64,
+      _offset UInt64
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_precalculated_events', sipHash64(distinct_id))
+  
+  '''
+# ---
 # name: test_create_table_query[precalculated_events_mv]
   '''
   
