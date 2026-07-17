@@ -551,6 +551,24 @@ class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
         assert body["scout_count"] == 2
         assert body["latest_at"] is not None
 
+    def test_summary_counts_report_channel_activity(self) -> None:
+        # Scouts now author/edit inbox reports directly instead of only emitting legacy findings.
+        # Reverting the summary to `emitted_count > 0` alone would make a report-channel fleet read
+        # as zero output and hide the callout entirely. Also guards the dedupe rules: report ids
+        # dedupe across runs, and a report both authored and edited counts once, as authored.
+        _make_run(self.team, skill_name="signals-scout-errors", emitted_report_ids=["r-1"])
+        _make_run(self.team, skill_name="signals-scout-errors", emitted_report_ids=["r-1"])
+        _make_run(self.team, skill_name="signals-scout-llm", edited_report_ids=["r-1", "r-2"])
+        _make_run(self.team, skill_name="signals-scout-general")  # quiet — no output on either channel
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["count"] == 0
+        assert body["authored_report_count"] == 1
+        assert body["edited_report_count"] == 1
+        assert body["scout_count"] == 2
+        assert body["latest_at"] is not None
+
     def test_summary_excludes_runs_outside_the_window(self) -> None:
         # Guards the `created_at` window filter: a finding emitted before the lookback must not count,
         # else the callout would advertise stale findings the findings page won't show.

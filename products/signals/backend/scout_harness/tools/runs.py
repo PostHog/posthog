@@ -176,10 +176,17 @@ def search_recent_runs(
 
 @dataclass(frozen=True)
 class FleetFindingsSummary:
-    """Cheap fleet-wide tally of recently emitted findings — what the "Scout findings" callout reads."""
+    """Cheap fleet-wide tally of recent scout output — what the "Scout findings" callout reads.
+
+    Covers both emit channels: weak `emit_signal` findings (`count`) and the report channel
+    (`authored_report_count` / `edited_report_count`), so a fleet of report-channel scouts
+    doesn't read as silent.
+    """
 
     count: int
     scout_count: int
+    authored_report_count: int
+    edited_report_count: int
     latest_at: str | None
 
     def as_dict(self) -> dict[str, Any]:
@@ -187,36 +194,53 @@ class FleetFindingsSummary:
 
 
 def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS_WINDOW_HOURS) -> FleetFindingsSummary:
-    """Summarise the findings the fleet emitted in the recent window, in a single query.
+    """Summarise the output the fleet produced in the recent window, in a single query.
 
     Replaces the client-side tally that walked the whole paginated runs window just to count
-    findings for the callout. Counts only emitted runs (`emitted_count > 0`) whose `created_at`
-    falls in the last `window_hours`, capped to the most recent `FLEET_FINDINGS_SUMMARY_RUN_CAP`
-    runs by completion time (falling back to creation) — the same set the findings page renders,
-    so the callout can't over-advertise. Returns the finding total (sum of `emitted_count`), the
-    distinct scout count, and the most recent emission time.
+    findings for the callout. Counts runs that produced output on either channel — emitted a
+    finding (`emitted_count > 0`) or authored/edited an inbox report (non-empty
+    `emitted_report_ids` / `edited_report_ids`) — whose `created_at` falls in the last
+    `window_hours`, capped to the most recent `FLEET_FINDINGS_SUMMARY_RUN_CAP` runs by completion
+    time (falling back to creation) — the same set the findings page renders, so the callout
+    can't over-advertise. Returns the finding total (sum of `emitted_count`), the distinct scout
+    count, the distinct reports authored and edited (edits of a report also authored in the
+    window fold into authored, matching the scout detail view), and the most recent output time.
     """
     window_hours = max(1, min(window_hours, MAX_FINDINGS_WINDOW_HOURS))
     window_start = timezone.now() - timedelta(hours=window_hours)
+    touched_a_report = (~Q(emitted_report_ids=[]) & ~Q(emitted_report_ids__isnull=True)) | (
+        ~Q(edited_report_ids=[]) & ~Q(edited_report_ids__isnull=True)
+    )
     # Order by completion (fall back to creation) so the cap keeps the *most recently emitted* runs,
     # matching the frontend's `completed_at ?? created_at` sort; `-id` tie-breaks on the time-ordered PK.
     rows = (
-        SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=window_start, emitted_count__gt=0)
+        SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=window_start)
+        .filter(Q(emitted_count__gt=0) | touched_a_report)
         .annotate(_emitted_at=Coalesce("task_run__completed_at", "created_at"))
         .order_by("-_emitted_at", "-id")
-        .values_list("emitted_count", "skill_name", "_emitted_at")[:FLEET_FINDINGS_SUMMARY_RUN_CAP]
+        .values_list("emitted_count", "skill_name", "_emitted_at", "emitted_report_ids", "edited_report_ids")[
+            :FLEET_FINDINGS_SUMMARY_RUN_CAP
+        ]
     )
     count = 0
     scouts: set[str] = set()
+    authored_reports: set[str] = set()
+    edited_reports: set[str] = set()
     latest_at: datetime | None = None
-    for emitted_count, skill_name, emitted_at in rows:
+    for emitted_count, skill_name, emitted_at, emitted_report_ids, edited_report_ids in rows:
         count += emitted_count or 0
         scouts.add(skill_name)
+        authored_reports.update(emitted_report_ids or [])
+        edited_reports.update(edited_report_ids or [])
         if emitted_at is not None and (latest_at is None or emitted_at > latest_at):
             latest_at = emitted_at
+    # Authoring supersedes an edit of the same report — one report, one bucket.
+    edited_reports -= authored_reports
     return FleetFindingsSummary(
         count=count,
         scout_count=len(scouts),
+        authored_report_count=len(authored_reports),
+        edited_report_count=len(edited_reports),
         latest_at=latest_at.isoformat() if latest_at is not None else None,
     )
 

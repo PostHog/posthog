@@ -37,11 +37,12 @@ export function scoutRunsWindowLabel(complete: boolean): string {
 // fan-out. Shared so the page (`findingsLogic`) and the callout summary count the exact same set.
 export const MAX_FLEET_EMITTED_RUNS = 120
 
-/** The most recent emitted runs across the fleet, newest first, capped at `MAX_FLEET_EMITTED_RUNS`. */
+/** The most recent output-producing runs across the fleet — runs that emitted a finding OR
+ * authored/edited a report via the report channel — newest first, capped at `MAX_FLEET_EMITTED_RUNS`. */
 export function mostRecentEmittedRuns(runs: SignalScoutRunSummary[]): SignalScoutRunSummary[] {
     return (
         runs
-            .filter((run) => (run.emitted_count ?? 0) > 0)
+            .filter((run) => runProducedOutput(run))
             .slice()
             // "Most recently emitted" — a run can complete (and emit) later than one created after it, so
             // order by completion, falling back to creation. Matches `emittedFindingsSummary`'s `latestAt`.

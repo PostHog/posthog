@@ -5,6 +5,7 @@ import {
     computeFleetSummary,
     computeScoutRollups,
     deriveRunOutcome,
+    mostRecentEmittedRuns,
     reconcileById,
     runMatchesFilter,
     ScoutRunOutcome,
@@ -93,6 +94,24 @@ describe('scoutRunsWindow report channel', () => {
             const rollup = computeScoutRollups(runs).get(skill)!
             expect([...rollup.authoredReportIds]).toEqual(['r-1'])
             expect([...rollup.editedReportIds].sort()).toEqual(['r-1', 'r-2'])
+        })
+    })
+
+    describe('mostRecentEmittedRuns', () => {
+        it('includes report-channel-only runs alongside emitted runs, excluding quiet ones', () => {
+            // The fleet findings page fetches this set — narrowing it back to `emitted_count > 0`
+            // would silently drop report-authoring runs, so their reports never get listed.
+            const runs = [
+                makeRun({ run_id: 'run-findings', emitted_count: 1, emitted_finding_ids: ['f-1'] }),
+                makeRun({ run_id: 'run-authored', emitted_report_ids: ['r-1'] }),
+                makeRun({ run_id: 'run-edited', edited_report_ids: ['r-2'] }),
+                makeRun({ run_id: 'run-quiet' }),
+            ]
+            expect(mostRecentEmittedRuns(runs).map((run) => run.run_id)).toEqual([
+                'run-findings',
+                'run-authored',
+                'run-edited',
+            ])
         })
     })
 

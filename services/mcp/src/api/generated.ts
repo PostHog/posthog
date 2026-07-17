@@ -28465,16 +28465,21 @@ export namespace Schemas {
     }
 
     /**
-     * Fleet-wide tally of recently emitted findings — backs the "Scout findings" callout so it
-     * renders from one cheap query instead of the client walking the whole paginated runs window.
+     * Fleet-wide tally of recent scout output — legacy `emit_signal` findings plus reports
+     * authored/edited via the report channel. Backs the "Scout findings" callout so it renders
+     * from one cheap query instead of the client walking the whole paginated runs window.
      */
     export interface FleetFindingsSummary {
-      /** Total findings the fleet emitted in the window — the sum of each emitted run's `emitted_count`, over the most recent 120 emitted runs. */
+      /** Total findings the fleet emitted in the window — the sum of each run's `emitted_count`, over the most recent 120 runs that produced output. */
       count: number;
-      /** Number of distinct scouts (skills) that emitted at least one finding in the window. */
+      /** Number of distinct scouts (skills) that produced output in the window — emitted a finding, or authored/edited an inbox report. */
       scout_count: number;
+      /** Number of distinct inbox reports scouts authored via `emit_report` in the window, deduped across runs. */
+      authored_report_count: number;
+      /** Number of distinct inbox reports scouts edited via `edit_report` in the window, deduped across runs and excluding reports also authored in the window (authoring supersedes an edit). */
+      edited_report_count: number;
       /**
-         * ISO-8601 timestamp of the most recently emitted finding's run (TaskRun completion, falling back to run creation), or null when nothing was emitted in the window.
+         * ISO-8601 timestamp of the most recent output run (TaskRun completion, falling back to run creation), or null when nothing was produced in the window.
          * @nullable
          */
       latest_at: string | null;
