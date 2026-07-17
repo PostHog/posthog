@@ -1,6 +1,6 @@
 import re
 import dataclasses
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import quote
 
 import requests
@@ -21,6 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     BasePaginator,
     JSONResponseCursorPaginator,
     PageNumberPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    HTTPMethodBasic,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
@@ -133,9 +137,9 @@ def algolia_source(
     config = ALGOLIA_ENDPOINTS[endpoint]
     is_cursor = config.pagination == PaginationStyle.CURSOR
 
-    endpoint_config: dict[str, Any] = {
+    endpoint_config: Endpoint = {
         "path": _endpoint_path(config, index_name),
-        "method": config.method,
+        "method": cast(HTTPMethodBasic, config.method),
         "data_selector": config.data_selector,
         "paginator": _build_paginator(config),
     }
