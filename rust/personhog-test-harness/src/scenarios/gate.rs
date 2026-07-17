@@ -132,9 +132,13 @@ pub async fn run(args: GateArgs) -> Result<()> {
         bail!("chaos flags require a spawned stack; they cannot target --external-router-url");
     }
     if (args.router_kill_after.is_some() || args.router_shutdown_after.is_some())
-        && args.routers < 2
+        && args.routers < 3
     {
-        bail!("--router-kill-after requires --routers >= 2 (traffic targets the last router)");
+        bail!(
+            "coordinator chaos requires --routers >= 3: traffic targets the last router, \
+             which never campaigns, so two routers leave no standby to win the failover \
+             election"
+        );
     }
     if args.kill_handoff_target && args.shutdown_after.is_none() && args.scale_up_after.is_none() {
         bail!("--kill-handoff-target needs a handoff-creating event (--shutdown-after or --scale-up-after)");
@@ -263,7 +267,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 None
             }
             ChaosEvent::RouterKill { fast } => Some(stack.kill_coordinator_router(fast).await?),
-            ChaosEvent::RouterShutdown => Some(stack.shutdown_coordinator_router()?),
+            ChaosEvent::RouterShutdown => Some(stack.shutdown_coordinator_router().await?),
         };
         println!(
             "Chaos at {:.1}s: {event} → pod {} | {}",

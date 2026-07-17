@@ -25,6 +25,7 @@ from posthog.hogql.restricted_properties import restricted_property_keys_for_tab
 from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
+from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.clickhouse.materialized_columns import (
     DMAT_STRING_COLUMN_NAME_PREFIX,
     MATERIALIZATION_VALID_TABLES,
@@ -33,8 +34,7 @@ from posthog.clickhouse.materialized_columns import (
     get_materialized_column_for_property,
 )
 from posthog.models import Team
-from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
-from posthog.models.property import PropertyName, TableColumn
+from posthog.property_columns import PropertyName, TableColumn
 
 _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
     "JSONExtractString": ("String", ""),
@@ -84,12 +84,15 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
         else []
     )
 
+    type_overrides = context.property_type_overrides or {}
+
     event_properties: dict[str, dict[str, str | None]] = {}
     for prop_def in event_property_definitions:
         if not prop_def.property_type:
             continue
 
-        prop_info: dict[str, str | None] = {"type": prop_def.property_type}
+        prop_type = type_overrides.get(prop_def.name, prop_def.property_type)
+        prop_info: dict[str, str | None] = {"type": prop_type}
         slot = prop_def.materialized_column_slots.first()
         if slot:
             prop_info["dmat"] = f"{DMAT_STRING_COLUMN_NAME_PREFIX}{slot.slot_index}"

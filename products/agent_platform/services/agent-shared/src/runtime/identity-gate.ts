@@ -106,6 +106,22 @@ export function buildIdentityRegistry(
  * directly; jwt/posthog map through the identity store. Anonymous/service
  * principals aren't linkable (return null → resolve() reports unavailable).
  */
+/**
+ * JWT identities are issuer-scoped: an agent can declare several `jwt` auth
+ * modes with different `issuer_secret_ref`s, and each is its own trust domain
+ * — `sub` values can collide across them. An unscoped subject would let a
+ * caller from issuer B resolve issuer A's AgentUser (its transport binding,
+ * canonical identity, and linked credentials). Single shared format so the
+ * admission claim and the per-asker credential lookup land on the SAME row.
+ *
+ * JSON-array encoding because it is injective — both fields accept arbitrary
+ * non-empty strings, so a delimiter would be ambiguous: ('A:B', 'C') and
+ * ('A', 'B:C') must NOT map to the same subject.
+ */
+export function jwtPrincipalSubject(principal: { issuer_secret_ref: string; sub: string }): string {
+    return JSON.stringify([principal.issuer_secret_ref, principal.sub])
+}
+
 export async function agentUserIdForPrincipal(
     principal: SessionPrincipal | null,
     deps: { identities?: IdentityStore; applicationId: string; teamId: number }
@@ -131,9 +147,9 @@ export async function agentUserIdForPrincipal(
             // shared across transports; fall back to the raw principal on passthrough.
             return principal.canonical_agent_user_id ?? principal.agent_user_id ?? null
         case 'jwt':
-            return findOrCreate('jwt', principal.sub)
+            return principal.canonical_agent_user_id ?? (await findOrCreate('jwt', jwtPrincipalSubject(principal)))
         case 'posthog':
-            return findOrCreate('posthog', principal.user_id)
+            return principal.canonical_agent_user_id ?? (await findOrCreate('posthog', principal.user_id))
         default:
             return null
     }
@@ -168,7 +184,7 @@ export interface ToolIdentityDeps {
 }
 
 export function createToolIdentity(deps: ToolIdentityDeps): {
-    resolve(provider: string, scopes?: string[]): Promise<IdentityResolution>
+    resolve(provider: string, scopes?: string[], options?: { initiate?: boolean }): Promise<IdentityResolution>
     relink(provider: string): Promise<string | null>
 } {
     return {
@@ -207,7 +223,7 @@ export function createToolIdentity(deps: ToolIdentityDeps): {
                 return null
             }
         },
-        async resolve(providerId, scopes = []): Promise<IdentityResolution> {
+        async resolve(providerId, scopes = [], options = {}): Promise<IdentityResolution> {
             // One session-log line per resolution: the credential source + decision, never the token.
             const emit = (res: IdentityResolution, source: string, binding?: string): IdentityResolution => {
                 deps.log?.('info', 'identity.resolved', {
@@ -267,6 +283,13 @@ export function createToolIdentity(deps: ToolIdentityDeps): {
                     return emit(
                         { kind: 'ok', credential, allowedHosts: provider.allowedHosts() },
                         'linked_store',
+                        provider.binding
+                    )
+                }
+                if (options.initiate === false) {
+                    return emit(
+                        { kind: 'unavailable', provider: providerId, reason: 'identity_not_connected' },
+                        'unavailable',
                         provider.binding
                     )
                 }

@@ -1,0 +1,45 @@
+---
+source: cymbal/tests/event.rs
+expression: properties
+---
+{
+  "$debug_images": [
+    {
+      "arch": "arm64",
+      "code_file": "ExampleApp",
+      "debug_id": "67e9247c-814e-392b-a027-dbde6748fcbf",
+      "image_addr": "0x100000000",
+      "image_size": 4096,
+      "image_vmaddr": "0x0",
+      "type": "macho"
+    }
+  ],
+  "$exception_fingerprint": "wire-contract",
+  "$exception_fingerprint_record": [
+    {
+      "type": "manual"
+    }
+  ],
+  "$exception_functions": [],
+  "$exception_handled": false,
+  "$exception_issue_id": "REDACTED",
+  "$exception_list": [
+    {
+      "id": "REDACTED",
+      "type": "TypeError",
+      "value": "cannot read property"
+    }
+  ],
+  "$exception_sources": [],
+  "$exception_types": [
+    "TypeError"
+  ],
+  "$exception_values": [
+    "cannot read property"
+  ],
+  "$issue_description": "Custom issue description",
+  "$issue_name": "Custom issue name",
+  "custom_property": {
+    "nested": true
+  }
+}

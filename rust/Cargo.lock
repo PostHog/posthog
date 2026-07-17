@@ -1801,6 +1801,8 @@ dependencies = [
  "common-alloc",
  "common-compression",
  "common-continuous-profiling",
+ "common-ingestion-warnings",
+ "common-kafka",
  "common-redis",
  "common-types",
  "envconfig",
@@ -2229,6 +2231,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "cohort-seeder"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "chrono",
+ "chrono-tz",
+ "clickhouse",
+ "cohort-core",
+ "common-alloc",
+ "common-database",
+ "common-kafka",
+ "common-liveness",
+ "common-types",
+ "envconfig",
+ "governor",
+ "lifecycle",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "proptest",
+ "rdkafka",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "cohort-stream-processor"
 version = "0.1.0"
 dependencies = [
@@ -2418,6 +2453,23 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "common-ingestion-warnings"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "common-kafka",
+ "common-liveness",
+ "common-types",
+ "governor",
+ "metrics",
+ "rdkafka",
+ "rstest",
+ "serde_json",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -7961,6 +8013,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "posthog-replay-anonymizer"
+version = "0.1.0"
+dependencies = [
+ "ahash 0.8.12",
+ "anyhow",
+ "base64 0.22.1",
+ "flate2",
+ "image",
+ "libdeflater",
+ "lz4",
+ "memchr",
+ "serde",
+ "serde_json",
+ "simd-json",
+ "zstd",
+]
+
+[[package]]
 name = "posthog-rs"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9046,19 +9116,10 @@ checksum = "51743d3e274e2b18df81c4dc6caf8a5b8e15dbe799e0dca05c7617380094e884"
 name = "replay-anonymizer-node"
 version = "0.0.1"
 dependencies = [
- "ahash 0.8.12",
- "anyhow",
- "base64 0.22.1",
- "flate2",
- "image",
- "libdeflater",
- "lz4",
- "memchr",
  "neon",
+ "posthog-replay-anonymizer",
  "serde",
  "serde_json",
- "simd-json",
- "zstd",
 ]
 
 [[package]]

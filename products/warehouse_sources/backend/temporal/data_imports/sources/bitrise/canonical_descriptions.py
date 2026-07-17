@@ -1,0 +1,77 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "apps": {
+        "description": "An app registered on Bitrise, tying a source code repository to its CI configuration.",
+        "docs_url": "https://api-docs.bitrise.io/#/application",
+        "columns": {
+            "slug": "Unique identifier of the app.",
+            "title": "Display name of the app.",
+            "project_type": "Detected project type (e.g. ios, android, react-native, flutter).",
+            "provider": "Git hosting provider of the connected repository (e.g. github, gitlab, bitbucket).",
+            "repo_owner": "Owner (user or organization) of the connected repository.",
+            "repo_slug": "Name of the connected repository.",
+            "repo_url": "URL of the connected repository.",
+            "is_disabled": "Whether the app is disabled on Bitrise.",
+            "status": "Status of the app's most recent build (1 success, 0 not finished, -1 failed).",
+            "is_public": "Whether the app's build results are publicly visible.",
+            "owner": "The account (user or organization) that owns the app, with account_type, name, and slug.",
+            "avatar_url": "URL of the app's avatar image.",
+        },
+    },
+    "builds": {
+        "description": "A single CI build run of an app, with its status, timing, and trigger metadata. "
+        "Bitrise only returns builds from roughly the last 200 days.",
+        "docs_url": "https://api-docs.bitrise.io/#/builds",
+        "columns": {
+            "app_slug": "Identifier of the app the build belongs to (added by PostHog during sync).",
+            "slug": "Unique identifier of the build.",
+            "build_number": "Sequential build number within the app.",
+            "status": "Numeric build status (0 running, 1 successful, 2 failed, 3 aborted with failure, 4 aborted with success).",
+            "status_text": "Human-readable build status (e.g. success, error, aborted).",
+            "abort_reason": "Reason the build was aborted, if it was.",
+            "branch": "Git branch the build ran on.",
+            "tag": "Git tag that triggered the build, if any.",
+            "commit_hash": "Hash of the commit the build ran against.",
+            "commit_message": "Message of the commit the build ran against.",
+            "commit_view_url": "URL to view the commit on the git provider.",
+            "triggered_workflow": "Name of the Bitrise workflow the build ran.",
+            "triggered_by": "What triggered the build (e.g. webhook, manual).",
+            "triggered_at": "When the build was triggered.",
+            "started_on_worker_at": "When the build started on a worker machine.",
+            "environment_prepare_finished_at": "When the build environment finished preparing.",
+            "finished_at": "When the build finished.",
+            "is_on_hold": "Whether the build is queued waiting for a free concurrency slot.",
+            "machine_type_id": "Identifier of the machine type the build ran on.",
+            "stack_identifier": "Identifier of the stack (build environment image) the build ran on.",
+            "pull_request_id": "Identifier of the pull request that triggered the build, if any.",
+            "pull_request_target_branch": "Target branch of the triggering pull request.",
+            "pull_request_view_url": "URL to view the triggering pull request.",
+        },
+    },
+    "workflows": {
+        "description": "A workflow defined in an app's Bitrise configuration, one row per app and workflow name.",
+        "docs_url": "https://api-docs.bitrise.io/#/builds",
+        "columns": {
+            "app_slug": "Identifier of the app the workflow belongs to (added by PostHog during sync).",
+            "workflow": "Name of the workflow.",
+        },
+    },
+    "artifacts": {
+        "description": "A file produced by a build (e.g. an IPA, APK, or log archive).",
+        "docs_url": "https://api-docs.bitrise.io/#/build-artifact",
+        "columns": {
+            "app_slug": "Identifier of the app the artifact belongs to (added by PostHog during sync).",
+            "build_slug": "Identifier of the build that produced the artifact (added by PostHog during sync).",
+            "build_triggered_at": "When the build that produced the artifact was triggered (added by PostHog during sync).",
+            "slug": "Unique identifier of the artifact within its build.",
+            "title": "File name of the artifact.",
+            "artifact_type": "Type of the artifact (e.g. android-apk, ios-ipa, file).",
+            "artifact_meta": "Type-specific metadata of the artifact.",
+            "file_size_bytes": "Size of the artifact file in bytes.",
+            "is_public_page_enabled": "Whether a public install page is enabled for the artifact.",
+        },
+    },
+}

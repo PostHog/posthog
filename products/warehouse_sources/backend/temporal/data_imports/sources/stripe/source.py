@@ -191,10 +191,11 @@ class StripeSource(
                     ),
                     SourceFieldInputConfig(
                         name="stripe_account_id",
-                        label="Account id",
+                        label="Account id (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
-                        placeholder="stripe_account_id",
+                        placeholder="acct_...",
+                        caption="Leave blank in most cases, including when connecting with OAuth. Only set this if you use a Stripe Connect platform key and want to sync a specific connected account. You can find it under Account details in your [Stripe account settings](https://dashboard.stripe.com/settings/account).",
                         secret=False,
                     ),
                 ],

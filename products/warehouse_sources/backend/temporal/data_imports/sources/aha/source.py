@@ -18,18 +18,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aha.aha im
     aha_source,
     validate_credentials as validate_aha_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aha.settings import (
-    AHA_ENDPOINTS,
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.aha.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AhaSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -95,7 +94,7 @@ Create an API key under **Settings → Personal → Developer → API keys** in 
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # 401/403 surface as a requests HTTPError when `_fetch_page` calls `raise_for_status()`.
+            # 401/403 surface as a requests HTTPError when the REST client calls `raise_for_status()`.
             # Retrying can never fix a credential/permission problem, so fail the sync. Match the
             # stable status text and `.aha.io` host, not the per-request path.
             "401 Client Error: Unauthorized": "Your Aha! API key is invalid or has been revoked. Create a new key in your Aha! account settings, then reconnect.",
@@ -111,21 +110,10 @@ Create an API key under **Settings → Personal → Developer → API keys** in 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        def _build_schema(endpoint: str) -> SourceSchema:
-            endpoint_config = AHA_ENDPOINTS[endpoint]
-            return SourceSchema(
-                name=endpoint,
-                supports_incremental=endpoint_config.supports_incremental,
-                supports_append=endpoint_config.supports_incremental,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=endpoint_config.should_sync_default,
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # `build_endpoint_schemas` treats any endpoint present in the mapping as incremental, so
+        # drop the full-refresh endpoints (empty `incremental_fields`) to keep them full refresh.
+        incremental_fields = {name: fields for name, fields in INCREMENTAL_FIELDS.items() if fields}
+        return build_endpoint_schemas(ENDPOINTS, incremental_fields, names)
 
     def validate_credentials(
         self, config: AhaSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
@@ -154,11 +142,11 @@ Create an API key under **Settings → Personal → Developer → API keys** in 
             subdomain=config.subdomain,
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
-            incremental_field=inputs.incremental_field,
         )

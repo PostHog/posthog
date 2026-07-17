@@ -545,6 +545,11 @@ function ApiVersionSection({
     const options: LemonSelectOption<string | null>[] = [
         { value: null, label: `Source default${sourceVersion ? ` (${sourceVersion})` : ''}` },
         ...supportedVersions.map((version) => ({ value: version, label: version })),
+        // A stored override can outlive its version's removal from supported_versions — pins are
+        // honored verbatim, so keep it listed and re-selectable instead of orphaning the value.
+        ...(schema.api_version && !supportedVersions.includes(schema.api_version)
+            ? [{ value: schema.api_version, label: `${schema.api_version} (no longer supported)` }]
+            : []),
     ]
 
     const persist = async (resyncAfter: boolean): Promise<void> => {
