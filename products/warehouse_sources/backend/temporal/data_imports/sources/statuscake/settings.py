@@ -31,6 +31,10 @@ class StatusCakeEndpointConfig:
     timestamp_field: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     should_sync_default: bool = True
+    # Response fields dropped before rows are persisted. The warehouse is readable by any project
+    # user, so a field carrying a live credential (e.g. a heartbeat push URL with its PK secret)
+    # must never land there — otherwise it could be read back and used to spoof pings.
+    scrub_fields: Optional[list[str]] = None
 
 
 # StatusCake API v1 (https://developers.statuscake.com/api/). Config/test lists have no
@@ -90,6 +94,8 @@ STATUSCAKE_ENDPOINTS: dict[str, StatusCakeEndpointConfig] = {
         name="heartbeat_tests",
         path="/heartbeat",
         primary_key=["id"],
+        # The push `url` embeds the check's PK credential; drop it so it never reaches the warehouse.
+        scrub_fields=["url"],
     ),
     "contact_groups": StatusCakeEndpointConfig(
         name="contact_groups",

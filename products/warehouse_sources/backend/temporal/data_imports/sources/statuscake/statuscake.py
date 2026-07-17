@@ -59,6 +59,16 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
     return f"{base}?{urlencode(params)}" if params else base
 
 
+def _scrub_rows(rows: list[dict[str, Any]], fields: Optional[list[str]]) -> list[dict[str, Any]]:
+    """Drop sensitive fields (e.g. heartbeat push credentials) before rows reach the warehouse."""
+    if not fields:
+        return rows
+    for row in rows:
+        for field in fields:
+            row.pop(field, None)
+    return rows
+
+
 def _is_api_url(url: Any) -> bool:
     """Only follow pagination URLs pinned to the StatusCake API origin.
 
@@ -274,7 +284,8 @@ def get_rows(
             if should_use_incremental_field and db_incremental_field_last_value is not None
             else None
         )
-        yield from _iter_history_rows(session, config, logger, resumable_source_manager, watermark_ts)
+        for rows in _iter_history_rows(session, config, logger, resumable_source_manager, watermark_ts):
+            yield _scrub_rows(rows, config.scrub_fields)
         return
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -282,7 +293,7 @@ def get_rows(
     if resume is not None:
         logger.debug(f"StatusCake: resuming {endpoint} from page {start_page}")
     for rows, page in _iter_list_pages(session, config.path, logger, start_page=start_page):
-        yield rows
+        yield _scrub_rows(rows, config.scrub_fields)
         resumable_source_manager.save_state(StatusCakeResumeConfig(page=page))
 
 

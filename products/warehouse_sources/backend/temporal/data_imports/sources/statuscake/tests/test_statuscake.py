@@ -158,6 +158,20 @@ class TestGetRowsTopLevel:
         assert mock_session.return_value.get.call_count == 1
 
     @mock.patch(_TRANSPORT)
+    def test_heartbeat_push_credential_is_scrubbed(self, mock_session):
+        # The /heartbeat push `url` embeds the check's PK credential. It must never reach the
+        # warehouse, where any project user could read it back and spoof heartbeat pings.
+        mock_session.return_value = _session_returning(
+            {"data": [{"id": "h1", "name": "cron", "url": "https://push.statuscake.com/?PK=secret&TestID=h1"}]}
+        )
+        manager = _make_manager()
+
+        batches = list(get_rows("token", "heartbeat_tests", mock.MagicMock(), manager))
+        rows = [row for batch in batches for row in batch]
+
+        assert rows == [{"id": "h1", "name": "cron"}]
+
+    @mock.patch(_TRANSPORT)
     def test_resumes_from_saved_page(self, mock_session):
         mock_session.return_value = _session_returning(
             _list_body([{"id": "9"}], page=3, page_count=3),
