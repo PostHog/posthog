@@ -569,6 +569,19 @@ class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
         assert body["scout_count"] == 2
         assert body["latest_at"] is not None
 
+    def test_summary_caps_report_tallies_to_most_recently_touched(self) -> None:
+        # The report tallies share the findings page's 50-report slice (most recently touched first).
+        # Uncapping them would let the callout advertise reports the page never lists — with the cap
+        # patched to 1, only the newest-touched report may count.
+        _make_run(self.team, skill_name="signals-scout-errors", edited_report_ids=["r-old"])
+        _make_run(self.team, skill_name="signals-scout-llm", emitted_report_ids=["r-new"])
+        with patch("products.signals.backend.scout_harness.tools.runs.FLEET_FINDINGS_SUMMARY_REPORT_CAP", 1):
+            response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["authored_report_count"] == 1
+        assert body["edited_report_count"] == 0
+
     def test_summary_excludes_runs_outside_the_window(self) -> None:
         # Guards the `created_at` window filter: a finding emitted before the lookback must not count,
         # else the callout would advertise stale findings the findings page won't show.

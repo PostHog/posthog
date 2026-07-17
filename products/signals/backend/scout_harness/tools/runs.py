@@ -35,12 +35,14 @@ DEFAULT_RUN_SEARCH_LIMIT = 20
 MAX_RUN_SEARCH_LIMIT = 100
 
 # The "Scout findings" callout summary tallies findings over a fixed lookback window. The default
-# window and the run cap mirror the cloud/desktop frontend (`SCOUT_RUNS_WINDOW_HOURS = 72` /
-# `MAX_FLEET_EMITTED_RUNS = 120`) so the callout count matches the set the findings page renders;
-# the max window bounds a pathological lookback.
+# window, the run cap, and the report cap mirror the cloud/desktop frontend
+# (`SCOUT_RUNS_WINDOW_HOURS = 72` / `MAX_FLEET_EMITTED_RUNS = 120` / `MAX_FLEET_TOUCHED_REPORTS = 50`)
+# so the callout counts match the set the findings page renders; the max window bounds a
+# pathological lookback.
 DEFAULT_FINDINGS_WINDOW_HOURS = 72
 MAX_FINDINGS_WINDOW_HOURS = 168
 FLEET_FINDINGS_SUMMARY_RUN_CAP = 120
+FLEET_FINDINGS_SUMMARY_REPORT_CAP = 50
 
 # `failure_reason` is the concise, list-safe derived signal; `error` carries the full
 # `TaskRun.error_message`. Bound the derived reason so it stays cheap to scan in bulk.
@@ -207,6 +209,9 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
     capped run set* fold into authored, matching the scout detail view — a report whose authoring
     run ages out of the cap while a later edit survives counts as edited, the same classification
     the findings page derives from its identically-capped window), and the most recent output time.
+    The report tallies are additionally capped at the `FLEET_FINDINGS_SUMMARY_REPORT_CAP` most
+    recently touched reports — the same 50 the findings page slices `touchedReports` to — so the
+    callout never advertises reports the page won't list.
     """
     window_hours = max(1, min(window_hours, MAX_FINDINGS_WINDOW_HOURS))
     window_start = timezone.now() - timedelta(hours=window_hours)
@@ -224,20 +229,28 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
             :FLEET_FINDINGS_SUMMARY_RUN_CAP
         ]
     )
+    materialized = list(rows)
     count = 0
     scouts: set[str] = set()
-    authored_reports: set[str] = set()
-    edited_reports: set[str] = set()
     latest_at: datetime | None = None
-    for emitted_count, skill_name, emitted_at, emitted_report_ids, edited_report_ids in rows:
+    for emitted_count, skill_name, emitted_at, _emitted_report_ids, _edited_report_ids in materialized:
         count += emitted_count or 0
         scouts.add(skill_name)
-        authored_reports.update(emitted_report_ids or [])
-        edited_reports.update(edited_report_ids or [])
         if emitted_at is not None and (latest_at is None or emitted_at > latest_at):
             latest_at = emitted_at
+    # Distinct touched reports, most recently touched first (rows are newest-first), capped at the
+    # same 50 the findings page keeps (`MAX_FLEET_TOUCHED_REPORTS`) — so the callout never
+    # advertises reports the page has sliced away. Dict preserves insertion (recency) order.
+    kept_report_ids: dict[str, None] = {}
+    for _, _, _, emitted_report_ids, edited_report_ids in materialized:
+        for report_id in [*(edited_report_ids or []), *(emitted_report_ids or [])]:
+            if report_id not in kept_report_ids and len(kept_report_ids) < FLEET_FINDINGS_SUMMARY_REPORT_CAP:
+                kept_report_ids[report_id] = None
     # Authoring supersedes an edit of the same report — one report, one bucket.
-    edited_reports -= authored_reports
+    authored_reports: set[str] = set()
+    for _, _, _, emitted_report_ids, _edited_report_ids in materialized:
+        authored_reports.update(report_id for report_id in emitted_report_ids or [] if report_id in kept_report_ids)
+    edited_reports = {report_id for report_id in kept_report_ids if report_id not in authored_reports}
     return FleetFindingsSummary(
         count=count,
         scout_count=len(scouts),

@@ -134,7 +134,9 @@ export interface findingsLogicActions {
         emissions: SignalScoutEmission[]
         payload?: any
     }
-    loadScoutReports: () => any
+    loadScoutReports: (ids?: string[]) => {
+        ids: string[] | undefined
+    }
     loadScoutReportsFailure: (
         error: string,
         errorObject?: any
@@ -144,10 +146,14 @@ export interface findingsLogicActions {
     }
     loadScoutReportsSuccess: (
         scoutReports: SignalReport[],
-        payload?: any
+        payload?: {
+            ids: string[] | undefined
+        }
     ) => {
         scoutReports: SignalReport[]
-        payload?: any
+        payload?: {
+            ids: string[] | undefined
+        }
     }
     setScoutFilter: (scoutFilter: string) => {
         scoutFilter: string
@@ -181,6 +187,7 @@ export interface findingsLogicMeta {
                 id: string
                 latestRunId: string
                 skillName: string
+                skillNames: string[]
             }[]
         ) => string
         reportRows: (
@@ -190,6 +197,7 @@ export interface findingsLogicMeta {
                 id: string
                 latestRunId: string
                 skillName: string
+                skillNames: string[]
             }[]
         ) => FleetScoutReportRow[]
         filteredReportRows: (
@@ -212,6 +220,7 @@ export interface findingsLogicMeta {
                 id: string
                 latestRunId: string
                 skillName: string
+                skillNames: string[]
             }[]
         ) => {
             count: number
@@ -232,6 +241,7 @@ export interface findingsLogicMeta {
                 id: string
                 latestRunId: string
                 skillName: string
+                skillNames: string[]
             }[]
         ) => number
         editedReportCount: (
@@ -240,6 +250,7 @@ export interface findingsLogicMeta {
                 id: string
                 latestRunId: string
                 skillName: string
+                skillNames: string[]
             }[]
         ) => number
         scoutCount: (
@@ -260,6 +271,7 @@ export interface findingsLogicMeta {
                 id: string
                 latestRunId: string
                 skillName: string
+                skillNames: string[]
             }[],
             scoutReportsLoading: boolean,
             scoutReports: SignalReport[]
@@ -295,6 +307,10 @@ export const findingsLogic = kea<findingsLogicType>([
         setScoutFilter: (scoutFilter: string) => ({ scoutFilter }),
         setSeverityFilter: (severityFilter: string) => ({ severityFilter }),
         setSortKey: (sortKey: FindingsSortKey) => ({ sortKey }),
+        // `ids` = targeted refresh (the poll retries): fetch only those reports and merge into the
+        // retained set. Omitted = full load of every touched report. Each retrieve is an expensive
+        // annotated query server-side, so the 60s poll must not re-fetch all ~50 for one needy id.
+        loadScoutReports: (ids?: string[]) => ({ ids }),
     }),
 
     loaders(({ values }) => ({
@@ -302,7 +318,10 @@ export const findingsLogic = kea<findingsLogicType>([
             [] as SignalScoutEmission[],
             {
                 loadEmissions: async () => {
-                    const runs = values.emittedRuns
+                    // Only runs that emitted a finding — report-only runs have no emissions to fetch,
+                    // and a report-only fleet must not hit (or surface an error from) this legacy
+                    // endpoint at all.
+                    const runs = values.emittedRuns.filter((run) => (run.emitted_count ?? 0) > 0)
                     if (runs.length === 0) {
                         return []
                     }
@@ -317,7 +336,9 @@ export const findingsLogic = kea<findingsLogicType>([
             [] as SignalScoutEmissionReportLink[],
             {
                 loadEmissionReports: async () => {
-                    const runs = values.emittedRuns
+                    // Report links only exist for emitted findings — same finding-producing subset
+                    // as `loadEmissions`.
+                    const runs = values.emittedRuns.filter((run) => (run.emitted_count ?? 0) > 0)
                     if (runs.length === 0) {
                         return []
                     }
@@ -346,26 +367,37 @@ export const findingsLogic = kea<findingsLogicType>([
         scoutReports: [
             [] as SignalReport[],
             {
-                loadScoutReports: async () => {
+                loadScoutReports: async ({ ids }: { ids?: string[] } = {}) => {
                     const touched = values.touchedReports
                     if (touched.length === 0) {
                         return []
                     }
-                    const settled = await Promise.allSettled(touched.map(({ id }) => api.signalReports.get(id)))
+                    const touchedIds = new Set(touched.map(({ id }) => id))
+                    // Targeted refresh fetches only the named (still-touched) ids; a full load
+                    // fetches the whole capped set.
+                    const fetchIds = ids ? [...new Set(ids)].filter((id) => touchedIds.has(id)) : [...touchedIds]
+                    if (fetchIds.length === 0) {
+                        return values.scoutReports
+                    }
+                    const settled = await Promise.allSettled(fetchIds.map((id) => api.signalReports.get(id)))
                     const byId = new Map<string, SignalReport>()
                     for (const result of settled) {
                         if (result.status === 'fulfilled') {
                             byId.set(result.value.id, result.value)
                         }
                     }
-                    if (byId.size === 0) {
-                        throw new Error('Failed to load the reports scouts touched')
-                    }
-                    const touchedIds = new Set(touched.map(({ id }) => id))
+                    // Keep prior resolved reports for still-touched ids that weren't (successfully)
+                    // fetched this round — a partial failure must not drop them, and a targeted
+                    // refresh must not discard the untargeted rest.
                     for (const previous of values.scoutReports) {
                         if (!byId.has(previous.id) && touchedIds.has(previous.id)) {
                             byId.set(previous.id, previous)
                         }
+                    }
+                    // Nothing resolvable at all (full-load outage with no prior data) — surface the
+                    // Reports section's error/retry state rather than a false "no reports".
+                    if (byId.size === 0) {
+                        throw new Error('Failed to load the reports scouts touched')
                     }
                     return [...byId.values()]
                 },
@@ -780,25 +812,37 @@ export const findingsLogic = kea<findingsLogicType>([
             // unchanged set, so without this (a) a report whose fetch failed transiently stays missing
             // until remount, and (b) a live run editing the same report repeatedly (dedup keeps
             // `edited_report_ids` unchanged after the first edit) serves a stale card until the run
-            // settles. Refetch while any touched report is unresolved-but-recently-touched (a deleted
-            // report stops retriggering once its touch ages out) or its latest touching run is still
-            // live (self-bounding — runs settle).
+            // settles. Refresh is *targeted*: only the needy ids are refetched — a report touched by
+            // ANY still-live run (with overlapping runs, the live one isn't necessarily the report's
+            // `latestRunId`; self-bounding since runs settle), or unresolved-but-recently-touched (a
+            // deleted report stops retriggering once its touch ages out of the window).
             if (!values.scoutReportsLoading && values.touchedReports.length > 0) {
+                const touchedIds = new Set(values.touchedReports.map(({ id }) => id))
                 const resolvedIds = new Set(values.scoutReports.map((report) => report.id))
+                const needyIds = new Set<string>()
+                for (const run of values.emittedRuns) {
+                    if (isSettledRun(run)) {
+                        continue
+                    }
+                    for (const id of [...(run.edited_report_ids ?? []), ...(run.emitted_report_ids ?? [])]) {
+                        if (touchedIds.has(id)) {
+                            needyIds.add(id)
+                        }
+                    }
+                }
                 const runsById = new Map(values.emittedRuns.map((run) => [run.run_id, run]))
-                const needsRefetch = values.touchedReports.some(({ id, latestRunId }) => {
+                for (const { id, latestRunId } of values.touchedReports) {
+                    if (resolvedIds.has(id) || needyIds.has(id)) {
+                        continue
+                    }
                     const run = runsById.get(latestRunId)
-                    if (run && !isSettledRun(run)) {
-                        return true
-                    }
-                    if (resolvedIds.has(id)) {
-                        return false
-                    }
                     const touchedAt = run?.completed_at ?? run?.created_at
-                    return Boolean(touchedAt && dayjs(touchedAt).isAfter(cutoff))
-                })
-                if (needsRefetch) {
-                    actions.loadScoutReports()
+                    if (touchedAt && dayjs(touchedAt).isAfter(cutoff)) {
+                        needyIds.add(id)
+                    }
+                }
+                if (needyIds.size > 0) {
+                    actions.loadScoutReports([...needyIds])
                 }
             }
         },

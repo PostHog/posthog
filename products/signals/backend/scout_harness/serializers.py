@@ -297,13 +297,15 @@ class FleetFindingsSummarySerializer(serializers.Serializer):
     authored_report_count = serializers.IntegerField(
         help_text=(
             "Number of distinct inbox reports scouts authored via `emit_report`, deduped across runs, "
-            "over the same most-recent-120-output-runs set as `count`."
+            "over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently "
+            "touched reports (the same slice the findings page lists)."
         )
     )
     edited_report_count = serializers.IntegerField(
         help_text=(
             "Number of distinct inbox reports scouts edited via `edit_report`, deduped across runs, "
-            "over the same most-recent-120-output-runs set as `count` and excluding reports also "
+            "over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently "
+            "touched reports (the same slice the findings page lists) and excluding reports also "
             "authored within that set (authoring supersedes an edit; a report whose authoring run "
             "falls outside the cap counts as edited)."
         )
