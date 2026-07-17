@@ -304,6 +304,7 @@ mod tests {
             dlq_step: None,
             dlq_timestamp: None,
             content_encoding: None,
+            snapshot_host: None,
         }
     }
 
