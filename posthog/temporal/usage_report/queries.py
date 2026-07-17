@@ -66,6 +66,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_exceptions_captured_in_period,
     get_teams_with_feature_flag_requests_count_in_period,
     get_teams_with_free_historical_rows_synced_in_period,
+    get_teams_with_heatmap_count_in_period,
     get_teams_with_hog_function_calls_in_period,
     get_teams_with_hog_function_fetch_calls_in_period,
     get_teams_with_logs_bytes_in_period,
@@ -265,6 +266,11 @@ QUERIES: list[QuerySpec] = [
             "rust_events": "teams_with_rust_events_count_in_period",
         },
         timeout_minutes=30,
+    ),
+    # ---- ClickHouse: heatmaps ------------------------------------------------
+    QuerySpec(
+        name="teams_with_heatmap_count_in_period",
+        fn=get_teams_with_heatmap_count_in_period,
     ),
     # ---- ClickHouse: recordings ----------------------------------------------
     QuerySpec(
