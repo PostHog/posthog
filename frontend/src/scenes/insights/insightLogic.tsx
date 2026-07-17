@@ -84,7 +84,7 @@ import type { QueryStatus } from '../../queries/schema/schema-general'
 import type { CohortType, DashboardTileBasicType, TeamPublicType, TeamType, UserBasicType, UserType } from '../../types'
 import { teamLogic } from '../teamLogic'
 import type { MathDefinition } from '../trends/mathsLogic'
-import { insightDataLogic, isInsightSceneInstance } from './insightDataLogic'
+import { insightDataLogic } from './insightDataLogic'
 import { getInsightId } from './utils'
 import { insightsApi } from './utils/api'
 
@@ -1119,10 +1119,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     // redirect new insights added to dashboard to the dashboard
                     router.actions.push(urls.dashboard(dashboards[0], savedInsight.short_id))
                 } else if (insightNumericId) {
-                    if (isInsightSceneInstance(props)) {
-                        insightSceneLogic
-                            .findMounted()
-                            ?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                    if (props.tabId) {
+                        const mountedInsightSceneLogic = insightSceneLogic.findMounted({ tabId: props.tabId })
+                        mountedInsightSceneLogic?.actions.setInsightMode(
+                            ItemMode.View,
+                            InsightEventSource.InsightHeader
+                        )
                     }
                 } else {
                     router.actions.push(urls.insightView(savedInsight.short_id))

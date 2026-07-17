@@ -23,10 +23,11 @@ import { insightVizDataLogic } from './insightVizDataLogic'
 
 export interface InsightAsSceneProps {
     insightId: InsightShortId | 'new'
+    tabId: string
     attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
 }
 
-export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JSX.Element | null {
+export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsSceneProps): JSX.Element | null {
     // insightSceneLogic
     const { insightMode, insight, filtersOverride, variablesOverride, hasOverrides, dashboardId } =
         useValues(insightSceneLogic)
@@ -34,8 +35,9 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
 
     // insightLogic
     const logic = insightLogic({
-        dashboardItemId: insightId || 'new',
+        dashboardItemId: insightId || `new-${tabId}`,
         dashboardId: dashboardId ?? undefined,
+        tabId,
         // don't use cached insight if we have overrides
         cachedInsight: hasOverrides && insight?.short_id === insightId ? insight : null,
         filtersOverride,

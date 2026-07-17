@@ -16,6 +16,7 @@ import { objectsEqual } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
@@ -76,6 +77,10 @@ import { getInsightIconTypeFromQuery, parseDraftQueryFromURL } from './utils'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
+
+export interface InsightSceneLogicProps {
+    tabId?: string
+}
 
 function normalizeItemId(itemId: string | undefined): string | number | null {
     if (itemId === undefined) {
@@ -306,6 +311,7 @@ export type insightSceneLogicType = MakeLogicType<
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
+    tabAwareScene(),
     connect(() => ({
         logic: [eventUsageLogic],
         values: [
@@ -445,6 +451,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         freshQuery: [false, { setFreshQuery: (_, { freshQuery }) => freshQuery }],
     }),
     selectors({
+        tabId: [() => [(_, props: InsightSceneLogicProps) => props.tabId], (tabId) => tabId],
         insightQuerySelector: [
             (s) => [s.insightDataLogicRef],
             (
@@ -510,7 +517,15 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             (insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined) => insight,
         ],
         breadcrumbs: [
-            (s) => [s.insightLogicRef, s.insight, s.insightQuery, s.dashboardId, s.dashboardName, s.sceneSource],
+            (s) => [
+                s.insightLogicRef,
+                s.insight,
+                s.insightQuery,
+                s.dashboardId,
+                s.dashboardName,
+                (_, props: InsightSceneLogicProps) => props.tabId,
+                s.sceneSource,
+            ],
             (
                 insightLogicRef: {
                     logic: BuiltLogic<insightLogicType>
@@ -520,6 +535,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 insightQuery: Node<Record<string, any>> | null | undefined,
                 dashboardId: DashboardType['id'] | null,
                 dashboardName: DashboardType['name'] | null,
+                tabId: string | undefined,
                 sceneSource: InsightSceneSource | null
             ): Breadcrumb[] => {
                 const dashboardLabel = dashboardName ?? 'Dashboard'
@@ -569,7 +585,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                                         },
                           ]),
                     {
-                        key: [Scene.Insight, insight?.short_id || 'new'],
+                        key: [Scene.Insight, insight?.short_id || `new-${tabId}`],
                         name: insightLogicRef?.logic.values.insightName,
                         forceEditMode: insightLogicRef?.logic.values.canEditInsight,
                         iconType: getInsightIconTypeFromQuery(insightQuery),
@@ -665,6 +681,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         filtersOverride: values.filtersOverride,
                         variablesOverride: values.variablesOverride,
                         tileFiltersOverride: values.tileFiltersOverride,
+                        tabId: values.tabId,
                     }
 
                     const logic = insightLogic.build(insightProps)
@@ -727,7 +744,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             if (values.insightId === 'new' || values.insightId?.startsWith('new-')) {
                 values.insightLogicRef?.logic.actions.setInsight(
                     {
-                        ...createEmptyInsight('new'),
+                        ...createEmptyInsight(`new-${values.tabId}`),
                         ...(values.dashboardId ? { dashboards: [values.dashboardId] } : {}),
                         query: upgradedQuery ? withDefaultProductAnalyticsTags(upgradedQuery) : upgradedQuery,
                     },
@@ -767,7 +784,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                           : ItemMode.View
             let insightId = String(shortId) as InsightShortId
             if (insightId === 'new') {
-                insightId = 'new' as InsightShortId
+                insightId = `new-${values.tabId}` as InsightShortId
             }
 
             const currentScene = sceneLogic.findMounted()?.values
@@ -868,7 +885,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     const taggedQuery = withDefaultProductAnalyticsTags(query)
                     values.insightLogicRef?.logic.actions.setInsight(
                         {
-                            ...createEmptyInsight('new'),
+                            ...createEmptyInsight(`new-${values.tabId}`),
                             ...(dashboard ? { dashboards: [dashboard] } : {}),
                             query: taggedQuery,
                         },

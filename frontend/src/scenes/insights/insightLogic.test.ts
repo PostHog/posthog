@@ -477,10 +477,13 @@ describe('insightLogic', () => {
         it('does not load from the savedInsightLogic when in a dashboard context', async () => {
             // 1. open saved insights
             router.actions.push(urls.savedInsights(), {}, {})
-            savedInsightsLogic().mount()
+            savedInsightsLogic({ tabId: '1' }).mount()
 
             // 2. the insights are loaded
-            await expectLogic(savedInsightsLogic()).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+            await expectLogic(savedInsightsLogic({ tabId: '1' })).toDispatchActions([
+                'loadInsights',
+                'loadInsightsSuccess',
+            ])
 
             // 3. mount the insight
             logic = insightLogic({ dashboardItemId: Insight42, dashboardId: 33 })
@@ -557,7 +560,7 @@ describe('insightLogic', () => {
     })
 
     test('saveInsight and updateInsight update the saved insights list', async () => {
-        savedInsightsLogic().mount()
+        savedInsightsLogic({ tabId: '1' }).mount()
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
@@ -574,10 +577,10 @@ describe('insightLogic', () => {
         insightDataLogic(insightProps).mount()
 
         logic.actions.saveInsight()
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic().actionTypes.addInsight])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic({ tabId: '1' }).actionTypes.addInsight])
 
         logic.actions.updateInsight({ name: 'my new name' })
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic().actionTypes.updateInsight])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic({ tabId: '1' }).actionTypes.updateInsight])
     })
 
     test('saveInsight updates dashboards', async () => {
@@ -585,7 +588,7 @@ describe('insightLogic', () => {
         dashLogic.mount()
         await expectLogic(dashLogic).toDispatchActions(['loadDashboard'])
 
-        savedInsightsLogic().mount()
+        savedInsightsLogic({ tabId: '1' }).mount()
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight43,
@@ -601,7 +604,7 @@ describe('insightLogic', () => {
     })
 
     test('updateInsight updates dashboards', async () => {
-        savedInsightsLogic().mount()
+        savedInsightsLogic({ tabId: '1' }).mount()
         logic = insightLogic({
             dashboardItemId: Insight43,
             cachedInsight: {
@@ -633,7 +636,7 @@ describe('insightLogic', () => {
     })
 
     test('after save as from a dashboard tile, the editor state stays on the tile insight until navigation opens the copy', async () => {
-        savedInsightsLogic().mount()
+        savedInsightsLogic({ tabId: '1' }).mount()
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
@@ -652,7 +655,7 @@ describe('insightLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.saveAsConfirmation('New Insight (copy)')
         })
-            .toDispatchActions(savedInsightsLogic(), ['loadInsights'])
+            .toDispatchActions(savedInsightsLogic({ tabId: '1' }), ['loadInsights'])
             .toMatchValues({
                 savedInsight: partial({ query: partial({ source: partial({ kind: NodeKind.FunnelsQuery }) }) }),
                 insight: partial({
