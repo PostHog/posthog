@@ -148,7 +148,8 @@ The search tables (`gifs_search`, `stickers_search`) only appear once you set a 
         return giphy_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             search_query=config.search_query,
         )
