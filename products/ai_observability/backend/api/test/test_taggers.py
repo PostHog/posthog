@@ -5,10 +5,13 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization, Project, Team, User
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
 from products.ai_observability.backend.models.provider_keys import LLMProvider
 from products.ai_observability.backend.models.taggers import Tagger, TaggerType
+
+from ee.models.rbac.access_control import AccessControl
 
 
 def _setup_team():
@@ -370,3 +373,99 @@ class TestTaggersApi(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "tagger_config"
+
+
+class TestTaggersAccessControl(APIBaseTest):
+    # Tagger inherits access control from the `llm_analytics` resource (RESOURCE_INHERITANCE_MAP
+    # in posthog/rbac/user_access_control.py), same as Evaluations and Datasets.
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        self.viewer_user = User.objects.create_and_join(self.organization, "tagger-viewer@posthog.com", "testtest")
+        self.editor_user = User.objects.create_and_join(self.organization, "tagger-editor@posthog.com", "testtest")
+        self.no_access_user = User.objects.create_and_join(self.organization, "tagger-noaccess@posthog.com", "testtest")
+
+        self._grant_llm_analytics_access(self.viewer_user, "viewer")
+        self._grant_llm_analytics_access(self.editor_user, "editor")
+        self._grant_llm_analytics_access(self.no_access_user, "none")
+
+    def _grant_llm_analytics_access(self, user: User, access_level: str) -> AccessControl:
+        membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
+        return AccessControl.objects.create(
+            team=self.team,
+            resource="llm_analytics",
+            resource_id=None,
+            access_level=access_level,
+            organization_member=membership,
+        )
+
+    def test_no_access_user_cannot_list_or_create_taggers(self):
+        self.client.force_login(self.no_access_user)
+
+        list_response = self.client.get(f"/api/environments/{self.team.id}/taggers/")
+        assert list_response.status_code == status.HTTP_403_FORBIDDEN
+
+        create_response = self.client.post(
+            f"/api/environments/{self.team.id}/taggers/",
+            {"name": "Blocked Tagger", "tagger_config": _make_tagger_config()},
+            format="json",
+        )
+        assert create_response.status_code == status.HTTP_403_FORBIDDEN
+        assert Tagger.objects.count() == 0
+
+    def test_viewer_user_can_read_but_not_write_taggers(self):
+        tagger = Tagger.objects.create(
+            name="Existing Tagger",
+            tagger_config=_make_tagger_config(),
+            team=self.team,
+            created_by=self.user,
+        )
+        self.client.force_login(self.viewer_user)
+
+        list_response = self.client.get(f"/api/environments/{self.team.id}/taggers/")
+        assert list_response.status_code == status.HTTP_200_OK
+        assert len(list_response.data["results"]) == 1
+
+        retrieve_response = self.client.get(f"/api/environments/{self.team.id}/taggers/{tagger.id}/")
+        assert retrieve_response.status_code == status.HTTP_200_OK
+
+        create_response = self.client.post(
+            f"/api/environments/{self.team.id}/taggers/",
+            {"name": "New Tagger", "tagger_config": _make_tagger_config()},
+            format="json",
+        )
+        assert create_response.status_code == status.HTTP_403_FORBIDDEN
+        assert Tagger.objects.count() == 1
+
+        edit_response = self.client.patch(
+            f"/api/environments/{self.team.id}/taggers/{tagger.id}/",
+            {"name": "Renamed by viewer"},
+            format="json",
+        )
+        assert edit_response.status_code == status.HTTP_403_FORBIDDEN
+        tagger.refresh_from_db()
+        assert tagger.name == "Existing Tagger"
+
+    def test_editor_user_can_create_and_edit_taggers(self):
+        self.client.force_login(self.editor_user)
+
+        create_response = self.client.post(
+            f"/api/environments/{self.team.id}/taggers/",
+            {"name": "Editor Tagger", "tagger_config": _make_tagger_config()},
+            format="json",
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        tagger_id = create_response.data["id"]
+
+        edit_response = self.client.patch(
+            f"/api/environments/{self.team.id}/taggers/{tagger_id}/",
+            {"name": "Renamed by editor"},
+            format="json",
+        )
+        assert edit_response.status_code == status.HTTP_200_OK
+        assert edit_response.data["name"] == "Renamed by editor"
