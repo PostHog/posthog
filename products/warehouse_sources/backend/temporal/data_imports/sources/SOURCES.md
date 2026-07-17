@@ -47,6 +47,7 @@ the row lists both.
 | adroll                           | HTTP                        | requests                                                        | ✅                          |
 | agilecrm                         | HTTP                        | requests                                                        | ✅                          |
 | aha                              | HTTP                        | requests                                                        | ✅                          |
+| airbrake                         | HTTP                        | requests                                                        | ✅                          |
 | aircall                          | HTTP                        | requests                                                        | ✅                          |
 | airops                           | HTTP                        | requests                                                        | ✅                          |
 | airtable                         | HTTP                        | requests                                                        | ✅                          |
@@ -64,6 +65,7 @@ the row lists both.
 | appsflyer                        | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | asana                            | HTTP                        | requests                                                        | ✅                          |
 | ashby                            | HTTP                        | requests                                                        | ✅                          |
+| asknicely                        | HTTP                        | requests                                                        | ✅                          |
 | assemblyai                       | HTTP                        | requests                                                        | ✅                          |
 | attentive                        | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
 | attio                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -107,6 +109,7 @@ the row lists both.
 | chargedesk                       | HTTP                        | requests                                                        | ✅                          |
 | chargify                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | charthop                         | HTTP                        | requests                                                        | ✅                          |
+| checkmarx                        | HTTP                        | requests                                                        | ✅                          |
 | checkout_com                     | HTTP                        | requests                                                        | ✅                          |
 | churnkey                         | HTTP                        | requests                                                        | ✅                          |
 | coassemble                       | HTTP                        | requests                                                        | ✅                          |
@@ -243,6 +246,7 @@ the row lists both.
 | inflowinventory                  | HTTP                        | requests                                                        | ✅                          |
 | inngest                          | HTTP                        | requests                                                        | ✅                          |
 | insightly                        | HTTP                        | requests                                                        | ✅                          |
+| instana                          | HTTP                        | requests                                                        | ✅                          |
 | instatus                         | HTTP                        | requests                                                        | ✅                          |
 | intercom                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | intruder                         | HTTP                        | requests                                                        | ✅                          |
@@ -336,6 +340,7 @@ the row lists both.
 | ortto                            | HTTP                        | requests                                                        | ✅                          |
 | oura                             | HTTP                        | requests                                                        | ✅                          |
 | outbrain                         | HTTP                        | requests                                                        | ✅                          |
+| pabbly_subscriptions_billing     | HTTP                        | requests                                                        | ✅                          |
 | packagist                        | HTTP                        | requests                                                        | ✅                          |
 | paddle                           | HTTP                        | requests                                                        | ✅                          |
 | optimizely                       | HTTP                        | requests                                                        | ✅                          |
@@ -541,7 +546,6 @@ doesn't conflict with concurrent PRs.
 - adyen
 - ahrefs
 - aikido_security
-- airbrake
 - airbyte
 - airops
 - aiven
@@ -590,7 +594,6 @@ doesn't conflict with concurrent PRs.
 - cart_com
 - castor_edc
 - chatwoot
-- checkmarx
 - chift
 - chorus
 - cin7
@@ -710,7 +713,6 @@ doesn't conflict with concurrent PRs.
 - infor_nexus
 - insightful
 - instagram
-- instana
 - instantly
 - interzoid
 - jamf_pro
@@ -800,7 +802,6 @@ doesn't conflict with concurrent PRs.
 - outlook
 - outreach
 - oveit
-- pabbly_subscriptions_billing
 - pagerduty
 - pardot
 - paylocity
