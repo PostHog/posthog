@@ -223,11 +223,13 @@ class TestRefreshSandboxMcp:
         assert safe is False
         assert get_sandbox_mcp_session_user("run-1") == 99
 
-    def test_first_bind_refresh_failure_stays_best_effort(
+    def test_unknown_binding_refresh_failure_fails_closed(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _sleep
     ):
-        # No prior binding: a refresh failure is non-fatal (no earlier actor's
-        # session to leak), so the gate reports safe and delivery proceeds.
+        # No marker for this scope: the marker self-expires before the OAuth
+        # session does, so an absent one may hide the previous actor's still-live
+        # session rather than a fresh sandbox. When the refresh can't confirm the
+        # rebind, the gate reports unsafe so the caller fails closed.
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = [_make_mcp_config()]
         mock_user_configs.return_value = []
@@ -236,7 +238,7 @@ class TestRefreshSandboxMcp:
         actor = MagicMock(id=42)
         safe = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)
 
-        assert safe is True
+        assert safe is False
 
 
 @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")

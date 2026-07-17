@@ -263,11 +263,14 @@ def _refresh_sandbox_mcp(
 ) -> bool:
     """Rebind the sandbox's MCP session to this message's actor.
 
-    Returns ``True`` when the session is safe to use (unchanged actor, first
-    bind, or a successful rebind) and ``False`` only when an actor *transition*
-    could neither rebind nor clear the previous actor's session — the caller
-    then fails the follow-up closed. Same-actor rotation and first binds stay
-    best-effort. Retries the refresh once before giving up.
+    Returns ``True`` when the session is safe to use (unchanged actor or a
+    successful rebind) and ``False`` when a rebind could not be confirmed — the
+    caller then fails the follow-up closed. A rebind is unconfirmed whenever the
+    mint or refresh fails and the binding is not known to be this actor's,
+    including an *unknown* binding: the marker self-expires at half the token
+    lifetime, so an absent marker can mean the previous actor's session is still
+    live, not that the sandbox is fresh. Retries the refresh once before giving
+    up.
     """
     run_id = str(task_run.id)
     if actor_user is None:
@@ -293,7 +296,7 @@ def _refresh_sandbox_mcp(
         access_token = create_oauth_access_token_for_run(task_run.task, state, scopes=scopes)
     except Exception as e:
         logger.warning("refresh_mcp_token_mint_failed", run_id=run_id, error=str(e))
-        return not is_transition  # first-bind: best-effort; transition: fail closed
+        return False  # rebind unconfirmed → fail closed (unknown binding may hide a live session)
 
     mcp_configs = get_sandbox_ph_mcp_configs(
         token=access_token,
@@ -372,7 +375,7 @@ def _refresh_sandbox_mcp(
         error=retry.error,
         status_code=retry.status_code,
     )
-    return not is_transition  # transition that never rebound → fail closed
+    return False  # rebind never confirmed → fail closed (unknown binding may hide a live session)
 
 
 def _get_stop_reason(result_data: dict[str, Any] | None) -> str:
