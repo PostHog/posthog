@@ -320,4 +320,33 @@ describe('SkillCatalog and exec learn', () => {
             expect(output).toContain('learn skills')
         }
     })
+    describe('skill invocation reporting', () => {
+        it('reports successful loads with source, path, and read kind — never searches or describes', async () => {
+            const invocations: unknown[] = []
+            const learn = new ExecLearnCatalog([], { posthog: makeCatalog(), project: makeProjectSkills() }, (inv) =>
+                invocations.push(inv)
+            )
+
+            await learn.execute('posthog:retention-analysis')
+            await learn.execute('posthog:retention-analysis references/functions.md')
+            await learn.execute('project:team-conventions notes.md --lines 1:5')
+            await learn.execute('-s retention')
+            await learn.execute('-d posthog:funnels')
+            await learn.execute('skills')
+
+            expect(invocations).toEqual([
+                { source: 'posthog', skill: 'retention-analysis', path: undefined, readKind: 'skill' },
+                { source: 'posthog', skill: 'retention-analysis', path: 'references/functions.md', readKind: 'file' },
+                { source: 'project', skill: 'team-conventions', path: 'notes.md', readKind: 'file_lines' },
+            ])
+        })
+
+        it('keeps learn working when the listener throws', async () => {
+            const learn = new ExecLearnCatalog([], { posthog: makeCatalog() }, () => {
+                throw new Error('capture failed')
+            })
+
+            await expect(learn.execute('posthog:funnels')).resolves.toContain('Build a conversion funnel.')
+        })
+    })
 })
