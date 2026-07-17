@@ -252,18 +252,18 @@ def _plan_to_freeze(
     trace_correlation_id: Optional[Union[int, str]],
 ) -> Optional[dict]:
     # Steps already carry their final HogQL by this point — see the write-back in `run_step`.
-    # Never freeze a plan the next delivery is better off re-planning: a plan where half or more of the
-    # steps failed would replay broken HogQL every run, and a step without any window placeholder would
-    # scan unbounded every run.
+    # Never freeze a plan the next delivery is better off re-planning: a plan with any failed step would
+    # replay that broken HogQL every run, and a step without any window placeholder would scan unbounded
+    # every run.
     if not freshly_planned:
         return None
-    # Freeze only when a strict majority of the plan's steps succeeded. If half or more failed, re-plan
-    # next run instead — a frozen mostly-broken plan replays those failures every delivery until the plan
-    # version bumps, whereas re-planning gives the planner and fix loop another shot. (An all-failed plan
-    # is just the extreme case of this.)
-    if total_steps and failed_count * 2 >= total_steps:
+    # Freeze only when every step succeeded. If any step failed, re-plan next run instead — a frozen plan
+    # replays verbatim until the plan version bumps, so even a single broken step would re-send broken
+    # HogQL every delivery, whereas re-planning gives the planner and fix loop another shot (and lets the
+    # subscription pick up any planner/prompt improvements we've since shipped).
+    if failed_count:
         logger.warning(
-            "ai_report.plan_majority_failed_not_frozen",
+            "ai_report.plan_had_failures_not_frozen",
             trace_correlation_id=trace_correlation_id,
             failed_count=failed_count,
             total_steps=total_steps,

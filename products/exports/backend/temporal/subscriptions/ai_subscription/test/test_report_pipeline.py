@@ -434,16 +434,17 @@ async def test_unfrozen_run_returns_plan_to_persist(
     "total_steps,failed_count,should_freeze",
     [
         (12, 0, True),  # all succeeded
-        (12, 5, True),  # minority failed — the working steps are still worth reusing
-        (12, 6, False),  # half failed — re-plan rather than replay
-        (12, 11, False),  # majority failed — don't freeze a plan that replays 11 broken queries every run
+        (12, 1, False),  # a single step failed — re-plan rather than replay one broken query every run
+        (12, 6, False),  # half failed
+        (12, 12, False),  # all failed
         (1, 1, False),  # the single step failed
     ],
 )
-def test_plan_to_freeze_requires_majority_success(total_steps: int, failed_count: int, should_freeze: bool) -> None:
-    # A frozen plan replays verbatim until AI_QUERY_PLAN_VERSION bumps, so a mostly-failed plan must NOT
-    # be frozen — otherwise a subscription whose generation was broken keeps re-sending broken queries
-    # instead of re-planning. Guards against the freeze bar regressing back to "only all-failed is skipped".
+def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int, should_freeze: bool) -> None:
+    # A frozen plan replays verbatim until AI_QUERY_PLAN_VERSION bumps, so a plan with ANY failed step must
+    # NOT be frozen — otherwise a subscription whose generation was partly broken keeps re-sending the
+    # broken queries instead of re-planning. Guards against the freeze bar loosening back to allowing
+    # partially-failed plans.
     plan = QueryPlan(
         overall_intent="i",
         steps=[
