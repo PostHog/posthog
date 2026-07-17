@@ -20,6 +20,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
+from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.metrics.backend.facade.api import (
@@ -549,6 +550,11 @@ class _MetricSamplesResponseSerializer(serializers.Serializer):
 class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "metrics"
     serializer_class = _FallbackSerializer
+    # Metrics is in private alpha: gate the API behind the `metrics` flag so only
+    # PostHog and directly-added teams can reach it. Added to the mixin's default
+    # permissions (team/org/access-control), not replacing them.
+    posthog_feature_flag = "metrics"
+    permission_classes = [PostHogFeatureFlagPermission]
 
     @extend_schema(responses={200: _HasMetricsResponseSerializer})
     @action(detail=False, methods=["GET"], required_scopes=["metrics:read"])
