@@ -10,13 +10,27 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions import capture_exception
 from posthog.settings.utils import get_from_env
+from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
+# Stable message for bare `NonRetryableException()` raises, so the exception and its logs read
+# consistently instead of showing an empty value. The original error is preserved as the cause.
+NON_RETRYABLE_ERROR_MESSAGE = "Data import stopped after a non-retryable, user-actionable error"
 
-class NonRetryableException(Exception):
+
+class NonRetryableException(NonReportableError):
+    """Terminal, already-classified import failure. Listed by name in the import activity's
+    `non_retryable_error_types`, so raising it stops Temporal retrying. As a `NonReportableError`
+    it is also skipped by the capture interceptor — the failure is a user-config problem we surface
+    a friendly message for, not a code defect.
+    """
+
+    def __init__(self, *args: object) -> None:
+        super().__init__(*(args or (NON_RETRYABLE_ERROR_MESSAGE,)))
+
     @property
     def cause(self) -> Optional[BaseException]:
         """Cause of the exception.

@@ -2,6 +2,21 @@ import traceback
 
 from temporalio.exceptions import ApplicationError, FailureError
 
+
+class NonReportableError(Exception):
+    """Base for already-classified failures the PostHog capture interceptor must not report to
+    error tracking as code defects.
+
+    These are expected, user-actionable conditions — code that raises one has already classified
+    the failure (bad credentials, a dropped/renamed remote table, a corrupt stored config) and
+    surfaced a friendly message to the user. Reporting them as exceptions only adds noise and,
+    when the message embeds volatile identifiers, churns a fresh fingerprint per occurrence. The
+    interceptor skips these the same way it skips cancellations and egress backpressure. Raise
+    this (or a subclass) to opt an exception out of exception capture; any product-analytics event
+    that records the classified failure for engineers stays intact.
+    """
+
+
 # Bound error strings so a multi-MB str(e) (ClickHouse 5xx body, Playwright HTML dump)
 # can't blow out Temporal's 2 MiB payload limit.
 MAX_ERROR_MESSAGE_CHARS = 8_000
