@@ -15,12 +15,13 @@ const MAX_ALLOW_LIST_ENTRIES: usize = 500_000;
 const MAX_ALLOW_LIST_ENTRY_LEN: usize = 256;
 
 // The fail-safe default lists, embedded so offline consumers with no access to the shipped allow
-// lists scrub with production-equivalent vocabulary instead of redacting everything. These `.txt`
-// files are the single source of truth: the crate embeds them here, and the TS pipeline's
-// `anonymize/default-dict.ts` mirrors them (a Jest test reads these files and asserts the match, so
-// the two stay in sync without either side parsing the other's source).
-const DEFAULT_TEXT_WORDS: &str = include_str!("default_text_words.txt");
-const DEFAULT_URL_SEGMENTS: &str = include_str!("default_url_segments.txt");
+// lists scrub with production-equivalent vocabulary instead of redacting everything. The `.txt`
+// files under `crosslang/` are the single source of truth: the crate embeds them here, and the TS
+// pipeline's `anonymize/default-dict.ts` mirrors them (a Jest test reads these files and asserts the
+// match, so the two stay in sync without either side parsing the other's source). See
+// `crosslang/README.md` for the cross-language folder convention.
+const DEFAULT_TEXT_WORDS: &str = include_str!("crosslang/default_text_words.txt");
+const DEFAULT_URL_SEGMENTS: &str = include_str!("crosslang/default_url_segments.txt");
 
 fn has_upper_ascii(s: &str) -> bool {
     s.bytes().any(|b| b.is_ascii_uppercase())

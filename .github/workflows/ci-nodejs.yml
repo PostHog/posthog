@@ -63,6 +63,10 @@ jobs:
                         # its Rust tests; a rust-side change (incl. the shared fixtures) must run it.
                         - 'rust/replay-anonymizer/**'
                         - 'rust/replay-anonymizer-node/**'
+                        # Cross-language contract files (data both a Rust crate and Node tests read)
+                        # live in `crosslang/` folders; editing one must run the Node parity test
+                        # that guards it. One pattern covers every such folder as the set grows.
+                        - '**/crosslang/**'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
                         - 'posthog/management/commands/setup_test_environment.py'
