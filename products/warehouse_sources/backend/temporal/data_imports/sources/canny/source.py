@@ -35,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CannySource(ResumableSource[CannySourceConfig, CannyResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developers.canny.io/api-reference"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CANNY

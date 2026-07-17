@@ -6158,6 +6158,7 @@ export interface ExternalDataSourceCreatePayload {
     prefix?: string
     description?: string
     access_method?: 'warehouse' | 'direct'
+    direct_query_enabled?: boolean
     created_via: 'web' | 'api' | 'mcp'
     payload: Record<string, any>
 }
@@ -6179,8 +6180,9 @@ export interface ExternalDataSource {
     prefix: string | null
     description: string | null
     access_method?: 'warehouse' | 'direct'
+    direct_query_enabled?: boolean
     created_via: 'web' | 'api' | 'mcp' | 'wizard' | null
-    engine?: 'duckdb' | 'postgres' | 'mysql' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | null
     latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
@@ -6430,6 +6432,11 @@ export interface ExternalDataJob {
      * (cdc-only history table). `null` for non-CDC syncs.
      */
     cdc_write_mode?: 'incremental_merge' | 'scd2_append' | null
+    /**
+     * Whether the rows synced by this job count toward billing. `false` for system-initiated
+     * runs the customer isn't charged for. `null` on legacy rows and means billable.
+     */
+    billable?: boolean | null
 }
 
 export interface SimpleDataWarehouseTable {
