@@ -29,6 +29,10 @@
             "description": "Include this parameter (any value) to restrict results to insights marked as favorited.",
             "type": "boolean"
         },
+        "include_dashboards": {
+            "description": "Opt in to receiving the deprecated `dashboards` field in insight payloads. API-token callers no longer receive it by default; use `dashboard_tiles` instead.",
+            "type": "boolean"
+        },
         "insight": {
             "description": "Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.",
             "enum": ["FUNNELS", "JSON", "LIFECYCLE", "PATHS", "RETENTION", "SQL", "STICKINESS", "TRENDS"],
