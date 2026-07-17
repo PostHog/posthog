@@ -51,7 +51,6 @@ class LangSmithSource(ResumableSource[LangSmithSourceConfig, LangSmithResumeConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="LangSmith",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter a LangSmith API key to sync your LLM traces, tracing projects, datasets, and feedback into the PostHog Data warehouse.
 
 Create an API key in your [LangSmith settings](https://smith.langchain.com/settings) under **API Keys**.
