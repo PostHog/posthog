@@ -931,7 +931,8 @@ class ClickUpSourceConfig(config.Config):
 
 @config.config
 class ClickhouseCloudSourceConfig(config.Config):
-    pass
+    key_id: str
+    key_secret: str
 
 
 @config.config
@@ -1677,7 +1678,8 @@ class FreshcallerSourceConfig(config.Config):
 
 @config.config
 class FreshchatSourceConfig(config.Config):
-    pass
+    domain: str
+    api_key: str
 
 
 @config.config
@@ -4091,7 +4093,9 @@ class SonarqubeSourceConfig(config.Config):
 
 @config.config
 class SonatypeNexusSourceConfig(config.Config):
-    pass
+    host: str
+    username: str
+    password: str
 
 
 @config.config

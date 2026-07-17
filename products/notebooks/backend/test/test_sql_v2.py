@@ -23,6 +23,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
+from posthog.models.user import User
 
 from products.notebooks.backend.kernel_package import kernel_package_bytes_and_hash
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
@@ -87,6 +88,7 @@ class TestSQLV2Callback(APIBaseTest):
             self.node_run = NotebookNodeRun.objects.create(
                 team=self.team,
                 notebook=self.notebook,
+                user=self.user,
                 node_id="node-1",
                 status=NotebookNodeRun.Status.RUNNING,
             )
@@ -167,6 +169,115 @@ class TestSQLV2Callback(APIBaseTest):
         response = self._post(token, envelope={**self.envelope, "stdout": "x" * (MAX_ENVELOPE_BYTES + 1)})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self._reload_run().status, NotebookNodeRun.Status.RUNNING)
+
+    def _create_runtime(self, status: str, user: User | None = None) -> KernelRuntime:
+        return KernelRuntime.objects.create(
+            team=self.team,
+            notebook=self.notebook,
+            notebook_short_id=self.notebook.short_id,
+            user=user or self.user,
+            status=status,
+            backend=KernelRuntime.Backend.DOCKER,
+        )
+
+    def test_frame_snapshot_never_lands_on_another_users_kernel(self):
+        # Kernels are per user, so collaborators on one notebook each have their own. A snapshot
+        # filed by runtime id alone would write this user's frame names onto a teammate's kernel
+        # row, surfacing them in that teammate's schema browser.
+        collaborator = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+        theirs = self._create_runtime(KernelRuntime.Status.RUNNING, user=collaborator)
+        with team_scope(self.team.id):
+            self.node_run.kernel_runtime_id = theirs.id
+            self.node_run.save(update_fields=["kernel_runtime_id"])
+
+        token = mint_callback_token(str(self.node_run.id), self.team.id)
+        response = self._post(
+            token,
+            envelope={
+                **self.envelope,
+                "frames": [{"name": "secret_df", "kind": "frame", "columns": [], "row_count": 1}],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        theirs.refresh_from_db()
+        self.assertIsNone(theirs.frames)
+
+    def test_frame_snapshot_lands_on_the_kernel_that_ran_it(self):
+        # A snapshot describes one kernel's state, so it must follow the run's dispatch-time
+        # kernel. Resolving "the notebook's current kernel" at callback time instead would let a
+        # kernel that died mid-run overwrite the frames of the live one that replaced it.
+        ran_on = self._create_runtime(KernelRuntime.Status.STOPPED)
+        replaced_by = self._create_runtime(KernelRuntime.Status.RUNNING)
+        with team_scope(self.team.id):
+            self.node_run.kernel_runtime_id = ran_on.id
+            self.node_run.save(update_fields=["kernel_runtime_id"])
+        frames = [{"name": "sql_df", "kind": "frame", "columns": [["a", "BIGINT"]], "row_count": 3}]
+
+        token = mint_callback_token(str(self.node_run.id), self.team.id)
+        response = self._post(token, envelope={**self.envelope, "frames": frames})
+
+        self.assertEqual(response.status_code, 200)
+        ran_on.refresh_from_db()
+        replaced_by.refresh_from_db()
+        self.assertEqual(ran_on.frames, frames)
+        self.assertIsNone(replaced_by.frames)
+
+    def test_a_late_callback_cannot_overwrite_a_newer_snapshot(self):
+        # The kernel runs cells one at a time, but their callbacks land on separate web workers
+        # and can arrive out of order. Without a guard the slow older one wins, leaving frames
+        # it has since dropped on show until some later run happens to refresh them.
+        ran_on = self._create_runtime(KernelRuntime.Status.RUNNING)
+        with team_scope(self.team.id):
+            older = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                user=self.user,
+                node_id="n-old",
+                status=NotebookNodeRun.Status.RUNNING,
+                kernel_runtime_id=ran_on.id,
+            )
+            newer = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                user=self.user,
+                node_id="n-new",
+                status=NotebookNodeRun.Status.RUNNING,
+                kernel_runtime_id=ran_on.id,
+            )
+        fresh = [{"name": "after", "kind": "frame", "columns": [], "row_count": 1}]
+        stale = [{"name": "before", "kind": "frame", "columns": [], "row_count": 1}]
+
+        # Newer run's callback lands first, then the older one's arrives late.
+        for run, frames in ((newer, fresh), (older, stale)):
+            response = self.client.post(
+                f"/internal/notebooks/runs/{run.id}/result/",
+                data=json.dumps({"envelope": {**self.envelope, "frames": frames}}),
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {mint_callback_token(str(run.id), self.team.id)}",
+            )
+            self.assertEqual(response.status_code, 200)
+
+        ran_on.refresh_from_db()
+        self.assertEqual(ran_on.frames, fresh)
+
+    def test_hogql_envelope_leaves_the_previous_snapshot_standing(self):
+        # A hogql run never enters the kernel, so it reports no frames and must not be read as
+        # "the kernel now has none" — that would blank the browser on every SQL run.
+        ran_on = self._create_runtime(KernelRuntime.Status.RUNNING)
+        existing = [{"name": "sql_df", "kind": "frame", "columns": [["a", "BIGINT"]], "row_count": 3}]
+        ran_on.frames = existing
+        ran_on.save(update_fields=["frames"])
+        with team_scope(self.team.id):
+            self.node_run.kernel_runtime_id = ran_on.id
+            self.node_run.save(update_fields=["kernel_runtime_id"])
+
+        token = mint_callback_token(str(self.node_run.id), self.team.id)
+        response = self._post(token)
+
+        self.assertEqual(response.status_code, 200)
+        ran_on.refresh_from_db()
+        self.assertEqual(ran_on.frames, existing)
 
     def test_unknown_run_returns_404(self):
         other_id = "00000000-0000-0000-0000-000000000000"

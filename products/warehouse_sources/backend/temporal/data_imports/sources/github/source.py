@@ -1,5 +1,7 @@
 import secrets
-from typing import TYPE_CHECKING, Any, Optional, cast
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
 
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
@@ -70,6 +72,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.set
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+_R = TypeVar("_R")
 
 # Schemas that can be fed by GitHub webhooks, mapped to the X-GitHub-Event header
 # value the webhook handler routes on (schema_mapping is keyed by these values).
@@ -523,6 +527,19 @@ If automatic creation failed, your token needs webhook permissions — the **adm
     def _webhook_repositories(self, config: GithubSourceConfig) -> list[str]:
         return self.effective_repositories(config)
 
+    # The webhook operations run 1-2 GitHub calls per repo inside synchronous request handlers
+    # (create/delete/info actions, and the repo-list reconcile inside the source PATCH). A source
+    # can carry up to MAX_REPOSITORIES repos, so the per-repo calls fan out on a bounded pool
+    # instead of running serially — capping the repo list here would leave webhooks unmanaged.
+    _WEBHOOK_CONCURRENCY = 8
+
+    def _map_webhook_repositories(self, repositories: list[str], fn: Callable[[str], _R]) -> list[_R]:
+        """Run ``fn`` per repo on a bounded thread pool, preserving repo order."""
+        if len(repositories) <= 1:
+            return [fn(repository) for repository in repositories]
+        with ThreadPoolExecutor(max_workers=min(self._WEBHOOK_CONCURRENCY, len(repositories))) as pool:
+            return list(pool.map(fn, repositories))
+
     def ensure_webhooks_for_repositories(
         self, config: GithubSourceConfig, webhook_url: str, team_id: int, repositories: list[str], secret: str
     ) -> list[str]:
@@ -532,14 +549,15 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         access_token = self._get_access_token(config, team_id)
         egress_identity = self._egress_identity(config, team_id)
         events = self.get_desired_webhook_events(config, list(GITHUB_WEBHOOK_RESOURCE_MAP.keys())) or []
-        failures: list[str] = []
-        for repository in repositories:
-            result = ensure_repo_webhook(
+        results = self._map_webhook_repositories(
+            repositories,
+            lambda repository: ensure_repo_webhook(
                 access_token, repository, webhook_url, events, secret=secret, egress_identity=egress_identity
-            )
-            if not result.success:
-                failures.append(f"{repository}: {result.error}")
-        return failures
+            ),
+        )
+        return [
+            f"{repository}: {result.error}" for repository, result in zip(repositories, results) if not result.success
+        ]
 
     def delete_webhooks_for_repositories(
         self, config: GithubSourceConfig, webhook_url: str, team_id: int, repositories: list[str]
@@ -548,12 +566,15 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         Returns per-repo failure messages (empty on full success)."""
         access_token = self._get_access_token(config, team_id)
         egress_identity = self._egress_identity(config, team_id)
-        failures: list[str] = []
-        for repository in repositories:
-            result = delete_repo_webhook(access_token, repository, webhook_url, egress_identity=egress_identity)
-            if not result.success:
-                failures.append(f"{repository}: {result.error}")
-        return failures
+        results = self._map_webhook_repositories(
+            repositories,
+            lambda repository: delete_repo_webhook(
+                access_token, repository, webhook_url, egress_identity=egress_identity
+            ),
+        )
+        return [
+            f"{repository}: {result.error}" for repository, result in zip(repositories, results) if not result.success
+        ]
 
     def create_webhook(self, config: GithubSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
         access_token = self._get_access_token(config, team_id)
@@ -568,16 +589,17 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         # out under runs so the workflow pair travels together, and an unmapped event no-ops in the
         # hog function anyway, so over-subscribing is harmless while enabling a table later is free.
         events = self.get_desired_webhook_events(config, list(GITHUB_WEBHOOK_RESOURCE_MAP.keys())) or []
-        failures: list[str] = []
-        any_success = False
-        for repository in self._webhook_repositories(config):
-            result = ensure_repo_webhook(
+        repositories = self._webhook_repositories(config)
+        results = self._map_webhook_repositories(
+            repositories,
+            lambda repository: ensure_repo_webhook(
                 access_token, repository, webhook_url, events, secret=secret, egress_identity=egress_identity
-            )
-            if result.success:
-                any_success = True
-            else:
-                failures.append(f"{repository}: {result.error}")
+            ),
+        )
+        any_success = any(result.success for result in results)
+        failures = [
+            f"{repository}: {result.error}" for repository, result in zip(repositories, results) if not result.success
+        ]
         if not failures:
             return WebhookCreationResult(success=True, extra_inputs={"signing_secret": secret})
         # Partial success still persists the secret: the repos that did get a hook must verify
@@ -603,13 +625,16 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         # installation identity so the hook list and PATCH draw from the same shared egress
         # budget as the data plane; PAT sources resolve to an empty identity (record-only).
         desired_events = self.get_desired_webhook_events(config, list(GITHUB_WEBHOOK_RESOURCE_MAP.keys())) or []
-        failures: list[str] = []
-        for repository in self._webhook_repositories(config):
-            result = update_repo_webhook(
+        repositories = self._webhook_repositories(config)
+        results = self._map_webhook_repositories(
+            repositories,
+            lambda repository: update_repo_webhook(
                 access_token, repository, webhook_url, desired_events, egress_identity=egress_identity
-            )
-            if not result.success:
-                failures.append(f"{repository}: {result.error}")
+            ),
+        )
+        failures = [
+            f"{repository}: {result.error}" for repository, result in zip(repositories, results) if not result.success
+        ]
         if not failures:
             return WebhookSyncResult(success=True)
         return WebhookSyncResult(success=False, error="; ".join(failures))
@@ -617,11 +642,16 @@ If automatic creation failed, your token needs webhook permissions — the **adm
     def delete_webhook(self, config: GithubSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
         access_token = self._get_access_token(config, team_id)
         egress_identity = self._egress_identity(config, team_id)
-        failures: list[str] = []
-        for repository in self._webhook_repositories(config):
-            result = delete_repo_webhook(access_token, repository, webhook_url, egress_identity=egress_identity)
-            if not result.success:
-                failures.append(f"{repository}: {result.error}")
+        repositories = self._webhook_repositories(config)
+        results = self._map_webhook_repositories(
+            repositories,
+            lambda repository: delete_repo_webhook(
+                access_token, repository, webhook_url, egress_identity=egress_identity
+            ),
+        )
+        failures = [
+            f"{repository}: {result.error}" for repository, result in zip(repositories, results) if not result.success
+        ]
         if not failures:
             return WebhookDeletionResult(success=True)
         return WebhookDeletionResult(success=False, error="; ".join(failures))
@@ -637,8 +667,14 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         errors: list[str] = []
         merged_events: set[str] = set()
         first_info: ExternalWebhookInfo | None = None
-        for repository in self._webhook_repositories(config):
-            info = get_repo_webhook_info(access_token, repository, webhook_url, egress_identity=egress_identity)
+        repositories = self._webhook_repositories(config)
+        infos = self._map_webhook_repositories(
+            repositories,
+            lambda repository: get_repo_webhook_info(
+                access_token, repository, webhook_url, egress_identity=egress_identity
+            ),
+        )
+        for repository, info in zip(repositories, infos):
             if info.error:
                 errors.append(f"{repository}: {info.error}")
             elif not info.exists:

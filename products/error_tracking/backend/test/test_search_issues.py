@@ -22,7 +22,7 @@ from posthog.schema import (
     MaxErrorTrackingSearchResponse,
 )
 
-from products.error_tracking.backend.logic.tools.search_issues import SearchErrorTrackingIssuesTool
+from products.error_tracking.backend.max_tools import SearchErrorTrackingIssuesTool
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
