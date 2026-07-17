@@ -11,7 +11,7 @@ import { IconPlus, IconTrash } from '@posthog/icons'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { defaultSurveyAppearance } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { sanitizeHTML } from 'scenes/surveys/utils'
+import { canQuestionSkipSubmitButton, sanitizeHTML } from 'scenes/surveys/utils'
 
 import {
     type MultipleSurveyQuestion,
@@ -286,6 +286,8 @@ function QuestionCanvas({ question, index }: { question: SurveyQuestion; index: 
     }
 
     const buttonTextDefault = question.type === SurveyQuestionType.Link ? 'Continue' : 'Submit'
+    // Auto-submit hides the submit button at render time, so the preview should match.
+    const hidesSubmitButton = canQuestionSkipSubmitButton(question) && !!question.skipSubmitButton
 
     return (
         <form className="survey-form" name="surveyForm" onSubmit={(event) => event.preventDefault()}>
@@ -357,15 +359,17 @@ function QuestionCanvas({ question, index }: { question: SurveyQuestion; index: 
                     ) : null}
 
                     <div className="bottom-section">
-                        <InlineEditable
-                            as="span"
-                            value={question.buttonText || ''}
-                            onChange={(value) => updateField('buttonText', value)}
-                            placeholder={buttonTextDefault}
-                            ariaLabel="Submit button label"
-                            className="form-submit"
-                            data-attr={`canvas-question-${index}-button-text`}
-                        />
+                        {!hidesSubmitButton && (
+                            <InlineEditable
+                                as="span"
+                                value={question.buttonText || ''}
+                                onChange={(value) => updateField('buttonText', value)}
+                                placeholder={buttonTextDefault}
+                                ariaLabel="Submit button label"
+                                className="form-submit"
+                                data-attr={`canvas-question-${index}-button-text`}
+                            />
+                        )}
                         <KeyboardHints questionType={question.type} />
                     </div>
                 </div>
