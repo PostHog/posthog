@@ -13,9 +13,11 @@ class LessAnnoyingCRMEndpointConfig:
     name: str
     # LACRM Function name sent in the request body (e.g. "GetContacts").
     function: str
-    # Keys to walk in the JSON response to reach the record collection. An empty list means the
-    # response body is itself the array of records (GetUsers / GetTeams return a bare JSON array).
-    result_path: list[str]
+    # jsonpath selecting the record collection in the response, or None when the body is itself the
+    # array of records (GetUsers / GetTeams return a bare JSON array). List endpoints nest under
+    # "Results"; GetTasks nests its results as an object keyed by id, so it uses "Results.*" to expand
+    # to the dict's values (one row per task) — a bare "Results" would yield the whole object as one row.
+    data_selector: Optional[str]
     primary_keys: list[str]
     # Whether the function pages via Page / MaxNumberOfResults. Small reference tables (users, teams)
     # return everything in one call and reject / ignore pagination params, so they're single-shot.
@@ -46,21 +48,21 @@ LESS_ANNOYING_CRM_ENDPOINTS: dict[str, LessAnnoyingCRMEndpointConfig] = {
     "users": LessAnnoyingCRMEndpointConfig(
         name="users",
         function="GetUsers",
-        result_path=[],
+        data_selector=None,
         primary_keys=["UserId"],
         paginated=False,
     ),
     "teams": LessAnnoyingCRMEndpointConfig(
         name="teams",
         function="GetTeams",
-        result_path=[],
+        data_selector=None,
         primary_keys=["TeamId"],
         paginated=False,
     ),
     "contacts": LessAnnoyingCRMEndpointConfig(
         name="contacts",
         function="GetContacts",
-        result_path=["Results"],
+        data_selector="Results",
         primary_keys=["ContactId"],
         partition_key="DateCreated",
         sort_by="DateCreated",
@@ -69,7 +71,7 @@ LESS_ANNOYING_CRM_ENDPOINTS: dict[str, LessAnnoyingCRMEndpointConfig] = {
     "tasks": LessAnnoyingCRMEndpointConfig(
         name="tasks",
         function="GetTasks",
-        result_path=["Results"],
+        data_selector="Results.*",
         primary_keys=["TaskId"],
         partition_key="DateCreated",
         date_window_params=("StartDate", "EndDate"),
@@ -78,7 +80,7 @@ LESS_ANNOYING_CRM_ENDPOINTS: dict[str, LessAnnoyingCRMEndpointConfig] = {
     "notes": LessAnnoyingCRMEndpointConfig(
         name="notes",
         function="GetNotes",
-        result_path=["Results"],
+        data_selector="Results",
         primary_keys=["NoteId"],
         partition_key="DateCreated",
         sort_direction="Ascending",
@@ -86,7 +88,7 @@ LESS_ANNOYING_CRM_ENDPOINTS: dict[str, LessAnnoyingCRMEndpointConfig] = {
     "events": LessAnnoyingCRMEndpointConfig(
         name="events",
         function="GetEvents",
-        result_path=["Results"],
+        data_selector="Results",
         primary_keys=["EventId"],
         partition_key="DateCreated",
     ),
