@@ -8,7 +8,7 @@ use common::{
     cleanup_team, create_local_kafka_producer, create_mock_kafka, create_test_pool, make_person,
     KAFKA_BOOTSTRAP, TARGET_TABLE, TOPIC,
 };
-use personhog_proto::personhog::types::v1::Person;
+use personhog_proto::personhog::types::v1::{DistinctIdWithVersion, Person};
 use personhog_writer::buffer::PersonBuffer;
 use personhog_writer::consumer::{ConsumerTask, FlushBatch};
 use personhog_writer::kafka::PersonConsumer;
@@ -988,4 +988,200 @@ async fn e2e_produce_to_kafka_and_verify_pg_write() {
     }
 
     cleanup_team(&pool, team_id).await;
+}
+
+// ============================================================
+// PG Writer: create-record distinct id insertion
+// ============================================================
+
+#[tokio::test]
+async fn writer_inserts_create_record_distinct_ids() {
+    let pool = create_test_pool().await;
+    let team_id: i32 = 99_005;
+    common::cleanup_team_real_tables(&pool, team_id).await;
+
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), "posthog_person".to_string()),
+        common::test_store_config(),
+    );
+
+    let mut person = make_person(team_id as i64, 999_099_001, 0);
+    person.initial_distinct_ids = vec![
+        DistinctIdWithVersion {
+            distinct_id: "create-did-1".to_string(),
+            version: Some(0),
+        },
+        DistinctIdWithVersion {
+            distinct_id: "create-did-2".to_string(),
+            version: Some(0),
+        },
+    ];
+
+    assert!(matches!(
+        writer.upsert_batch(vec![person.clone()]).await,
+        BatchOutcome::Success
+    ));
+
+    let rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT distinct_id, person_id FROM posthog_persondistinctid
+         WHERE team_id = $1 ORDER BY distinct_id",
+    )
+    .bind(team_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 2, "both distinct ids must be inserted");
+    assert!(rows.iter().all(|(_, pid)| *pid == 999_099_001));
+
+    // A create replay (same record) must be idempotent, not an error.
+    assert!(matches!(
+        writer.upsert_batch(vec![person]).await,
+        BatchOutcome::Success
+    ));
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM posthog_persondistinctid WHERE team_id = $1")
+            .bind(team_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 2, "replay must not duplicate distinct ids");
+
+    common::cleanup_team_real_tables(&pool, team_id).await;
+}
+
+/// A stale create record whose person upsert is version-skipped (the row
+/// has moved past it) must not leave distinct-id mappings behind — the
+/// mappings guard requires the record to be the row's current state.
+#[tokio::test]
+async fn writer_skips_distinct_ids_of_version_rejected_creates() {
+    let pool = create_test_pool().await;
+    let team_id: i32 = 99_006;
+    common::cleanup_team_real_tables(&pool, team_id).await;
+
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), "posthog_person".to_string()),
+        common::test_store_config(),
+    );
+
+    // The person already exists at version 3 (create applied, then updated).
+    let newer = make_person(team_id as i64, 999_099_002, 3);
+    assert!(matches!(
+        writer.upsert_batch(vec![newer]).await,
+        BatchOutcome::Success
+    ));
+
+    // A stale version-0 create replay arrives late.
+    let mut stale_create = make_person(team_id as i64, 999_099_002, 0);
+    stale_create.initial_distinct_ids = vec![DistinctIdWithVersion {
+        distinct_id: "stale-did".to_string(),
+        version: Some(0),
+    }];
+    assert!(matches!(
+        writer.upsert_batch(vec![stale_create]).await,
+        BatchOutcome::Success
+    ));
+
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM posthog_persondistinctid WHERE team_id = $1")
+            .bind(team_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 0, "a rejected create must not add mappings");
+
+    common::cleanup_team_real_tables(&pool, team_id).await;
+}
+
+/// A malformed create claiming a person id that exists only under another
+/// team must not error the batch: its person row is skipped (invalid
+/// uuid), and without the guard's team match the mapping insert would
+/// abort the chunk on the composite FK, dumping the record into row
+/// fallback as a data failure. The guard skips it cleanly instead.
+#[tokio::test]
+async fn writer_skips_distinct_ids_pointing_at_another_teams_person() {
+    let pool = create_test_pool().await;
+    let team_a: i32 = 99_007;
+    let team_b: i32 = 99_008;
+    common::cleanup_team_real_tables(&pool, team_a).await;
+    common::cleanup_team_real_tables(&pool, team_b).await;
+
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), "posthog_person".to_string()),
+        common::test_store_config(),
+    );
+
+    // The person id exists only under team A.
+    assert!(matches!(
+        writer
+            .upsert_batch(vec![make_person(team_a as i64, 999_099_003, 0)])
+            .await,
+        BatchOutcome::Success
+    ));
+
+    // Team B record with the same id and an invalid uuid: the person row
+    // is skipped, but the distinct ids still reach the mapping insert.
+    let mut cross = make_person(team_b as i64, 999_099_003, 0);
+    cross.uuid = "not-a-uuid".to_string();
+    cross.initial_distinct_ids = vec![DistinctIdWithVersion {
+        distinct_id: "cross-team-did".to_string(),
+        version: Some(0),
+    }];
+    assert!(matches!(
+        writer.upsert_batch(vec![cross]).await,
+        BatchOutcome::Success
+    ));
+
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM posthog_persondistinctid WHERE team_id = $1")
+            .bind(team_b)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 0, "no mapping may point at another team's person");
+
+    common::cleanup_team_real_tables(&pool, team_a).await;
+    common::cleanup_team_real_tables(&pool, team_b).await;
+}
+
+/// A create reusing a team's existing uuid under a different (freshly
+/// allocated) id is rejected by the (team_id, uuid) unique index and must
+/// surface as a data failure — never as silent success — so the acked-
+/// write loss is observable.
+#[tokio::test]
+async fn writer_surfaces_duplicate_uuid_creates_as_data_failures() {
+    let pool = create_test_pool().await;
+    let team_id: i32 = 99_009;
+    common::cleanup_team_real_tables(&pool, team_id).await;
+
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), "posthog_person".to_string()),
+        common::test_store_config(),
+    );
+
+    let original = make_person(team_id as i64, 999_099_004, 0);
+    let taken_uuid = original.uuid.clone();
+    assert!(matches!(
+        writer.upsert_batch(vec![original]).await,
+        BatchOutcome::Success
+    ));
+
+    let mut duplicate = make_person(team_id as i64, 999_099_005, 0);
+    duplicate.uuid = taken_uuid;
+    let outcome = writer.upsert_batch(vec![duplicate]).await;
+    match outcome {
+        BatchOutcome::Partial { data_failed, .. } => {
+            assert_eq!(data_failed.len(), 1);
+            assert_eq!(data_failed[0].id, 999_099_005);
+        }
+        other => panic!("duplicate uuid must surface as a data failure, got {other:?}"),
+    }
+
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM posthog_person WHERE team_id = $1")
+        .bind(team_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1, "the duplicate row must not exist");
+
+    common::cleanup_team_real_tables(&pool, team_id).await;
 }

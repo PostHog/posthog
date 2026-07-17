@@ -137,6 +137,10 @@ impl storage::PersonLookup for FailingStorage {
     ) -> storage::StorageResult<bool> {
         Err(self.error.clone())
     }
+
+    async fn allocate_person_ids(&self, _count: u32) -> storage::StorageResult<Vec<i64>> {
+        Err(self.error.clone())
+    }
 }
 
 #[async_trait]
@@ -517,6 +521,10 @@ impl storage::PersonLookup for SuccessStorage {
         _min_version: i64,
     ) -> storage::StorageResult<bool> {
         Ok(false)
+    }
+
+    async fn allocate_person_ids(&self, count: u32) -> storage::StorageResult<Vec<i64>> {
+        Ok((1..=count as i64).collect())
     }
 }
 
@@ -958,6 +966,10 @@ impl storage::PersonLookup for PopulatedStorage {
     ) -> storage::StorageResult<bool> {
         Ok(false)
     }
+
+    async fn allocate_person_ids(&self, count: u32) -> storage::StorageResult<Vec<i64>> {
+        Ok((1..=count as i64).collect())
+    }
 }
 
 #[async_trait]
@@ -1373,6 +1385,10 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         _min_version: i64,
     ) -> storage::StorageResult<bool> {
         Ok(false)
+    }
+
+    async fn allocate_person_ids(&self, count: u32) -> storage::StorageResult<Vec<i64>> {
+        Ok((1..=count as i64).collect())
     }
 }
 

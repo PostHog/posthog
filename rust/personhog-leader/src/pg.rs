@@ -48,7 +48,7 @@ pub async fn load_person_from_pg(
         uuid,
         team_id: team_id as i64,
         properties,
-        created_at: created_at.timestamp(),
+        created_at: created_at.timestamp_millis(),
         version: version.unwrap_or(0),
         is_identified,
     }))

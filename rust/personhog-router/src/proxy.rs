@@ -25,10 +25,12 @@ const SERVICE_PREFIX: &str = "/personhog.service.v1.PersonHogService/";
 const REPLICA_PREFIX: &str = "/personhog.replica.v1.PersonHogReplica/";
 
 pub const KNOWN_METHODS: &[&str] = &[
+    "AllocatePersonIds",
     "CheckCohortMembership",
     "CountCohortMembers",
     "CountGroupTypeMappings",
     "CreateGroup",
+    "CreatePerson",
     "DeleteCohortMember",
     "DeleteCohortMembersBulk",
     "DeleteGroupTypeMapping",
@@ -159,6 +161,14 @@ impl RawProxyInner {
                 let (resp, call_ms) = self
                     .raw_proxy_to_leader(req, "UpdatePersonProperties")
                     .await;
+                (resp, "leader", call_ms)
+            }
+            // Person creation routes to the leader like every person-data
+            // write; the x-person-id header carries the pre-allocated id
+            // (AllocatePersonIds itself is replica-routed via the default
+            // arm — sequence bookkeeping, not a person-data write).
+            "CreatePerson" => {
+                let (resp, call_ms) = self.raw_proxy_to_leader(req, "CreatePerson").await;
                 (resp, "leader", call_ms)
             }
             "GetPerson" => {

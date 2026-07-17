@@ -85,11 +85,12 @@ pub fn make_person(team_id: i64, person_id: i64, version: i64) -> Person {
         properties: serde_json::to_vec(&serde_json::json!({"email": "test@example.com"})).unwrap(),
         properties_last_updated_at: vec![],
         properties_last_operation: vec![],
-        created_at: 1700000000,
+        created_at: 1_700_000_000_000,
         version,
         is_identified: false,
         is_user_id: None,
         last_seen_at: None,
+        initial_distinct_ids: vec![],
     }
 }
 
@@ -100,4 +101,20 @@ pub async fn cleanup_team(pool: &PgPool, team_id: i32) {
         .execute(pool)
         .await
         .expect("failed to clean up test data");
+}
+
+/// Clean up test data from the real posthog_person and
+/// posthog_persondistinctid tables for a given team (used by the
+/// distinct-id insertion tests, which require posthog_person mode).
+pub async fn cleanup_team_real_tables(pool: &PgPool, team_id: i32) {
+    sqlx::query("DELETE FROM posthog_persondistinctid WHERE team_id = $1")
+        .bind(team_id)
+        .execute(pool)
+        .await
+        .expect("failed to clean up distinct ids");
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
+        .bind(team_id)
+        .execute(pool)
+        .await
+        .expect("failed to clean up persons");
 }

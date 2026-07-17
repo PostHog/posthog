@@ -30,6 +30,7 @@ class Person(_message.Message):
         "is_identified",
         "is_user_id",
         "last_seen_at",
+        "initial_distinct_ids",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
     UUID_FIELD_NUMBER: _ClassVar[int]
@@ -42,6 +43,7 @@ class Person(_message.Message):
     IS_IDENTIFIED_FIELD_NUMBER: _ClassVar[int]
     IS_USER_ID_FIELD_NUMBER: _ClassVar[int]
     LAST_SEEN_AT_FIELD_NUMBER: _ClassVar[int]
+    INITIAL_DISTINCT_IDS_FIELD_NUMBER: _ClassVar[int]
     id: int
     uuid: str
     team_id: int
@@ -53,6 +55,7 @@ class Person(_message.Message):
     is_identified: bool
     is_user_id: bool
     last_seen_at: int
+    initial_distinct_ids: _containers.RepeatedCompositeFieldContainer[DistinctIdWithVersion]
 
     def __init__(
         self,
@@ -67,6 +70,7 @@ class Person(_message.Message):
         is_identified: bool = ...,
         is_user_id: bool = ...,
         last_seen_at: _Optional[int] = ...,
+        initial_distinct_ids: _Optional[_Iterable[_Union[DistinctIdWithVersion, _Mapping]]] = ...,
     ) -> None: ...
 
 class DistinctIdWithVersion(_message.Message):
@@ -345,6 +349,55 @@ class UpdatePersonPropertiesResponse(_message.Message):
     updated: bool
 
     def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ..., updated: bool = ...) -> None: ...
+
+class AllocatePersonIdsRequest(_message.Message):
+    __slots__ = ("count",)
+    COUNT_FIELD_NUMBER: _ClassVar[int]
+    count: int
+
+    def __init__(self, count: _Optional[int] = ...) -> None: ...
+
+class AllocatePersonIdsResponse(_message.Message):
+    __slots__ = ("person_ids",)
+    PERSON_IDS_FIELD_NUMBER: _ClassVar[int]
+    person_ids: _containers.RepeatedScalarFieldContainer[int]
+
+    def __init__(self, person_ids: _Optional[_Iterable[int]] = ...) -> None: ...
+
+class CreatePersonRequest(_message.Message):
+    __slots__ = ("team_id", "person_id", "uuid", "properties", "created_at", "is_identified", "distinct_ids")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    UUID_FIELD_NUMBER: _ClassVar[int]
+    PROPERTIES_FIELD_NUMBER: _ClassVar[int]
+    CREATED_AT_FIELD_NUMBER: _ClassVar[int]
+    IS_IDENTIFIED_FIELD_NUMBER: _ClassVar[int]
+    DISTINCT_IDS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_id: int
+    uuid: str
+    properties: bytes
+    created_at: int
+    is_identified: bool
+    distinct_ids: _containers.RepeatedScalarFieldContainer[str]
+
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        person_id: _Optional[int] = ...,
+        uuid: _Optional[str] = ...,
+        properties: _Optional[bytes] = ...,
+        created_at: _Optional[int] = ...,
+        is_identified: bool = ...,
+        distinct_ids: _Optional[_Iterable[str]] = ...,
+    ) -> None: ...
+
+class CreatePersonResponse(_message.Message):
+    __slots__ = ("person",)
+    PERSON_FIELD_NUMBER: _ClassVar[int]
+    person: Person
+
+    def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ...) -> None: ...
 
 class DeletePersonsRequest(_message.Message):
     __slots__ = ("team_id", "person_uuids")

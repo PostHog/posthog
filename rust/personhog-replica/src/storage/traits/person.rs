@@ -120,4 +120,14 @@ pub trait PersonLookup: Send + Sync {
         person_id: i64,
         min_version: i64,
     ) -> StorageResult<bool>;
+
+    // Id allocation
+
+    /// Reserve `count` person ids from `posthog_person_id_seq`. Sequence
+    /// values are vended exactly once — never reused across concurrent
+    /// callers, rollbacks, or crashes — so the returned ids are safe to
+    /// use for leader-path person creation without collision. Advances
+    /// the sequence only: writes no rows and takes no table locks. The
+    /// ids are exclusively the caller's but not necessarily contiguous.
+    async fn allocate_person_ids(&self, count: u32) -> StorageResult<Vec<i64>>;
 }

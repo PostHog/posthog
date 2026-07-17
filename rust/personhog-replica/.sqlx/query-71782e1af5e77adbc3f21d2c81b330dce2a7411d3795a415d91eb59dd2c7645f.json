@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT nextval('posthog_person_id_seq') AS \"id!\" FROM generate_series(1, $1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "71782e1af5e77adbc3f21d2c81b330dce2a7411d3795a415d91eb59dd2c7645f"
+}

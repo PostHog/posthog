@@ -2980,3 +2980,22 @@ async fn test_set_person_version_floor_missing_person() {
 
     ctx.cleanup().await.ok();
 }
+
+// ============================================================
+// Person id allocation tests
+// ============================================================
+
+#[tokio::test]
+async fn test_allocate_person_ids_vends_unique_ids_across_calls() {
+    let ctx = TestContext::new().await;
+
+    let first = ctx.storage.allocate_person_ids(5).await.unwrap();
+    let second = ctx.storage.allocate_person_ids(5).await.unwrap();
+
+    assert_eq!(first.len(), 5);
+    assert_eq!(second.len(), 5);
+    let all: std::collections::HashSet<i64> = first.iter().chain(second.iter()).copied().collect();
+    assert_eq!(all.len(), 10, "sequence must never vend an id twice");
+
+    ctx.cleanup().await.ok();
+}

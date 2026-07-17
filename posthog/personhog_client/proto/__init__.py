@@ -66,6 +66,10 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 impor
     UpdateGroupTypeMappingResponse,
 )
 from posthog.personhog_client.proto.generated.personhog.types.v1.person_pb2 import (
+    AllocatePersonIdsRequest,
+    AllocatePersonIdsResponse,
+    CreatePersonRequest,
+    CreatePersonResponse,
     DeletePersonlessDistinctIdsBatchForTeamRequest,
     DeletePersonlessDistinctIdsBatchForTeamResponse,
     DeletePersonsBatchForTeamRequest,

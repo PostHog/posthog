@@ -11,15 +11,15 @@ use std::sync::Arc;
 
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CohortMembership, CohortMembershipResponse,
-    CountCohortMembersRequest, CountCohortMembersResponse, CountGroupTypeMappingsRequest,
-    CountGroupTypeMappingsResponse, CreateGroupRequest, CreateGroupResponse,
-    DeleteCohortMemberRequest, DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest,
-    DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
-    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
-    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
-    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
-    DeletePersonlessDistinctIdsBatchForTeamRequest,
+    AllocatePersonIdsRequest, AllocatePersonIdsResponse, CheckCohortMembershipRequest,
+    CohortMembership, CohortMembershipResponse, CountCohortMembersRequest,
+    CountCohortMembersResponse, CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse,
+    CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest,
+    DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
+    DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
+    DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonlessDistinctIdsBatchForTeamRequest,
     DeletePersonlessDistinctIdsBatchForTeamResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     DistinctIdWithVersion, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
@@ -1338,5 +1338,24 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "set_person_version_floor"))?;
 
         Ok(Response::new(SetPersonVersionFloorResponse { updated }))
+    }
+
+    async fn allocate_person_ids(
+        &self,
+        request: Request<AllocatePersonIdsRequest>,
+    ) -> Result<Response<AllocatePersonIdsResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.count == 0 || req.count > 1000 {
+            return Err(Status::invalid_argument("count must be between 1 and 1000"));
+        }
+
+        let person_ids = self
+            .storage
+            .allocate_person_ids(req.count)
+            .await
+            .map_err(|e| log_and_convert_error(e, "allocate_person_ids"))?;
+
+        Ok(Response::new(AllocatePersonIdsResponse { person_ids }))
     }
 }

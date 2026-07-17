@@ -15,14 +15,16 @@ use personhog_proto::personhog::replica::v1::person_hog_replica_server::{
 };
 use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHogServiceClient;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
-    CountCohortMembersResponse, CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse,
-    CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
-    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest,
-    DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
-    DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
-    DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonlessDistinctIdsBatchForTeamRequest,
+    AllocatePersonIdsRequest, AllocatePersonIdsResponse, CheckCohortMembershipRequest,
+    CohortMembershipResponse, CountCohortMembersRequest, CountCohortMembersResponse,
+    CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse, CreateGroupRequest,
+    CreateGroupResponse, CreatePersonRequest, CreatePersonResponse, DeleteCohortMemberRequest,
+    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
+    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
+    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
+    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
+    DeletePersonlessDistinctIdsBatchForTeamRequest,
     DeletePersonlessDistinctIdsBatchForTeamResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
@@ -479,6 +481,16 @@ impl PersonHogReplica for TestReplicaService {
             updated: false,
         }))
     }
+
+    async fn allocate_person_ids(
+        &self,
+        request: Request<AllocatePersonIdsRequest>,
+    ) -> Result<Response<AllocatePersonIdsResponse>, Status> {
+        let count = request.into_inner().count as i64;
+        Ok(Response::new(AllocatePersonIdsResponse {
+            person_ids: (1000..1000 + count).collect(),
+        }))
+    }
 }
 
 /// Start a test replica server on a random port and return its address
@@ -632,6 +644,7 @@ pub fn create_test_person() -> Person {
         is_identified: true,
         is_user_id: None,
         last_seen_at: None,
+        initial_distinct_ids: vec![],
     }
 }
 
@@ -751,6 +764,41 @@ impl PersonHogLeader for TestLeaderService {
         Ok(Response::new(UpdatePersonPropertiesResponse {
             person: Some(person),
             updated: true,
+        }))
+    }
+
+    async fn create_person(
+        &self,
+        request: Request<CreatePersonRequest>,
+    ) -> Result<Response<CreatePersonResponse>, Status> {
+        require_partition_metadata(&request)?;
+        let req = request.into_inner();
+        if self.fenced {
+            return Err(Status::failed_precondition(
+                "partition is fenced for handoff; writes are rejected",
+            ));
+        }
+        let key = (req.team_id, req.person_id);
+        if self.persons.contains_key(&key) {
+            return Err(Status::already_exists("person already exists"));
+        }
+        let person = Person {
+            id: req.person_id,
+            uuid: req.uuid,
+            team_id: req.team_id,
+            properties: req.properties,
+            properties_last_updated_at: vec![],
+            properties_last_operation: vec![],
+            created_at: req.created_at,
+            version: 0,
+            is_identified: req.is_identified,
+            is_user_id: None,
+            last_seen_at: None,
+            initial_distinct_ids: vec![],
+        };
+        self.persons.insert(key, person.clone());
+        Ok(Response::new(CreatePersonResponse {
+            person: Some(person),
         }))
     }
 }

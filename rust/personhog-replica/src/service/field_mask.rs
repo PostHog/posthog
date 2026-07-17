@@ -220,6 +220,9 @@ mod tests {
             is_identified: true,
             is_user_id: Some(false),
             last_seen_at: Some(9999),
+            // Changelog-only field, never populated in read responses, so
+            // it is deliberately not part of PersonField or the mask.
+            initial_distinct_ids: vec![],
         }
     }
 

@@ -1,8 +1,12 @@
+use std::slice;
+
 use async_trait::async_trait;
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use metrics::counter;
 use personhog_proto::personhog::types::v1::Person;
-use sqlx::postgres::PgPool;
+use sqlx::postgres::{PgArguments, PgPool};
+use sqlx::query::Query;
+use sqlx::Postgres;
 use tracing::{error, warn};
 
 use crate::error::{WriteError, WriteErrorKind};
@@ -17,13 +21,27 @@ const ALLOWED_TABLES: &[&str] = &["personhog_person_tmp", "posthog_person"];
 pub struct PgStore {
     pool: PgPool,
     upsert_sql: String,
+    /// Whether create records' initial distinct ids are inserted alongside
+    /// the person. Only when targeting posthog_person:
+    /// posthog_persondistinctid's FK references posthog_person, so the
+    /// rows cannot accompany tmp-table persons.
+    insert_pdis: bool,
 }
 
 #[async_trait]
 impl PersonDb for PgStore {
     async fn execute_chunk(&self, chunk: &[Person]) -> Result<(), WriteError> {
         let arrays = prepare_chunk(chunk);
-        run_upsert(&self.pool, &self.upsert_sql, &arrays, "chunk").await
+        let pdis = if self.insert_pdis {
+            collect_pdis(chunk)
+        } else {
+            PdiArrays::default()
+        };
+        if pdis.is_empty() {
+            run_upsert(&self.pool, &self.upsert_sql, &arrays, "chunk").await
+        } else {
+            run_upsert_with_pdis(&self.pool, &self.upsert_sql, &arrays, &pdis, "chunk").await
+        }
     }
 
     async fn execute_row(
@@ -34,7 +52,16 @@ impl PersonDb for PgStore {
         let Some(arrays) = prepare_single(person, properties_override) else {
             return Ok(()); // Invalid input, already logged
         };
-        run_upsert(&self.pool, &self.upsert_sql, &arrays, "row").await
+        let pdis = if self.insert_pdis {
+            collect_pdis(slice::from_ref(person))
+        } else {
+            PdiArrays::default()
+        };
+        if pdis.is_empty() {
+            run_upsert(&self.pool, &self.upsert_sql, &arrays, "row").await
+        } else {
+            run_upsert_with_pdis(&self.pool, &self.upsert_sql, &arrays, &pdis, "row").await
+        }
     }
 }
 
@@ -74,9 +101,44 @@ impl PgStore {
             table = table_name
         );
 
-        Self { pool, upsert_sql }
+        Self {
+            pool,
+            upsert_sql,
+            insert_pdis: table_name == "posthog_person",
+        }
     }
 }
+
+/// Insert a create record's initial distinct ids. The EXISTS guard admits
+/// a mapping only when the person row's current (team_id, version) exactly
+/// matches the record that carried it — i.e. the record IS the row's
+/// current state, either because this transaction's upsert just applied it
+/// or because this is a replay of the record that did. Everything else is
+/// dropped rather than inserted:
+///
+/// - a stale create whose person upsert was version-skipped (the row has
+///   since moved past it) must not leave mappings from a rejected record;
+/// - a record whose person id exists only under a different team must be
+///   skipped, not error: without the team match the insert would trip the
+///   composite FK and abort the whole chunk into row fallback;
+/// - a deleted person (row gone mid-batch) must not resurrect mappings;
+/// - legacy NULL-version rows never match — creates always write version 0.
+///
+/// ON CONFLICT DO NOTHING makes replays idempotent and skips distinct ids
+/// whose (team_id, distinct_id) mapping is already taken, per the
+/// CreatePerson contract.
+const PDI_INSERT_SQL: &str =
+    "INSERT INTO posthog_persondistinctid (team_id, distinct_id, person_id, version)
+    SELECT team_id, distinct_id, person_id, version
+    FROM UNNEST($1::int[], $2::text[], $3::bigint[], $4::bigint[], $5::bigint[])
+        AS u(team_id, distinct_id, person_id, version, person_version)
+    WHERE EXISTS (
+        SELECT 1 FROM posthog_person p
+        WHERE p.id = u.person_id
+          AND p.team_id = u.team_id
+          AND p.version = u.person_version
+    )
+    ON CONFLICT (team_id, distinct_id) DO NOTHING";
 
 /// Build bind arrays from a slice of persons. Borrows string data directly
 /// from each Person's byte buffers; `PreparedArrays` is tied to the slice's
@@ -121,10 +183,10 @@ fn prepare_chunk(persons: &[Person]) -> PreparedArrays<'_> {
             bytes_to_json_str(&p.properties, "{}"),
             bytes_to_optional_json_str(&p.properties_last_updated_at),
             bytes_to_optional_json_str(&p.properties_last_operation),
-            epoch_secs_to_datetime(p.created_at),
+            epoch_millis_to_datetime(p.created_at),
             Some(p.version),
             p.is_identified,
-            p.last_seen_at.map(epoch_secs_to_datetime),
+            p.last_seen_at.map(epoch_millis_to_datetime),
         );
     }
 
@@ -178,12 +240,84 @@ fn prepare_single<'a>(
         properties,
         bytes_to_optional_json_str(&person.properties_last_updated_at),
         bytes_to_optional_json_str(&person.properties_last_operation),
-        epoch_secs_to_datetime(person.created_at),
+        epoch_millis_to_datetime(person.created_at),
         Some(person.version),
         person.is_identified,
-        person.last_seen_at.map(epoch_secs_to_datetime),
+        person.last_seen_at.map(epoch_millis_to_datetime),
     );
     Some(arrays)
+}
+
+/// Column-oriented bind arrays for the distinct-id insert. Owned strings:
+/// only create records carry distinct ids, so the volume is small.
+#[derive(Default)]
+struct PdiArrays {
+    team_ids: Vec<i32>,
+    distinct_ids: Vec<String>,
+    person_ids: Vec<i64>,
+    versions: Vec<i64>,
+    /// The carrying record's person version, matched against the person
+    /// row's current version by the insert guard.
+    person_versions: Vec<i64>,
+}
+
+impl PdiArrays {
+    fn is_empty(&self) -> bool {
+        self.person_ids.is_empty()
+    }
+}
+
+/// Gather initial distinct ids from create records in a chunk.
+fn collect_pdis(persons: &[Person]) -> PdiArrays {
+    let mut arrays = PdiArrays::default();
+    for p in persons {
+        if p.initial_distinct_ids.is_empty() {
+            continue;
+        }
+        let Ok(team_id) = i32::try_from(p.team_id) else {
+            // The person row itself is skipped for the same reason
+            // (prepare_chunk logs it), so skip its distinct ids too.
+            continue;
+        };
+        for d in &p.initial_distinct_ids {
+            arrays.team_ids.push(team_id);
+            arrays.distinct_ids.push(d.distinct_id.clone());
+            arrays.person_ids.push(p.id);
+            arrays.versions.push(d.version.unwrap_or(0));
+            arrays.person_versions.push(p.version);
+        }
+    }
+    arrays
+}
+
+/// Person upsert + distinct-id insert in one transaction, so a create's
+/// person row and its mappings commit together.
+async fn run_upsert_with_pdis(
+    pool: &PgPool,
+    sql: &str,
+    arrays: &PreparedArrays<'_>,
+    pdis: &PdiArrays,
+    mode: &'static str,
+) -> Result<(), WriteError> {
+    let result: Result<u64, sqlx::Error> = async {
+        let mut tx = pool.begin().await?;
+        let upserted = bind_upsert(sql, arrays).execute(&mut *tx).await?;
+        let inserted = sqlx::query(PDI_INSERT_SQL)
+            .bind(&pdis.team_ids)
+            .bind(&pdis.distinct_ids)
+            .bind(&pdis.person_ids)
+            .bind(&pdis.versions)
+            .bind(&pdis.person_versions)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        counter!("personhog_writer_distinct_ids_inserted_total")
+            .increment(inserted.rows_affected());
+        Ok(upserted.rows_affected())
+    }
+    .await;
+
+    record_upsert_outcome(result, arrays.ids.len() as u64, mode)
 }
 
 async fn run_upsert(
@@ -197,7 +331,18 @@ async fn run_upsert(
         return Ok(());
     }
 
-    match sqlx::query(sql)
+    let result = bind_upsert(sql, arrays)
+        .execute(pool)
+        .await
+        .map(|r| r.rows_affected());
+    record_upsert_outcome(result, chunk_size, mode)
+}
+
+fn bind_upsert<'q>(
+    sql: &'q str,
+    arrays: &'q PreparedArrays<'_>,
+) -> Query<'q, Postgres, PgArguments> {
+    sqlx::query(sql)
         .bind(&arrays.ids)
         .bind(&arrays.team_ids)
         .bind(&arrays.uuids)
@@ -208,11 +353,15 @@ async fn run_upsert(
         .bind(&arrays.versions)
         .bind(&arrays.is_identified)
         .bind(&arrays.last_seen_at)
-        .execute(pool)
-        .await
-    {
-        Ok(result) => {
-            let affected = result.rows_affected();
+}
+
+fn record_upsert_outcome(
+    result: Result<u64, sqlx::Error>,
+    chunk_size: u64,
+    mode: &'static str,
+) -> Result<(), WriteError> {
+    match result {
+        Ok(affected) => {
             counter!("personhog_writer_rows_upserted_total", "mode" => mode).increment(affected);
             let skipped = chunk_size.saturating_sub(affected);
             if skipped > 0 {
@@ -224,12 +373,33 @@ async fn run_upsert(
         Err(e) => {
             let kind = classify_error(&e);
             counter!("personhog_writer_upsert_errors_total", "mode" => mode).increment(1);
+            // A create reusing a team's existing uuid under a different id
+            // is acked by the leader but rejected here by the (team_id,
+            // uuid) unique index — an acked write lost to a caller-contract
+            // violation. Surfaced under its own metric so it never blends
+            // into generic data errors; per-record counts are the
+            // mode="row" series (a chunk-mode hit recounts in row
+            // fallback).
+            if is_uuid_conflict(&e) {
+                counter!("personhog_writer_uuid_conflict_drops_total", "mode" => mode).increment(1);
+            }
             error!(error = %e, error_kind = ?kind, mode, "upsert failed");
             Err(WriteError {
                 message: e.to_string(),
                 kind,
             })
         }
+    }
+}
+
+/// Whether the error is a unique violation on the person uuid index.
+fn is_uuid_conflict(e: &sqlx::Error) -> bool {
+    match e {
+        sqlx::Error::Database(db_err) => {
+            db_err.code().as_deref() == Some("23505")
+                && db_err.constraint().is_some_and(|c| c.contains("uuid"))
+        }
+        _ => false,
     }
 }
 
@@ -361,10 +531,11 @@ fn bytes_to_optional_json_str(bytes: &[u8]) -> Option<&str> {
     }
 }
 
-fn epoch_secs_to_datetime(epoch_secs: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(epoch_secs, 0)
-        .single()
-        .unwrap_or_default()
+/// Epoch milliseconds — the unit every Person timestamp field carries on
+/// the wire (see the proto comments); PG stores real timestamptz values,
+/// so the unit exists only in this in-flight representation.
+fn epoch_millis_to_datetime(epoch_millis: i64) -> DateTime<Utc> {
+    DateTime::from_timestamp_millis(epoch_millis).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -412,9 +583,10 @@ mod tests {
     }
 
     #[test]
-    fn epoch_secs_conversion() {
-        let dt = epoch_secs_to_datetime(1700000000);
-        assert_eq!(dt.timestamp(), 1700000000);
+    fn epoch_millis_conversion() {
+        let dt = epoch_millis_to_datetime(1_700_000_000_000);
+        assert_eq!(dt.timestamp_millis(), 1_700_000_000_000);
+        assert_eq!(dt.timestamp(), 1_700_000_000);
     }
 
     #[tokio::test]

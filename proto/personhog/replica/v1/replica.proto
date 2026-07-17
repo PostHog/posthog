@@ -72,4 +72,9 @@ service PersonHogReplica {
   // Undelete repair version resets (temporary: same routing caveat as deletes above)
   rpc SetPersonDistinctIdVersionFloor(personhog.types.v1.SetPersonDistinctIdVersionFloorRequest) returns (personhog.types.v1.SetPersonDistinctIdVersionFloorResponse);
   rpc SetPersonVersionFloor(personhog.types.v1.SetPersonVersionFloorRequest) returns (personhog.types.v1.SetPersonVersionFloorResponse);
+
+  // Person id allocation. Not a person-data write: advances the
+  // posthog_person_id_seq sequence only — no rows, no table locks.
+  // Person row creation itself goes through the leader (CreatePerson).
+  rpc AllocatePersonIds(personhog.types.v1.AllocatePersonIdsRequest) returns (personhog.types.v1.AllocatePersonIdsResponse);
 }

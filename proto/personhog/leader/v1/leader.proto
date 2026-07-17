@@ -16,4 +16,11 @@ service PersonHogLeader {
 
   // Strong consistency read: returns the latest person state from the leader's cache.
   rpc GetPerson(personhog.types.v1.GetPersonRequest) returns (personhog.types.v1.GetPersonResponse);
+
+  // Create a person: insert into the cache and produce the full record
+  // (including initial distinct ids) to the changelog for the writer to
+  // persist. person_id must come from AllocatePersonIds — it determines
+  // the partition this request routes to. Idempotent for retries that
+  // reuse the same person_id and uuid.
+  rpc CreatePerson(personhog.types.v1.CreatePersonRequest) returns (personhog.types.v1.CreatePersonResponse);
 }

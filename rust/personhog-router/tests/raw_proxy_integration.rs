@@ -8,9 +8,9 @@ use common::{
     start_test_router_raw_with_max_recv, TestLeaderService, TestReplicaService,
 };
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CohortMembership, DeletePersonsRequest, GetGroupsRequest,
-    GetPersonByDistinctIdRequest, GetPersonRequest, GetPersonResponse,
-    GetPersonsByDistinctIdsInTeamRequest, Group, GroupIdentifier, Person,
+    AllocatePersonIdsRequest, CheckCohortMembershipRequest, CohortMembership, CreatePersonRequest,
+    DeletePersonsRequest, GetGroupsRequest, GetPersonByDistinctIdRequest, GetPersonRequest,
+    GetPersonResponse, GetPersonsByDistinctIdsInTeamRequest, Group, GroupIdentifier, Person,
     UpdatePersonPropertiesRequest,
 };
 use tonic::Request;
@@ -806,4 +806,110 @@ async fn async_gzip_disabled_flag_skips_compression() {
     let payload = &body[5..];
     let response = <GetPersonResponse as prost::Message>::decode(payload).unwrap();
     assert_eq!(response.person.unwrap().id, 42);
+}
+
+// ============================================================
+// Person creation — allocation to replica, create to leader
+// ============================================================
+
+/// AllocatePersonIds is sequence bookkeeping, not a person-data write, so
+/// it routes to the replica — and needs no key headers, since there is no
+/// person yet to route by.
+#[tokio::test]
+async fn raw_proxy_allocate_person_ids_routes_to_replica() {
+    let replica_addr = start_test_replica(TestReplicaService::new()).await;
+    let router_addr = start_test_router_raw(replica_addr).await;
+    let mut client = create_client(router_addr).await;
+
+    let response = client
+        .allocate_person_ids(Request::new(AllocatePersonIdsRequest { count: 3 }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(response.person_ids.len(), 3);
+}
+
+/// CreatePerson routes to the owning leader like every person-data write,
+/// keyed by the pre-allocated id, and the created person is immediately
+/// strong-readable through the same router.
+#[tokio::test]
+async fn raw_proxy_create_person_routes_to_leader_and_strong_reads_back() {
+    let leader_service = TestLeaderService::new();
+    let replica_service = TestReplicaService::new();
+
+    let replica_addr = start_test_replica(replica_service).await;
+    let leader_addr = start_test_leader(leader_service).await;
+    let router_addr =
+        start_test_router_raw_with_leader(replica_addr, leader_addr, NUM_PARTITIONS).await;
+    let mut client = create_client(router_addr).await;
+
+    let created = client
+        .create_person(with_person_key(
+            Request::new(CreatePersonRequest {
+                team_id: 1,
+                person_id: 4242,
+                uuid: "0193e9c9-3f9e-7000-8000-000000004242".to_string(),
+                properties: serde_json::to_vec(&serde_json::json!({"plan": "free"})).unwrap(),
+                created_at: 0,
+                is_identified: false,
+                distinct_ids: vec!["new-user-4242".to_string()],
+            }),
+            1,
+            4242,
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .person
+        .unwrap();
+    assert_eq!(created.id, 4242);
+    assert_eq!(created.version, 0);
+
+    let read_back = client
+        .get_person(with_person_key(
+            with_consistency(
+                GetPersonRequest {
+                    team_id: 1,
+                    person_id: 4242,
+                    read_options: None,
+                },
+                "strong",
+            ),
+            1,
+            4242,
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .person
+        .unwrap();
+    assert_eq!(read_back.uuid, created.uuid);
+}
+
+/// CreatePerson without a leader backend fails closed like the other
+/// leader-path methods.
+#[tokio::test]
+async fn raw_proxy_create_person_no_leader_returns_unimplemented() {
+    let replica_addr = start_test_replica(TestReplicaService::new()).await;
+    let router_addr = start_test_router_raw(replica_addr).await;
+    let mut client = create_client(router_addr).await;
+
+    let status = client
+        .create_person(with_person_key(
+            Request::new(CreatePersonRequest {
+                team_id: 1,
+                person_id: 1,
+                uuid: "0193e9c9-3f9e-7000-8000-000000000001".to_string(),
+                properties: vec![],
+                created_at: 0,
+                is_identified: false,
+                distinct_ids: vec![],
+            }),
+            1,
+            1,
+        ))
+        .await
+        .unwrap_err();
+    assert_eq!(status.code(), tonic::Code::Unimplemented);
 }

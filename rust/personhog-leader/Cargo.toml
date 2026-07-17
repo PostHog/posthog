@@ -30,13 +30,13 @@ tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 health = { path = "../common/health" }
 tokio = { workspace = true, features = ["test-util"] }
 tokio-stream = "0.1"
 tokio-util = { workspace = true }
-uuid = { workspace = true }
 
 [lints]
 workspace = true

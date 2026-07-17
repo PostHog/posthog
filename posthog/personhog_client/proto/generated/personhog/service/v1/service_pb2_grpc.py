@@ -249,6 +249,18 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesResponse.FromString,
             _registered_method=True,
         )
+        self.AllocatePersonIds = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/AllocatePersonIds",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.AllocatePersonIdsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.AllocatePersonIdsResponse.FromString,
+            _registered_method=True,
+        )
+        self.CreatePerson = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/CreatePerson",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.CreatePersonRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.CreatePersonResponse.FromString,
+            _registered_method=True,
+        )
         self.DeletePersons = channel.unary_unary(
             "/personhog.service.v1.PersonHogService/DeletePersons",
             request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsRequest.SerializeToString,
@@ -502,6 +514,25 @@ class PersonHogServiceServicer:
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def AllocatePersonIds(self, request, context):
+        """Person creation. A create is a two-step flow: AllocatePersonIds
+        reserves ids from the persons DB sequence (routed to replica —
+        sequence bookkeeping, writes no rows), then CreatePerson routes to
+        the leader owning the partition derived from the allocated id, which
+        caches the person and produces it to the changelog for the writer to
+        persist. Client wrappers hide the two-step; retries must reuse the
+        allocated id and uuid (see CreatePersonRequest).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def CreatePerson(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
     def DeletePersons(self, request, context):
         """Person deletes
         WARNING: This is a write operation on person data. It should route to the leader
@@ -723,6 +754,16 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             servicer.UpdatePersonProperties,
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesResponse.SerializeToString,
+        ),
+        "AllocatePersonIds": grpc.unary_unary_rpc_method_handler(
+            servicer.AllocatePersonIds,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.AllocatePersonIdsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.AllocatePersonIdsResponse.SerializeToString,
+        ),
+        "CreatePerson": grpc.unary_unary_rpc_method_handler(
+            servicer.CreatePerson,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.CreatePersonRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.CreatePersonResponse.SerializeToString,
         ),
         "DeletePersons": grpc.unary_unary_rpc_method_handler(
             servicer.DeletePersons,
@@ -1804,6 +1845,66 @@ class PersonHogService:
             "/personhog.service.v1.PersonHogService/UpdatePersonProperties",
             personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesRequest.SerializeToString,
             personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def AllocatePersonIds(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/AllocatePersonIds",
+            personhog_dot_types_dot_v1_dot_person__pb2.AllocatePersonIdsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.AllocatePersonIdsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def CreatePerson(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/CreatePerson",
+            personhog_dot_types_dot_v1_dot_person__pb2.CreatePersonRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.CreatePersonResponse.FromString,
             options,
             channel_credentials,
             insecure,
