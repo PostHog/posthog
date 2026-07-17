@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+    UNVERSIONED_API_VERSION,
     FieldType,
     ResumableSource,
 )
@@ -36,7 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-from .client import LinkedinAdsApiError, LinkedinAdsDailyRateLimitError
+from .client import API_VERSION, LinkedinAdsApiError, LinkedinAdsDailyRateLimitError
 from .linkedin_ads import (
     LinkedinAdsMissingTokenError,
     LinkedInAdsResumeConfig,
@@ -47,10 +48,23 @@ from .linkedin_ads import (
     linkedin_ads_source,
 )
 
+# LinkedIn's Marketing API uses monthly date-based versioning (YYYYMM) sent as a request header.
+LINKEDIN_ADS_VERSION_202606 = "202606"
+
+# Opaque source version label -> LinkedIn API version header. The legacy `v1` pin keeps sending the
+# header it always has (`API_VERSION`), so existing syncs are byte-for-byte unchanged.
+_API_HEADER_BY_VERSION = {
+    UNVERSIONED_API_VERSION: API_VERSION,
+    LINKEDIN_ADS_VERSION_202606: LINKEDIN_ADS_VERSION_202606,
+}
+
 
 @SourceRegistry.register
 class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResumeConfig], OAuthMixin):
-    api_docs_url = "https://learn.microsoft.com/en-us/linkedin/marketing/"
+    api_docs_url = "https://learn.microsoft.com/en-us/linkedin/marketing/versioning"
+
+    supported_versions = (UNVERSIONED_API_VERSION, LINKEDIN_ADS_VERSION_202606)
+    default_version = LINKEDIN_ADS_VERSION_202606
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -247,12 +261,16 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
         resumable_source_manager: ResumableSourceManager[LinkedInAdsResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        # Honor the instance's pin verbatim when it isn't a label we map, letting LinkedIn validate it.
+        resolved_version = self.resolve_api_version(inputs.api_version)
+        api_version = _API_HEADER_BY_VERSION.get(resolved_version, resolved_version)
         return linkedin_ads_source(
             config=config,
             resource_name=inputs.schema_name,
             team_id=inputs.team_id,
             resumable_source_manager=resumable_source_manager,
             logger=inputs.logger,
+            api_version=api_version,
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             incremental_field_type=inputs.incremental_field_type if inputs.should_use_incremental_field else None,

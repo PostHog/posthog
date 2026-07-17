@@ -5,7 +5,10 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source import LinkedInAdsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source import (
+    LINKEDIN_ADS_VERSION_202606,
+    LinkedInAdsSource,
+)
 
 
 class TestLinkedInAdsSource:
@@ -44,6 +47,37 @@ class TestLinkedInAdsSource:
     def test_non_retryable_errors_does_not_match_transient(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    def test_defaults_new_sources_to_202606(self):
+        assert self.source.default_version == LINKEDIN_ADS_VERSION_202606
+        assert set(self.source.supported_versions) == {"v1", LINKEDIN_ADS_VERSION_202606}
+
+    @pytest.mark.parametrize(
+        "pinned_version,expected_header",
+        [
+            # Existing sources pinned to the legacy label must keep sending the header they always
+            # sent (202508), so their syncs stay byte-for-byte unchanged after the default flip.
+            ("v1", "202508"),
+            (LINKEDIN_ADS_VERSION_202606, "202606"),
+            # No pin resolves to the new default.
+            (None, "202606"),
+            # An undeclared pin is honored verbatim and passed straight through for LinkedIn to validate.
+            ("209901", "209901"),
+        ],
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.linkedin_ads_source"
+    )
+    def test_source_for_pipeline_dispatches_resolved_api_version(
+        self, mock_linkedin_ads_source, pinned_version, expected_header
+    ):
+        inputs = mock.MagicMock()
+        inputs.api_version = pinned_version
+        inputs.should_use_incremental_field = False
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_linkedin_ads_source.call_args.kwargs["api_version"] == expected_header
 
     def test_validate_credentials_missing_account_id(self):
         """Test credential validation with missing account ID."""

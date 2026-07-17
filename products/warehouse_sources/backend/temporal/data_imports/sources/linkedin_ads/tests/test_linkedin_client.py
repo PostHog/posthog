@@ -45,6 +45,21 @@ class TestLinkedinAdsClient:
         assert result == [{"id": "123", "name": "Test Account"}]
         mock_client_instance.finder.assert_called_once()
 
+    @pytest.mark.parametrize("api_version", ["202508", "202606"])
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_request_sends_configured_api_version(self, mock_restli_client, api_version):
+        """The configured version must reach the Restli `version_string`, else every request hits
+        the wrong LinkedIn API version regardless of the source's pin."""
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_response.elements = [{"id": "123", "name": "Test Account"}]
+        mock_restli_client.return_value.finder.return_value = mock_response
+
+        client = LinkedinAdsClient(self.access_token, api_version=api_version)
+        client.get_accounts()
+
+        assert mock_restli_client.return_value.finder.call_args.kwargs["version_string"] == api_version
+
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_get_accounts_collects_every_page(self, mock_restli_client):
         page_one = mock.MagicMock()
