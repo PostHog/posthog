@@ -2399,7 +2399,9 @@ class KustomerSourceConfig(config.Config):
 
 @config.config
 class LaceworkSourceConfig(config.Config):
-    pass
+    account_name: str
+    key_id: str
+    secret_key: str
 
 
 @config.config
