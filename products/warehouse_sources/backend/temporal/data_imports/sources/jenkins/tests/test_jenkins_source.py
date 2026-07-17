@@ -38,10 +38,11 @@ class TestJenkinsSource:
 
     def test_source_config_fields(self) -> None:
         config = self.source.get_source_config
-        by_name = {f.name: f for f in config.fields}
-        assert set(by_name) == {"host", "username", "api_token"}
+        by_name: dict[str, SourceFieldInputConfig] = {}
         for field in config.fields:
             assert isinstance(field, SourceFieldInputConfig)
+            by_name[field.name] = field
+        assert set(by_name) == {"host", "username", "api_token"}
         # Only the API token is a secret; the URL and username are not.
         assert by_name["api_token"].secret is True
         assert by_name["host"].secret is False

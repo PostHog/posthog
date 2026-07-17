@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins import jenkins
 from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.jenkins import (
     JenkinsResumeConfig,
@@ -223,23 +224,21 @@ class TestDiscoverJobs:
         assert fetch.call_count == 3
 
 
-class _FakeManager:
-    def __init__(self, state: JenkinsResumeConfig | None) -> None:
-        self._state = state
-        self.saved: list[JenkinsResumeConfig] = []
+def _fake_manager(state: JenkinsResumeConfig | None) -> MagicMock:
+    """A mock satisfying the ResumableSourceManager surface without Redis.
 
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> JenkinsResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: JenkinsResumeConfig) -> None:
-        self.saved.append(data)
+    Saved states accumulate on `.saved` for assertions.
+    """
+    manager = MagicMock(spec=ResumableSourceManager)
+    manager.saved = []
+    manager.can_resume.return_value = state is not None
+    manager.load_state.return_value = state
+    manager.save_state.side_effect = manager.saved.append
+    return manager
 
 
 class TestGetBuildRows:
-    def _run(self, manager: _FakeManager) -> None:
+    def _run(self, manager: MagicMock) -> None:
         job_urls = ["https://j/a/", "https://j/b/", "https://j/c/"]
         batcher = MagicMock()
         batcher.should_yield.return_value = False
@@ -254,12 +253,12 @@ class TestGetBuildRows:
     def test_bookmarks_next_job_after_each_completes(self) -> None:
         # After finishing job a, the bookmark points at b; after b, at c. The last job saves nothing,
         # so a resume never restarts at a job whose rows already fully landed.
-        manager = _FakeManager(state=None)
+        manager = _fake_manager(state=None)
         self._run(manager)
         assert [s.next_job_url for s in manager.saved] == ["https://j/b/", "https://j/c/"]
 
     def test_resumes_from_saved_bookmark(self) -> None:
-        manager = _FakeManager(state=JenkinsResumeConfig(next_job_url="https://j/b/"))
+        manager = _fake_manager(state=JenkinsResumeConfig(next_job_url="https://j/b/"))
         with mock.patch.object(jenkins, "_iter_job_builds", return_value=iter([])) as iter_builds:
             with mock.patch.object(
                 jenkins, "_iter_buildable_job_urls", return_value=["https://j/a/", "https://j/b/", "https://j/c/"]
@@ -278,7 +277,7 @@ class TestGetBuildRows:
     def test_stale_bookmark_restarts_from_beginning(self) -> None:
         # The bookmarked job was deleted between runs; fall back to the full list rather than syncing
         # nothing (merge dedupes the re-pulled rows).
-        manager = _FakeManager(state=JenkinsResumeConfig(next_job_url="https://j/gone/"))
+        manager = _fake_manager(state=JenkinsResumeConfig(next_job_url="https://j/gone/"))
         with mock.patch.object(jenkins, "_iter_job_builds", return_value=iter([])) as iter_builds:
             with mock.patch.object(jenkins, "_iter_buildable_job_urls", return_value=["https://j/a/", "https://j/b/"]):
                 batcher = MagicMock()
