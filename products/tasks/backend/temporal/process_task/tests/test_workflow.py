@@ -303,6 +303,69 @@ class TestProcessTaskWorkflow:
         assert result.error is not None
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "state, used_snapshot, snapshot_external_id, expected_checkout",
+    [
+        ({"resume_from_run_id": "previous-run-id"}, True, "im-resume", False),
+        ({"resume_from_run_id": "previous-run-id"}, False, None, True),
+        ({}, True, None, True),
+    ],
+)
+async def test_get_sandbox_for_repository_checks_out_branch_after_fresh_resume_fallback(
+    monkeypatch,
+    state,
+    used_snapshot,
+    snapshot_external_id,
+    expected_checkout,
+):
+    workflow = ProcessTaskWorkflow()
+    workflow._context = _build_context(github_integration_id=123, state=state)
+
+    prepared = PrepareSandboxForRepositoryOutput(
+        sandbox_name="sandbox-name",
+        repository="posthog/posthog-js",
+        github_token="ghs_fresh",
+        branch="feature-branch",
+        environment_variables={},
+        snapshot_id=None,
+        snapshot_external_id=snapshot_external_id,
+        used_snapshot=used_snapshot,
+        should_create_snapshot=not used_snapshot,
+        shallow_clone=True,
+        image_source="resume_snapshot" if used_snapshot else "base_image",
+        image_source_label="resume snapshot" if used_snapshot else "published sandbox base image",
+    )
+    created = CreateSandboxForRepositoryOutput(
+        sandbox_id="sandbox-123",
+        sandbox_url="https://sandbox.example",
+        connect_token="connect-token",
+        used_snapshot=used_snapshot,
+    )
+    activity_calls: list[object] = []
+
+    async def fake_execute_activity(activity_fn, *args, **kwargs):
+        activity_calls.append(activity_fn)
+        if activity_fn is prepare_sandbox_for_repository:
+            return prepared
+        if activity_fn is create_sandbox_for_repository:
+            return created
+        if activity_fn in {
+            inject_fresh_tokens_on_resume,
+            clone_repository_in_sandbox,
+            checkout_branch_in_sandbox,
+            emit_progress_activity,
+        }:
+            return None
+        raise AssertionError(f"Unexpected activity call: {activity_fn}")
+
+    monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+    await workflow._get_sandbox_for_repository()
+
+    assert (checkout_branch_in_sandbox in activity_calls) is expected_checkout
+
+
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
     async def test_final_sandbox_cleanup_completes_the_run_stream(self, monkeypatch):
