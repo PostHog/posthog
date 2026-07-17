@@ -2,6 +2,7 @@ from typing import Any
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import DatabaseError, transaction
+from django.db.models import Field, Model
 from django.utils import timezone
 
 import structlog
@@ -26,6 +27,14 @@ _CHECKED_CHAR_FIELDS = (
     "source_sha",
 )
 
+
+def _field_max_length(model: type[Model], field_name: str) -> int | None:
+    # _meta.get_field returns Field | ForeignObjectRel | GenericForeignKey; only concrete
+    # Fields carry max_length. All names we pass here are CharFields, so narrow to Field.
+    field = model._meta.get_field(field_name)
+    return field.max_length if isinstance(field, Field) else None
+
+
 COMMUNITY_SKILLS_REPO = "PostHog/community-skills"
 COMMUNITY_SKILLS_BRANCH = "main"
 COMMUNITY_SKILLS_REGISTRY_URL = (
@@ -48,14 +57,14 @@ def _validate_entry_within_caps(entry: dict[str, Any]) -> None:
 
     for field in _CHECKED_CHAR_FIELDS:
         value = entry.get(field, "") or ""
-        max_length = CommunitySkill._meta.get_field(field).max_length
+        max_length = _field_max_length(CommunitySkill, field)
         if max_length is not None and len(value) > max_length:
             raise ValueError(f"'{field}' exceeds the {max_length} character limit")
 
     files = entry.get("files", []) or []
     if len(files) > MAX_SKILL_FILE_COUNT:
         raise ValueError(f"has more than {MAX_SKILL_FILE_COUNT} files")
-    path_max = CommunitySkillFile._meta.get_field("path").max_length
+    path_max = _field_max_length(CommunitySkillFile, "path")
     seen_paths: set[str] = set()
     for f in files:
         path = f.get("path", "") or ""
@@ -65,7 +74,7 @@ def _validate_entry_within_caps(entry: dict[str, Any]) -> None:
             raise ValueError(f"duplicate file path '{path}'")
         seen_paths.add(path)
         content_type = f.get("content_type", "text/plain") or "text/plain"
-        ct_max = CommunitySkillFile._meta.get_field("content_type").max_length
+        ct_max = _field_max_length(CommunitySkillFile, "content_type")
         if ct_max is not None and len(content_type) > ct_max:
             raise ValueError(f"file '{path}' content_type exceeds the {ct_max} character limit")
         content = f.get("content", "") or ""
