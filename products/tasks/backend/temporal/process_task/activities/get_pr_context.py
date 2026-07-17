@@ -27,6 +27,19 @@ class GetPrContextOutput:
     pr_url: str
     pr_state: str
     fingerprint: str
+    # Defaults keep replay of pre-rollout activity results deserializable.
+    ci_status: str = "none"
+    changes_requested: bool = False
+
+
+def is_pr_actionable(ci_status: str, changes_requested: bool) -> bool:
+    """Whether the PR state gives the agent real work to do.
+
+    A green or check-less PR is not actionable: waking the agent for it produces a
+    "nothing to report" turn that spams the originating Slack thread and burns one
+    of the limited CI follow-up repetitions.
+    """
+    return changes_requested or ci_status == "failing"
 
 
 def compute_pr_fingerprint(pr: dict[str, Any]) -> str:
@@ -129,4 +142,6 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
             pr_url=pr_url,
             pr_state=pull_request.get("state", "unknown"),
             fingerprint=fingerprint,
+            ci_status=pull_request.get("ci_status", "none"),
+            changes_requested=pull_request.get("review_decision") == "changes_requested",
         )

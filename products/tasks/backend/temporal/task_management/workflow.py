@@ -34,7 +34,11 @@ from products.tasks.backend.temporal.execute_sandbox.workflow import (
     ChildCompletionPayload,
     ExecuteSandboxInput,
 )
-from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextInput, get_pr_context
+from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
+    GetPrContextInput,
+    get_pr_context,
+    is_pr_actionable,
+)
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
@@ -142,6 +146,20 @@ class CIFollowUpDecision(StrEnum):
     FIRE = "fire"
     SKIP = "skip"
     NO_PR = "no_pr"
+
+
+# Gates the actionable-state check in the CI follow-up decision: a fingerprint
+# change alone no longer wakes the agent — only failing CI or a changes-requested
+# review does. Pre-rollout histories dispatched a follow-up on any change, so the
+# marker keeps their replays deterministic. Standard two-step Temporal patch
+# lifecycle: deprecate_patch once pre-rollout histories drain, then delete.
+_PATCH_ID_CI_FOLLOW_UP_ACTIONABLE_GATE = "tasks-ci-follow-up-actionable-gate"
+
+
+def _ci_follow_up_actionable_gate() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_CI_FOLLOW_UP_ACTIONABLE_GATE)
 
 
 @temporalio.workflow.defn(name="task-management")
@@ -915,19 +933,44 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 pr_url=pr_context.pr_url,
             )
             return CIFollowUpDecision.SKIP
-        if self._pr_fingerprint != pr_context.fingerprint:
+        if self._pr_fingerprint == pr_context.fingerprint:
+            workflow.logger.info(
+                "task_management_ci_skipped_pr_unchanged",
+                run_id=self._run_id,
+                pr_url=pr_context.pr_url,
+            )
+            return CIFollowUpDecision.SKIP
+        if not _ci_follow_up_actionable_gate():
+            self._pr_fingerprint = pr_context.fingerprint
+            return CIFollowUpDecision.FIRE
+        if is_pr_actionable(pr_context.ci_status, pr_context.changes_requested):
             self._pr_fingerprint = pr_context.fingerprint
             workflow.logger.info(
                 "task_management_ci_fire",
                 run_id=self._run_id,
                 pr_url=pr_context.pr_url,
+                ci_status=pr_context.ci_status,
+                changes_requested=pr_context.changes_requested,
                 repetitions=self._ci_repetitions,
             )
             return CIFollowUpDecision.FIRE
+        if pr_context.ci_status == "pending":
+            # CI hasn't settled — keep the old fingerprint so the settled state
+            # (which may be failing) is still seen as a change on the next tick.
+            workflow.logger.info(
+                "task_management_ci_skipped_pr_pending",
+                run_id=self._run_id,
+                pr_url=pr_context.pr_url,
+            )
+            return CIFollowUpDecision.SKIP
+        # Changed but green (or check-less): nothing for the agent to do. Record the
+        # fingerprint so this state doesn't re-trigger the comparison every tick.
+        self._pr_fingerprint = pr_context.fingerprint
         workflow.logger.info(
-            "task_management_ci_skipped_pr_unchanged",
+            "task_management_ci_skipped_pr_not_actionable",
             run_id=self._run_id,
             pr_url=pr_context.pr_url,
+            ci_status=pr_context.ci_status,
         )
         return CIFollowUpDecision.SKIP
 

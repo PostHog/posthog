@@ -282,24 +282,49 @@ class TestShouldRunCIFollowUp:
         decision = await workflow._should_run_ci_follow_up()
         assert decision is CIFollowUpDecision.SKIP
 
-    async def test_returns_fire_when_fingerprint_changes_and_persists_it(self, monkeypatch, silent_workflow_logger):
+    @pytest.mark.parametrize(
+        "ci_status,changes_requested,expected_decision,expected_fingerprint",
+        [
+            # Actionable changes fire and persist the fingerprint.
+            ("failing", False, CIFollowUpDecision.FIRE, "fp-1"),
+            ("passing", True, CIFollowUpDecision.FIRE, "fp-1"),
+            # Green or check-less changes persist the fingerprint but stay quiet —
+            # waking the agent here produced "nothing to report" Slack spam.
+            ("passing", False, CIFollowUpDecision.SKIP, "fp-1"),
+            ("none", False, CIFollowUpDecision.SKIP, "fp-1"),
+            # Pending keeps the old fingerprint so the settled state (which may be
+            # failing) still registers as a change on the next tick.
+            ("pending", False, CIFollowUpDecision.SKIP, "fp-0"),
+        ],
+    )
+    async def test_fingerprint_change_fires_only_when_actionable(
+        self,
+        monkeypatch,
+        silent_workflow_logger,
+        ci_status,
+        changes_requested,
+        expected_decision,
+        expected_fingerprint,
+    ):
         workflow = TaskManagementWorkflow()
         workflow._context = _build_context()
+        workflow._pr_fingerprint = "fp-0"
 
         async def fake_execute_activity(activity_fn, *args, **kwargs):
             return GetPrContextOutput(
                 pr_url="https://github.com/org/repo/pull/1",
                 pr_state="open",
                 fingerprint="fp-1",
+                ci_status=ci_status,
+                changes_requested=changes_requested,
             )
 
         monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", fake_execute_activity)
 
         decision = await workflow._should_run_ci_follow_up()
 
-        assert decision is CIFollowUpDecision.FIRE
-        # Fingerprint must persist so the next tick with the same fp returns SKIP.
-        assert workflow._pr_fingerprint == "fp-1"
+        assert decision is expected_decision
+        assert workflow._pr_fingerprint == expected_fingerprint
 
     async def test_returns_skip_when_fingerprint_unchanged(self, monkeypatch, silent_workflow_logger):
         workflow = TaskManagementWorkflow()

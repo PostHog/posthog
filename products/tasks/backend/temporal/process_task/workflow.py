@@ -20,7 +20,11 @@ from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
-from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextInput, get_pr_context
+from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
+    GetPrContextInput,
+    get_pr_context,
+    is_pr_actionable,
+)
 
 from .activities.cleanup_sandbox import (
     CleanupSandboxInput,
@@ -224,9 +228,21 @@ _PATCH_ID_SKIP_LOCAL_ENVIRONMENT_RUNS = "tasks-skip-local-environment-runs"
 _PATCH_ID_DEFER_RUN_STREAM_COMPLETION = "tasks-defer-run-stream-completion"
 _PATCH_ID_COMPLETE_STREAM_AFTER_CLEANUP_FAILURE = "tasks-complete-stream-after-cleanup-failure"
 
+# Gates the actionable-state check in the CI follow-up decision: a fingerprint
+# change alone no longer wakes the agent — only failing CI or a changes-requested
+# review does. Pre-rollout histories dispatched a follow-up on any change, so the
+# marker keeps their replays deterministic. Same two-step cleanup lifecycle as above.
+_PATCH_ID_CI_FOLLOW_UP_ACTIONABLE_GATE = "tasks-ci-follow-up-actionable-gate"
+
 
 def _deprecate_ci_follow_up_pr_context_patch() -> None:
     workflow.deprecate_patch(_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT)
+
+
+def _ci_follow_up_actionable_gate() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_CI_FOLLOW_UP_ACTIONABLE_GATE)
 
 
 def _defer_run_stream_completion() -> bool:
@@ -481,18 +497,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
             return CIFollowUpDecision.SKIP
-        if self._pr_fingerprint != pr_context.fingerprint:
-            workflow.logger.info(
-                "PR context has changed, running CI follow-up",
-                extra={
-                    "run_id": self.context.run_id,
-                    "pr_url": pr_context.pr_url,
-                    "pr_state": pr_context.pr_state,
-                },
-            )
-            self._pr_fingerprint = pr_context.fingerprint
-            return CIFollowUpDecision.FIRE
-        else:
+        if self._pr_fingerprint == pr_context.fingerprint:
             workflow.logger.info(
                 "PR context has not changed, skipping CI follow-up",
                 extra={
@@ -502,6 +507,46 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
             return CIFollowUpDecision.SKIP
+        if not _ci_follow_up_actionable_gate():
+            self._pr_fingerprint = pr_context.fingerprint
+            return CIFollowUpDecision.FIRE
+        if is_pr_actionable(pr_context.ci_status, pr_context.changes_requested):
+            workflow.logger.info(
+                "PR context has changed and is actionable, running CI follow-up",
+                extra={
+                    "run_id": self.context.run_id,
+                    "pr_url": pr_context.pr_url,
+                    "pr_state": pr_context.pr_state,
+                    "ci_status": pr_context.ci_status,
+                    "changes_requested": pr_context.changes_requested,
+                },
+            )
+            self._pr_fingerprint = pr_context.fingerprint
+            return CIFollowUpDecision.FIRE
+        if pr_context.ci_status == "pending":
+            # CI hasn't settled — keep the old fingerprint so the settled state
+            # (which may be failing) is still seen as a change on the next tick.
+            workflow.logger.info(
+                "PR CI is pending, deferring CI follow-up decision",
+                extra={
+                    "run_id": self.context.run_id,
+                    "pr_url": pr_context.pr_url,
+                },
+            )
+            return CIFollowUpDecision.SKIP
+        # Changed but green (or check-less): nothing for the agent to do. Record the
+        # fingerprint so this state doesn't re-trigger the comparison every tick.
+        workflow.logger.info(
+            "PR context has changed but is not actionable, skipping CI follow-up",
+            extra={
+                "run_id": self.context.run_id,
+                "pr_url": pr_context.pr_url,
+                "pr_state": pr_context.pr_state,
+                "ci_status": pr_context.ci_status,
+            },
+        )
+        self._pr_fingerprint = pr_context.fingerprint
+        return CIFollowUpDecision.SKIP
 
     async def _dispatch_ci_follow_up(self) -> None:
         self._ci_repetitions += 1
