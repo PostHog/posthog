@@ -32,14 +32,22 @@ class GetPrContextOutput:
     changes_requested: bool = False
 
 
-def is_pr_actionable(ci_status: str, changes_requested: bool) -> bool:
-    """Whether the PR state gives the agent real work to do.
+def decide_ci_follow_up(pr: GetPrContextOutput) -> tuple[bool, str | None]:
+    """Decide whether a changed PR snapshot warrants waking the agent.
 
-    A green or check-less PR is not actionable: waking the agent for it produces a
-    "nothing to report" turn that spams the originating Slack thread and burns one
-    of the limited CI follow-up repetitions.
+    Returns ``(fire, fingerprint_to_store)``; a ``None`` fingerprint means the
+    caller keeps its previous one. Only an actionable state — failing CI or a
+    changes-requested review — fires: waking the agent for a green or check-less
+    PR produces a "nothing to report" turn that spams the originating Slack
+    thread and burns one of the limited CI follow-up repetitions. Pending CI
+    keeps the old fingerprint so the settled state (which may be failing) still
+    registers as a change on the next tick.
     """
-    return changes_requested or ci_status == "failing"
+    if pr.changes_requested or pr.ci_status == "failing":
+        return True, pr.fingerprint
+    if pr.ci_status == "pending":
+        return False, None
+    return False, pr.fingerprint
 
 
 def compute_pr_fingerprint(pr: dict[str, Any]) -> str:
@@ -54,8 +62,8 @@ def compute_pr_fingerprint(pr: dict[str, Any]) -> str:
     For the review signal we key on the boolean ``review_decision == "changes_requested"``
     rather than the raw decision: ``changes_requested`` is the only value that means
     the agent has code to fix, so an ``approved`` or ``review_required`` transition no
-    longer re-pokes it for nothing. Net effect: the follow-up re-fires only when CI
-    changes or a reviewer requests changes.
+    longer re-pokes it for nothing. The fingerprint only detects that these signals
+    changed; whether a change is worth firing on is decided by ``decide_ci_follow_up``.
     """
     changes_requested = pr.get("review_decision") == "changes_requested"
     fingerprint_source = "|".join(
