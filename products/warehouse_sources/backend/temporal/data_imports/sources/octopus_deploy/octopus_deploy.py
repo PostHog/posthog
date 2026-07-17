@@ -38,9 +38,17 @@ RESPONSE_CHUNK_BYTES = 256 * 1024
 # far above a slow-drip stall.
 MAX_DOWNLOAD_SECONDS = 300
 
+# A customer-controlled host could return `Page.Next` forever (or a `skip` that never advances past
+# the data), keeping a shared worker paginating indefinitely while `_get_space_ids` accumulates IDs
+# in memory. Cap how many pages any single listing loop will walk — set far above any real Octopus
+# listing (100k pages is 10M+ rows even at the smallest page size) so only a misbehaving or
+# malicious server trips it. Non-retryable: the same host returns the same runaway response.
+MAX_PAGES_PER_LISTING = 100_000
+
 HOST_NOT_ALLOWED_ERROR = "Octopus Deploy host is not allowed"
 RESPONSE_TOO_LARGE_ERROR = "Octopus Deploy response body was too large"
 RESPONSE_TOO_SLOW_ERROR = "Octopus Deploy response download was too slow"
+PAGINATION_LIMIT_ERROR = "Octopus Deploy pagination exceeded the maximum page budget"
 
 
 class OctopusDeployRetryableError(Exception):
@@ -58,6 +66,10 @@ class OctopusDeployResponseTooLargeError(Exception):
 
 
 class OctopusDeployResponseTooSlowError(Exception):
+    pass
+
+
+class OctopusDeployPaginationLimitError(Exception):
     pass
 
 
@@ -215,7 +227,7 @@ def _get_space_ids(
     """Enumerate every space the API key can see, sorted by id for a deterministic fan-out order."""
     space_ids: list[str] = []
     skip = 0
-    while True:
+    for _ in range(MAX_PAGES_PER_LISTING):
         url = f"{_base_url(host)}/api/spaces?{urlencode({'skip': skip, 'take': SPACES_PAGE_SIZE})}"
         data = _fetch_page(session, url, headers, logger)
         items = data.get("Items") or []
@@ -225,6 +237,10 @@ def _get_space_ids(
         if "Page.Next" not in (data.get("Links") or {}):
             break
         skip += len(items)
+    else:
+        raise OctopusDeployPaginationLimitError(
+            f"{PAGINATION_LIMIT_ERROR}: spaces listing exceeded {MAX_PAGES_PER_LISTING} pages"
+        )
     return sorted(space_ids)
 
 
@@ -246,7 +262,7 @@ def _paginate(
     offsets — worst case we re-fetch a row (merge dedupes on the primary key), never skip one.
     """
     skip = initial_skip
-    while True:
+    for _ in range(MAX_PAGES_PER_LISTING):
         params = _build_params(config, skip, should_use_incremental_field, db_incremental_field_last_value)
         data = _fetch_page(session, f"{url}?{urlencode(params)}", headers, logger)
 
@@ -269,6 +285,10 @@ def _paginate(
         # Save AFTER yielding so a crash re-yields the last page rather than skipping it — merge
         # dedupes on the primary key.
         resumable_source_manager.save_state(OctopusDeployResumeConfig(skip=skip, space_id=space_id))
+    else:
+        raise OctopusDeployPaginationLimitError(
+            f"{PAGINATION_LIMIT_ERROR}: {url} exceeded {MAX_PAGES_PER_LISTING} pages"
+        )
 
 
 def get_rows(

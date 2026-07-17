@@ -306,6 +306,17 @@ class TestGetRows:
         assert rows == []
         assert session.get.call_count == 2
 
+    # "spaces" exercises the instance-level `_paginate` loop; "projects" (space-scoped) first
+    # exercises the `_get_space_ids` enumeration loop. Both must refuse a host that advertises
+    # `Page.Next` forever rather than looping indefinitely.
+    @pytest.mark.parametrize("endpoint", ["spaces", "projects"])
+    def test_pagination_budget_aborts_runaway_listing(self, endpoint):
+        manager = self._manager()
+        responses = [_page([{"Id": "Spaces-1"}], has_next=True) for _ in range(3)]
+        with mock.patch.object(octopus_deploy_module, "MAX_PAGES_PER_LISTING", 3):
+            with pytest.raises(octopus_deploy_module.OctopusDeployPaginationLimitError):
+                self._run(manager, responses, endpoint=endpoint)
+
     def test_saves_state_after_page_and_between_spaces(self):
         manager = self._manager()
         responses = [
