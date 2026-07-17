@@ -167,7 +167,8 @@ Note: NewsAPI's free Developer plan is limited to articles from the last month a
             endpoint=inputs.schema_name,
             query=config.query,
             language=config.language or None,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
