@@ -468,40 +468,26 @@ class TestApiVersionDispatch:
     def test_default_version_paths_match_current_behavior(self, endpoint, expected_path):
         assert INCIDENT_IO_ENDPOINTS[endpoint].path_for(DEFAULT_API_VERSION) == expected_path
 
-    # A v1-pinned source drops back to the /v1 list only where incident.io actually offers one
-    # (the dual-version config resources); resources that exist solely on /v2 stay on /v2.
-    @pytest.mark.parametrize(
-        "endpoint, expected_path",
-        [
-            ("incident_roles", "/v1/incident_roles"),
-            ("custom_fields", "/v1/custom_fields"),
-            ("severities", "/v1/severities"),
-            ("incident_statuses", "/v1/incident_statuses"),
-            ("incidents", "/v2/incidents"),
-            ("follow_ups", "/v2/follow_ups"),
-            ("users", "/v2/users"),
-        ],
-    )
-    def test_v1_pin_prefers_v1_list_where_available(self, endpoint, expected_path):
-        assert INCIDENT_IO_ENDPOINTS[endpoint].path_for(INCIDENT_IO_API_VERSION_V1) == expected_path
+    # Existing incident.io sources were backfilled to the "v1" pin by migration 0075, so a v1 pin
+    # must resolve every endpoint to the exact same path the v2 default does — no silent downgrade
+    # (incident_roles / custom_fields must stay on /v2, not drop to a /v1 list).
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_v1_pin_matches_default_byte_for_byte(self, endpoint):
+        config = INCIDENT_IO_ENDPOINTS[endpoint]
+        assert config.path_for(INCIDENT_IO_API_VERSION_V1) == config.path_for(DEFAULT_API_VERSION)
 
     def test_unknown_pin_falls_back_to_default_version_path(self):
         # A pin the resource does not declare resolves through the default version, never crashes.
         assert INCIDENT_IO_ENDPOINTS["custom_fields"].path_for("2099-01-01.made-up") == "/v2/custom_fields"
 
-    @pytest.mark.parametrize(
-        "api_version, expected_path",
-        [
-            (INCIDENT_IO_API_VERSION_V1, "https://api.incident.io/v1/custom_fields"),
-            (INCIDENT_IO_API_VERSION_V2, "https://api.incident.io/v2/custom_fields"),
-        ],
-    )
+    @pytest.mark.parametrize("api_version", [INCIDENT_IO_API_VERSION_V1, INCIDENT_IO_API_VERSION_V2])
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.incident_io.make_tracked_session"
     )
-    def test_api_version_selects_request_url(self, mock_session, api_version, expected_path):
+    def test_api_version_threads_to_request_url(self, mock_session, api_version):
+        # The pin reaches URL building; a "v1"-pinned (backfilled) source still hits /v2/custom_fields.
         mock_session.return_value.get.return_value = _response(_page("custom_fields", [{"id": "01A"}], None))
 
         list(get_rows("key", "custom_fields", mock.MagicMock(), _make_manager(), api_version=api_version))
 
-        assert mock_session.return_value.get.call_args.args[0] == expected_path
+        assert mock_session.return_value.get.call_args.args[0] == "https://api.incident.io/v2/custom_fields"
