@@ -4139,7 +4139,7 @@ class SvixSourceConfig(config.Config):
 
 @config.config
 class SwarmiaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

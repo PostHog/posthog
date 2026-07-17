@@ -452,6 +452,7 @@ the row lists both.
 | surveymonkey                     | HTTP                        | requests                                                        | ✅                          |
 | surveysparrow                    | HTTP                        | requests                                                        | ✅                          |
 | svix                             | HTTP                        | requests                                                        | ✅                          |
+| swarmia                          | HTTP                        | requests                                                        | ✅                          |
 | taboola                          | HTTP                        | requests                                                        | ✅                          |
 | tavus                            | HTTP                        | requests                                                        | ✅                          |
 | teamcity                         | HTTP                        | requests                                                        | ✅                          |
@@ -925,7 +926,6 @@ doesn't conflict with concurrent PRs.
 - surveymonkey
 - survicate
 - svix
-- swarmia
 - swonkie
 - synthesia
 - systeme
