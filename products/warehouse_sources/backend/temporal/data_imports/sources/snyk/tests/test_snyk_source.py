@@ -180,7 +180,8 @@ class TestSnykSource:
             incremental_field="updated_at",
         )
         self.source.source_for_pipeline(config, manager, inputs)
-        assert mock_snyk_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        disabled_kwargs = mock_snyk_source.call_args.kwargs
+        assert disabled_kwargs["db_incremental_field_last_value"] is None
 
         inputs = _source_inputs(
             "issues",
@@ -189,8 +190,9 @@ class TestSnykSource:
             incremental_field="updated_at",
         )
         self.source.source_for_pipeline(config, manager, inputs)
-        assert mock_snyk_source.call_args.kwargs["db_incremental_field_last_value"] == "2026-01-01"
-        assert mock_snyk_source.call_args.kwargs["incremental_field"] == "updated_at"
+        enabled_kwargs = mock_snyk_source.call_args.kwargs
+        assert enabled_kwargs["db_incremental_field_last_value"] == "2026-01-01"
+        assert enabled_kwargs["incremental_field"] == "updated_at"
 
     def test_fan_out_children_carry_organization_id_in_primary_key(self) -> None:
         # Fan-out children aggregate rows from every org, so the injected org id must be part of
