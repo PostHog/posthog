@@ -5,13 +5,13 @@
 //! keys, wrong dlq/drop classification), so the suite centers on a differential check against the
 //! tree path plus targeted leak/contract cases.
 
-use replay_anonymizer_node::allow_lists::AllowLists;
-use replay_anonymizer_node::snapshot::{
+use posthog_replay_anonymizer::allow_lists::AllowLists;
+use posthog_replay_anonymizer::snapshot::{
     anonymize_kafka_payload, anonymize_kafka_payload_opts, anonymize_via_tree, AnonymizeOpts,
     AnonymizedMessage, FailKind, Failure, FLAG_ACTIVE, FLAG_CLICK, FLAG_KEYPRESS,
     FLAG_MOUSE_ACTIVITY,
 };
-use replay_anonymizer_node::Ctx;
+use posthog_replay_anonymizer::Ctx;
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -291,7 +291,7 @@ fn node_objects_with_too_many_keys_decline_to_the_parse() {
 
 #[test]
 fn decompress_payload_matches_the_capture_producer_format() {
-    use replay_anonymizer_node::snapshot::decompress_payload;
+    use posthog_replay_anonymizer::snapshot::decompress_payload;
     let body = br#"{"distinct_id":"d","data":"{}"}"#.to_vec();
 
     // lz4: capture writes `block::compress` output behind a 4-byte LE uncompressed-size prefix,
