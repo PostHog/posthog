@@ -83,7 +83,7 @@ from posthog.middleware import (
     get_impersonated_session_expires_at,
     is_read_only_impersonation,
 )
-from posthog.models import OrganizationInvite, Team, User, UserScenePersonalisation
+from posthog.models import OrganizationInvite, Team, User, UserPersonalization, UserScenePersonalisation
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -236,6 +236,14 @@ class UserSerializer(serializers.ModelSerializer):
         help_text="Whether PostHog should anonymize events captured for this user when identified."
     )
     role_at_organization = serializers.ChoiceField(choices=ROLE_CHOICES, required=False)
+    avatar_url = serializers.URLField(
+        source="personalization.avatar_url",
+        max_length=800,
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Profile picture URL, shown across PostHog apps in place of the Gravatar/initials fallback.",
+    )
     # Intentionally NOT declared explicitly — Meta.read_only_fields below is silently ignored
     # for explicitly declared fields (a well-known DRF gotcha that drf-spectacular replicates
     # in its generated OpenAPI), so any explicit declaration here would re-open the writable
@@ -301,6 +309,7 @@ class UserSerializer(serializers.ModelSerializer):
             "scene_personalisation",
             "theme_mode",
             "hedgehog_config",
+            "avatar_url",
             "allow_sidebar_suggestions",
             "shortcut_position",
             "role_at_organization",
@@ -354,6 +363,12 @@ class UserSerializer(serializers.ModelSerializer):
 
     def validate_first_name(self, value: str) -> str:
         return validate_display_name(value)
+
+    def validate_avatar_url(self, value: Optional[str]) -> Optional[str]:
+        # Rendered as an <img> src across PostHog apps, so only allow https.
+        if value and not value.startswith("https://"):
+            raise serializers.ValidationError("Avatar URL must use https.")
+        return value
 
     def validate_last_name(self, value: str) -> str:
         return validate_display_name(value)
@@ -675,6 +690,15 @@ class UserSerializer(serializers.ModelSerializer):
         return value
 
     def update(self, instance: "User", validated_data: Any) -> Any:
+        # The dotted avatar_url source arrives nested; it lives on a side
+        # table so posthog_user itself is never written for avatar changes.
+        personalization_data = validated_data.pop("personalization", None)
+        if personalization_data is not None and "avatar_url" in personalization_data:
+            UserPersonalization.objects.update_or_create(
+                user=instance,
+                defaults={"avatar_url": personalization_data["avatar_url"]},
+            )
+
         # Update current_organization and current_team
         current_organization = validated_data.pop("set_current_organization", None)
         current_team = validated_data.pop("set_current_team", None)

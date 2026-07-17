@@ -77,6 +77,7 @@ from .repo_routing_rule import RepoRoutingRule
 from .user_repo_preference import UserRepoPreference
 from .user_scene_personalisation import UserScenePersonalisation
 from .user_home_settings import UserHomeSettings
+from .user_personalization import UserPersonalization
 from .oauth import (
     CIMDVerificationToken,
     OAuthAccessToken,
@@ -181,6 +182,7 @@ __all__ = [
     "UserRepoPreference",
     "UserScenePersonalisation",
     "UserHomeSettings",
+    "UserPersonalization",
     "UserManager",
     "UserGroup",
     "UserGroupMembership",

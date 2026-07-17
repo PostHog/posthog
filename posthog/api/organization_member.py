@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 from django.db.models import F, Model, Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
@@ -59,7 +59,7 @@ def organization_members_base_queryset() -> QuerySet:
     return (
         OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
         .filter(user__is_active=True)
-        .select_related("user")
+        .select_related("user", "user__personalization")
     )
 
 
@@ -88,6 +88,9 @@ class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.M
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
     last_login = serializers.DateTimeField(read_only=True)
+    avatar_url = serializers.SerializerMethodField(
+        help_text="The member's profile picture URL, when they have set one."
+    )
 
     class Meta:
         model = OrganizationMembership
@@ -100,9 +103,14 @@ class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.M
             "is_2fa_enabled",
             "has_social_auth",
             "last_login",
+            "avatar_url",
             "search_match_type",
         ]
         read_only_fields = ["id", "joined_at", "updated_at"]
+
+    def get_avatar_url(self, instance: OrganizationMembership) -> Optional[str]:
+        personalization = getattr(instance.user, "personalization", None)
+        return personalization.avatar_url if personalization else None
 
     def get_is_2fa_enabled(self, instance: OrganizationMembership) -> bool:
         # Uses prefetched relations to avoid N+1 queries
