@@ -450,6 +450,7 @@ the row lists both.
 | svix                             | HTTP                        | requests                                                        | ✅                          |
 | taboola                          | HTTP                        | requests                                                        | ✅                          |
 | tavus                            | HTTP                        | requests                                                        | ✅                          |
+| teamcity                         | HTTP                        | requests                                                        | ✅                          |
 | teamtailor                       | HTTP                        | requests                                                        | ✅                          |
 | teamwork                         | HTTP                        | requests                                                        | ✅                          |
 | tempo                            | HTTP                        | requests                                                        | ✅                          |
@@ -929,7 +930,6 @@ doesn't conflict with concurrent PRs.
 - tailscale
 - tawk_to
 - teachable
-- teamcity
 - telli
 - tempo
 - terra_api

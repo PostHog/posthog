@@ -4184,7 +4184,8 @@ class TeachableSourceConfig(config.Config):
 
 @config.config
 class TeamcitySourceConfig(config.Config):
-    pass
+    host: str
+    access_token: str
 
 
 @config.config
