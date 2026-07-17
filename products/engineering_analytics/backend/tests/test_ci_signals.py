@@ -10,6 +10,8 @@ from unittest import mock
 import pandas as pd
 from asgiref.sync import async_to_sync
 
+from posthog.rbac.user_access_control import UserAccessControl
+
 from products.engineering_analytics.backend.logic.ci_signals_config import (
     AUTHORIZED_SOURCES_CONFIG_KEY,
     CI_SIGNAL_SOURCE_TYPES,
@@ -33,6 +35,7 @@ from products.engineering_analytics.backend.logic.signals.coordinator import (
     _unemitted,
     detect_and_emit_ci_signals_activity,
 )
+from products.engineering_analytics.backend.logic.signals.detect import detect_for_source
 from products.engineering_analytics.backend.logic.signals.detectors import (
     detect_broken_default_branch,
     detect_ci_duration_regressions,
@@ -43,7 +46,7 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
-from products.engineering_analytics.backend.tests.test_views import create_github_source
+from products.engineering_analytics.backend.tests.test_views import create_github_source, create_warehouse_table_row
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import ReportPriority
 from products.signals.backend.facade.api import set_signal_source_types_enabled, validate_signal_input
@@ -51,11 +54,14 @@ from products.signals.backend.models import SignalEmissionRecord, SignalSourceCo
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
+    ExternalDataSchema,
     ExternalDataSource,
 )
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 _COORDINATOR = "products.engineering_analytics.backend.logic.signals.coordinator"
+_DETECT = "products.engineering_analytics.backend.logic.signals.detect"
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.signals"
 GITHUB_SOURCE_PREFIX = "myprefix"
 
@@ -146,6 +152,56 @@ def test_source_type_constants_match_signals_taxonomy() -> None:
     for source_type in (SOURCE_TYPE_FLAKY_CHECK, SOURCE_TYPE_BROKEN_DEFAULT_BRANCH, SOURCE_TYPE_DURATION_REGRESSION):
         assert source_type in {choice.value for choice in SignalSourceConfig.SourceType}
         assert (SOURCE_PRODUCT, source_type) in SIGNAL_VARIANT_LOOKUP
+
+
+class TestDetectForSourceMultiRepo(BaseTest):
+    def test_detects_across_every_synced_repo_of_a_multi_repo_source(self) -> None:
+        # A multi-repo source must contribute findings for each synced repo, not just the one the
+        # bare (repo-less) resolver picks; a repo still backfilling an endpoint is skipped.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="gh-multi",
+            connection_id="gh-multi",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.GITHUB,
+            prefix="multi_",
+            job_inputs={"repositories": ["Acme/one", "Acme/two", "Acme/three"]},
+        )
+        repo_endpoints = {
+            "Acme/one": ["pull_requests", "workflow_runs"],
+            "Acme/two": ["pull_requests", "workflow_runs"],
+            "Acme/three": ["pull_requests"],  # workflow_runs still syncing => repo not scanned
+        }
+        for repo, endpoints in repo_endpoints.items():
+            slug = repo.replace("/", "_").lower()
+            for endpoint in endpoints:
+                ExternalDataSchema.objects.create(
+                    team=self.team,
+                    source=source,
+                    name=f"{repo}.{endpoint}",
+                    table=create_warehouse_table_row(self.team, name=f"multi_github_{slug}_{endpoint}", source=source),
+                    should_sync=True,
+                    sync_type_config={
+                        "schema_metadata": {"source_repository": repo.lower(), "source_endpoint": endpoint}
+                    },
+                )
+
+        def finding_for(curated: CuratedGitHubSource) -> list[CISignalFinding]:
+            return [
+                CISignalFinding(
+                    source_type=SOURCE_TYPE_FLAKY_CHECK,
+                    source_id=f"{curated.repository}:ci:flaky",
+                    description=f"{curated.repository} finding",
+                    weight=1.0,
+                    remediation=SignalRemediation(human="h", agent="a"),
+                )
+            ]
+
+        with mock.patch(f"{_DETECT}.detect_all", side_effect=finding_for):
+            findings = detect_for_source(
+                self.team, str(source.id), user_access_control=UserAccessControl(user=self.user, team=self.team)
+            )
+        assert {finding.source_id for finding in findings} == {"acme/one:ci:flaky", "acme/two:ci:flaky"}
 
 
 class TestCISignalSourceAuthorization(BaseTest):
