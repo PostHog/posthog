@@ -24,12 +24,6 @@ All three kinds are team `LLMSkill` rows the review agents pull over MCP at run 
 canonicals; this skill is the guide for authoring **custom** ones. The skill itself is team-level;
 whether it _runs_ is a per-user setting in **Inbox → Code review**.
 
-> **Need the bigger picture?** `products/review_hog/ARCHITECTURE.md` is the present-tense reference
-> for how a review runs (pipeline, models, persistence, triggers) — read it when a question is about
-> *what the code does today*. `products/review_hog/DECISIONS.md` records *why* it's shaped that way
-> (the trade-offs, the rejected alternatives, the designed-but-unbuilt loop) — read it before
-> changing a settled design so you don't re-litigate it. This skill only covers authoring skills.
-
 | Kind                | Name contract                   | Cardinality per user                | Canonical example                          |
 | ------------------- | ------------------------------- | ----------------------------------- | ------------------------------------------ |
 | Review perspective  | `review-hog-perspective-<slug>` | Multi-enable, at least one stays on | `review-hog-perspective-logic-correctness` |
