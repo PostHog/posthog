@@ -47,9 +47,6 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
     last_used_at = models.DateTimeField(null=True, blank=True)
     last_rolled_at = models.DateTimeField(null=True, blank=True)
     scopes: ArrayField = ArrayField(models.CharField(max_length=100), default=list)
-    # blank=True matches null=True: empty means "unscoped key", the normal state of every
-    # UI-minted key. Without it, Django forms (the admin change page) mark these required,
-    # making an unscoped key's admin form unsaveable.
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
 
