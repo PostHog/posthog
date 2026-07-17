@@ -370,13 +370,19 @@ export const ConversationsTicketsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.
 })
 
 /**
- * Create a new outbound ticket and send the first message to the customer.
+ * Create a new email ticket with a first message.
+ *
+ * By default the first message is sent to the recipient as an email. Pass
+ * is_private=true to store it as an internal note instead, so the recipient
+ * isn't notified until a team member posts a public reply.
  */
 export const conversationsTicketsComposeCreateBodyRecipientDistinctIdMax = 400
 
 export const conversationsTicketsComposeCreateBodyEmailSubjectMax = 500
 
 export const conversationsTicketsComposeCreateBodyMessageMax = 5000
+
+export const conversationsTicketsComposeCreateBodyIsPrivateDefault = false
 
 export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object({
     recipient_email: zod.email().describe('Recipient email address.'),
@@ -392,6 +398,12 @@ export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object(
         .describe('Email subject line.'),
     email_config_id: zod.uuid().describe('ID of the EmailChannel to send from.'),
     message: zod.string().max(conversationsTicketsComposeCreateBodyMessageMax).describe('Message content in markdown.'),
+    is_private: zod
+        .boolean()
+        .default(conversationsTicketsComposeCreateBodyIsPrivateDefault)
+        .describe(
+            'If false (the default), the first message is delivered to the recipient as an email. If true, the ticket is created but the first message is stored as an internal note, so the recipient is not notified until a team member sends a public reply.'
+        ),
     rich_content: zod.unknown().optional().describe('TipTap rich content JSON for formatted messages.'),
 })
 

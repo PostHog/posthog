@@ -1020,6 +1020,8 @@ export interface ComposeTicketApi {
      * @maxLength 5000
      */
     message: string
+    /** If false (the default), the first message is delivered to the recipient as an email. If true, the ticket is created but the first message is stored as an internal note, so the recipient is not notified until a team member sends a public reply. */
+    is_private?: boolean
     /** TipTap rich content JSON for formatted messages. */
     rich_content?: unknown
 }

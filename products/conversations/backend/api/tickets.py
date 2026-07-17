@@ -149,6 +149,14 @@ class ComposeTicketSerializer(serializers.Serializer):
         max_length=5000,
         help_text="Message content in markdown.",
     )
+    is_private = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "If false (the default), the first message is delivered to the recipient as an email. "
+            "If true, the ticket is created but the first message is stored as an internal note, so "
+            "the recipient is not notified until a team member sends a public reply."
+        ),
+    )
     rich_content = serializers.JSONField(
         required=False,
         allow_null=True,
@@ -1223,7 +1231,12 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         throttle_classes=[ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle],
     )
     def compose(self, request, *args, **kwargs):
-        """Create a new outbound ticket and send the first message to the customer."""
+        """Create a new email ticket with a first message.
+
+        By default the first message is sent to the recipient as an email. Pass
+        is_private=true to store it as an internal note instead, so the recipient
+        isn't notified until a team member posts a public reply.
+        """
         serializer = ComposeTicketSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -1298,7 +1311,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 item_id=str(ticket.id),
                 content=data["message"],
                 rich_content=data.get("rich_content"),
-                item_context={"author_type": "human", "is_private": False},
+                item_context={"author_type": "human", "is_private": data["is_private"]},
             )
 
         try:

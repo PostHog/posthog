@@ -1678,6 +1678,36 @@ class TestComposeTicketAPI(APIBaseTest):
         ticket = Ticket.objects.get(team=self.team)
         assert ticket.identity_verified is None
 
+    @parameterized.expand(
+        [
+            ("default_is_public_and_emailed", None, False, True),
+            ("explicit_public_is_emailed", False, False, True),
+            ("private_note_is_not_emailed", True, True, False),
+        ]
+    )
+    @patch("products.conversations.backend.signals.send_email_reply")
+    def test_compose_first_message_privacy_controls_delivery(
+        self, _name, is_private_arg, expected_private, expect_delivery, mock_send_email_reply, mock_on_commit
+    ):
+        data = {
+            "recipient_email": "someone@test.com",
+            "email_config_id": str(self.email_config.id),
+            "message": "Hello!",
+        }
+        if is_private_arg is not None:
+            data["is_private"] = is_private_arg
+
+        response = self._compose(data)
+        assert response.status_code == status.HTTP_201_CREATED
+
+        comment = Comment.objects.get(scope="conversations_ticket", item_id=response.json()["id"])
+        assert comment.item_context["is_private"] is expected_private
+
+        if expect_delivery:
+            mock_send_email_reply.delay.assert_called_once()
+        else:
+            mock_send_email_reply.delay.assert_not_called()
+
 
 class TestTicketPersonalAPIKeyScopes(APIBaseTest):
     def _auth_with_pak(self, scopes: list[str]) -> None:

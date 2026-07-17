@@ -555,7 +555,11 @@ export const getConversationsTicketsComposeCreateUrl = (projectId: string) => {
 }
 
 /**
- * Create a new outbound ticket and send the first message to the customer.
+ * Create a new email ticket with a first message.
+ *
+ * By default the first message is sent to the recipient as an email. Pass
+ * is_private=true to store it as an internal note instead, so the recipient
+ * isn't notified until a team member posts a public reply.
  */
 export const conversationsTicketsComposeCreate = async (
     projectId: string,
