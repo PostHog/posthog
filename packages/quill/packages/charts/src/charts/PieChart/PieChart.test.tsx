@@ -166,8 +166,9 @@ describe('PieChart', () => {
 
     describe('interactive legend', () => {
         function legendButtons(container: HTMLElement): HTMLButtonElement[] {
-            const legend = container.querySelector('[data-attr="hog-chart-pie-legend"]')
-            return legend ? Array.from(legend.querySelectorAll('button')) : []
+            return Array.from(
+                container.querySelectorAll<HTMLButtonElement>('[data-attr="hog-chart-pie-legend"] button')
+            )
         }
 
         it('renders no legend by default', () => {
