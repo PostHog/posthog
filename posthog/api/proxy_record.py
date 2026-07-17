@@ -4,6 +4,7 @@ import hashlib
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
@@ -336,49 +337,54 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     )
     @action(methods=["POST"], detail=True)
     def retry(self, request, *args, pk=None, **kwargs):
-        try:
-            record = self.organization.proxy_records.get(id=pk)
-        except ProxyRecord.DoesNotExist:
-            raise NotFound()
+        # Serialize the eligibility check and the status transition per record: lock the row so two
+        # concurrent requests (retry+retry, or retry+delete) can't both observe a live proxy and
+        # start competing Temporal workflows. destroy() takes the same lock. The external workflow
+        # start runs after the transaction commits.
+        with transaction.atomic():
+            try:
+                record = self.organization.proxy_records.select_for_update().get(id=pk)
+            except ProxyRecord.DoesNotExist:
+                raise NotFound()
 
-        # Retry re-runs the idempotent create-proxy workflow to re-provision. Block only the
-        # transitional states where a re-run would race the in-flight provision/delete; every
-        # settled state (valid/warning/erroring/timed_out) can otherwise be re-provisioned to
-        # recover drift.
-        if record.status in (
-            ProxyRecord.Status.WAITING,
-            ProxyRecord.Status.ISSUING,
-            ProxyRecord.Status.DELETING,
-        ):
-            return Response(
-                {"detail": f"Cannot retry proxy in {record.status} state."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            # Retry re-runs the idempotent create-proxy workflow to re-provision. Block only the
+            # transitional states where a re-run would race the in-flight provision/delete; every
+            # settled state (valid/warning/erroring/timed_out) can otherwise be re-provisioned to
+            # recover drift.
+            if record.status in (
+                ProxyRecord.Status.WAITING,
+                ProxyRecord.Status.ISSUING,
+                ProxyRecord.Status.DELETING,
+            ):
+                return Response(
+                    {"detail": f"Cannot retry proxy in {record.status} state."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        # The create-proxy workflow always provisions on the *currently active* path
-        # (use_cloudflare_proxy()), regardless of the path the proxy was originally built on.
-        # For a still-working proxy (valid/warning), re-running it on a different path would
-        # migrate a live proxy — e.g. a legacy proxy onto Cloudflare, whose validation can never
-        # pass while DNS still points at the legacy target — and knock a healthy proxy into
-        # 'erroring'. So refuse a retry that would switch a live proxy's path. (erroring/timed_out
-        # proxies are already broken, so re-provisioning them is fine even if the path changes.)
-        if record.status in (
-            ProxyRecord.Status.VALID,
-            ProxyRecord.Status.WARNING,
-        ) and use_cloudflare_proxy() != is_cloudflare_proxy_by_cname(record.target_cname):
-            return Response(
-                {
-                    "detail": (
-                        "Can't retry this proxy because it would re-provision it on a different "
-                        "path and break the live setup. Contact support if it needs re-provisioning."
-                    )
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            # The create-proxy workflow always provisions on the *currently active* path
+            # (use_cloudflare_proxy()), regardless of the path the proxy was originally built on.
+            # For a still-working proxy (valid/warning), re-running it on a different path would
+            # migrate a live proxy — e.g. a legacy proxy onto Cloudflare, whose validation can never
+            # pass while DNS still points at the legacy target — and knock a healthy proxy into
+            # 'erroring'. So refuse a retry that would switch a live proxy's path. (erroring/timed_out
+            # proxies are already broken, so re-provisioning them is fine even if the path changes.)
+            if record.status in (
+                ProxyRecord.Status.VALID,
+                ProxyRecord.Status.WARNING,
+            ) and use_cloudflare_proxy() != is_cloudflare_proxy_by_cname(record.target_cname):
+                return Response(
+                    {
+                        "detail": (
+                            "Can't retry this proxy because it would re-provision it on a different "
+                            "path and break the live setup. Contact support if it needs re-provisioning."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        record.status = ProxyRecord.Status.WAITING
-        record.message = None
-        record.save()
+            record.status = ProxyRecord.Status.WAITING
+            record.message = None
+            record.save()
 
         try:
             temporal = sync_connect()
@@ -416,23 +422,30 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         "For active proxies, a deletion workflow is started to clean up the provisioned infrastructure.",
     )
     def destroy(self, request, *args, pk=None, **kwargs):
-        try:
-            record = self.organization.proxy_records.get(id=pk)
-        except ProxyRecord.DoesNotExist:
-            raise NotFound()
+        # Lock the row while deciding and applying the status transition so a concurrent retry (or
+        # another delete) can't race this one into competing Temporal workflows. retry() takes the
+        # same lock. The external workflow start runs after the transaction commits.
+        with transaction.atomic():
+            try:
+                record = self.organization.proxy_records.select_for_update().get(id=pk)
+            except ProxyRecord.DoesNotExist:
+                raise NotFound()
 
-        if record.status in (
-            ProxyRecord.Status.WAITING,
-            ProxyRecord.Status.ERRORING,
-            ProxyRecord.Status.TIMED_OUT,
-        ):
-            _capture_proxy_event(request, record, "deleted")
-            record.delete()
-        else:
-            previous_status = record.status
-            record.status = ProxyRecord.Status.DELETING
-            record.save()
+            immediate_delete = record.status in (
+                ProxyRecord.Status.WAITING,
+                ProxyRecord.Status.ERRORING,
+                ProxyRecord.Status.TIMED_OUT,
+            )
+            if immediate_delete:
+                # Capture before the delete nulls record.id so the event keeps the real id.
+                _capture_proxy_event(request, record, "deleted")
+                record.delete()
+            else:
+                previous_status = record.status
+                record.status = ProxyRecord.Status.DELETING
+                record.save()
 
+        if not immediate_delete:
             try:
                 temporal = sync_connect()
                 inputs = DeleteManagedProxyInputs(
