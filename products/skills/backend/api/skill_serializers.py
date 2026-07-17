@@ -25,6 +25,14 @@ _LIST_EXCLUDED_FIELDS = ("body", "body_total_length", "body_next_offset", "files
 MAX_SKILL_BODY_BYTES = 1_000_000
 MAX_SKILL_FILE_BYTES = 1_000_000
 MAX_SKILL_FILE_COUNT = 50
+# skill-get returns the whole body when the caller doesn't page, but a large body is
+# truncated by the MCP transport before it reaches an agent — and an un-paged response
+# reported body_next_offset as null, so the agent had no valid offset to continue from and
+# would treat a cut-off body as complete. get_by_name caps the first page at this length so
+# body_next_offset is always a real continuation offset the caller can page from until it is
+# null, never a guess. Sized to sit under observed transport truncation with room for the
+# response envelope (outline, file manifest, metadata).
+DEFAULT_BODY_PAGE_LENGTH = 8000
 SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 
 

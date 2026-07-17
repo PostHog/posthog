@@ -43,6 +43,7 @@ from ..marketplace.credentials import (
 from ..marketplace.packaging import SkillImportError, build_skill_zip, parse_skill_zip, validate_for_export
 from ..models.skills import LLMSkill, LLMSkillFile
 from .skill_serializers import (
+    DEFAULT_BODY_PAGE_LENGTH,
     MAX_SKILL_FILE_BYTES,
     LLMSkillBodyFetchQuerySerializer,
     LLMSkillCreateSerializer,
@@ -343,11 +344,17 @@ class LLMSkillViewSet(
         if skill is None:
             return self._skill_not_found_response(skill_name)
 
+        # Cap the first page when the caller doesn't page explicitly, so body_next_offset is a
+        # valid continuation offset even when the full body would be truncated in transit.
+        body_length = cast(int | None, version_params.get("body_length"))
+        if body_length is None:
+            body_length = DEFAULT_BODY_PAGE_LENGTH
+
         return Response(
             self._serialize_skill(
                 skill,
                 body_offset=cast(int | None, version_params.get("body_offset")),
-                body_length=cast(int | None, version_params.get("body_length")),
+                body_length=body_length,
             )
         )
 

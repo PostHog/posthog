@@ -7,6 +7,7 @@ from rest_framework import status
 
 from posthog.models import User
 
+from ...api.skill_serializers import DEFAULT_BODY_PAGE_LENGTH
 from ...api.skill_services import MAX_SKILL_FILE_COUNT
 from ...models.skills import LLMSkill, LLMSkillFile
 
@@ -347,15 +348,27 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["body"] == "# Fetch me body"
         assert "files" in data
 
-    def test_get_skill_by_name_reports_body_total_length_without_paging(self):
+    def test_get_skill_by_name_returns_short_body_whole_without_paging(self):
         self.create_skill(name="whole-body", body="0123456789")
 
         data = self.client.get(self._url("name/whole-body")).json()
 
         assert data["body"] == "0123456789"
         assert data["body_total_length"] == 10
-        # Without paging params the whole body is returned, so there is nothing left to fetch.
+        # A body under the default page cap fits in the first page, so nothing is left to fetch.
         assert data["body_next_offset"] is None
+
+    def test_get_skill_by_name_caps_first_page_and_reports_next_offset_without_paging(self):
+        # A body larger than the default page cap would be truncated in transit; the un-paged
+        # response must hand back a valid continuation offset rather than claiming completeness.
+        body = "x" * (DEFAULT_BODY_PAGE_LENGTH + 50)
+        self.create_skill(name="huge-body", body=body)
+
+        data = self.client.get(self._url("name/huge-body")).json()
+
+        assert data["body"] == body[:DEFAULT_BODY_PAGE_LENGTH]
+        assert data["body_total_length"] == DEFAULT_BODY_PAGE_LENGTH + 50
+        assert data["body_next_offset"] == DEFAULT_BODY_PAGE_LENGTH
 
     @parameterized.expand(
         [
