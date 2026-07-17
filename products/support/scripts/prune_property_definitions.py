@@ -52,6 +52,7 @@ import requests
 
 MAX_RETRIES = 5
 BACKOFF_BASE_SECONDS = 2.0
+RETRY_AFTER_MAX_SECONDS = 60.0
 REGION_HOSTS = {"us": "https://us.posthog.com", "eu": "https://eu.posthog.com"}
 
 
@@ -81,7 +82,14 @@ def request_with_retries(
             time.sleep(BACKOFF_BASE_SECONDS * 2**attempt)
             continue
         if response.status_code == 429:
-            retry_after = float(response.headers.get("Retry-After", BACKOFF_BASE_SECONDS * 2**attempt))
+            default_wait = BACKOFF_BASE_SECONDS * 2**attempt
+            raw_retry_after = response.headers.get("Retry-After")
+            try:
+                # Retry-After may be seconds or an HTTP-date; only the numeric form is honored
+                retry_after = float(raw_retry_after) if raw_retry_after is not None else default_wait
+            except ValueError:
+                retry_after = default_wait
+            retry_after = min(max(retry_after, 0.0), RETRY_AFTER_MAX_SECONDS)
             log(f"  rate limited, retrying in {retry_after:.0f}s...")
             time.sleep(retry_after)
             continue
