@@ -44,8 +44,11 @@ class ServiceNowSource(ResumableSource[ServiceNowSourceConfig, ServiceNowResumeC
     api_docs_url = "https://www.servicenow.com/docs/r/washingtondc/api-reference/rest-apis/c_TableAPI.html"
 
     # Both Table API versions stay supported; new sources default to v2 (stable since Geneva).
-    # Existing sources were stamped with their v1 pin at creation, so the default flip leaves
-    # them on v1 (the versionless path) and their syncs unchanged.
+    # Every existing source already carries an explicit "v1" pin — stamped at creation
+    # (`default_version` was the inherited "v1" before this flip) or backfilled onto pre-stamp
+    # rows by migration 0075 — so no ServiceNow row has a NULL `api_version` that would now
+    # resolve to v2. The default flip therefore never reaches them: they stay on v1 (the
+    # versionless path) and their syncs are byte-for-byte unchanged.
     supported_versions = (SERVICENOW_API_VERSION_V1, SERVICENOW_API_VERSION_V2)
     default_version = SERVICENOW_API_VERSION_V2
 
