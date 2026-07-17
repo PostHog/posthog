@@ -4,6 +4,7 @@ pub mod cascade_path;
 pub mod event_path;
 pub mod merge_gc;
 pub mod merge_path;
+pub mod seed_path;
 pub mod stage2_gc;
 pub mod stage2_path;
 pub mod sweep_callback;
