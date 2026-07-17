@@ -74,6 +74,14 @@ class GoogleAdsIsMccAccountConfig(config.Config):
 
 
 @config.config
+class GrafanaAuthMethodConfig(config.Config):
+    selection: Literal["token", "basic"] = "token"
+    token: str | None = None
+    username: str | None = None
+    password: str | None = None
+
+
+@config.config
 class HubspotCustomPropertiesConfig(config.Config):
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
     contacts_properties: str | None = None
@@ -1868,7 +1876,9 @@ class GorgiasSourceConfig(config.Config):
 
 @config.config
 class GrafanaSourceConfig(config.Config):
-    pass
+    host: str
+    auth_method: GrafanaAuthMethodConfig
+    org_id: str | None = None
 
 
 @config.config

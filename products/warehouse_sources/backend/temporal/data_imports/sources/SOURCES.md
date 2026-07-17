@@ -228,6 +228,7 @@ the row lists both.
 | google_pagespeed_insights        | HTTP                        | requests                                                        | ✅                          |
 | google_sheets                    | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
 | google_webfonts                  | HTTP                        | requests                                                        | ✅                          |
+| grafana                          | HTTP                        | requests                                                        | ✅                          |
 | granola                          | HTTP                        | requests                                                        | ✅                          |
 | gorgias                          | HTTP                        | requests                                                        | ✅                          |
 | greenhouse                       | HTTP                        | requests                                                        | ✅                          |
@@ -706,7 +707,6 @@ doesn't conflict with concurrent PRs.
 - google_forms
 - google_tasks
 - google_workspace_admin_reports
-- grafana
 - greythr
 - growthbook
 - gumloop
