@@ -64,7 +64,7 @@
 # red. There is no "yellow" to use instead, and job-level `continue-on-error` still
 # reds the PR, so fail-open means step-level. The name prefix is on the JOBS because
 # a check run is named after the job, not the workflow.
-name: '[optional, does not block merge] Hogbox Preview Environment'
+name: '[Optional] Hogbox Preview Environment'
 
 on:
     pull_request:
@@ -114,7 +114,7 @@ jobs:
     # unlabeled-cancel trap: a no-op event runs only this job, never touches the
     # `preview`/`teardown` concurrency group, so it can't cancel an active build.
     decide:
-        name: '[optional, does not block merge] decide eligibility'
+        name: '[Optional] decide eligibility'
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
@@ -215,7 +215,7 @@ jobs:
     # per-PR concurrency group: announcing must never cancel an in-flight
     # deploy; build-frontend/deploy below do the coalescing.
     announce:
-        name: '[optional, does not block merge] announce build'
+        name: '[Optional] announce build'
         needs: decide
         if: needs.decide.outputs.build == 'true'
         runs-on: ubuntu-24.04
@@ -283,7 +283,7 @@ jobs:
     # Hard-fails on purpose: it runs PR code, and deploy reads its conclusion to tell
     # a broken FE build from a backend-only PR. deploy matches this `name` literally.
     build-frontend:
-        name: '[optional, does not block merge] build PR frontend'
+        name: '[Optional] build PR frontend'
         needs: decide
         if: needs.decide.outputs.build == 'true'
         runs-on: ubuntu-24.04
@@ -399,7 +399,7 @@ jobs:
     # meaningless here, the `outcome` step is the verdict. The fork guard is exempt —
     # it must hard-stop before the tailnet and token come online.
     deploy:
-        name: '[optional, does not block merge] deploy preview'
+        name: '[Optional] deploy preview'
         needs: [decide, announce]
         # Runs whenever an eligible build was attempted — even if announce
         # failed, so the failure reporter below still flips the Deployment +
@@ -536,7 +536,7 @@ jobs:
               with:
                   script: |
                       // Must match the build-frontend job's `name:` exactly.
-                      const jobName = '[optional, does not block merge] build PR frontend';
+                      const jobName = '[Optional] build PR frontend';
                       // Ceiling must cover build-frontend's own 30m timeout PLUS
                       // queue time, minus the ~6m of bring-up already elapsed;
                       // 32m keeps us inside deploy's 40m job timeout with margin.
@@ -714,7 +714,7 @@ jobs:
     # nothing is up). The daily stale-sweep in hogbox-preview-cleanup.yml is the
     # backstop; PR *close* teardown lives in pr-closed.yml.
     teardown:
-        name: '[optional, does not block merge] tear down preview'
+        name: '[Optional] tear down preview'
         needs: decide
         if: needs.decide.outputs.teardown == 'true'
         # Share the preview job's per-PR group so the latest intent wins: a
