@@ -394,7 +394,7 @@ mod tests {
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
         let ctx = Ctx::new(&allow);
         let texts_gz = crate::cv::bytes_to_latin1(
-            &crate::gzip::gzip(br#"[{"id":5,"value":"topsecret stuff"}]"#).unwrap(),
+            &crate::compression::gzip(br#"[{"id":5,"value":"topsecret stuff"}]"#).unwrap(),
         );
         let line = serde_json::to_string(&serde_json::json!(
             { "type": 3, "cv": "2024-10", "data": { "source": 0, "texts": texts_gz } }

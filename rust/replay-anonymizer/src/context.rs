@@ -14,7 +14,7 @@ use crate::allow_lists::AllowLists;
 use crate::blur::{blur_image_data_uri, pixelate_raw_rgba};
 
 /// Cumulative decompressed-bytes budget across all cv payloads in one message: the per-payload
-/// `gzip::MAX_DECOMPRESSED_BYTES` cap bounds each field, this bounds their sum so many high-ratio
+/// `compression::MAX_DECOMPRESSED_BYTES` cap bounds each field, this bounds their sum so many high-ratio
 /// fields can't decompress gigabytes serially. Real messages total under 10 MB.
 const CV_MESSAGE_DECOMPRESSION_BUDGET: usize = 256 * 1024 * 1024;
 
@@ -63,17 +63,11 @@ impl<'a> Ctx<'a> {
         self.cv_budget.set(CV_MESSAGE_DECOMPRESSION_BUDGET);
     }
 
-    /// The only budgeted cv decompression path — cv code must not call the `gzip` codecs directly.
-    /// Dispatches on the leading magic: gzip is the SDK wire format, zstd is what the anonymizer
-    /// itself re-emits (so re-scrubbing already-anonymized data works). Unknown magic fails closed.
+    /// The only budgeted cv decompression path — cv code must not call the [`crate::compression`]
+    /// codecs directly. Magic-byte dispatch (gzip or zstd, unknown fails closed) lives in
+    /// [`crate::compression::decompress_by_magic`]; this layers the cumulative budget on top.
     pub fn decompress_cv(&self, raw: &[u8]) -> Result<Vec<u8>> {
-        let out = if raw.starts_with(&crate::gzip::GZIP_MAGIC) {
-            crate::gzip::gunzip(raw)?
-        } else if raw.starts_with(&crate::gzip::ZSTD_MAGIC) {
-            crate::gzip::unzstd(raw)?
-        } else {
-            bail!("cv stream is neither gzip nor zstd");
-        };
+        let out = crate::compression::decompress_by_magic(raw)?;
         match self.cv_budget.get().checked_sub(out.len()) {
             Some(rest) => self.cv_budget.set(rest),
             None => bail!("message exceeds the cumulative cv decompression budget"),
@@ -117,8 +111,8 @@ mod tests {
     fn decompress_cv_dispatches_on_magic_and_budgets_both_codecs() {
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
         let payload = b"x".repeat(1000);
-        let gz = crate::gzip::gzip(&payload).unwrap();
-        let zs = crate::gzip::compress_cv(&payload).unwrap();
+        let gz = crate::compression::gzip(&payload).unwrap();
+        let zs = crate::compression::compress_cv(&payload).unwrap();
         for compressed in [&gz, &zs] {
             let ctx = Ctx::new(&allow);
             assert_eq!(ctx.decompress_cv(compressed).unwrap(), payload);

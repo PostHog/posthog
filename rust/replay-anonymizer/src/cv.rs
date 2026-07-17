@@ -6,11 +6,11 @@ use simd_json::prelude::Writable;
 use simd_json::StaticNode;
 
 use crate::bytewalk;
+use crate::compression;
 use crate::context::Ctx;
 use crate::dom::{
     scrub_full_snapshot, scrub_mutation_adds, scrub_mutation_attributes, scrub_mutation_texts,
 };
-use crate::gzip;
 use crate::json::{as_array_mut, key, parse_untrusted, reject_if_too_deep, string_value};
 
 /// PostHog wire format: each gzip byte stored as its U+00XX codepoint (latin-1). Per-char is
@@ -44,14 +44,14 @@ pub(crate) fn bytes_to_latin1(bytes: &[u8]) -> String {
 /// the SDK's gzip — unchanged zstd payloads can keep their original bytes.
 fn decompress_string(ctx: &Ctx<'_>, s: &str) -> Result<(Vec<u8>, bool)> {
     let raw = latin1_to_bytes(s)?;
-    let was_zstd = raw.starts_with(&gzip::ZSTD_MAGIC);
+    let was_zstd = raw.starts_with(&compression::ZSTD_MAGIC);
     let out = ctx.decompress_cv(&raw).context("decompress cv data")?;
     Ok((out, was_zstd))
 }
 
 fn compress_bytes(json: &[u8]) -> Result<String> {
     Ok(bytes_to_latin1(
-        &gzip::compress_cv(json).context("compress cv payload")?,
+        &compression::compress_cv(json).context("compress cv payload")?,
     ))
 }
 
@@ -185,12 +185,12 @@ mod tests {
 
     // Test inputs model what the SDK sends, which is always gzip.
     fn compress_json(json: &[u8]) -> String {
-        bytes_to_latin1(&gzip::gzip(json).unwrap())
+        bytes_to_latin1(&compression::gzip(json).unwrap())
     }
 
     // The crate's own re-emit format: what already-anonymized mirror data carries.
     fn compress_json_zstd(json: &[u8]) -> String {
-        bytes_to_latin1(&gzip::compress_cv(json).unwrap())
+        bytes_to_latin1(&compression::compress_cv(json).unwrap())
     }
 
     // Outputs are always zstd frames; assert the magic (the loader's dispatch contract) on decode.

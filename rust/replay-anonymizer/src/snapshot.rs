@@ -185,38 +185,20 @@ pub struct AnonymizedMessage {
     pub route: Route,
 }
 
-/// Decompressed payloads are capped (shared with the gzip codec's bomb cap) so a forged lz4 size
-/// prefix (a u32, so up to 4 GiB) cannot force the allocation; real replay payloads decompress to
-/// tens of MB at most.
-const MAX_DECOMPRESSED_LEN: usize = crate::gzip::MAX_DECOMPRESSED_BYTES;
-
 const GZIP_MAGIC: &[u8; 4] = &[0x1f, 0x8b, 0x08, 0x00];
 
 /// Decompress a raw Kafka message value the way capture wraps it (mirrors the TS
 /// `decompressMessageValue`): lz4 block with a 4-byte LE uncompressed-size prefix when the
 /// `content-encoding` header says lz4, gzip when the magic bytes say so, else pass through.
+/// Codec failures classify as `invalid_compressed_data`, matching the TS path.
 pub fn decompress_payload(raw: Vec<u8>, content_encoding: Option<&str>) -> SResult<Vec<u8>> {
-    let bad = |detail: &str| Failure::new(FailKind::InvalidCompressedData, detail);
+    let bad = |e: anyhow::Error| Failure::new(FailKind::InvalidCompressedData, format!("{e:#}"));
     if content_encoding == Some("lz4") {
-        let size_bytes: [u8; 4] = raw
-            .get(..4)
-            .and_then(|b| b.try_into().ok())
-            .ok_or_else(|| bad("lz4 payload too short for size prefix"))?;
-        let size = u32::from_le_bytes(size_bytes) as usize;
-        if size > MAX_DECOMPRESSED_LEN {
-            return Err(bad("lz4 uncompressed size exceeds limit"));
-        }
-        let out = lz4::block::decompress(&raw[4..], Some(size as i32))
-            .map_err(|e| bad(&format!("lz4 decompress failed: {e}")))?;
-        // Classify a lying size prefix as invalid_compressed_data (matching the TS path) rather
-        // than letting the short/long buffer surface later as invalid_json.
-        if out.len() != size {
-            return Err(bad("lz4 decoded length does not match the size prefix"));
-        }
-        return Ok(out);
+        return crate::compression::unlz4_block(&raw).map_err(bad);
     }
     if raw.starts_with(GZIP_MAGIC) {
-        return crate::gzip::gunzip(&raw).map_err(|e| bad(&format!("gzip decompress failed: {e}")));
+        return crate::compression::gunzip(&raw)
+            .map_err(|e| bad(e.context("gzip decompress failed")));
     }
     Ok(raw)
 }

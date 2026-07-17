@@ -218,7 +218,7 @@ fn scrub_cv_snapshot_value(
         return None;
     }
     let raw = latin1_from_wire(&bytes[data.0 + 1..data.1 - 1])?;
-    let was_zstd = raw.starts_with(&crate::gzip::ZSTD_MAGIC);
+    let was_zstd = raw.starts_with(&crate::compression::ZSTD_MAGIC);
     let decompressed = ctx.decompress_cv(&raw).ok()?;
     let mut walked = Vec::with_capacity(decompressed.len() + 64);
     let changed = scrub_cv_snapshot(ctx, &decompressed, &mut walked)?;
@@ -230,7 +230,7 @@ fn scrub_cv_snapshot_value(
         return Some(false);
     }
     let content = if changed { &walked } else { &decompressed };
-    let zs = crate::gzip::compress_cv(content).ok()?;
+    let zs = crate::compression::compress_cv(content).ok()?;
     write_latin1_json_string(&zs, out);
     Some(true)
 }
@@ -987,7 +987,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                     return Some(send);
                 }
                 let raw = latin1_from_wire(wire)?;
-                let was_zstd = raw.starts_with(&crate::gzip::ZSTD_MAGIC);
+                let was_zstd = raw.starts_with(&crate::compression::ZSTD_MAGIC);
                 let decompressed = self.ctx.decompress_cv(&raw).ok()?;
                 let mut walked = Vec::with_capacity(decompressed.len() + 64);
                 let changed = scrub_cv_mutation_field(self.ctx, field, &decompressed, &mut walked)?;
@@ -998,7 +998,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                     return Some(send);
                 }
                 let content = if changed { &walked } else { &decompressed };
-                let zs = crate::gzip::compress_cv(content).ok()?;
+                let zs = crate::compression::compress_cv(content).ok()?;
                 write_latin1_json_string(&zs, out);
                 self.changed = true;
                 Some(send)

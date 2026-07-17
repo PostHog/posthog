@@ -1,6 +1,10 @@
-//! One-shot compression codecs: gzip on libdeflate (~2-3x the throughput of the streaming flate2
-//! legs it replaced, at the cost of needing the output size up front — which gzip carries in its
-//! ISIZE footer), plus the zstd leg that re-emits `cv` payloads.
+//! Every compression codec the anonymizer touches, in one place: gzip on libdeflate (~2-3x the
+//! throughput of the streaming flate2 legs it replaced, at the cost of needing the output size up
+//! front — which gzip carries in its ISIZE footer), the zstd pair (`compress_cv` re-emits cv
+//! payloads; `unzstd` reads them back), the lz4 block leg for capture-wrapped Kafka values, and the
+//! magic-byte dispatch over a cv stream. Note `compress_cv` emits **zstd**, not gzip — the crate
+//! never produces gzip in production (that codec is decode-only here; the `gzip` compressor exists
+//! for tests simulating the SDK wire format).
 
 use std::cell::RefCell;
 use std::io::Read;
@@ -134,6 +138,40 @@ pub fn compress_cv(payload: &[u8]) -> Result<Vec<u8>> {
             .compress(payload)
             .map_err(|e| anyhow!("zstd: {e}"))
     })
+}
+
+/// Decompress a compressed stream by its leading magic: gzip (the SDK wire format) or zstd (the
+/// anonymizer's own re-emit, so re-scrubbing already-anonymized data works). Unknown magic fails
+/// closed. Unbudgeted — cv code must go through `Ctx::decompress_cv`, which layers the cumulative
+/// per-message budget on top of this.
+pub fn decompress_by_magic(raw: &[u8]) -> Result<Vec<u8>> {
+    if raw.starts_with(&GZIP_MAGIC) {
+        gunzip(raw)
+    } else if raw.starts_with(&ZSTD_MAGIC) {
+        unzstd(raw)
+    } else {
+        bail!("cv stream is neither gzip nor zstd");
+    }
+}
+
+/// Decompress an lz4 *block* (not frame) with capture's 4-byte LE uncompressed-size prefix. Both
+/// prefix lies fail closed: a size over [`MAX_DECOMPRESSED_BYTES`] is rejected before allocating (a
+/// forged u32 prefix can claim up to 4 GiB), and a decoded length that disagrees with the prefix is
+/// an error rather than a short/long buffer surfacing later as invalid JSON.
+pub fn unlz4_block(raw: &[u8]) -> Result<Vec<u8>> {
+    let Some(size_bytes) = raw.get(..4).and_then(|b| <[u8; 4]>::try_from(b).ok()) else {
+        bail!("lz4 payload too short for size prefix");
+    };
+    let size = u32::from_le_bytes(size_bytes) as usize;
+    if size > MAX_DECOMPRESSED_BYTES {
+        bail!("lz4 uncompressed size exceeds limit");
+    }
+    let out = lz4::block::decompress(&raw[4..], Some(size as i32))
+        .map_err(|e| anyhow!("lz4 decompress failed: {e}"))?;
+    if out.len() != size {
+        bail!("lz4 decoded length does not match the size prefix");
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

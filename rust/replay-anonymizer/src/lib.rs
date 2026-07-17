@@ -33,6 +33,8 @@ pub mod blur;
 pub mod bytewalk;
 #[doc(hidden)]
 pub mod canvas;
+#[doc(hidden)]
+pub mod compression;
 pub mod context;
 #[doc(hidden)]
 pub mod css;
@@ -41,8 +43,6 @@ pub mod cv;
 #[doc(hidden)]
 pub mod dom;
 pub mod event;
-#[doc(hidden)]
-pub mod gzip;
 #[doc(hidden)]
 pub mod json;
 #[doc(hidden)]
