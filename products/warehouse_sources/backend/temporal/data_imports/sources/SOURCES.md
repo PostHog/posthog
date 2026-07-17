@@ -433,6 +433,7 @@ the row lists both.
 | semgrep                          | HTTP                        | requests                                                        | ✅                          |
 | sendgrid                         | HTTP                        | requests                                                        | ✅                          |
 | sendowl                          | HTTP                        | requests                                                        | ✅                          |
+| sentinelone                      | HTTP                        | requests                                                        | ✅                          |
 | sentry                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow                       | HTTP                        | requests                                                        | ✅                          |
 | shippo                           | HTTP                        | requests                                                        | ✅                          |
@@ -888,7 +889,6 @@ doesn't conflict with concurrent PRs.
 - semaphore
 - sendpulse
 - senseforce
-- sentinelone
 - serpstat
 - sevenshifts
 - sftp
