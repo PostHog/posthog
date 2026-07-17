@@ -13,12 +13,14 @@ import structlog
 
 from posthog.models.integration import GitHubIntegration
 
+# Import names only — pulling `Sandbox` at module level would trigger the module's lazy
+# resolver and drag the modal/temporal runtime onto the Django startup path.
 from products.tasks.backend.logic.services.sandbox import (
     WORKING_DIR,
-    Sandbox,
     SandboxBase,
     SandboxConfig,
     SandboxTemplate,
+    get_sandbox_class,
     sandbox_repo_path,
 )
 
@@ -67,7 +69,7 @@ def collect_repository_commit_activity(
         raise RepositoryCommitActivityError(f"No GitHub integration for team {team_id} can access {repository}")
     github_token = github.get_access_token()
 
-    sandbox = Sandbox.create(
+    sandbox = get_sandbox_class().create(
         SandboxConfig(
             name=f"repo-activity-{team_id}",
             template=SandboxTemplate.DEFAULT_BASE,
