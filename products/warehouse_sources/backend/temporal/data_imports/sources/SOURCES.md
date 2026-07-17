@@ -285,6 +285,7 @@ the row lists both.
 | iterable                         | HTTP                        | requests                                                        | ✅                          |
 | jamf_pro                         | HTTP                        | requests                                                        | ✅                          |
 | jellyfish                        | HTTP                        | requests                                                        | ✅                          |
+| jfrog_artifactory                | HTTP                        | requests                                                        | ✅                          |
 | jira                             | HTTP                        | requests                                                        | ✅                          |
 | jobnimbus                        | HTTP                        | requests                                                        | ✅                          |
 | jotform                          | HTTP                        | requests                                                        | ✅                          |
@@ -759,7 +760,6 @@ doesn't conflict with concurrent PRs.
 - instantly
 - interzoid
 - jenkins
-- jfrog_artifactory
 - jobber
 - judgeme_reviews
 - justsift
