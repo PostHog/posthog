@@ -1612,7 +1612,8 @@ class FireworksAISourceConfig(config.Config):
 
 @config.config
 class FlagsmithSourceConfig(config.Config):
-    pass
+    api_key: str
+    base_url: str | None = None
 
 
 @config.config
