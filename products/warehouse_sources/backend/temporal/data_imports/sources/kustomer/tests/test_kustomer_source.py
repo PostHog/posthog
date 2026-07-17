@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 import pytest
 from unittest import mock
 
@@ -111,19 +113,10 @@ class TestKustomerSource:
         assert self.source.default_version == "v2"
         assert self.source.deprecated_versions == ()
 
-    @pytest.mark.parametrize(
-        "pinned_version, expected_version",
-        [
-            (None, "v2"),  # unpinned new source resolves to the default
-            ("v1", "v1"),  # existing pin is honored verbatim
-            ("v2", "v2"),
-        ],
-    )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.source.kustomer_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_kustomer_source, pinned_version, expected_version):
+    def test_source_for_pipeline_plumbs_arguments(self, mock_kustomer_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "customers"
-        inputs.api_version = pinned_version
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -133,5 +126,27 @@ class TestKustomerSource:
         assert kwargs["org_name"] == "myorg"
         assert kwargs["api_key"] == "api-key"
         assert kwargs["endpoint"] == "customers"
-        assert kwargs["api_version"] == expected_version
         assert kwargs["resumable_source_manager"] is manager
+
+    @pytest.mark.parametrize("pinned_version", [None, "v1", "v2"])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.kustomer.make_tracked_session"
+    )
+    def test_source_requests_v1_rest_paths_for_every_version(self, mock_session, pinned_version):
+        # These list resources are served at /v1/ for every vendor version; the v2
+        # default must not switch to /v2/, which would 404 every stream.
+        page = mock.MagicMock(status_code=200, ok=True)
+        page.json.return_value = {"data": [], "links": {}}
+        mock_session.return_value.get.return_value = page
+
+        inputs = mock.MagicMock()
+        inputs.schema_name = "customers"
+        inputs.api_version = pinned_version
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+
+        response = self.source.source_for_pipeline(self.config, manager, inputs)
+        list(response.items())
+
+        url = mock_session.return_value.get.call_args.args[0]
+        assert urlparse(url).path == "/v1/customers"

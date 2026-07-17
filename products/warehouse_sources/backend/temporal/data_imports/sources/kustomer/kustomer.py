@@ -82,7 +82,6 @@ def get_rows(
     org_name: str,
     api_key: str,
     endpoint: str,
-    api_version: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[KustomerResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
@@ -97,8 +96,7 @@ def get_rows(
         url: str = _ensure_same_origin(resume_config.next_url, base_url)
         logger.debug(f"Kustomer: resuming {endpoint} from URL: {url}")
     else:
-        # The vendor version label is the URL path segment (`v1`, `v2`).
-        url = f"{base_url}/{api_version}/{config.resource}?{urlencode({'page[size]': PAGE_SIZE})}"
+        url = f"{base_url}{config.path}?{urlencode({'page[size]': PAGE_SIZE})}"
 
     @retry(
         retry=retry_if_exception_type((KustomerRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -145,7 +143,6 @@ def kustomer_source(
     org_name: str,
     api_key: str,
     endpoint: str,
-    api_version: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[KustomerResumeConfig],
 ) -> SourceResponse:
@@ -157,7 +154,6 @@ def kustomer_source(
             org_name=org_name,
             api_key=api_key,
             endpoint=endpoint,
-            api_version=api_version,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
         ),
