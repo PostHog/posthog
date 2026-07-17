@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { FeatureFlagReleaseType, FeatureFlagType } from '~/types'
 
+import type { PaginationManual } from '../../../@posthog/lemon-ui/src/index'
 import type { FeatureFlagsResult } from '../feature-flags/featureFlagsLogic'
 import { FeatureFlagMatchReason } from './RelatedFeatureFlags'
 
@@ -46,6 +47,7 @@ export interface relatedFeatureFlagsLogicValues {
     isLoading: boolean
     loadError: boolean
     mappedRelatedFeatureFlags: RelatedFeatureFlag[]
+    pagination: PaginationManual | undefined
     relatedFeatureFlags: RelatedFeatureFlagResponse | null
     relatedFeatureFlagsLoading: boolean
     searchTerm: string
@@ -116,6 +118,7 @@ export interface relatedFeatureFlagsLogicMeta {
             mappedRelatedFeatureFlags: RelatedFeatureFlag[],
             filters: Partial<RelatedFlagsFilters>
         ) => RelatedFeatureFlag[]
+        pagination: (pagination: PaginationManual, loadError: boolean) => PaginationManual | undefined
     }
 }
 
@@ -246,6 +249,15 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                 }
                 return filteredFlags
             },
+        ],
+        // The flags list is server-paginated (100 per page) and this table pages through it via
+        // the `page` URL param (see urlToAction below), so it reuses featureFlagsLogic's
+        // controlled pagination. Suppress it while the evaluation_reasons load has failed —
+        // otherwise the controls advertise the full flags count next to an empty error state.
+        pagination: [
+            () => [featureFlagsLogic.selectors.pagination, selectors.loadError],
+            (pagination: PaginationManual, loadError: boolean): PaginationManual | undefined =>
+                loadError ? undefined : pagination,
         ],
     })),
     listeners(({ values, actions }) => ({

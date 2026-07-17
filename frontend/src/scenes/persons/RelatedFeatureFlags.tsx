@@ -144,7 +144,7 @@ const options = [
 
 export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Props): JSX.Element {
     const relatedFlagsLogic = relatedFeatureFlagsLogic({ distinctId, groupTypeIndex, groups })
-    const { filteredMappedFlags, isLoading, searchTerm, filters, loadError } = useValues(relatedFlagsLogic)
+    const { filteredMappedFlags, isLoading, searchTerm, filters, pagination, loadError } = useValues(relatedFlagsLogic)
     const { setSearchTerm, setFilters, loadRelatedFeatureFlags } = useActions(relatedFlagsLogic)
 
     return (
@@ -232,11 +232,10 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
                 </div>
             </div>
             <LemonTable
-                id="related-feature-flags"
                 columns={columns}
                 loading={isLoading}
                 dataSource={filteredMappedFlags}
-                pagination={{ pageSize: 100 }}
+                pagination={pagination}
                 emptyState={
                     loadError && !isLoading ? (
                         <InsightErrorState
