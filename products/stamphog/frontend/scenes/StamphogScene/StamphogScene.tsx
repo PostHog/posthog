@@ -42,7 +42,33 @@ function ConnectRepositoryButton(): JSX.Element {
 }
 
 function SyncedBanner(): JSX.Element | null {
-    const { syncedRepos, skippedRepos, appNotInstalled, installUrl } = useValues(stamphogSceneLogic)
+    const { syncedRepos, skippedRepos, appNotInstalled, installUrl, discoveredInstallations } =
+        useValues(stamphogSceneLogic)
+    const { connectInstallation } = useActions(stamphogSceneLogic)
+
+    // Discovery found several installations and bound nothing: the user picks which one this team
+    // connects. The pick rides sessionStorage through one more (silent) authorize hop, and the
+    // backend's explicit-id path verifies it.
+    if (discoveredInstallations.length > 0) {
+        return (
+            <LemonBanner type="info">
+                <p className="font-medium">Stamphog is installed on several GitHub accounts</p>
+                <p>Pick the one to connect to this project:</p>
+                <div className="flex gap-2 flex-wrap">
+                    {discoveredInstallations.map((installation) => (
+                        <LemonButton
+                            key={installation.id}
+                            type="secondary"
+                            icon={<IconGithub />}
+                            onClick={() => connectInstallation(installation.id)}
+                        >
+                            {installation.account_login}
+                        </LemonButton>
+                    ))}
+                </div>
+            </LemonBanner>
+        )
+    }
 
     // Discovery found no installation the user can reach: they authorized the App but never installed it
     // on the org. Point them at the GitHub install page (install_url still carries a fresh state token).

@@ -422,6 +422,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         body = response.json()
         assert [row["repository"] for row in body["synced"]] == ["PostHog/posthog"]
         assert body["app_not_installed"] is False
+        assert body["installations"] == []
         bound = StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id, installation_id="42")
         assert bound.count() == 1
 
@@ -431,28 +432,25 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         return_value=[{"id": "100", "account_login": "AlphaOrg"}, {"id": "200", "account_login": "SharedOrg"}],
     )
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
-    def test_discovery_syncs_all_installations_and_aggregates(self, mock_exchange, mock_discover, mock_list) -> None:
-        # Two installations discovered from one code: repos from both are bound under the current team, and
-        # the synced/skipped tallies aggregate across installations. A repo another team already owns under
-        # its installation trips the cross-team unique constraint and is skipped, not fatal to the batch.
-        other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
-        StamphogRepoConfig.objects.unscoped().create(
-            team_id=other_team.id, repository="PostHog/shared", installation_id="200"
-        )
-        repos_by_installation = {"100": ["PostHog/alpha"], "200": ["PostHog/shared"]}
-        mock_list.side_effect = lambda installation_id, token: repos_by_installation[installation_id]
-
+    def test_discovery_with_several_installations_binds_nothing_and_returns_choices(
+        self, mock_exchange, mock_discover, mock_list
+    ) -> None:
+        # Reachability is not intent: a user in several orgs that all carry the App must pick which
+        # installation this team binds. Binding them all would attach foreign orgs' repos here and, via
+        # the oldest-wins webhook resolution, could blackhole another team's future connect.
         response = self.client.post(self.url, {"code": "oauth-code", "state": self.state}, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.content
         body = response.json()
-        assert [row["repository"] for row in body["synced"]] == ["PostHog/alpha"]
-        assert body["skipped"] == ["PostHog/shared"]
-        assert StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id, installation_id="100").exists()
-        # The other team's shared repo is left untouched — not rebound under the syncing team.
-        assert (
-            not StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id, repository="PostHog/shared").exists()
-        )
+        assert body["synced"] == []
+        assert body["skipped"] == []
+        assert body["app_not_installed"] is False
+        assert body["installations"] == [
+            {"id": "100", "account_login": "AlphaOrg"},
+            {"id": "200", "account_login": "SharedOrg"},
+        ]
+        mock_list.assert_not_called()
+        assert not StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id).exists()
 
     @patch(f"{_VIEWS}.list_user_accessible_repositories")
     @patch(f"{_VIEWS}.list_user_installations", return_value=[])

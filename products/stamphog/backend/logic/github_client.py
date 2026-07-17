@@ -89,7 +89,9 @@ _REVIEW_THREAD_BODY_MAX = 4000
 # 500,000 pre-execution node cap. Only the fields the hosted reviewer needs: resolution state,
 # path/line, and per comment the author identity triple (login, association, Bot-ness) the engine's
 # author-trust gate requires plus the body. The comments pageInfo detects per-thread overflow —
-# a >50-comment thread must fail closed, not silently drop comment 51 (a maintainer's hold).
+# a >50-comment thread pages its tail via _THREAD_COMMENTS_QUERY (comment 51 could be a
+# maintainer's hold, and failing the whole review would make one chatty thread block the PR
+# forever), failing closed only past the per-thread page cap.
 _REVIEW_THREADS_QUERY = """
 query($owner: String!, $name: String!, $pr: Int!, $cursor: String) {
   repository(owner: $owner, name: $name) {
@@ -97,12 +99,13 @@ query($owner: String!, $name: String!, $pr: Int!, $cursor: String) {
       reviewThreads(first: 100, after: $cursor) {
         pageInfo { hasNextPage endCursor }
         nodes {
+          id
           isResolved
           isOutdated
           path
           line
           comments(first: 50) {
-            pageInfo { hasNextPage }
+            pageInfo { hasNextPage endCursor }
             nodes {
               author { login __typename }
               authorAssociation
@@ -116,9 +119,41 @@ query($owner: String!, $name: String!, $pr: Int!, $cursor: String) {
 }
 """
 
+# Tail pages for a single thread whose comments overflow the window above.
+_THREAD_COMMENTS_QUERY = """
+query($id: ID!, $cursor: String) {
+  node(id: $id) {
+    ... on PullRequestReviewThread {
+      comments(first: 50, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          author { login __typename }
+          authorAssociation
+          body
+        }
+      }
+    }
+  }
+}
+"""
+
 # Refresh the installation token this many seconds before GitHub's stated expiry, to cover clock skew
 # and in-flight requests. GitHub installation tokens live one hour, so a 5-minute margin is ample.
 _TOKEN_EXPIRY_MARGIN_SECONDS = 300
+
+
+def _parse_review_thread_comments(comment_nodes: list) -> list[dict]:
+    """Normalize GraphQL review-thread comment nodes to the engine's shape (both queries share it)."""
+    return [
+        {
+            "author": (comment.get("author") or {}).get("login") or "",
+            "author_association": comment.get("authorAssociation") or "",
+            "author_is_bot": (comment.get("author") or {}).get("__typename") == "Bot",
+            "body": (comment.get("body") or "")[:_REVIEW_THREAD_BODY_MAX],
+        }
+        for comment in comment_nodes
+        if isinstance(comment, dict)
+    ]
 
 
 class StamphogGitHubError(Exception):
@@ -629,6 +664,17 @@ class StamphogGitHubClient:
         """
         expected_login = expected_app_bot_login()
         if expected_login is None:
+            # Loud on purpose: with App credentials configured but no slug, approvals still POST fine
+            # while every GitHub-side sweep and adopt silently no-ops — quietly disabling the
+            # orphan-catching half of the stale-approval invariant. The misconfiguration would
+            # otherwise be invisible until an orphan approval stands over unreviewed commits.
+            if settings.STAMPHOG_GITHUB_APP_PRIVATE_KEY:
+                logger.warning(
+                    "stamphog github: STAMPHOG_GITHUB_APP_SLUG unset with App credentials configured — "
+                    "own-approval sweeps and adopt-before-post are disabled",
+                    repo=repo,
+                    pr_number=number,
+                )
             return []
         return [
             review
@@ -720,23 +766,17 @@ class StamphogGitHubClient:
                 if not isinstance(node, dict):
                     continue
                 comment_page = node.get("comments") or {}
-                # A thread past the comments fetch window would silently lose its tail — and a
-                # maintainer's hold could be comment 51. Fail closed, matching the Action's behavior.
-                if (comment_page.get("pageInfo") or {}).get("hasNextPage"):
-                    raise StamphogGitHubError(
-                        f"A review thread on {repo}#{number} ({node.get('path')}) has more comments than one "
-                        "fetch window; refusing to review with a truncated thread"
+                comments = _parse_review_thread_comments(comment_page.get("nodes") or [])
+                comment_page_info = comment_page.get("pageInfo") or {}
+                # A thread past the comments fetch window pages its tail — silently dropping
+                # comment 51 could hide a maintainer's hold, and failing the run outright would
+                # make one chatty thread block the PR from ever being reviewed.
+                if comment_page_info.get("hasNextPage"):
+                    comments.extend(
+                        self._fetch_remaining_thread_comments(
+                            repo, number, node.get("id"), comment_page_info.get("endCursor")
+                        )
                     )
-                comments = [
-                    {
-                        "author": (comment.get("author") or {}).get("login") or "",
-                        "author_association": comment.get("authorAssociation") or "",
-                        "author_is_bot": (comment.get("author") or {}).get("__typename") == "Bot",
-                        "body": (comment.get("body") or "")[:_REVIEW_THREAD_BODY_MAX],
-                    }
-                    for comment in comment_page.get("nodes") or []
-                    if isinstance(comment, dict)
-                ]
                 threads.append(
                     {
                         "is_resolved": bool(node.get("isResolved")),
@@ -752,6 +792,49 @@ class StamphogGitHubClient:
             cursor = page_info.get("endCursor")
         raise StamphogGitHubError(
             f"Review threads on {repo}#{number} exceed {_MAX_PAGES} pages; refusing to review a truncated list"
+        )
+
+    def _fetch_remaining_thread_comments(
+        self, repo: str, number: int, thread_id: str | None, cursor: str | None
+    ) -> list[dict]:
+        """Page the tail of one review thread whose comments overflow the main query's window.
+
+        Same fail-closed posture as the caller: any HTTP/GraphQL/parse failure raises, and a thread
+        that still overflows ``_MAX_PAGES`` tail pages (thousands of comments — pathological) raises
+        rather than returning a truncated thread the reviewer would read as complete.
+        """
+        if not thread_id:
+            raise StamphogGitHubError(
+                f"A review thread on {repo}#{number} overflows its comment window but carries no node id"
+            )
+        collected: list[dict] = []
+        for _page in range(_MAX_PAGES):
+            response = self._request(
+                "POST",
+                "/graphql",
+                endpoint="/graphql",
+                json_body={"query": _THREAD_COMMENTS_QUERY, "variables": {"id": thread_id, "cursor": cursor}},
+            )
+            if response.status_code != 200:
+                raise StamphogGitHubError(
+                    f"Failed to fetch thread comments for {repo}#{number}: {response.text[:300]}",
+                    status_code=response.status_code,
+                )
+            data = self._json(response, "/graphql")
+            if not isinstance(data, dict) or data.get("errors"):
+                raise StamphogGitHubError(f"GraphQL errors fetching thread comments for {repo}#{number}")
+            thread_node = (data.get("data") or {}).get("node")
+            if not isinstance(thread_node, dict):
+                raise StamphogGitHubError(f"Unexpected thread-comments payload for {repo}#{number}")
+            comment_page = thread_node.get("comments") or {}
+            collected.extend(_parse_review_thread_comments(comment_page.get("nodes") or []))
+            page_info = comment_page.get("pageInfo") or {}
+            if not page_info.get("hasNextPage"):
+                return collected
+            cursor = page_info.get("endCursor")
+        raise StamphogGitHubError(
+            f"A review thread on {repo}#{number} exceeds {_MAX_PAGES} comment pages; "
+            "refusing to review a truncated thread"
         )
 
     def get_check_runs(self, repo: str, head_sha: str) -> list[dict]:

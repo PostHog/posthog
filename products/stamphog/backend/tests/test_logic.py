@@ -174,13 +174,16 @@ _GH = "products.stamphog.backend.logic.github_client"
 
 
 class GetPrReviewThreadsTests(SimpleTestCase):
-    def _fetch(self, graphql_response: fakes.FakeResponse) -> list[dict]:
+    def _fetch(self, *graphql_responses: fakes.FakeResponse) -> list[dict]:
         # Stub the network boundary (github_request): the access-token mint is answered so the client's
-        # _request machinery runs for real, and every /graphql call returns the scripted response.
+        # _request machinery runs for real, and /graphql calls consume the scripted responses in order
+        # (the last one repeats, so single-response tests behave as before).
+        remaining = list(graphql_responses)
+
         def fake_request(method: str, url: str, **kwargs: object) -> fakes.FakeResponse:
             if url.endswith("/access_tokens"):
                 return fakes.FakeResponse(201, json_data={"token": "t", "expires_at": "2999-01-01T00:00:00Z"})
-            return graphql_response
+            return remaining.pop(0) if len(remaining) > 1 else remaining[0]
 
         with (
             override_settings(STAMPHOG_GITHUB_APP_ID="1", STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key()),
@@ -244,14 +247,50 @@ class GetPrReviewThreadsTests(SimpleTestCase):
         with pytest.raises(StamphogGitHubError):
             self._fetch(response)
 
-    def test_comment_page_overflow_fails_closed(self) -> None:
-        # A thread with more comments than one fetch window would silently lose its tail — and a
-        # maintainer's hold could be comment 51. Must raise, matching the Action's escalation.
+    def _thread_comments_page(self, comments: list[tuple[str, str]], *, has_next: bool) -> fakes.FakeResponse:
+        payload = {
+            "data": {
+                "node": {
+                    "comments": {
+                        "pageInfo": {"hasNextPage": has_next, "endCursor": "cc2"},
+                        "nodes": [
+                            {
+                                "author": {"login": author, "__typename": "User"},
+                                "authorAssociation": "MEMBER",
+                                "body": body,
+                            }
+                            for author, body in comments
+                        ],
+                    }
+                }
+            }
+        }
+        return fakes.FakeResponse(200, json_data=payload)
+
+    def test_comment_page_overflow_pages_the_tail(self) -> None:
+        # A >window thread must not fail the review (one chatty thread would make the PR permanently
+        # unreviewable) NOR silently drop its tail (comment 51 could be a maintainer's hold): the tail
+        # pages via the per-thread query and lands appended, in order.
+        node = fakes.review_thread_node(
+            path="src/util.py", comments=[("maintainer", "hold")], comments_have_next_page=True
+        )
+        threads = self._fetch(
+            self._threads_page([node], has_next=False),
+            self._thread_comments_page([("maintainer", "still holding")], has_next=False),
+        )
+        assert [c["body"] for c in threads[0]["comments"]] == ["hold", "still holding"]
+
+    def test_comment_tail_page_cap_fails_closed(self) -> None:
+        # A thread whose comment tail never stops paginating (pathological) must raise rather than
+        # return a thread the reviewer would read as complete.
         node = fakes.review_thread_node(
             path="src/util.py", comments=[("maintainer", "hold")], comments_have_next_page=True
         )
         with pytest.raises(StamphogGitHubError):
-            self._fetch(self._threads_page([node], has_next=False))
+            self._fetch(
+                self._threads_page([node], has_next=False),
+                self._thread_comments_page([("maintainer", "more")], has_next=True),
+            )
 
     def test_page_cap_fails_closed(self) -> None:
         # A PR whose threads never stop paginating must raise rather than review a truncated list.
@@ -259,11 +298,10 @@ class GetPrReviewThreadsTests(SimpleTestCase):
             self._fetch(self._threads_page([], has_next=True))
 
 
+# add_pr_reaction / remove_pr_reaction are deliberately the one fail-open pair on the client
+# (see their docstrings): a cosmetic "review in flight" 👀 must never fail or retry the calling
+# review activity, unlike every other read/write on StamphogGitHubClient.
 class PrReactionFailOpenTests(SimpleTestCase):
-    """add_pr_reaction / remove_pr_reaction are deliberately the one fail-open pair on this client
-    (see their docstrings): a cosmetic "review in flight" 👀 must never fail or retry the calling
-    review activity, unlike every other read/write on ``StamphogGitHubClient``."""
-
     def _call(
         self,
         transport_response_or_error: fakes.FakeResponse | Exception,

@@ -156,8 +156,8 @@ def test_review_thread_comments_pass_the_author_trust_gate(
 
 def test_multi_comment_thread_counts_as_one_unresolved_thread(monkeypatch) -> None:
     # _summarize_assurance counts unresolved THREADS as comments with in_reply_to_id None — a single
-    # chatty 3-comment thread must read as one unresolved thread, not three. Only the first surviving
-    # comment per thread may carry in_reply_to_id None.
+    # chatty 3-comment thread must read as one unresolved thread, not three. Only the true thread
+    # root (index 0) may carry in_reply_to_id None.
     monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
     context = _thread_context(
         [
@@ -183,6 +183,37 @@ def test_multi_comment_thread_counts_as_one_unresolved_thread(monkeypatch) -> No
     pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
     pipeline.pr = pr
     assert pipeline._summarize_assurance()["unresolved_threads"] == 1
+
+
+def test_filtered_root_thread_counts_zero_unresolved_threads(monkeypatch) -> None:
+    # Parity with the Action: when the true thread root is filtered (untrusted author, or stamphog's
+    # own inline finding), the survivors are replies — the thread contributes 0 to unresolved_threads,
+    # exactly as the Action's real replyTo ids make it. Treating the first survivor as a root would
+    # make hosted stricter than the Action on every maintainer reply to a stamphog finding.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    context = _thread_context(
+        [
+            {
+                "is_resolved": False,
+                "is_outdated": False,
+                "path": "a.py",
+                "line": 1,
+                "comments": [
+                    _thread_comment("rando", "drive-by root", association="NONE"),
+                    _thread_comment("maintainer", "actually a fair point"),
+                ],
+            }
+        ]
+    )
+
+    pr = review_local._build_pr_data(context)
+
+    assert [c["user"] for c in pr.review_comments] == ["maintainer"]
+    assert pr.review_comments[0]["in_reply_to_id"] == -1
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = pr
+    assert pipeline._summarize_assurance()["unresolved_threads"] == 0
 
 
 def test_absent_review_threads_key_is_a_clean_no_op(monkeypatch) -> None:

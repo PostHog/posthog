@@ -164,28 +164,30 @@ def _build_pr_data(context: dict) -> PRData:
     for thread in context.get("review_threads") or []:
         if thread.get("is_resolved"):
             continue
-        first_in_thread = True
-        for comment in thread.get("comments") or []:
+        for index, comment in enumerate(thread.get("comments") or []):
             if not _prompt_worthy_author(
                 comment.get("author"), comment.get("author_association"), bool(comment.get("author_is_bot"))
             ):
                 continue
-            # Real reply ids aren't carried in the lean shape; a truthy placeholder on the non-first
-            # comments only marks reply-ness — the prompt's "(reply)" label and _summarize_assurance's
+            # Real reply ids aren't carried in the lean shape; a truthy placeholder on the replies
+            # only marks reply-ness — the prompt's "(reply)" label and _summarize_assurance's
             # "count threads (in_reply_to_id is None), not comments" semantic both key off it.
+            # Parity with the Action (github.py): only the TRUE thread root (index 0) may carry None.
+            # When the root is filtered (untrusted author, or stamphog's own finding), every survivor
+            # is a reply, so the thread contributes 0 to unresolved_threads — exactly like the Action,
+            # whose surviving replies keep their real non-None replyTo ids.
             review_comments.append(
                 {
                     "user": comment.get("author") or "ghost",
                     "body": comment.get("body", ""),
                     "path": thread.get("path", ""),
                     "line": thread.get("line"),
-                    "in_reply_to_id": None if first_in_thread else -1,
+                    "in_reply_to_id": None if index == 0 else -1,
                     "is_resolved": False,
                     "is_outdated": bool(thread.get("is_outdated")),
                     "reactions": [],
                 }
             )
-            first_in_thread = False
 
     return PRData(
         number=int(pr.get("number") or 0),

@@ -330,15 +330,17 @@ def review_thread_node(
     author_association: str = "MEMBER",
     author_typename: str = "User",
     comments_have_next_page: bool = False,
+    thread_id: str = "RT_1",
 ) -> dict[str, Any]:
     """Build one GraphQL reviewThreads node (what get_pr_review_threads parses), from (author, body) pairs."""
     return {
+        "id": thread_id,
         "isResolved": is_resolved,
         "isOutdated": is_outdated,
         "path": path,
         "line": line,
         "comments": {
-            "pageInfo": {"hasNextPage": comments_have_next_page},
+            "pageInfo": {"hasNextPage": comments_have_next_page, "endCursor": "cc"},
             "nodes": [
                 {
                     "author": {"login": author, "__typename": author_typename},

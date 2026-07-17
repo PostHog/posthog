@@ -184,6 +184,15 @@ class StamphogSyncInstallationRequestSerializer(serializers.Serializer):
     )
 
 
+class StamphogDiscoveredInstallationSerializer(serializers.Serializer):
+    """One installation of the App the authorizing user can reach, offered for an explicit pick."""
+
+    id = serializers.CharField(read_only=True, help_text="GitHub installation id, as a string.")
+    account_login = serializers.CharField(
+        read_only=True, help_text="Login of the org or user account the installation lives on."
+    )
+
+
 class StamphogSyncInstallationResponseSerializer(serializers.Serializer):
     """Result of syncing an installation: rows created/kept for this team, plus conflicting repos skipped."""
 
@@ -203,6 +212,16 @@ class StamphogSyncInstallationResponseSerializer(serializers.Serializer):
             "True only on the discovery path (no installation_id) when the caller can reach no installation "
             "of this App — it isn't installed anywhere they can see. The frontend should route the user to "
             "the GitHub install page (install_url). Always false on the explicit installation_id path."
+        ),
+    )
+    installations = StamphogDiscoveredInstallationSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Populated only on the discovery path when the caller can reach MORE than one installation of "
+            "this App: nothing was bound, and the user must pick which installation to connect. The "
+            "frontend re-runs the authorize flow and calls back with the chosen installation_id, which the "
+            "explicit path verifies. Empty whenever a bind happened (or nothing was found)."
         ),
     )
 

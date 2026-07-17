@@ -59827,6 +59827,16 @@ export namespace Schemas {
     }
 
     /**
+     * One installation of the App the authorizing user can reach, offered for an explicit pick.
+     */
+    export interface StamphogDiscoveredInstallation {
+      /** GitHub installation id, as a string. */
+      readonly id: string;
+      /** Login of the org or user account the installation lives on. */
+      readonly account_login: string;
+    }
+
+    /**
      * Static info the frontend needs to render the 'Connect a repository' button.
      */
     export interface StamphogInstallInfo {
@@ -59866,6 +59876,8 @@ export namespace Schemas {
       readonly skipped: readonly string[];
       /** True only on the discovery path (no installation_id) when the caller can reach no installation of this App — it isn't installed anywhere they can see. The frontend should route the user to the GitHub install page (install_url). Always false on the explicit installation_id path. */
       readonly app_not_installed: boolean;
+      /** Populated only on the discovery path when the caller can reach MORE than one installation of this App: nothing was bound, and the user must pick which installation to connect. The frontend re-runs the authorize flow and calls back with the chosen installation_id, which the explicit path verifies. Empty whenever a bind happened (or nothing was found). */
+      readonly installations: readonly StamphogDiscoveredInstallation[];
     }
 
     /**

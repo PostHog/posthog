@@ -357,7 +357,7 @@ def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
             for reaction in reactions
             if reaction.get("content") == "eyes"
             and (login := (reaction.get("user") or "").lower()) in STAMPHOG_TRUSTED_REACTOR_BOTS
-            and (not own_login or login != own_login)
+            and login != own_login
             and (created := parse_datetime(reaction.get("created_at") or "")) is not None
             and (now - created).total_seconds() <= STAMPHOG_BOT_EYES_MAX_AGE_SECONDS
         }
@@ -605,14 +605,33 @@ def _remove_own_eyes_reaction(client: StamphogGitHubClient, run: ReviewRun) -> N
     """Remove this run's own "review in flight" 👀, if ``signal_review_started`` posted one.
 
     Called from the terminal activities (``post_verdict``'s completion path, ``mark_review_failed``)
-    once this run is done actively reviewing. No id on ``run.output`` means either the signal never
-    posted one (fail-open there too) or a later run already adopted/removed it — either way, nothing
-    to do. ``remove_pr_reaction`` itself fails open, so this never raises into the caller.
+    once this run is done actively reviewing — AFTER this run's terminal save, so the peer check
+    below counts only genuinely-other live runs. No id on ``run.output`` means either the signal
+    never posted one (fail-open there too) or a later run already adopted/removed it — either way,
+    nothing to do. ``remove_pr_reaction`` itself fails open, so this never raises into the caller.
+
+    GitHub keeps ONE 👀 per (user, content) per issue, so overlapping runs share the same reaction
+    id: a run created after this one went terminal (a fresh delivery, not a supersession) adopts the
+    identical id in its own ``signal_review_started``. Removing it here would strip the in-flight
+    signal out from under that still-reviewing peer, so skip when a live peer exists — the last
+    standing run removes. Writer-pinned: a lagged replica missing the just-created peer would remove
+    under it (reader-lag invariant).
     """
     reaction_id = (run.output or {}).get("own_eyes_reaction_id")
     if not isinstance(reaction_id, int):
         return
     pull_request = run.pull_request
+    live_peer_exists = (
+        ReviewRun.objects.for_team(run.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request=pull_request)
+        .exclude(id=run.id)
+        .exclude(status__in=TERMINAL_STATUSES)
+        .exists()
+    )
+    if live_peer_exists:
+        activity.logger.info(f"Run {run.id}: leaving the shared in-flight reaction for a live peer run")
+        return
     client.remove_pr_reaction(pull_request.repo_config.repository, pull_request.pr_number, reaction_id)
 
 
@@ -805,16 +824,20 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     client = StamphogGitHubClient(run.pull_request.repo_config.installation_id)
     if run.verdict != ReviewVerdict.APPROVED and run.posted_review_id and run.approval_dismissed_at is None:
         _dismiss_orphaned_approval(client, run, input.team_id)
-    # This run is done reviewing (unrecoverably) — clean up its own "review in flight" 👀 too.
-    _remove_own_eyes_reaction(client, run)
     # Persist only the first line, truncated: run.error is returned by the serializer to anyone with
     # stamphog:read, and raw exception text can embed repository file content (a yaml.YAMLError over
     # .stamphog/policy.yml echoes the offending source lines on its continuation lines). Full detail is
     # already in the worker logs — the workflow logs the complete error before calling this activity.
-    run.status = ReviewRunStatus.FAILED
-    run.error = first_error_line
-    run.completed_at = timezone.now()
-    run.save(update_fields=["status", "error", "completed_at", "updated_at"])
+    # Conditional like every terminal save (the load-time guard above can race an in-flight
+    # supersession): a run that just went SUPERSEDED keeps that status, FAILED must not clobber it.
+    now = timezone.now()
+    ReviewRun.objects.for_team(input.team_id).filter(id=run.id).exclude(status__in=TERMINAL_STATUSES).update(
+        status=ReviewRunStatus.FAILED, error=first_error_line, completed_at=now, updated_at=now
+    )
+    # This run is done reviewing (unrecoverably) — clean up its own "review in flight" 👀 too. After
+    # the terminal save on purpose: the removal's live-peer check must see this run as terminal, or
+    # two concurrently failing runs could each defer to the other and leak the reaction.
+    _remove_own_eyes_reaction(client, run)
 
     # A newer run that FAILS leaves the same supersession-orphan exposure a non-approve post_verdict does:
     # an older, superseded run's approval could have landed after this run's startup sweep, and a FAILED run

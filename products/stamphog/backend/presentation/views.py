@@ -341,9 +341,11 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.ModelViewSe
         # our state token; installation_id is present only on the fresh-install redirect, absent on the
         # authorize-first redirect. We exchange the code for the user's token (the ownership proof) and:
         #   - explicit installation_id → verify the user can reach exactly it, then sync it.
-        #   - no installation_id → discover the user's installations of THIS App from the token and sync
-        #     every one (rows bind disabled, so over-binding is safe). Zero installations isn't an error —
-        #     it means the App isn't installed anywhere the user can see, signalled via app_not_installed.
+        #   - no installation_id → discover the user's installations of THIS App from the token. Exactly
+        #     one → sync it (the overwhelmingly common case). Several → bind NOTHING and return them as
+        #     choices: reachability is not intent, and binding foreign orgs' installations here would
+        #     misroute their webhooks (oldest-wins resolution). Zero isn't an error — the App isn't
+        #     installed anywhere the user can see, signalled via app_not_installed.
         # Either way ownership is proven by the code, never the caller-supplied (forgeable) id. A repo
         # already owned by another team is skipped, not fatal, so one shared repo can't block the batch.
         request_serializer = StamphogSyncInstallationRequestSerializer(data=request.data)
@@ -416,14 +418,24 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.ModelViewSe
                     "stamphog sync_installation: discovering user installations failed", team_id=self.team_id
                 )
                 raise ValidationError({"code": "Failed to discover GitHub App installations. Try again."})
-            installation_ids = [installation["id"] for installation in discovered]
-            if not installation_ids:
+            if not discovered:
                 # The App isn't installed anywhere the user can see. Not an error: the frontend routes them
                 # to the GitHub install page (install_url) off app_not_installed.
                 data = StamphogSyncInstallationResponseSerializer(
-                    {"synced": [], "skipped": [], "app_not_installed": True}
+                    {"synced": [], "skipped": [], "app_not_installed": True, "installations": []}
                 ).data
                 return Response(data)
+            if len(discovered) > 1:
+                # Reachability is not intent: a user in several orgs that all carry the App must pick which
+                # installation this team binds — silently binding them all would attach foreign orgs' repos
+                # here, and via the oldest-wins webhook resolution even blackhole another team's future
+                # connect. Bind nothing; the frontend re-runs the flow with an explicit installation_id
+                # (which the explicit path above verifies).
+                data = StamphogSyncInstallationResponseSerializer(
+                    {"synced": [], "skipped": [], "app_not_installed": False, "installations": discovered}
+                ).data
+                return Response(data)
+            installation_ids = [discovered[0]["id"]]
 
         synced: list[StamphogRepoConfig] = []
         skipped: list[str] = []
@@ -453,7 +465,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.ModelViewSe
             )
 
         data = StamphogSyncInstallationResponseSerializer(
-            {"synced": synced, "skipped": skipped, "app_not_installed": False}
+            {"synced": synced, "skipped": skipped, "app_not_installed": False, "installations": []}
         ).data
         return Response(data)
 
