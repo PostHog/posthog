@@ -780,6 +780,18 @@ class TestBuildFrozenPrompt(APIBaseTest):
         assert spec.plan.model_dump() == stored["plan"]
         assert "{{date_range}}" in spec.plan.steps[0].hogql
 
+    @patch(f"{_SG}.build_context_blob", return_value="blob")
+    def test_rebuilds_property_aware_blob_from_stored_relevant_events(self, mock_blob: MagicMock) -> None:
+        # The frozen fixer needs per-event properties, not just event names, to repair a wrong field.
+        # So the events the plan was built against are persisted and fed back to build_context_blob;
+        # dropping them leaves the reuse path with a property-blind blob and a schema-blind fixer.
+        stored = {**self._stored_plan(), "relevant_events": ["export created"]}
+
+        spec = build_frozen_prompt(team=self.team, prompt="p", window=_window(7), ai_query_plan=stored)
+
+        assert mock_blob.call_args.kwargs["relevant_events"] == ["export created"]
+        assert spec.relevant_events == ["export created"]
+
     @parameterized.expand(
         [
             # A corrupted plan and a stale schema version both raise StoredPlanInvalidError, NOT

@@ -69,6 +69,7 @@ def _spec_with_window_placeholder() -> EnrichedPromptSpec:
             overall_intent="i",
             steps=[QueryPlanStep(description="s0", hogql="SELECT count() FROM events WHERE {{date_range}}")],
         ),
+        relevant_events=["export created"],
     )
 
 
@@ -225,10 +226,14 @@ async def test_request_hogql_fix_returns_none_on_wrong_type(mock_chat: MagicMock
     assert result is None
 
 
+@patch(f"{_RP}.resolve_prompt", return_value="Fix this query. Intent: {{{description}}} Error: {{{error}}}")
 @patch(f"{_RP}.MaxChatOpenAI")
-async def test_request_hogql_fix_grounds_prompt_in_project_schema(mock_chat: MagicMock) -> None:
-    # A schema-blind fixer just re-guesses the same wrong event/property name, so the project schema
-    # must reach the fix prompt. Guards against the context_blob being dropped from the call or template.
+async def test_request_hogql_fix_grounds_prompt_in_project_schema(
+    mock_chat: MagicMock, _mock_resolve: MagicMock
+) -> None:
+    # A schema-blind fixer just re-guesses the same wrong event/property name. resolve_prompt here
+    # returns a team override with no {{{context_blob}}} placeholder — the schema must STILL reach the
+    # fixer (injected in code, not the template), else override teams silently regress to schema-blind.
     structured = mock_chat.return_value.with_structured_output.return_value
     structured.invoke.return_value = HogQLFix(fixed_hogql="SELECT 2")
     await _arequest_hogql_fix(
@@ -439,8 +444,9 @@ async def test_unfrozen_run_returns_plan_to_persist(
     mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_capture: MagicMock
 ) -> None:
     # First run (no frozen plan): the freshly-planned QueryPlan is returned for the caller to persist,
-    # so the next delivery is deterministic. The shape must equal QueryPlan.model_dump() — that exact
-    # dict is what build_frozen_prompt validates back on reuse, so this guards the persist↔reuse contract.
+    # so the next delivery is deterministic. The envelope must carry the plan AND the relevant_events it
+    # was built against — build_frozen_prompt rebuilds the property-aware context_blob from them, so this
+    # guards the persist↔reuse contract (drop relevant_events → frozen fixer goes schema-blind).
     spec = _spec_with_window_placeholder()
     mock_bep.return_value = spec
     mock_run.return_value = (["### s0\n\nok"], 0, [QueryStepDiagnostic("s0", "SELECT 1", True, None)])
@@ -448,7 +454,11 @@ async def test_unfrozen_run_returns_plan_to_persist(
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
-    assert result.plan_to_persist == {"version": AI_QUERY_PLAN_VERSION, "plan": spec.plan.model_dump()}
+    assert result.plan_to_persist == {
+        "version": AI_QUERY_PLAN_VERSION,
+        "plan": spec.plan.model_dump(),
+        "relevant_events": ["export created"],
+    }
 
 
 @pytest.mark.parametrize(
