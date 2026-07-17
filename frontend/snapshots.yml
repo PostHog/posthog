@@ -6718,6 +6718,14 @@ snapshots:
         hash: v1.k794b7964.224e8a5e493e290b4ae4bbc2e03034a73b2ecfce20c86bcde08eab86b57b712e.xYn7md33k3lh0Oj7If1WzYPDgW9aiqbZ4aux_4bhOUc
     scenes-app-project-homepage--project-homepage--light:
         hash: v1.k794b7964.2eafc7385bf39f5be7d4d6d0ad1b70897952bcf37a16bd3ae6c644716cd16d25.25OmRYioQX_VF2kc2AVnvYlE0yve6YNcY2FDdJwV5kE
+    scenes-app-quickstart-product-card--all-states--dark:
+        hash: v1.k794b7964.73f58c4247d194cdf5416d066a434816f003ac93fea1c319bc22e3753f99ccdf.iCrGK5sYWLKMEyIcdG4Yz_sU4crC06CROJuJO68Cgoo
+    scenes-app-quickstart-product-card--all-states--light:
+        hash: v1.k794b7964.f102ea94159c9f504a9614dfae0f36ed2d608bd29bf873a3e3af47674a1327f5.gwilG-dC5olu1ZefJBTe9u0AfZpHAJx7ByaKR-xPH94
+    scenes-app-quickstart-product-card--playground--dark:
+        hash: v1.k794b7964.db711c55fbba74ec6c076121fad873037a9f9fdaa68a9fecf5cad96d4aac77a1.n4BzdM9Lx-eVP3ooCb6_tD9x7BfjEuOc1oks9ji5S8c
+    scenes-app-quickstart-product-card--playground--light:
+        hash: v1.k794b7964.b85349f783d2e37dc3d8f34c47a0cf0279472dd5f4b57a98972274fc6a08fac5.KzPnkFBWU41BKwOOklmvlpw3U_7UfSmDr-9HBibnCrc
     scenes-app-replay-vision--scanners-list--dark:
         hash: v1.k794b7964.daa9f38b95aa3296a6f7f6afd822e0016ffb7877c2397ad7ce23b2be1d67640f.DD8sIGjdkm46sZUGxHk84xhn3jk4Umrnx4ecrNUrrCs
     scenes-app-replay-vision--scanners-list--light:
