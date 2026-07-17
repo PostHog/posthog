@@ -37,6 +37,13 @@ class LangfuseEndpointConfig:
     # are on event/creation time, so rows that arrive late (ingestion lag) would otherwise be
     # skipped forever. Re-pulled rows are deduped on the primary key by merge.
     incremental_lookback: Optional[timedelta] = None
+    # Legacy "page" list endpoints (e.g. /api/public/traces) reject deep offsets with HTTP 422 once
+    # page*limit crosses an internal ceiling. For ascending endpoints with a server-side lower-bound
+    # filter we sidestep that entirely: as we approach this page depth (or the moment a 422 tells us
+    # we hit the real ceiling), advance the lower-bound filter to the last row's value and reset to
+    # page 1, so every request stays shallow. Only meaningful with sort_mode="asc" and an
+    # incremental_filter_param; ignored otherwise.
+    rewindow_after_pages: Optional[int] = None
 
 
 _DEFAULT_LOOKBACK = timedelta(hours=1)
@@ -66,6 +73,9 @@ LANGFUSE_ENDPOINTS: dict[str, LangfuseEndpointConfig] = {
         partition_key="timestamp",
         sort_mode="asc",
         incremental_lookback=_DEFAULT_LOOKBACK,
+        # The legacy traces endpoint 422s on deep offsets (observed around page 50 at limit 50).
+        # Stay comfortably below that: re-window the fromTimestamp lower bound before we get there.
+        rewindow_after_pages=45,
     ),
     "observations": LangfuseEndpointConfig(
         name="observations",

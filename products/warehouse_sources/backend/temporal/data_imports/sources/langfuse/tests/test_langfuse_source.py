@@ -5,7 +5,9 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.langfuse import (
+    DEEP_PAGINATION_ERROR,
     RESPONSE_LIMIT_ERROR,
+    REWINDOW_STUCK_ERROR,
     LangfuseResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.settings import ENDPOINTS
@@ -53,7 +55,10 @@ class TestLangfuseSource:
         assert secret_key_field.secret is True
         assert secret_key_field.required is True
 
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error", RESPONSE_LIMIT_ERROR])
+    @pytest.mark.parametrize(
+        "expected_key",
+        ["401 Client Error", "403 Client Error", RESPONSE_LIMIT_ERROR, DEEP_PAGINATION_ERROR, REWINDOW_STUCK_ERROR],
+    )
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
 

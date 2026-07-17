@@ -22,10 +22,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LangfuseSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.langfuse import (
+    DEEP_PAGINATION_ERROR,
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
     REPEATED_CURSOR_ERROR,
     RESPONSE_LIMIT_ERROR,
+    REWINDOW_STUCK_ERROR,
     LangfuseResumeConfig,
     langfuse_source,
     validate_credentials as validate_langfuse_credentials,
@@ -107,6 +109,10 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
             # PAGE_LIMIT_ERROR is intentionally absent: it is retryable, so a huge sync resumes
             # from its checkpoint on the next attempt instead of failing permanently.
             REPEATED_CURSOR_ERROR: "The Langfuse host repeated a pagination cursor, so the sync was stopped to avoid looping. Check that the host points at a real Langfuse instance.",
+            # DEEP_PAGINATION_ERROR only reaches here for endpoints that can't re-window (traces
+            # recover automatically); on those it's a genuine bad request that won't change on retry.
+            DEEP_PAGINATION_ERROR: "Langfuse rejected a request as an unsupported deep pagination. This resource can't be paged this far via the API.",
+            REWINDOW_STUCK_ERROR: "Too many Langfuse rows share a single timestamp to page past. Reduce the sync window or contact support.",
         }
 
     def get_schemas(

@@ -489,6 +489,67 @@ class TestGetRows:
         assert langfuse_module.PAGE_LIMIT_ERROR in str(exc.value)
         assert manager.save_state.call_args.args[0].page == 3
 
+    def test_proactive_rewindow_advances_from_filter_before_deep_offset(self):
+        # Traces 422 on deep offsets, so before reaching the depth ceiling the sync must advance
+        # fromTimestamp to the last row's timestamp and reset to page 1 instead of paging deeper.
+        manager = self._manager()
+        with mock.patch.object(LANGFUSE_ENDPOINTS["traces"], "rewindow_after_pages", 2):
+            rows, session = self._run(
+                manager,
+                [
+                    _page([{"id": "t1", "timestamp": "2026-01-01T00:00:01Z"}], page=1, total_pages=10),
+                    _page([{"id": "t2", "timestamp": "2026-01-01T00:00:02Z"}], page=2, total_pages=10),
+                    _page([{"id": "t3", "timestamp": "2026-01-01T00:00:03Z"}], page=1, total_pages=1),
+                ],
+            )
+        assert [r["id"] for r in rows] == ["t1", "t2", "t3"]
+        # After page 2 (== threshold) the next request re-windows: page back to 1, fromTimestamp
+        # advanced to the last row seen rather than an offset of page 3.
+        third = session.get.call_args_list[2].kwargs["params"]
+        assert third["page"] == 1
+        assert third["fromTimestamp"] == "2026-01-01T00:00:02Z"
+        # The re-window checkpoint points at the fresh shallow window so a crash resumes below the
+        # 422 ceiling, never at the deep page.
+        saved = manager.save_state.call_args.args[0]
+        assert saved.page == 1
+        assert saved.from_value == "2026-01-01T00:00:02Z"
+
+    def test_422_triggers_rewindow_instead_of_aborting(self):
+        # A 422 (Langfuse's real deep-offset ceiling, hit before our proactive threshold) must be a
+        # re-window signal, not a fatal error that aborts the whole traces sync.
+        manager = self._manager()
+        rows, session = self._run(
+            manager,
+            [
+                _page([{"id": "t1", "timestamp": "2026-01-01T00:00:01Z"}], page=1, total_pages=100),
+                _response(status_code=422, text="deep pagination not allowed"),
+                _page([{"id": "t2", "timestamp": "2026-01-01T00:00:02Z"}], page=1, total_pages=1),
+            ],
+        )
+        assert [r["id"] for r in rows] == ["t1", "t2"]
+        # The request after the 422 restarts at page 1 with the lower bound advanced past the last
+        # row we managed to read.
+        recovered = session.get.call_args_list[2].kwargs["params"]
+        assert recovered["page"] == 1
+        assert recovered["fromTimestamp"] == "2026-01-01T00:00:01Z"
+
+    def test_rewindow_bails_when_a_single_timestamp_fills_the_window(self):
+        # If more rows share one timestamp than a window can page past, advancing the lower bound to
+        # that same timestamp can't make progress — bail (non-retryable) rather than loop forever.
+        manager = self._manager()
+        with (
+            mock.patch.object(LANGFUSE_ENDPOINTS["traces"], "rewindow_after_pages", 1),
+            pytest.raises(langfuse_module.LangfusePaginationError) as exc,
+        ):
+            self._run(
+                manager,
+                [
+                    _page([{"id": "a", "timestamp": "2026-01-01T00:00:01Z"}], page=1, total_pages=5),
+                    _page([{"id": "b", "timestamp": "2026-01-01T00:00:01Z"}], page=1, total_pages=5),
+                ],
+            )
+        assert langfuse_module.REWINDOW_STUCK_ERROR in str(exc.value)
+
 
 class TestRetryBehavior:
     @pytest.mark.parametrize(

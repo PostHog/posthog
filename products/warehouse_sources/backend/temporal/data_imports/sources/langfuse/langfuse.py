@@ -50,6 +50,8 @@ HTTP_NOT_ALLOWED_ERROR = "Langfuse host must use HTTPS"
 RESPONSE_LIMIT_ERROR = "Langfuse response exceeded a transfer limit"
 PAGE_LIMIT_ERROR = "Langfuse pagination page limit reached"
 REPEATED_CURSOR_ERROR = "Langfuse API returned the same pagination cursor twice"
+DEEP_PAGINATION_ERROR = "Langfuse rejected a deep pagination offset"
+REWINDOW_STUCK_ERROR = "Langfuse deep-pagination re-windowing could not advance"
 
 
 class LangfuseRetryableError(Exception):
@@ -72,9 +74,20 @@ class LangfuseResponseTooLargeError(Exception):
 class LangfusePaginationError(Exception):
     """Pagination metadata tried to extend the run beyond its bounds.
 
-    Raised with PAGE_LIMIT_ERROR (retryable — the resume checkpoint lets the next attempt continue)
-    or REPEATED_CURSOR_ERROR (non-retryable — a compliant server never repeats a cursor, so a retry
-    would loop on the same response)."""
+    Raised with PAGE_LIMIT_ERROR (retryable — the resume checkpoint lets the next attempt continue),
+    REPEATED_CURSOR_ERROR (non-retryable — a compliant server never repeats a cursor, so a retry
+    would loop on the same response), or REWINDOW_STUCK_ERROR (non-retryable — more identical-
+    timestamp rows than a re-window can page past, so advancing the lower bound can't make progress)."""
+
+    pass
+
+
+class LangfuseDeepPaginationError(Exception):
+    """Langfuse rejected a page offset as too deep (HTTP 422 on a legacy list endpoint).
+
+    Caught inside get_rows for ascending endpoints with a lower-bound filter, which recover by
+    re-windowing (advance the filter past the last row and reset to page 1). It only propagates for
+    endpoints that cannot re-window, where a 422 is a genuine, non-retryable bad request."""
 
     pass
 
@@ -335,6 +348,14 @@ def get_rows(
                 retry_after=retry_after,
             )
 
+        if response.status_code == 422:
+            # Legacy list endpoints reject offsets past an internal depth ceiling with 422. Surface
+            # it as a distinct (non-retryable) signal so get_rows can re-window ascending endpoints
+            # instead of aborting; retrying the same offset would only 422 again.
+            body = _read_capped_body(response, endpoint)
+            logger.warning(f"Langfuse deep-pagination 422: endpoint={endpoint}, body={body[:512]!r}")
+            raise LangfuseDeepPaginationError(f"{DEEP_PAGINATION_ERROR}: endpoint={endpoint}")
+
         if response.is_redirect or response.is_permanent_redirect:
             raise LangfuseHostNotAllowedError(
                 f"{HOST_NOT_ALLOWED_ERROR}: Langfuse API returned an unexpected redirect "
@@ -349,6 +370,37 @@ def get_rows(
 
         return json.loads(body)
 
+    # Ascending "page" endpoints (traces) with a server-side lower-bound filter can sidestep
+    # Langfuse's deep-offset 422 by re-windowing: advance the filter to the last row's value and
+    # reset to page 1 so every request stays shallow. Only these endpoints qualify — descending or
+    # unfiltered endpoints can't move the lower bound without skipping rows.
+    rewindow_field = config.default_incremental_field
+    can_rewindow = (
+        config.pagination == "page"
+        and config.sort_mode == "asc"
+        and config.incremental_filter_param is not None
+        and config.rewindow_after_pages is not None
+        and rewindow_field is not None
+    )
+    # The last row's incremental value seen since the current window opened; the re-window watermark.
+    last_seen_value: str | None = None
+
+    def do_rewindow() -> None:
+        nonlocal from_value, base_params, page, last_seen_value
+        assert last_seen_value is not None  # only called once a page has been seen in this window
+        if last_seen_value == from_value:
+            # More rows share this exact timestamp than a full window can page past, so restarting at
+            # the same lower bound would re-fetch the identical pages forever. Bail (non-retryable).
+            raise LangfusePaginationError(f"{REWINDOW_STUCK_ERROR} (endpoint {endpoint})")
+        from_value = last_seen_value
+        base_params = _build_params(config, from_value)
+        page = 1
+        last_seen_value = None
+        # Checkpoint the fresh shallow window so a crash resumes below the 422 ceiling, not at the
+        # deep page we just left.
+        resumable_source_manager.save_state(LangfuseResumeConfig(page=1, from_value=from_value))
+        logger.info(f"Langfuse: re-windowing {endpoint} to {config.incremental_filter_param}={from_value}")
+
     pages_fetched = 0
     while True:
         params = dict(base_params)
@@ -357,7 +409,16 @@ def get_rows(
         elif cursor is not None:
             params["cursor"] = cursor
 
-        data = fetch_page(params)
+        try:
+            data = fetch_page(params)
+        except LangfuseDeepPaginationError:
+            # Hit Langfuse's real deep-offset ceiling before our proactive threshold. Recover by
+            # re-windowing if we can; otherwise it's a genuine bad request, so let it propagate.
+            if not (can_rewindow and last_seen_value is not None):
+                raise
+            do_rewindow()
+            continue
+
         pages_fetched += 1
         items = data.get("data") or []
         meta = data.get("meta") or {}
@@ -377,11 +438,27 @@ def get_rows(
             has_next = bool(items) and next_cursor is not None
             next_state = LangfuseResumeConfig(cursor=next_cursor, from_value=from_value)
 
+        if items and can_rewindow:
+            last_value = items[-1].get(rewindow_field)
+            if last_value is not None:
+                last_seen_value = str(last_value)
+
+        # Re-window before the next fetch would page past the depth ceiling, rather than waiting for
+        # the 422. Requires a watermark from this window's rows to advance to.
+        will_rewindow = (
+            has_next
+            and can_rewindow
+            and last_seen_value is not None
+            and config.rewindow_after_pages is not None
+            and page + 1 > config.rewindow_after_pages
+        )
+
         if items:
             yield items
             # Save AFTER yielding (and only when more pages remain) so a crash re-yields the last
-            # page rather than skipping it — merge dedupes on the primary key.
-            if has_next:
+            # page rather than skipping it — merge dedupes on the primary key. do_rewindow writes its
+            # own shallow checkpoint, so skip the deep next-page save when about to re-window.
+            if has_next and not will_rewindow:
                 resumable_source_manager.save_state(next_state)
 
         if not has_next:
@@ -394,7 +471,9 @@ def get_rows(
             logger.warning(f"Langfuse: page limit reached for {endpoint} after {pages_fetched} pages")
             raise LangfusePaginationError(f"{PAGE_LIMIT_ERROR}: {pages_fetched} pages fetched from {endpoint}")
 
-        if config.pagination == "page":
+        if will_rewindow:
+            do_rewindow()
+        elif config.pagination == "page":
             page += 1
         else:
             cursor = meta.get("cursor")
