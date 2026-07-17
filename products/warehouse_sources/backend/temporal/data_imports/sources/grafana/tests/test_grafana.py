@@ -583,3 +583,40 @@ class TestGrafanaSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.sort_mode == sort_mode
+
+
+class TestSessionRetriesDisabled:
+    # A hostile Grafana host can answer 429/503 with a huge Retry-After. urllib3's default adapter
+    # policy honors it and sleeps for hours inside a single session.get, underneath and defeating the
+    # bounded response/walk deadlines. Every session must disable adapter retries so _make_fetch's
+    # own Tenacity policy (bounded jitter/backoff) is the only retry mechanism.
+    @pytest.mark.parametrize(
+        "invoke",
+        [
+            lambda: validate_credentials("https://x.grafana.net", _token_auth()),
+            lambda: get_endpoint_permissions("https://x.grafana.net", _token_auth(), None, 1, ["dashboards"]),
+            lambda: list(
+                get_rows(
+                    host="https://x.grafana.net",
+                    auth=_token_auth(),
+                    org_id=None,
+                    endpoint="folders",
+                    logger=mock.MagicMock(),
+                    team_id=1,
+                    resumable_source_manager=FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            ),
+        ],
+    )
+    def test_sessions_disable_adapter_retries(self, invoke):
+        session = mock.MagicMock()
+        session.get.return_value = _response(status_code=200, json_data=[])
+        with (
+            mock.patch.object(grafana_module, "make_tracked_session", return_value=session) as patched,
+            mock.patch.object(grafana_module, "_is_host_safe", return_value=(True, None)),
+        ):
+            invoke()
+        assert patched.call_count >= 1
+        for call in patched.call_args_list:
+            retry = call.kwargs.get("retry")
+            assert retry is not None and retry.total == 0

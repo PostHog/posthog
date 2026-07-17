@@ -11,6 +11,7 @@ from urllib.parse import urlencode, urlparse
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -25,6 +26,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.se
 
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 5
+
+# Disable urllib3 adapter-level retries on every Grafana session. The default policy honors an
+# attacker-controlled ``Retry-After`` on 429/503 (urllib3 will sleep for up to hours inside a single
+# ``session.get``), which sits below and would defeat the bounded response/walk deadlines. Retries for
+# the sync fetch are handled by ``_make_fetch``'s Tenacity policy with bounded jitter/backoff instead.
+NO_ADAPTER_RETRY = Retry(total=0)
 
 # Every Grafana list endpoint here is paginated (DEFAULT_PAGE_SIZE / ANNOTATIONS_LIMIT rows), so a
 # well-behaved response body is small. This ceiling exists only to stop a malicious or misconfigured
@@ -385,7 +392,7 @@ def validate_credentials(
     except GrafanaAuthError as e:
         return False, str(e)
 
-    session = make_tracked_session(redact_values=_redact_values(auth))
+    session = make_tracked_session(retry=NO_ADAPTER_RETRY, redact_values=_redact_values(auth))
     # stream=True so a hostile host can't buffer an unbounded probe body into the worker; the body
     # is only read (bounded) when a 403 needs its scope message.
     try:
@@ -437,7 +444,7 @@ def get_endpoint_permissions(
     throttles, 5xx, and network blips must not mark a table as needing extra scopes."""
     base_url = normalize_host(host)
     headers = _resolve_auth_headers(auth, org_id)
-    session = make_tracked_session(redact_values=_redact_values(auth))
+    session = make_tracked_session(retry=NO_ADAPTER_RETRY, redact_values=_redact_values(auth))
 
     results: dict[str, str | None] = {}
     for endpoint in endpoints:
@@ -598,7 +605,7 @@ def get_rows(
     headers = _resolve_auth_headers(auth, org_id)
     # One session reused across every page so urllib3 keeps the connection alive instead of
     # re-handshaking per request.
-    session = make_tracked_session(redact_values=_redact_values(auth))
+    session = make_tracked_session(retry=NO_ADAPTER_RETRY, redact_values=_redact_values(auth))
     fetch = _make_fetch(session, headers, logger)
 
     if config.pagination == "page":
