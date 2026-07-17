@@ -602,7 +602,7 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                         })
                     } catch (e) {
                         if (isAbortedOrNetworkError(e)) {
-                            return values.sessionEvents
+                            return values.sessionEvents ?? []
                         }
                         throw e
                     }
