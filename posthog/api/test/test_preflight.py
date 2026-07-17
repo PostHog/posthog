@@ -1,18 +1,22 @@
 import os
+import json
 from datetime import datetime
 from typing import cast
 
 import pytest
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
-from django.test import override_settings
+from django.contrib.auth.models import AnonymousUser
+from django.core.cache import cache
+from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
+import posthog.views
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.models.instance_setting import set_instance_setting
@@ -356,3 +360,84 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             response = self.client.get("/_preflight/")
         assert response.status_code == status.HTTP_200_OK
         assert "allow_dev_login" not in response.json()
+
+
+# The anonymous preflight payload is cached (shared cache + per-worker copy) so the login
+# page render does no service round trips on the warm path — see preflight_check. These
+# tests pin that contract without a DB: every service probe is mocked at the view's import
+# site, so SimpleTestCase also proves the cached path issues no queries.
+@override_settings(TEST=False)
+class TestAnonymousPreflightCache(SimpleTestCase):
+    LIVENESS_MOCKS = [
+        "is_redis_alive",
+        "is_plugin_server_alive",
+        "is_celery_alive",
+        "is_clickhouse_connected",
+        "is_kafka_connected",
+        "is_postgres_alive",
+        "is_object_storage_available",
+        "is_email_available",
+    ]
+
+    def setUp(self):
+        super().setUp()
+        cache.delete(posthog.views.ANONYMOUS_PREFLIGHT_CACHE_KEY)
+        posthog.views._anonymous_preflight_local = None
+        self.addCleanup(cache.delete, posthog.views.ANONYMOUS_PREFLIGHT_CACHE_KEY)
+        self.addCleanup(setattr, posthog.views, "_anonymous_preflight_local", None)
+
+        self.enterContext(patch("posthog.views.is_cloud", return_value=False))
+        self.probes = {
+            name: self.enterContext(patch(f"posthog.views.{name}", return_value=True)) for name in self.LIVENESS_MOCKS
+        }
+        self.enterContext(
+            patch(
+                "posthog.views.get_instance_available_sso_providers",
+                return_value={"github": False, "gitlab": False, "google-oauth2": False},
+            )
+        )
+        self.enterContext(patch("posthog.views.get_can_create_org", return_value=True))
+        organization_mock = MagicMock()
+        organization_mock.objects.exists.return_value = True
+        self.enterContext(patch("posthog.views.Organization", organization_mock))
+        slack_mock = MagicMock()
+        slack_mock.slack_config.return_value = {}
+        self.enterContext(patch("posthog.views.SlackIntegration", slack_mock))
+
+    def _get_request(self, cookies=None):
+        request = RequestFactory().get("/login")
+        request.user = AnonymousUser()
+        if cookies:
+            request.COOKIES.update(cookies)
+        return request
+
+    def _reset_probes(self):
+        for probe in self.probes.values():
+            probe.reset_mock()
+
+    def test_login_render_serves_warm_requests_without_service_probes(self):
+        first = posthog.views.preflight_check(self._get_request(), allow_cached=True)
+        self._reset_probes()
+
+        second = posthog.views.preflight_check(self._get_request(), allow_cached=True)
+
+        for name, probe in self.probes.items():
+            assert not probe.called, f"{name} probed on the warm anonymous login render"
+        assert json.loads(first.getvalue()) == json.loads(second.getvalue())
+
+    def test_auth_brand_cookie_does_not_poison_cached_payload(self):
+        posthog.views.preflight_check(self._get_request(), allow_cached=True)
+
+        branded = posthog.views.preflight_check(self._get_request(cookies={"ph_auth_brand": "twig"}), allow_cached=True)
+        assert json.loads(branded.getvalue())["auth_brand"] == "twig"
+
+        unbranded = posthog.views.preflight_check(self._get_request(), allow_cached=True)
+        assert "auth_brand" not in json.loads(unbranded.getvalue())
+
+    def test_preflight_endpoint_stays_live_without_allow_cached(self):
+        posthog.views.preflight_check(self._get_request(), allow_cached=True)
+        self._reset_probes()
+
+        posthog.views.preflight_check(self._get_request())
+
+        assert self.probes["is_redis_alive"].called

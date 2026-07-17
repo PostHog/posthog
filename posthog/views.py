@@ -1,4 +1,5 @@
 import os
+import time
 from dataclasses import dataclass
 from datetime import timedelta
 from functools import wraps
@@ -46,12 +47,14 @@ from posthog.utils import (
     get_instance_available_sso_providers,
     get_instance_realm,
     get_instance_region,
+    get_safe_cache,
     is_celery_alive,
     is_object_storage_available,
     is_plugin_server_alive,
     is_postgres_alive,
     is_redis_alive,
     render_template,
+    safe_cache_set,
 )
 
 from products.messaging.backend.models.message_category import MessageCategory
@@ -181,63 +184,98 @@ def render_query(request: HttpRequest) -> HttpResponse:
     return render_template("render_query.html", request, context={"render_query_payload": payload})
 
 
-@never_cache
-def preflight_check(request: HttpRequest) -> JsonResponse:
-    with tracer.start_as_current_span("preflight.slack_config_main"):
-        slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
-    hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
-    salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
+# The anonymous preflight payload is identical for every anonymous visitor, but building it
+# fans out to ~10 serial service round trips (Redis, Postgres, ClickHouse, Kafka, plugin
+# server, object storage) that land directly on the login page's TTFB off cloud. Cache it
+# briefly (server-side — @never_cache only controls client HTTP caching), shared across
+# anonymous requests; per-request bits (auth brand cookie, authenticated extras) are applied
+# after the cached base. Only the SPA-shell render opts in (allow_cached) — the live
+# /_preflight/ endpoint keeps showing service status changes immediately, e.g. on the
+# self-hosted setup page.
+ANONYMOUS_PREFLIGHT_CACHE_KEY = "anonymous_preflight_payload"
+ANONYMOUS_PREFLIGHT_CACHE_TTL_SECONDS = 60
+# In front of the shared cache: a per-worker in-memory copy so the steady-state anonymous
+# render does no external I/O at all. Single-slot tuple swap is atomic under the GIL — a
+# benign race just refills. Copied in/out because callers mutate the payload (auth_brand).
+ANONYMOUS_PREFLIGHT_LOCAL_TTL_SECONDS = 15
+_anonymous_preflight_local: tuple[float, dict[str, Any]] | None = None
 
+
+@never_cache
+def preflight_check(request: HttpRequest, *, allow_cached: bool = False) -> JsonResponse:
+    global _anonymous_preflight_local
+    use_cache = allow_cached and not request.user.is_authenticated and not settings.TEST
     in_cloud = is_cloud()
 
-    response = {
-        "django": True,
-        "redis": in_cloud or _traced("preflight.is_redis_alive", is_redis_alive) or settings.TEST,
-        "plugins": in_cloud or _traced("preflight.is_plugin_server_alive", is_plugin_server_alive) or settings.TEST,
-        "celery": in_cloud or _traced("preflight.is_celery_alive", is_celery_alive) or settings.TEST,
-        "clickhouse": in_cloud
-        or _traced("preflight.is_clickhouse_connected", is_clickhouse_connected)
-        or settings.TEST,
-        "kafka": in_cloud or _traced("preflight.is_kafka_connected", is_kafka_connected),
-        "db": in_cloud or _traced("preflight.is_postgres_alive", is_postgres_alive),
-        "initiated": in_cloud or _traced("preflight.organization_exists", Organization.objects.exists),
-        "cloud": in_cloud,
-        "demo": settings.DEMO,
-        "realm": get_instance_realm(),
-        "region": get_instance_region(),
-        "available_social_auth_providers": _traced(
-            "preflight.available_social_auth_providers", get_instance_available_sso_providers
-        ),
-        "can_create_org": _traced("preflight.can_create_org", get_can_create_org, request.user),
-        "email_service_available": in_cloud
-        or _traced("preflight.is_email_available", is_email_available, with_absolute_urls=True),
-        "slack_service": {
-            "available": bool(slack_client_id),
-            "client_id": slack_client_id or None,
-        },
-        "data_warehouse_integrations": {
-            "hubspot": {"client_id": hubspot_client_id},
-            "salesforce": {"client_id": salesforce_client_id},
-        },
-        "object_storage": in_cloud or _traced("preflight.is_object_storage_available", is_object_storage_available),
-        "public_egress_ip_addresses": settings.PUBLIC_EGRESS_IP_ADDRESSES,
-        "wizard_cloud_run_available": bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID),
-    }
+    response: dict[str, Any] | None = None
+    if use_cache:
+        local = _anonymous_preflight_local
+        if local is not None and time.monotonic() - local[0] < ANONYMOUS_PREFLIGHT_LOCAL_TTL_SECONDS:
+            response = {**local[1]}
+        else:
+            response = get_safe_cache(ANONYMOUS_PREFLIGHT_CACHE_KEY)
+            if response is not None:
+                _anonymous_preflight_local = (time.monotonic(), {**response})
+
+    if response is None:
+        with tracer.start_as_current_span("preflight.slack_config_main"):
+            slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
+        hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
+        salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
+
+        response = {
+            "django": True,
+            "redis": in_cloud or _traced("preflight.is_redis_alive", is_redis_alive) or settings.TEST,
+            "plugins": in_cloud or _traced("preflight.is_plugin_server_alive", is_plugin_server_alive) or settings.TEST,
+            "celery": in_cloud or _traced("preflight.is_celery_alive", is_celery_alive) or settings.TEST,
+            "clickhouse": in_cloud
+            or _traced("preflight.is_clickhouse_connected", is_clickhouse_connected)
+            or settings.TEST,
+            "kafka": in_cloud or _traced("preflight.is_kafka_connected", is_kafka_connected),
+            "db": in_cloud or _traced("preflight.is_postgres_alive", is_postgres_alive),
+            "initiated": in_cloud or _traced("preflight.organization_exists", Organization.objects.exists),
+            "cloud": in_cloud,
+            "demo": settings.DEMO,
+            "realm": get_instance_realm(),
+            "region": get_instance_region(),
+            "available_social_auth_providers": _traced(
+                "preflight.available_social_auth_providers", get_instance_available_sso_providers
+            ),
+            "can_create_org": _traced("preflight.can_create_org", get_can_create_org, request.user),
+            "email_service_available": in_cloud
+            or _traced("preflight.is_email_available", is_email_available, with_absolute_urls=True),
+            "slack_service": {
+                "available": bool(slack_client_id),
+                "client_id": slack_client_id or None,
+            },
+            "data_warehouse_integrations": {
+                "hubspot": {"client_id": hubspot_client_id},
+                "salesforce": {"client_id": salesforce_client_id},
+            },
+            "object_storage": in_cloud or _traced("preflight.is_object_storage_available", is_object_storage_available),
+            "public_egress_ip_addresses": settings.PUBLIC_EGRESS_IP_ADDRESSES,
+            "wizard_cloud_run_available": bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID),
+        }
+
+        if settings.DEBUG or settings.E2E_TESTING:
+            response["is_debug"] = True
+
+        if is_dev_login_allowed():
+            response["allow_dev_login"] = True
+
+        if settings.TEST:
+            response["is_test"] = True
+
+        if settings.DEV_DISABLE_NAVIGATION_HOOKS:
+            response["dev_disable_navigation_hooks"] = True
+
+        if use_cache:
+            safe_cache_set(ANONYMOUS_PREFLIGHT_CACHE_KEY, response, ANONYMOUS_PREFLIGHT_CACHE_TTL_SECONDS)
+            _anonymous_preflight_local = (time.monotonic(), {**response})
+
     auth_brand = normalize_auth_brand(request.COOKIES.get(AUTH_BRAND_COOKIE))
     if auth_brand:
         response["auth_brand"] = auth_brand
-
-    if settings.DEBUG or settings.E2E_TESTING:
-        response["is_debug"] = True
-
-    if is_dev_login_allowed():
-        response["allow_dev_login"] = True
-
-    if settings.TEST:
-        response["is_test"] = True
-
-    if settings.DEV_DISABLE_NAVIGATION_HOOKS:
-        response["dev_disable_navigation_hooks"] = True
 
     if request.user.is_authenticated:
         response = {

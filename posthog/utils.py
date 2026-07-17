@@ -564,7 +564,9 @@ def _build_template_context(
         from posthog.views import preflight_check
 
         with tracer.start_as_current_span("template.preflight"):
-            preflight_payload = json.loads(preflight_check(request).getvalue())
+            # allow_cached: for anonymous visitors (login/signup) the payload is identical
+            # across requests, and computing it live costs ~10 serial service round trips.
+            preflight_payload = json.loads(preflight_check(request, allow_cached=True).getvalue())
 
         posthog_app_context = {
             "current_user": None,
