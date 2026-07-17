@@ -46,6 +46,7 @@ export interface relatedFeatureFlagsLogicValues {
     filteredMappedFlags: RelatedFeatureFlag[]
     filters: Partial<RelatedFlagsFilters>
     isLoading: boolean
+    loadError: boolean
     mappedRelatedFeatureFlags: RelatedFeatureFlag[]
     relatedFeatureFlags: RelatedFeatureFlagResponse | null
     relatedFeatureFlagsLoading: boolean
