@@ -170,9 +170,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                     type="primary"
                     onClick={createAlert}
                     disabledReason={
-                        !props.canCreateAlertForInsight
-                            ? alertsUnsupportedReason({}, props.insightQuery)
-                            : undefined
+                        !props.canCreateAlertForInsight ? alertsUnsupportedReason({}, props.insightQuery) : undefined
                     }
                 >
                     New alert
