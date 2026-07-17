@@ -41,6 +41,10 @@ MAX_RETRIES = 5
 # page-number list endpoints and the per-conversation message walk are otherwise unbounded.
 MAX_LIST_PAGES = 100_000
 MAX_MESSAGE_PAGES_PER_CONVERSATION = 10_000
+# The message walk fans out over every conversation, so the per-conversation cap alone still lets a
+# hostile server multiply requests without bound (conversations × pages). This aggregate ceiling
+# bounds the total message pages one sync fetches regardless of how many conversations it enumerates.
+MAX_MESSAGE_PAGES_PER_SYNC = 1_000_000
 
 # The host is customer-controlled (self-hosted Chatwoot), so a malicious or misconfigured server
 # could stream an unbounded body and exhaust a shared worker (requests buffers the whole body into
@@ -317,6 +321,7 @@ def _get_message_rows(
         resume_after = resume.after
         logger.debug(f"Chatwoot: resuming messages from conversation_id={resume.conversation_id}, after={resume_after}")
 
+    pages_this_sync = 0
     for index, conversation_id in enumerate(remaining):
         after = resume_after if resume_after is not None else 0
         resume_after = None  # only the resumed-into conversation uses the saved cursor
@@ -324,7 +329,14 @@ def _get_message_rows(
         try:
             pages = 0
             while pages < MAX_MESSAGE_PAGES_PER_CONVERSATION:
+                if pages_this_sync >= MAX_MESSAGE_PAGES_PER_SYNC:
+                    logger.warning(
+                        f"Chatwoot: messages hit the {MAX_MESSAGE_PAGES_PER_SYNC}-page aggregate cap; "
+                        "rows beyond it were skipped"
+                    )
+                    return
                 pages += 1
+                pages_this_sync += 1
                 url = _build_url(base_url, f"/conversations/{conversation_id}/messages", {"after": after})
                 items = _extract_items(_fetch_json(session, url, logger), ("payload",), url)
                 if not items:

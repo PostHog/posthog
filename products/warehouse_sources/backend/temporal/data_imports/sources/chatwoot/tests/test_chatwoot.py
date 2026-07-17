@@ -230,6 +230,41 @@ class TestGetRowsMessages:
         assert [item["id"] for batch in batches for item in batch] == [400]
 
     @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.MAX_MESSAGE_PAGES_PER_SYNC",
+        2,
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
+    )
+    def test_message_walk_stops_at_the_aggregate_page_cap(self, mock_session):
+        # A hostile server can keep returning full, advancing pages; the per-conversation cap alone
+        # would still let conversation count multiply requests without bound, so the walk must stop
+        # once the aggregate page budget is spent rather than fanning out further.
+        page_one = [{"id": 100 + i} for i in range(MESSAGES_PAGE_SIZE)]
+        page_two = [{"id": 200 + i} for i in range(MESSAGES_PAGE_SIZE)]
+        mock_session.return_value.get.side_effect = [
+            _resp(_conversations_page([{"id": 1}, {"id": 2}])),
+            _resp(_conversations_page([])),
+            _resp({"meta": {}, "payload": page_one}),
+            _resp({"meta": {}, "payload": page_two}),
+            # A third message page would be fetched without the aggregate cap; it must not be.
+            _resp({"meta": {}, "payload": [{"id": 999}]}),
+        ]
+        manager = _make_manager()
+
+        batches = list(get_rows(None, "1", "token", "messages", TEAM_ID, mock.MagicMock(), manager))
+
+        assert [item["id"] for batch in batches for item in batch] == [
+            *[m["id"] for m in page_one],
+            *[m["id"] for m in page_two],
+        ]
+        message_urls = [
+            call.args[0] for call in mock_session.return_value.get.call_args_list if "/messages" in call.args[0]
+        ]
+        assert len(message_urls) == 2
+        assert not any("/conversations/2/messages" in url for url in message_urls)
+
+    @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
     )
     def test_resumes_from_bookmarked_conversation_and_cursor(self, mock_session):

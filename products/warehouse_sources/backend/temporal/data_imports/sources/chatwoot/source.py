@@ -74,9 +74,10 @@ class ChatwootSource(
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # `host` determines where the stored access token is sent, so retargeting it must
-        # re-require the token.
-        return ["host"]
+        # `host` determines where the stored access token is sent, and `account_id` selects which
+        # Chatwoot account it reads — a single user token can belong to several accounts, so
+        # retargeting either must re-require the token rather than reusing the preserved one.
+        return ["host", "account_id"]
 
     @property
     def get_source_config(self) -> SourceConfig:

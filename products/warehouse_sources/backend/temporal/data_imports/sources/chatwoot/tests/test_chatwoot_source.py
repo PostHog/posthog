@@ -41,10 +41,11 @@ class TestChatwootSource:
         assert token_field.secret is True
         assert token_field.required is True
 
-    def test_host_is_a_connection_host_field(self):
-        # Retargeting the host must force re-entering the token, or the stored token could be
-        # exfiltrated to an attacker-controlled server.
-        assert self.source.connection_host_fields == ["host"]
+    def test_host_and_account_are_connection_host_fields(self):
+        # Retargeting the host could exfiltrate the stored token to an attacker-controlled server,
+        # and changing the account id alone could point a shared token at another account's data —
+        # both must force re-entering the token.
+        assert self.source.connection_host_fields == ["host", "account_id"]
 
     @pytest.mark.parametrize(
         "observed_error",
