@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PaperformSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.paperform.paperform import (
     PaperformResumeConfig,
@@ -27,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paperform.
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.paperform.settings import (
+    ENDPOINTS,
     INCREMENTAL_FIELDS,
     PAPERFORM_ENDPOINTS,
 )
@@ -90,21 +94,7 @@ You can create an API key under **Account → Developer** in [Paperform](https:/
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        schemas: list[SourceSchema] = []
-        for endpoint in PAPERFORM_ENDPOINTS:
-            if names is not None and endpoint not in names:
-                continue
-            incremental_fields = INCREMENTAL_FIELDS.get(endpoint, [])
-            supports_incremental = bool(incremental_fields)
-            schemas.append(
-                SourceSchema(
-                    name=endpoint,
-                    supports_incremental=supports_incremental,
-                    supports_append=supports_incremental,
-                    incremental_fields=incremental_fields,
-                )
-            )
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: PaperformSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -127,9 +117,9 @@ You can create an API key under **Account → Developer** in [Paperform](https:/
         return paperform_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
