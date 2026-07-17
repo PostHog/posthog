@@ -288,14 +288,16 @@ impl StoreHandle {
         .await
     }
 
-    /// Point-read one person's `cf_person_records` value as raw bytes. The event fold reads this on
-    /// the hot path (Event lane); decoding lives with the caller.
+    /// Point-read one person's `cf_person_records` value as raw bytes. Lane-parameterized: the
+    /// stage-2 compose reads it on the caller's lane (Event on the fold path, Maintenance on the
+    /// seed path); decoding lives with the caller.
     pub async fn get_person_record(
         &self,
         key: &PersonRecordKey,
+        lane: ReadLane,
     ) -> Result<Option<Vec<u8>>, StoreError> {
         let key = *key;
-        self.read("get_person_record", ReadLane::Event, move |store| {
+        self.read("get_person_record", lane, move |store| {
             store.get_person_record(&key)
         })
         .await
@@ -315,21 +317,26 @@ impl StoreHandle {
         .await
     }
 
-    /// Point-read one `cf_stage2` value (stage-2 compose is an event-path read).
-    pub async fn get_stage2(&self, key: &Stage2Key) -> Result<Option<Vec<u8>>, StoreError> {
+    /// Point-read one `cf_stage2` value. Lane-parameterized: stage-2 compose passes its caller's
+    /// lane (Event on the fold path, Maintenance on the seed path).
+    pub async fn get_stage2(
+        &self,
+        key: &Stage2Key,
+        lane: ReadLane,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
         let key = *key;
-        self.read("get_stage2", ReadLane::Event, move |store| {
-            store.get_stage2(&key)
-        })
-        .await
+        self.read("get_stage2", lane, move |store| store.get_stage2(&key))
+            .await
     }
 
-    /// Batch-read `cf_stage2` values, preserving input order (stage-2 compose, event path).
+    /// Batch-read `cf_stage2` values, preserving input order. Lane-parameterized like
+    /// [`get_stage2`](Self::get_stage2).
     pub async fn multi_get_stage2(
         &self,
         keys: Vec<Stage2Key>,
+        lane: ReadLane,
     ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
-        self.read("multi_get_stage2", ReadLane::Event, move |store| {
+        self.read("multi_get_stage2", lane, move |store| {
             store.multi_get_stage2(&keys)
         })
         .await

@@ -633,8 +633,8 @@ async fn spawn_instance(
 
 /// A tile produced with the seeder's keying lands on its owning worker via the 5-topic
 /// co-assignment, applies behind an already-open fence, emits an `origin: seed`-tagged membership
-/// change, and the seed group's committed offsets reach the produced high-water mark — the B5
-/// completion precondition.
+/// change, and the seed group's committed offsets reach the produced high-water mark — the
+/// run-completion precondition.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
 async fn seed_tile_applies_on_the_owning_worker_and_commits_to_the_hwm() {
@@ -703,7 +703,7 @@ async fn seed_tile_applies_on_the_owning_worker_and_commits_to_the_hwm() {
             "the change was emitted by alice's owning worker",
         );
 
-        // B5 precondition: committed ⇒ durably applied, reaching the produced HWM.
+        // Run-completion precondition: committed ⇒ durably applied, reaching the produced HWM.
         let seed_partition = part(alice) as i32;
         wait_for(
             "the seed group's committed offset to reach the produced HWM",
@@ -718,8 +718,8 @@ async fn seed_tile_applies_on_the_owning_worker_and_commits_to_the_hwm() {
     .await;
 }
 
-/// Rule 5 end-to-end: a tile scanned "now" stays fenced (uncommitted, unapplied) until live
-/// consumption on its partition flows past `s_chunk + margin`; then the held tile applies.
+/// The apply fence end-to-end: a tile scanned "now" stays fenced (uncommitted, unapplied) until
+/// live consumption on its partition flows past `s_chunk + margin`; then the held tile applies.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
 async fn fence_holds_a_fresh_tile_until_live_consumption_passes_its_scan_point() {

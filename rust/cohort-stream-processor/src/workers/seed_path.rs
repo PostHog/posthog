@@ -1,15 +1,13 @@
-//! The seed-tile apply path — the normative algorithm of the backfill design (§4.5), split into a
-//! pure core and an imperative shell.
+//! The seed-tile apply path, split into a pure core and an imperative shell.
 //!
 //! **Pure core** ([`merge_tile_into_leaf`]): no store, no clock, no metrics — `now_ms`/`now_day`
 //! are passed in. Per variant it mirrors the live fold minus dedup: predicate-before (pre-slide, so
-//! a slide-induced true→false emits `Left`), slide-before-evaluate to wall-clock "now" (C11),
+//! a slide-induced true→false emits `Left`), slide-before-evaluate to wall-clock "now",
 //! below-window drop **before any write** (the sweep owns time-driven `Left`s; a drop is a total
 //! no-op so re-delivery converges), max-merge of the tile's absolute count, end-of-day
 //! `last_event_at_ms` anchoring, deadline recompute, and structural-equality `Unchanged` detection
-//! — the whole of tile idempotency. §4.5 step 6 holds by construction: the core never receives
-//! source offsets, and a merged record carries `prev`'s `applied_offsets`/`redirect_dedup` through
-//! untouched.
+//! — the whole of tile idempotency. The core never receives source offsets, and a merged record
+//! carries `prev`'s `applied_offsets`/`redirect_dedup` through untouched.
 //!
 //! **Shell** ([`handle_seed`]): tombstone redirect (incl. hop-capped cross-partition re-produce),
 //! reverse-index fan-out, the `Maintenance`-lane batched read, then the event path's ordering —
@@ -86,12 +84,12 @@ pub(crate) fn route_tile(tile: &SeedTile, resolution: Resolution, cap: u8) -> Ti
     }
 }
 
-/// Why a tile's apply to one leaf was dropped without a write. Every arm is a metric label; B5
-/// gates readiness on these being flat over a run window.
+/// Why a tile's apply to one leaf was dropped without a write. Every arm is a metric label the
+/// run-completion check requires to stay flat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SeedDropReason {
-    /// The leaf's `explicit_datetime` range excludes the tile's day (C12): the bounds are not in
-    /// the bytecode, so the reverse index alone would over-deliver.
+    /// The leaf's `explicit_datetime` range excludes the tile's day: the bounds are not in the
+    /// bytecode, so the reverse index alone would over-deliver.
     ExplicitRangeExcludesDay,
     /// After the slide to wall-clock "now", the tile's day is below the window — applying would
     /// resurrect an expired record and flap entered→left.
@@ -156,8 +154,8 @@ impl LeafIdentity {
     }
 }
 
-/// Merge one day-tile `(tile_day, count)` into one leaf's state — the pure §4.5 steps 3–5. Total
-/// and non-panicking: every catalog/state mismatch is a counted drop, never a worker panic.
+/// Merge one day-tile `(tile_day, count)` into one leaf's state. Total and non-panicking: every
+/// catalog/state mismatch is a counted drop, never a worker panic.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn merge_tile_into_leaf(
     meta: &LeafStateMeta,
@@ -199,8 +197,8 @@ pub(crate) fn merge_tile_into_leaf(
 
 /// The synthetic instant a whole-day tile anchors `last_event_at_ms` to: the last millisecond of
 /// `tile_day` in the team tz. For calendar-floored (`RelativeDays`) windows this is *exactly*
-/// equivalent to any same-day live instant (the Q7 ratification); for `Explicit` windows the
-/// deadline is `i64::MAX` regardless.
+/// equivalent to any same-day live instant; for `Explicit` windows the deadline is `i64::MAX`
+/// regardless.
 fn end_of_day_ms(tile_day: DayIdx, tz: Tz) -> i64 {
     start_of_day_ms_in_tz(tile_day.saturating_add(1), tz).saturating_sub(1)
 }
@@ -221,7 +219,7 @@ fn merge_single(
             return LeafMergeOutcome::Dropped(SeedDropReason::SubDayWindow)
         }
         EvictionWindow::Explicit { from_day, to_day } => {
-            // Day-granularity, inclusive — mirrors the event path's C12 check exactly.
+            // Day-granularity, inclusive — mirrors the event path's explicit-range check.
             let before_from = from_day.is_some_and(|from| tile_day < from);
             let after_to = to_day.is_some_and(|to| tile_day > to);
             if before_from || after_to {
@@ -313,7 +311,7 @@ fn merge_daily(
         },
     };
 
-    // Slide to the wall-clock day first (C11); a pathological future-dated tile extends the target
+    // Slide to the wall-clock day first; a pathological future-dated tile extends the target
     // exactly as a client-skewed live event would, keeping apply order commutative.
     let target_now_day = now_day.max(tile_day);
     let (mut buckets, mut window_start_day, prev_last) = match prior {
@@ -505,8 +503,8 @@ pub(crate) async fn handle_seed(
     };
     let filters: &TeamFilters = team_filters;
 
-    // §4.5 step 2: the same resolver the event path uses. A read failure is fail-stop — a
-    // mis-applied tile for a merged-away person is durable state reconcile cannot retract.
+    // Same resolver as the event path. A read failure is fail-stop — a mis-applied tile for a
+    // merged-away person is durable state reconcile cannot retract.
     let resolution = match tombstone_redirect::resolve_offloaded(
         handle,
         partition_id,
@@ -532,9 +530,11 @@ pub(crate) async fn handle_seed(
         TileRoute::ApplyLocal { person } => person,
         TileRoute::ReProduce { tile: rekeyed } => {
             // Mirror the event path's re-key: await the ack before the mark; a produce failure IS
-            // fail-stop (the tile has no other copy).
+            // fail-stop (the tile has no other copy). Exactly one Ok ack is required — an empty
+            // ack vector would make an `all(is_ok)` guard vacuously true and commit past a tile
+            // that was never re-produced.
             let acks = merge.seed_tile_sink.produce(vec![rekeyed]).await;
-            if acks.iter().all(Result::is_ok) {
+            if matches!(acks.as_slice(), [Ok(())]) {
                 counter!(SEED_REKEYED_TOTAL).increment(1);
                 mark_processed(&merge.seed_tracker, partition_id, offset);
             } else {
@@ -561,7 +561,7 @@ pub(crate) async fn handle_seed(
         }
     };
 
-    // §4.5 step 3: fan out to every leaf sharing the predicate; each trims to its own window.
+    // Fan out to every leaf sharing the predicate; each trims to its own window.
     let hash = tile.condition_hash().as_bytes();
     let lsks: &[LeafStateKey] = filters
         .by_condition_to_lsk
@@ -701,6 +701,7 @@ pub(crate) async fn handle_seed(
         &stage2_leaves,
         now_ms,
         last_updated,
+        ReadLane::Maintenance,
     )
     .await
     {
@@ -721,6 +722,9 @@ pub(crate) async fn handle_seed(
     if !changes.is_empty() {
         let errors = produce_membership(sink, changes).await;
         if errors > 0 {
+            // Accepted at-most-once: the state committed above, so the redelivery lands
+            // `Unchanged` and a *single-leaf* change lost here is not re-emitted (only the stage-2
+            // recompose self-heals); the reconcile snapshot heals this class.
             warn!(
                 partition_id,
                 team_id = tile.team_id().0,
@@ -740,8 +744,7 @@ pub(crate) async fn handle_seed(
     mark_processed(&merge.seed_tracker, partition_id, offset);
 }
 
-/// §4.5 step 7 origin tagging, applied post-compose so the shared producer fns keep their
-/// signatures.
+/// Applied post-compose so the shared producer fns keep their signatures.
 fn tag_seed(changes: &mut [CohortMembershipChange], run_id: RunId) {
     for change in changes {
         change.origin = Some(ChangeOrigin::Seed);
@@ -889,8 +892,8 @@ mod tests {
             Some(TransitionKind::Entered),
             "a fresh in-window tile enters",
         );
-        // Q7 ratification: the end-of-day synthetic instant yields exactly the deadline any
-        // same-day live instant would (RelativeDays calendar-floors its anchor).
+        // The end-of-day synthetic instant yields exactly the deadline any same-day live
+        // instant would (RelativeDays calendar-floors its anchor).
         assert_eq!(
             deadline,
             EvictionWindow::RelativeDays { days: 7 }.earliest_eviction_at_ms(NOW_MS, UTC),
@@ -1169,7 +1172,7 @@ mod tests {
 
     #[test]
     fn dedup_maps_ride_through_bit_identical() {
-        // §4.5 step 6 by construction: the tile never touches `applied_offsets`/`redirect_dedup`.
+        // The tile never touches `applied_offsets`/`redirect_dedup`.
         let meta = daily_meta(7, PredicateOp::Gte(1));
         let mut applied = AppliedOffsets::default();
         applied.record(17, 42);
@@ -1278,8 +1281,8 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(64))]
 
-        /// The §4.5 convergence claim: an arbitrary tile multiset applied in an arbitrary order
-        /// (some tiles below the window) reaches one unique final state.
+        /// An arbitrary tile multiset applied in an arbitrary order (some tiles below the
+        /// window) reaches one unique final state.
         #[test]
         fn daily_apply_order_commutes(
             (tiles, shuffled) in prop::collection::vec((0i32..=12, 1u32..=5), 1..10)
@@ -1514,7 +1517,7 @@ mod tests {
                         },
                     ) => {
                         assert!(has_match);
-                        // Exact deadline equality — the Q7 ratification under a live instant.
+                        // Exact deadline equality against a live instant.
                         assert_eq!(seeded_deadline, live_deadline, "single deadline, tz {tz}");
                         assert_eq!(
                             *seeded_deadline,
@@ -1851,6 +1854,39 @@ mod tests {
         assert_eq!(changes.len(), 1, "applied inline instead");
         assert_eq!(changes[0].person_id, p_new.to_string());
         assert_eq!(shell.committable(partition_id), Some(1));
+    }
+
+    /// A sink returning zero acks for a one-tile produce reported nothing — treating it as success
+    /// (the vacuous `all(is_ok)` on `[]`) would commit past a tile that was never re-produced.
+    struct EmptyAckSink;
+
+    #[async_trait::async_trait]
+    impl crate::producer::SeedTileSink for EmptyAckSink {
+        async fn produce(
+            &self,
+            _tiles: Vec<SeedTile>,
+        ) -> Vec<Result<(), common_kafka::kafka_producer::KafkaProduceError>> {
+            Vec::new()
+        }
+    }
+
+    #[tokio::test]
+    async fn an_empty_rekey_ack_vector_is_a_failure_not_a_vacuous_success() {
+        let (p_old, partition_id, p_new) = cross_partition_pair();
+        let mut shell = Shell::new(vec![(1, wrap(vec![single_leaf_json(7)]))]);
+        write_tombstone(&shell.store, partition_id, p_old, p_new);
+        shell.deps.seed_tile_sink = Arc::new(EmptyAckSink);
+
+        shell
+            .run(partition_id, SeedWork::Tile(tile_for(p_old, today(), 1)), 7)
+            .await;
+
+        assert_eq!(
+            shell.committable(partition_id),
+            None,
+            "zero acks must hold the offset, never commit it",
+        );
+        assert!(shell.sink.changes().is_empty(), "no local apply either");
     }
 
     #[tokio::test]

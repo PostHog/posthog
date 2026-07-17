@@ -1,4 +1,4 @@
-//! Per-partition live-consumption watermarks — the seed apply-fence's input (design §4.3 Rule 5).
+//! Per-partition live-consumption watermarks — the seed apply-fence's input.
 //!
 //! The watermark is the running max of broker timestamps the partition worker has **folded**
 //! (state committed + produce acked + offset marked), advanced only post-mark so consumed-but-

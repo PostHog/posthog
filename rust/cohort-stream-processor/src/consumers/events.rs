@@ -38,10 +38,11 @@ use crate::observability::metrics::{
     COHORT_STREAM_SEEDS_SKIPPED_NOT_OWNED, COHORT_STREAM_TRANSFERS_SKIPPED_NOT_OWNED,
     COHORT_STREAM_WORKERS_SPAWNED, DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL,
     DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL,
-    DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL, MERGE_HELD_OFFSET_GAUGE,
-    MERGE_PENDING_TRANSFERS_GAUGE, PARTITIONS_ASSIGNED_TOTAL, PARTITIONS_PAUSED,
-    PARTITIONS_REVOKED_TOTAL, PARTITION_STATE_DELETED_TOTAL, PENDING_HELD_EVENTS,
-    REBALANCE_CLEANUP_SKIPPED_TOTAL, REVOKE_DRAIN_DURATION_SECONDS, SEED_HELD_OFFSET_GAUGE,
+    DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL, LIVE_WATERMARK_AGE_MS,
+    MERGE_HELD_OFFSET_GAUGE, MERGE_PENDING_TRANSFERS_GAUGE, PARTITIONS_ASSIGNED_TOTAL,
+    PARTITIONS_PAUSED, PARTITIONS_REVOKED_TOTAL, PARTITION_STATE_DELETED_TOTAL,
+    PENDING_HELD_EVENTS, REBALANCE_CLEANUP_SKIPPED_TOTAL, REVOKE_DRAIN_DURATION_SECONDS,
+    SEED_HELD_OFFSET_GAUGE,
 };
 use crate::partitions::backpressure::Backpressure;
 use crate::partitions::offset_tracker::OffsetTracker;
@@ -592,6 +593,11 @@ impl EventDispatcher {
     }
 
     pub fn assign_partition(&self, partition: i32) {
+        // Every tenure starts fail-closed for the seed fence: an idle-probe advance racing a
+        // revoke can re-create a watermark entry after the revoke's forget, and trusting it here
+        // would open the fence before this tenure's replayed events fold. Forget before ownership
+        // flips so a concurrent probe's owned-set re-check can't slip an advance in between.
+        self.merge.live_watermarks.forget_partition(partition);
         self.owned.insert(partition);
         counter!(PARTITIONS_ASSIGNED_TOTAL).increment(1);
     }
@@ -649,6 +655,8 @@ impl EventDispatcher {
         gauge!(MERGE_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
         gauge!(CASCADE_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
         gauge!(SEED_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
+        // Watermark age is alerted on; a revoked partition must not leave a frozen snapshot.
+        gauge!(LIVE_WATERMARK_AGE_MS, "partition" => partition.to_string()).set(0.0);
 
         let Some(partition_id) = partition_to_store_id(partition) else {
             warn!(
@@ -2099,6 +2107,21 @@ mod tests {
         assert_eq!(tracker.partition_count(), 1);
     }
 
+    /// The assign-side half of the probe-vs-revoke fix: even if a stale watermark entry leaked in
+    /// (an idle-probe advance racing the revoke's forget), re-acquiring the partition clears it,
+    /// so every tenure starts with the seed fence fail-closed.
+    #[tokio::test]
+    async fn assign_partition_resets_the_live_watermark_so_a_new_tenure_is_fail_closed() {
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+
+        dispatcher.merge_deps().live_watermarks.observe(5, 1_000);
+        dispatcher.assign_partition(5);
+
+        assert_eq!(dispatcher.merge_deps().live_watermarks.get(5), None);
+        let _tracker = dispatcher.shutdown().await;
+    }
+
     #[tokio::test]
     async fn dispatch_empty_batch_is_a_noop() {
         let (_dir, store) = temp_store();
@@ -2207,7 +2230,7 @@ mod tests {
             "the ceiling is exactly the dispatched max + 1",
         );
 
-        // The events tracker never sees a seed offset (Appendix C item 6 by another door).
+        // The events tracker never sees a seed offset.
         assert_eq!(
             dispatcher.tracker().mark_processed(0, 1),
             MarkOutcome::CappedAheadOfDispatch,

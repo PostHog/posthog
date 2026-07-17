@@ -602,6 +602,7 @@ async fn handle_event(
                 &outcome.transitions,
                 outcome.event_ms,
                 last_updated,
+                ReadLane::Event,
             )
             .await
             {
@@ -851,6 +852,7 @@ async fn handle_sweep(
             transitions,
             due_before_ms,
             last_updated,
+            ReadLane::Event,
         )
         .await
         {

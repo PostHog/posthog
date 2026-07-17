@@ -47,7 +47,7 @@ pub struct CohortMembershipChange {
     /// ClickHouse `DateTime64(6)` wire format.
     pub last_updated: String,
     pub status: MembershipStatus,
-    /// Backfill provenance (design §4.5 step 7); `None` on the live path.
+    /// Backfill provenance; `None` on the live path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<ChangeOrigin>,
     /// The backfill run that emitted this change; set iff `origin` is.
@@ -60,7 +60,7 @@ pub struct CohortMembershipChange {
 #[serde(rename_all = "snake_case")]
 pub enum ChangeOrigin {
     Seed,
-    /// Reserved for the B4 reconcile snapshot.
+    /// Reserved for the reconcile snapshot.
     Reconcile,
 }
 

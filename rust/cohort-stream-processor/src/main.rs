@@ -392,8 +392,8 @@ async fn async_main(config: Config) -> Result<()> {
                 manifest,
             );
         }
-        // On a T4 restore, state rolls back to the snapshot: the seed group's offsets must roll
-        // back with it, or tiles applied between checkpoint and crash silently never replay.
+        // On a disaster restore, state rolls back to the snapshot: the seed group's offsets
+        // must roll back with it, or tiles applied between checkpoint and crash never replay.
         if let Some(seed_consumer) = &seed_follower_consumer {
             commit_follower_offsets_from_manifest(
                 seed_consumer,

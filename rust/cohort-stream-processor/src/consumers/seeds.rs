@@ -1,8 +1,8 @@
-//! The `cohort_stream_seed_events` follower consumer — the backfill day-tile input (design §4.5).
+//! The `cohort_stream_seed_events` follower consumer — the backfill day-tile input.
 //!
 //! A dedicated follower (the 5th, mirroring the cascade template): it never `subscribe()`s — the
 //! events group's rebalance mirrors partition ownership onto it — and it enforces the **apply
-//! fence** (design §4.3 Rule 5) at admission: a tile is dispatched only once the owning partition's
+//! fence** at admission: a tile is dispatched only once the owning partition's
 //! live watermark clears `s_chunk + margin`. Fence-closed and channel-full tiles share one
 //! per-partition holdover + pause mechanism; an un-dispatched tile was never `mark_dispatched`ed,
 //! so its offset can never commit — commit safety falls out of the dispatch ceiling.
@@ -42,10 +42,10 @@ const RECV_ERROR_BACKOFF: Duration = Duration::from_millis(500);
 const PROBE_FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Why a consumed seed payload is skipped rather than applied. Every skip rides the worker channel
-/// so its offset marks in order; B5 gates readiness on these counters being flat over a run.
+/// so its offset marks in order; run-completion checks require these counters to stay flat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SeedSkipReason {
-    /// A kind this consumer does not handle (e.g. a B4 `reconcile` control tile).
+    /// A kind this consumer does not handle (e.g. a `reconcile` control tile).
     UnknownKind,
     /// A known kind at a newer schema version — data for a newer consumer.
     UnsupportedSchema,
@@ -109,7 +109,7 @@ impl ConsumedSeed {
     }
 }
 
-/// The apply-fence verdict for one tile (design §4.3 Rule 5).
+/// The apply-fence verdict for one tile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FenceDecision {
     Open,
@@ -229,7 +229,7 @@ impl SeedHoldover {
 
 /// The seed-topic follower consume loop. Assignment arrives via the events group's rebalance
 /// mirror; commits go through the dedicated seed tracker + `fsync_then_commit`, so a committed
-/// seed offset is a durably-applied tile — B5's precondition.
+/// seed offset is a durably-applied tile — what run-completion detection relies on.
 pub struct SeedFollowerConsumer {
     consumer: Arc<StreamConsumer>,
     topic: String,
@@ -516,9 +516,9 @@ struct SeedConsumeOutcome {
 /// fold this tenure, the events group's committed offset) has reached the live partition's high
 /// watermark, everything retained is folded and "now" is a valid arrival bound.
 ///
-/// Documented residual (§4.3 Rule 5): this trusts that the shuffler is live — a silent shuffler
-/// stall longer than the margin during an active run with idle partitions is the design's accepted
-/// residual, surfaced via the watermark-age gauge + shuffler-lag alerting.
+/// Accepted residual: this trusts that the shuffler is live — a silent shuffler stall longer
+/// than the margin during an active run with idle partitions opens the fence early, surfaced via
+/// the watermark-age gauge + shuffler-lag alerting.
 async fn run_idle_probe_loop(
     events_consumer: Arc<StreamConsumer<CohortConsumerContext>>,
     events_topic: String,
@@ -542,21 +542,50 @@ async fn run_idle_probe_loop(
                 let folded = dispatcher.events_tracker().committable_offsets();
                 let consumer = events_consumer.clone();
                 let topic = events_topic.clone();
-                let probed = tokio::task::spawn_blocking(move || {
+                let probe = tokio::task::spawn_blocking(move || {
                     probe_idle_partitions(consumer.as_ref(), &topic, &owned, &folded)
-                })
-                .await;
+                });
+                // The blocking fetch can spend up to ~5 s per partition against an unresponsive
+                // broker; racing it against shutdown keeps the graceful window (the detached
+                // blocking task drains on its own timeouts).
+                let probed = tokio::select! {
+                    biased;
+                    _ = handle.shutdown_recv() => break,
+                    probed = probe => probed,
+                };
                 match probed {
                     Ok(idle_partitions) => {
                         let now_ms = chrono::Utc::now().timestamp_millis();
-                        let watermarks = &dispatcher.merge_deps().live_watermarks;
-                        for partition in idle_partitions {
-                            watermarks.advance_idle(partition, now_ms);
-                        }
+                        advance_probed_idle(
+                            &dispatcher.merge_deps().live_watermarks,
+                            &dispatcher.owned_set(),
+                            idle_partitions,
+                            now_ms,
+                        );
                     }
                     Err(err) => warn!(error = %err, "seed idle probe task failed"),
                 }
             }
+        }
+    }
+}
+
+/// Advance watermarks for probed-idle partitions, re-checking ownership **at advance time**: the
+/// probe's ownership snapshot is stale by up to the blocking fetch, and a partition revoked
+/// mid-probe was `forget_partition`ed (fail-closed). Advancing it anyway would re-create the entry
+/// and hand a later tenure a stale watermark that opens the fence before its replayed live events
+/// fold — a silent double-count. The assign path independently forgets the watermark
+/// ([`EventDispatcher::assign_partition`]), so even an advance that races a revoke-then-reassign
+/// cannot outlive the next tenure's start.
+fn advance_probed_idle(
+    watermarks: &crate::partitions::watermarks::LiveWatermarks,
+    owned_now: &HashSet<i32>,
+    idle_partitions: Vec<i32>,
+    now_ms: i64,
+) {
+    for partition in idle_partitions {
+        if owned_now.contains(&partition) {
+            watermarks.advance_idle(partition, now_ms);
         }
     }
 }
@@ -843,5 +872,33 @@ mod tests {
 
         let not_seed = ShuffleMessage::RedrivePendingTransfers;
         assert!(ConsumedSeed::from_message(9, not_seed).is_none());
+    }
+
+    /// The probe-vs-revoke interleaving: the probe's ownership snapshot went stale during its
+    /// blocking fetch, a revoke `forget_partition`ed the watermark (fail-closed), and the
+    /// advance-time re-check must not re-create it — a stale entry would open the fence for the
+    /// next tenure before its replayed events fold.
+    #[test]
+    fn probe_advance_never_recreates_a_watermark_revoked_mid_probe() {
+        let watermarks = LiveWatermarks::new();
+        watermarks.observe(5, 1_000);
+        watermarks.observe(6, 1_000);
+
+        // Mid-probe: partition 5 is revoked and forgotten; the probe's stale snapshot still
+        // reports both partitions idle.
+        watermarks.forget_partition(5);
+        let owned_now = HashSet::from([6]);
+        advance_probed_idle(&watermarks, &owned_now, vec![5, 6], 2_000);
+
+        assert_eq!(
+            watermarks.get(5),
+            None,
+            "the revoked partition stays fail-closed",
+        );
+        assert_eq!(
+            watermarks.get(6),
+            Some(WatermarkMs(2_000)),
+            "the still-owned partition advances",
+        );
     }
 }

@@ -33,7 +33,7 @@ use crate::producer::{
     StreamEventSink, TransferSink,
 };
 use crate::stage1::transition::LeafTransition;
-use crate::store::{BehavioralKey, PendingTransferKey, StoreHandle};
+use crate::store::{BehavioralKey, PendingTransferKey, ReadLane, StoreHandle};
 use crate::sweep::EvictionQueue;
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::worker::{
@@ -652,6 +652,7 @@ async fn produce_merge_transitions(
         transitions,
         merged_at_ms,
         last_updated,
+        ReadLane::Event,
     )
     .await
     {

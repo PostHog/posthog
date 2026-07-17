@@ -218,7 +218,7 @@ pub struct Config {
     #[envconfig(default = "cohort-stream-cascade")]
     pub kafka_cascade_consumer_group: String,
 
-    /// Consume `cohort_stream_seed_events` and apply backfill day-tiles (design §4.5). Default off.
+    /// Consume `cohort_stream_seed_events` and apply backfill day-tiles. Default off.
     #[envconfig(from = "COHORT_SEED_CONSUMER_ENABLED", default = "false")]
     pub cohort_seed_consumer_enabled: bool,
 

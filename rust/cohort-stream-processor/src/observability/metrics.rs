@@ -448,8 +448,8 @@ pub const SEED_TILES_APPLIED_TOTAL: &str = "cohort_seed_tiles_applied_total";
 /// Tiles whose max-merge left every leaf's state byte-identical — the duplicate/out-of-order
 /// idempotency path, labelled by `variant` (counter).
 pub const SEED_TILES_UNCHANGED_TOTAL: &str = "cohort_seed_tiles_unchanged_total";
-/// Tile leaf-applies dropped without a write, labelled by `reason` (counter). B5 gates run
-/// readiness on the deltas of this and [`SEED_TILES_SKIPPED_TOTAL`] over the run window.
+/// Tile leaf-applies dropped without a write, labelled by `reason` (counter). Run readiness is
+/// gated on the deltas of this and [`SEED_TILES_SKIPPED_TOTAL`] over the run window.
 pub const SEED_TILES_DROPPED_TOTAL: &str = "cohort_seed_tiles_dropped_total";
 /// Consume-side skips marked in order (unknown kind, newer schema, undecodable payload), labelled
 /// by `reason` (counter).

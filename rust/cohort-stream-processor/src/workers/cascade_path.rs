@@ -30,7 +30,7 @@ use crate::observability::metrics::{
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::producer::{CohortMembershipChange, MembershipSink};
 use crate::stage2::state::Stage2State;
-use crate::store::{Stage2Key, StagedBatch, StoreHandle};
+use crate::store::{ReadLane, Stage2Key, StagedBatch, StoreHandle};
 use crate::workers::merge_path::MergeWorkerDeps;
 use crate::workers::stage2_path::recompute_and_diff;
 use crate::workers::worker::{produce_cascades, produce_membership};
@@ -106,7 +106,16 @@ pub(crate) async fn handle_cascade(
         let Some(tree) = filters.cohorts.get(&referrer) else {
             continue;
         };
-        let diff = match recompute_and_diff(partition_id, person_id, tree, filters, handle).await {
+        let diff = match recompute_and_diff(
+            partition_id,
+            person_id,
+            tree,
+            filters,
+            handle,
+            ReadLane::Event,
+        )
+        .await
+        {
             Ok(diff) => diff,
             Err(error) => {
                 warn!(
