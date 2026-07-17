@@ -11245,24 +11245,23 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         response = self._google_ads_accounts(listed)
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        # The stored value is the bare id the API takes and every existing source already has saved; the
-        # dashed form the Google Ads UI shows is display-only.
+        # Stored dashed as the Google Ads UI shows it; clean_customer_id normalizes to bare at the API boundary.
         assert response.json()["accounts"] == [
             {
-                "value": "6501924158",
+                "value": "650-192-4158",
                 "display_name": "Acme Corp",
                 "is_primary": True,
                 "badges": ["Manager"],
                 "group": None,
-                "secondary_text": "650-192-4158",
+                "secondary_text": None,
             },
             {
-                "value": "1234567890",
+                "value": "123-456-7890",
                 "display_name": "Client One",
                 "is_primary": False,
                 "badges": [],
                 "group": "Acme Corp",
-                "secondary_text": "123-456-7890",
+                "secondary_text": None,
             },
         ]
 
@@ -11302,7 +11301,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
             response = self.client.get(self._url("GoogleAds", self._google_ads_integration().id) + "&search=acme")
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        assert [a["value"] for a in response.json()["accounts"]] == ["6501924158", "1234567890"]
+        assert [a["value"] for a in response.json()["accounts"]] == ["650-192-4158", "123-456-7890"]
 
     def test_linkedin_success_maps_ad_accounts_to_accounts(self):
         integration = self._linkedin_integration()

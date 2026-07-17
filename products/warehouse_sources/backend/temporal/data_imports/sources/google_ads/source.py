@@ -304,11 +304,9 @@ class GoogleAdsSource(
         names_by_id = {account["id"]: account["name"] for account in accounts}
         integration_accounts = [
             IntegrationAccount(
-                # The bare digits are what the API and every pipeline read site use, and what existing
-                # sources already have stored; the dashed form the Google Ads UI shows is display-only.
-                value=account["id"],
+                # Dashed as the Google Ads UI shows it; clean_customer_id normalizes to bare at the API boundary.
+                value=format_customer_id(account["id"]),
                 display_name=account["name"],
-                secondary_text=format_customer_id(account["id"]),
                 is_primary=google_ads_hierarchy_level(account) == 0,
                 badges=("Manager",) if account.get("manager") else (),
                 # `parent_id` is the accessible account the walk started from, not the direct manager, so

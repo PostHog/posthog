@@ -1146,5 +1146,5 @@ class TestGetOAuthAccountsCaching:
             second = source.get_oauth_accounts(1, 2, search="beta")
 
         walk.assert_called_once()
-        assert [account.value for account in first] == ["1234567890"]
-        assert [account.value for account in second] == ["9876543210"]
+        assert [account.value for account in first] == ["123-456-7890"]
+        assert [account.value for account in second] == ["987-654-3210"]
