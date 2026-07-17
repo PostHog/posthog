@@ -124,3 +124,21 @@ class TestCacheTableStats(SimpleTestCase):
         self.assertEqual(
             metric_events["partitions"], [{"partition": "20260802", "rows": 20, "bytes_on_disk": 200, "parts": 2}]
         )
+
+    def test_unreachable_cluster_degrades_instead_of_raising(self):
+        # A deployment without the aux cluster (or an aux outage) must not 500 the whole
+        # endpoint and lose the stats already readable from the main cluster.
+        def fake_sync_execute(_query, params):
+            if params["cluster"] == CLICKHOUSE_AUX_CLUSTER:
+                raise Exception("Requested cluster 'aux' not found")
+            return [(SHARDED_EXPERIMENT_EXPOSURES_TABLE(), "20260801", 10, 100, 1)]
+
+        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=fake_sync_execute):
+            stats = {entry["table"]: entry for entry in _cache_table_stats()}
+
+        exposures = stats["experiment_exposures_preaggregated"]
+        metric_events = stats["experiment_metric_events_preaggregated"]
+        self.assertEqual(exposures["total_rows"], 10)
+        self.assertNotIn("unavailable", exposures)
+        self.assertTrue(metric_events["unavailable"])
+        self.assertEqual(metric_events["total_rows"], 0)

@@ -110,32 +110,41 @@ def _cache_table_stats() -> list[dict]:
     }
 
     for cluster in dict.fromkeys(cluster for _, cluster in tables.values()):
+        cluster_tables = [sharded for sharded, (_, c) in tables.items() if c == cluster]
         # cluster() reads one replica per shard. clusterAllReplicas would visit every replica and,
         # unlike query_log (deduped via is_initial_query), each replica of a shard reports the same
         # parts — rows/bytes would be multiplied by the replica count.
-        response = sync_execute(
-            """
-            SELECT
-                table,
-                partition,
-                sum(rows) AS rows,
-                sum(bytes_on_disk) AS bytes_on_disk,
-                count() AS parts
-            FROM cluster(%(cluster)s, system, parts)
-            WHERE
-                database = %(database)s
-                AND table IN %(tables)s
-                AND active
-            GROUP BY table, partition
-            ORDER BY table, partition
-            SETTINGS skip_unavailable_shards=1
-            """,
-            {
-                "cluster": cluster,
-                "database": CLICKHOUSE_DATABASE,
-                "tables": [sharded for sharded, (_, c) in tables.items() if c == cluster],
-            },
-        )
+        try:
+            response = sync_execute(
+                """
+                SELECT
+                    table,
+                    partition,
+                    sum(rows) AS rows,
+                    sum(bytes_on_disk) AS bytes_on_disk,
+                    count() AS parts
+                FROM cluster(%(cluster)s, system, parts)
+                WHERE
+                    database = %(database)s
+                    AND table IN %(tables)s
+                    AND active
+                GROUP BY table, partition
+                ORDER BY table, partition
+                SETTINGS skip_unavailable_shards=1
+                """,
+                {
+                    "cluster": cluster,
+                    "database": CLICKHOUSE_DATABASE,
+                    "tables": cluster_tables,
+                },
+            )
+        except Exception:
+            # One cluster being unreachable (or absent in a single-cluster deployment) must not
+            # take down the stats read from the healthy cluster.
+            logger.exception("cache_health: failed to read system.parts from cluster %s", cluster)
+            for sharded in cluster_tables:
+                stats[sharded]["unavailable"] = True
+            continue
         for table, partition, rows, bytes_on_disk, parts in response:
             entry = stats.get(table)
             if entry is None:
