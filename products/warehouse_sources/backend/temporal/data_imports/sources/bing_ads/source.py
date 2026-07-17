@@ -83,6 +83,13 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
         )
         return {
             "AADSTS650052": service_principal_friendly,
+            # PostHog's own OAuth application client secret (BING_ADS_CLIENT_SECRET) is invalid — expired,
+            # rotated, or misconfigured on our side. Affects every Bing Ads customer, not one account, so
+            # reconnecting the integration can't fix it. Surfaced by the SDK as
+            # `OAuthTokenRequestException: invalid_client AADSTS7000215: …`, so it shares substrings with the
+            # generic wrappers below — it must come first so handle_non_retryable picks this internal-config
+            # entry (None message) instead of telling the customer to reconnect.
+            "AADSTS7000215": None,
             # OAuth grant rejection by Microsoft (the bingads SDK raises OAuthTokenRequestException
             # whose str() format is "<error_code> <error_description>").
             "OAuthTokenRequestException": auth_friendly,

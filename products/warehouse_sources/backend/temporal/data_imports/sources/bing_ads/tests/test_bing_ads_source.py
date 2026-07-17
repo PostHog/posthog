@@ -343,6 +343,26 @@ class TestBingAdsSource:
         assert "AADSTS650052" in friendly_errors[0]
         assert "service principal" in friendly_errors[0]
 
+    def test_aadsts7000215_is_internal_config_not_reconnect(self):
+        # AADSTS7000215 = PostHog's own OAuth app client secret is invalid (our config, every customer),
+        # surfaced as "OAuthTokenRequestException: invalid_client AADSTS7000215: Invalid client secret".
+        # It must be matched before the generic wrappers and map to None so we don't surface the futile
+        # "reconnect your integration" message for a failure the customer can't fix.
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        keys = list(non_retryable_errors.keys())
+
+        aadsts_index = keys.index("AADSTS7000215")
+        assert aadsts_index < keys.index("OAuthTokenRequestException")
+        assert aadsts_index < keys.index("invalid_client")
+
+        error_message = (
+            "Failed to fetch customer ID: OAuthTokenRequestException: error_code: invalid_client, "
+            "error_description: AADSTS7000215: Invalid client secret provided. Ensure the secret being "
+            "sent in the request is the client secret value, not the client secret ID."
+        )
+        friendly_errors = [msg for pattern, msg in non_retryable_errors.items() if pattern in error_message]
+        assert friendly_errors[0] is None
+
     def test_invalid_client_data_maps_to_account_guidance(self):
         # The dominant cause is a wrong/inaccessible Account ID (auth has already succeeded by this point),
         # so the toast must point at the Account ID rather than telling the user to reconnect OAuth.
