@@ -1073,17 +1073,6 @@ export const RuntimeEnumApi = {
 } as const
 
 /**
- * * `claude` - claude
- * * `codex` - codex
- */
-export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
-
-export const RuntimeAdapterEnumApi = {
-    Claude: 'claude',
-    Codex: 'codex',
-} as const
-
-/**
  * * `anthropic` - anthropic
  * * `openai` - openai
  */
@@ -1093,23 +1082,6 @@ export type TaskRunDetailDTOProviderEnumApi =
 export const TaskRunDetailDTOProviderEnumApi = {
     Anthropic: 'anthropic',
     Openai: 'openai',
-} as const
-
-/**
- * * `low` - low
- * * `medium` - medium
- * * `high` - high
- * * `xhigh` - xhigh
- * * `max` - max
- */
-export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
-
-export const ReasoningEffortEnumApi = {
-    Low: 'low',
-    Medium: 'medium',
-    High: 'high',
-    Xhigh: 'xhigh',
-    Max: 'max',
 } as const
 
 /**
@@ -1390,7 +1362,8 @@ export interface TaskCreateApi {
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
-     * * `image_builder` - Image Builder */
+     * * `image_builder` - Image Builder
+     * * `loop` - Loop */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).

@@ -69,7 +69,7 @@ MAX_LOOP_REPOSITORIES = 1
 # scheduler. Raising them is a deliberate, per-request-to-support decision. This is the single
 # source of truth for the cap: the list endpoint returns it so the frontend gates creation
 # against this number rather than hardcoding its own, keeping the two from drifting.
-MAX_LOOPS_PER_TEAM = 30
+MAX_LOOPS_PER_TEAM = 100
 MAX_TRIGGERS_PER_LOOP = 25
 
 DEFAULT_LOOP_RUN_PAGE_SIZE = 50

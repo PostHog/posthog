@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("tasks", "0061_loop_looptrigger_loopfire"),
+        ("tasks", "0063_loop_looptrigger_loopfire"),
     ]
 
     operations = [
