@@ -890,6 +890,37 @@ class TestMultiRepoGitHubResolution(BaseTest):
         # The complete sibling still resolves on its own.
         assert resolve_github_tables(team=self.team, repo="PostHog/posthog").repository == "PostHog/posthog"
 
+    def test_incomplete_exact_match_does_not_fall_through_to_a_bare_source(self) -> None:
+        # An explicit repo whose own candidate exists but is half-synced must surface not-connected —
+        # never fall through to another source's bare/unattributed rows, which belong to an unknown
+        # repo. The bare fallback is only for when the requested repo has no candidate at all.
+        self._multi_repo_source(
+            prefix="halfsynced",
+            repos={"posthog/posthog.com": [(PULL_REQUESTS_SCHEMA, True)]},
+        )
+        bare = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="src-bare",
+            connection_id="src-bare",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.GITHUB,
+            prefix="bare",
+            job_inputs={},
+        )
+        for endpoint in (PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA):
+            ExternalDataSchema.objects.create(
+                team=self.team,
+                source=bare,
+                name=endpoint,
+                table=create_warehouse_table_row(self.team, name=f"baregithub_{endpoint}", source=bare),
+                should_sync=True,
+                sync_type_config={},
+            )
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team, repo="posthog/posthog.com")
+        # Without an exact match the bare rows still serve as the fallback (branch-hint reads).
+        assert resolve_github_tables(team=self.team, repo="some/other").pull_requests == "baregithub_pull_requests"
+
     def test_cost_pairs_include_every_repo_in_a_source(self) -> None:
         # The cost view unions (jobs, runs) across repos. A multi-repo source must contribute one
         # pair per fully-synced repo — collapsing it to one repo silently under-counts the view.

@@ -114,13 +114,14 @@ def resolve_github_tables(
         # An explicit repo must never silently resolve a *different* named repo: the picker lists a
         # source's repos before they finish syncing, so a not-yet-complete pick should surface the
         # not-connected 400 rather than fall through to a sibling repo (mixing two repos' metrics).
-        # Keep exact matches, then only bare/unattributed ('' repo) rows as a fallback — a legacy
-        # single-repo source's rows carry no repo, so a branch-hint read still reaches them.
+        # Keep exact matches; only when there is none, fall back to bare/unattributed ('' repo)
+        # rows — a legacy single-repo source's rows carry no repo, so a branch-hint read still
+        # reaches them. Once an exact match exists, bare rows are off the table too: a half-synced
+        # exact match must surface not-connected, not another source's unattributed data.
         wanted = repo.casefold()
         materialized = list(candidates)
-        candidates = [c for c in materialized if c.repository.casefold() == wanted] + [
-            c for c in materialized if c.repository == ""
-        ]
+        exact = [c for c in materialized if c.repository.casefold() == wanted]
+        candidates = exact if exact else [c for c in materialized if c.repository == ""]
     for candidate in candidates:
         tables = candidate.tables
         pull_requests = tables.get(PULL_REQUESTS_SCHEMA)
@@ -213,8 +214,9 @@ def _repo_candidates(*, team: Team, sources: QuerySet[ExternalDataSource]) -> It
     """Every ``(repo, tables)`` a team's GitHub sources expose, in default-resolution order.
 
     Sources keep their oldest-first order (the established connection wins), and within a source
-    the legacy/bare repo comes first — so a single-repo source resolves exactly as before — then
-    any added repos, sorted, for a deterministic pick. A multi-repo source contributes one entry
+    repos follow the source's configured ``repositories`` order — the legacy/bare repo has no
+    inherent priority, so whichever repo the multi-select lists first is the default; unknown
+    leftovers trail, sorted. A multi-repo source contributes one entry
     per repo, so a repo-scoped read can reach a repo that isn't the source's legacy one. Lazy (one
     ``ExternalDataSchema`` query per source, on demand) so the default resolve path stops at the
     first usable repo instead of querying every source up front.
