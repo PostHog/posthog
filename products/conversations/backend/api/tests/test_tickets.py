@@ -1701,6 +1701,7 @@ class TestComposeTicketAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
 
         comment = Comment.objects.get(scope="conversations_ticket", item_id=response.json()["id"])
+        assert comment.item_context is not None
         assert comment.item_context["is_private"] is expected_private
 
         if expect_delivery:
