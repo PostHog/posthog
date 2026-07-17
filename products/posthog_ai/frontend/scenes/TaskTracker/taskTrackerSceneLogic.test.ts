@@ -6,7 +6,10 @@ import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { attachedContextLogic } from '../../api/logics'
+import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
 
@@ -17,6 +20,7 @@ const buildTask = (overrides: Partial<Task> = {}): Task => ({
     title: 'Some task',
     description: 'do the thing',
     origin_product: OriginProduct.POSTHOG_AI,
+    runtime: RuntimeEnumApi.Acp,
     repository: null,
     github_integration: null,
     signal_report: null,
@@ -225,4 +229,99 @@ describe('taskTrackerSceneLogic', () => {
         expect(logic.values.historyExpanded).toBe(false)
         expect(router.values.location.pathname).toContain(expectedPath ?? initialPath)
     })
+
+    // A CTA opens the panel and stamps its prompt onto composerSeedLogic BEFORE the composer mounts, so the
+    // seed must be picked up on mount — this is the live breakage the seam fixes (the prompt was dropped).
+    // autoSubmit=false must only prefill, never send. Guards the afterMount pickup, the consume-once clear,
+    // and that a non-auto seed doesn't submit.
+    it('picks up a seed set before mount and prefills without submitting when autoSubmit is false', async () => {
+        const seedLogic = composerSeedLogic()
+        seedLogic.mount()
+        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false })
+
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.newTaskData.description).toBe('analyze churn')
+        expect(seedLogic.values.seed).toBeNull()
+        // No submit: submitting opens an optimistic activeCreation, prefill-only leaves it null.
+        expect(logic.values.activeCreation).toBeNull()
+
+        seedLogic.unmount()
+    })
+
+    // A seed arriving while the composer is already mounted (the panel was open when another CTA fired) must
+    // apply immediately via the setSeed listener, and autoSubmit=true must send it. Re-applying afterwards must
+    // not re-submit — a reopened panel must never resend a stale prompt. Guards the listener path, the
+    // auto-submit wiring, and consume-once.
+    it('applies a seed that arrives while mounted, auto-submits it, and does not resubmit once consumed', async () => {
+        let createCount = 0
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/': async ({ request }) => {
+                    createCount++
+                    createBody = (await request.json()) as Record<string, any>
+                    return [200, { id: 'new-task', ...createBody }]
+                },
+                '/api/projects/:team/tasks/:id/run/': () => [200, { id: 'new-task' }],
+            },
+        })
+
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        composerSeedLogic().actions.setSeed({ prompt: 'summarize experiment', autoSubmit: true })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createBody).toMatchObject({ description: 'summarize experiment', repository: null })
+        expect(logic.values.activeCreation).toMatchObject({ taskId: 'new-task' })
+        expect(composerSeedLogic().values.seed).toBeNull()
+        expect(createCount).toBe(1)
+
+        // Consumed seed is inert: re-triggering must not create a second task.
+        logic.actions.applyComposerSeed()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(createCount).toBe(1)
+    })
+
+    // A seed arriving while a submit is in flight must not start a second concurrent create/run (the two
+    // requests would fight over the composer and activeCreation) and must not be lost: it stays pending and
+    // applies once the submission resolves — auto-submitting then, or surviving the post-submit form reset
+    // as a prefill. Guards the isSubmittingTask hold in applyComposerSeed and the reset-before-success order.
+    it.each([
+        { autoSubmit: true, expectedCreates: 2 },
+        { autoSubmit: false, expectedCreates: 1 },
+    ])(
+        'holds a seed arriving mid-submit and applies it after the submission resolves (autoSubmit=$autoSubmit)',
+        async ({ autoSubmit, expectedCreates }) => {
+            let createCount = 0
+            useMocks({
+                post: {
+                    '/api/projects/:team/tasks/': async ({ request }) => {
+                        createCount++
+                        createBody = (await request.json()) as Record<string, any>
+                        return [200, { id: `task-${createCount}`, ...createBody }]
+                    },
+                    '/api/projects/:team/tasks/:id/run/': () => [200, { id: 'run-1' }],
+                },
+            })
+            logic.mount()
+
+            composerSeedLogic().actions.setSeed({ prompt: 'first', autoSubmit: true })
+            // The first submit is now in flight; a second CTA fires before it resolves.
+            composerSeedLogic().actions.setSeed({ prompt: 'second', autoSubmit })
+            // Held, not applied: the seed is still pending and no second submission started.
+            expect(composerSeedLogic().values.seed).toMatchObject({ prompt: 'second' })
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createCount).toBe(expectedCreates)
+            expect(composerSeedLogic().values.seed).toBeNull()
+            if (autoSubmit) {
+                expect(createBody).toMatchObject({ description: 'second' })
+            } else {
+                expect(logic.values.newTaskData.description).toBe('second')
+            }
+        }
+    )
 })

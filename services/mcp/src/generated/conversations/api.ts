@@ -67,7 +67,7 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`.'
+            'Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`, `critical`.'
         ),
     search: zod
         .string()
@@ -141,13 +141,15 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         priority: zod
             .union([
-                zod.enum(['low', 'medium', 'high']).describe('* `low` - Low\n* `medium` - Medium\n* `high` - High'),
+                zod
+                    .enum(['low', 'medium', 'high', 'critical'])
+                    .describe('* `low` - Low\n* `medium` - Medium\n* `high` - High\n* `critical` - Critical'),
                 zod.enum(['']),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Ticket priority: low, medium, or high. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High'
+                'Ticket priority: low, medium, high, or critical. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High\n* `critical` - Critical'
             ),
         sla_due_at: zod.iso
             .datetime({ offset: true })
