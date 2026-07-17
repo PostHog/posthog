@@ -28,7 +28,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dags.common import JobOwners
-from posthog.llm.gateway_client import get_llm_client
+from posthog.llm.gateway_client import build_openai_client
 from posthog.models import Team
 
 from ee.billing.dags.customer_archetype_prompt import SYSTEM_PROMPT
@@ -584,7 +584,7 @@ def classify_and_push_accounts_batch(
     # Classify LLM batches with global concurrency control. The semaphore is shared
     # across all accounts batches running in parallel so the total in-flight LLM
     # requests stays bounded regardless of executor parallelism.
-    client = get_llm_client("customer_archetype_classification")
+    client = build_openai_client("customer_archetype_classification", ai_product="customer_archetype_classification")
     semaphore = _get_llm_semaphore(config.llm_max_concurrent_requests)
     new_classifications: list[AccountClassification] = []
     failed_batches: list[dict[str, Any]] = []
