@@ -42,7 +42,7 @@ class TestRemoveSuppressionResetsSource(APIBaseTest):
 
         row = MessageSuppression.objects.for_team(self.team.id).get(identifier="user@example.com")
         assert row.source == SuppressionSource.MANUAL
-        assert row.suppressed is True
+        assert row.suppressed
 
         # Remove — the row should be un-suppressed AND its source reset so that the ON CONFLICT
         # branches in the node write path (which skip MANUAL rows) can re-suppress it later.
@@ -50,10 +50,11 @@ class TestRemoveSuppressionResetsSource(APIBaseTest):
         assert response.status_code == 204
 
         row.refresh_from_db()
-        assert row.suppressed is False
-        assert row.deleted is True
-        assert row.transient_bounce_count == 0
-        assert row.source == SuppressionSource.BOUNCE, (
-            "remove_suppression must reset source to BOUNCE so the node write path can auto-suppress "
-            "this address again if it later bounces"
+        assert (row.suppressed, row.deleted, row.transient_bounce_count, row.source) == (
+            False,
+            True,
+            0,
+            SuppressionSource.BOUNCE,
+        ), (
+            "remove_suppression must reset the row so the node write path can auto-suppress this address again if it later bounces"
         )
