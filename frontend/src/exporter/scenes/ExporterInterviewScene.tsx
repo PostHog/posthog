@@ -300,12 +300,7 @@ const CallBodyPanel = memo(function CallBodyPanel({
         <div className="flex-1 min-w-0">
             {state === 'already-replied' && <AlreadyRepliedPanel interview={interview} />}
             {isPreCall && (
-                <PreCallIntro
-                    interview={interview}
-                    name={name}
-                    onNameChange={onNameChange}
-                    honeypotRef={honeypotRef}
-                />
+                <PreCallIntro interview={interview} name={name} onNameChange={onNameChange} honeypotRef={honeypotRef} />
             )}
             {state === 'connecting' && <ConnectingPanel />}
             {state === 'in-call' && <LivePanel />}
