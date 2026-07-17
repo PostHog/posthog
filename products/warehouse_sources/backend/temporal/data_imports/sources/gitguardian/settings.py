@@ -1,3 +1,4 @@
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Optional
@@ -32,6 +33,10 @@ class GitGuardianEndpointConfig:
     # primary key, so a resumed job re-yielding the last page dedupes cleanly. The small
     # full-refresh tables just restart from page one on a worker restart.
     resumable: bool = False
+    # Fields dropped from every row before it lands in the warehouse. Used to strip bearer links
+    # (e.g. `share_url`, which grants secret access without a GitGuardian account) that would
+    # otherwise leak the very secrets this data is meant to help remediate.
+    excluded_fields: AbstractSet[str] = field(default_factory=frozenset)
 
 
 _DATE_INCREMENTAL_FIELD: list[IncrementalField] = [
@@ -58,6 +63,8 @@ GITGUARDIAN_ENDPOINTS: dict[str, GitGuardianEndpointConfig] = {
         required_scope="incidents:read",
         incremental_lookback=timedelta(days=7),
         resumable=True,
+        # `share_url` is a no-auth bearer link that can expose the leaked secret itself.
+        excluded_fields=frozenset({"share_url"}),
         incremental_fields=_DATE_INCREMENTAL_FIELD,
     ),
     # Secret occurrences: one row per place a secret was found (commit, file, ...). Same

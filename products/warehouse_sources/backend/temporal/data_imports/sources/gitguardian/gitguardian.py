@@ -163,7 +163,11 @@ def check_endpoint_access(api_key: str, base_url: str, endpoint: str) -> str | N
     config = GITGUARDIAN_ENDPOINTS[endpoint]
     url = _build_url(base_url, config.path, {"per_page": 1})
     try:
-        response = make_tracked_session(allow_redirects=False).get(url, headers=_get_headers(api_key), timeout=10)
+        # capture=False keeps GitGuardian security metadata (repo names, file paths, secret hashes)
+        # out of the HTTP sample bucket — the name-based scrubbers can't recognise these fields.
+        response = make_tracked_session(allow_redirects=False, capture=False).get(
+            url, headers=_get_headers(api_key), timeout=10
+        )
     except requests.exceptions.RequestException:
         return None
 
@@ -188,8 +192,9 @@ def get_rows(
     config = GITGUARDIAN_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     # One session reused across every page for connection keep-alive. allow_redirects=False keeps
-    # the token pinned to the validated host.
-    session = make_tracked_session(allow_redirects=False)
+    # the token pinned to the validated host. capture=False keeps GitGuardian security metadata
+    # (repo names, file paths, secret hashes) out of the HTTP sample bucket.
+    session = make_tracked_session(allow_redirects=False, capture=False)
 
     params: dict[str, Any] = {"per_page": config.page_size}
     if config.ordering:
@@ -225,6 +230,8 @@ def get_rows(
         next_url = _next_page_url(response)
 
         if rows:
+            if config.excluded_fields:
+                rows = [{k: v for k, v in row.items() if k not in config.excluded_fields} for row in rows]
             yield rows
         # Checkpoint the CURRENT page's URL after yielding, so a crash re-fetches this page.
         if config.resumable:

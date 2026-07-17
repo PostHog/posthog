@@ -192,6 +192,15 @@ class TestLinkHeaderPagination:
         with pytest.raises(ValueError, match="non-list response"):
             _run_get_rows(monkeypatch, "secret_incidents", responses)
 
+    def test_share_url_bearer_link_is_stripped_before_yield(self, monkeypatch: Any) -> None:
+        # share_url is a no-auth bearer link that can expose the leaked secret itself; it must
+        # never reach the warehouse. Other fields survive.
+        responses = [
+            _page([{"id": 1, "share_url": "https://dashboard.gitguardian.com/share/xyz", "date": "2026-01-01"}])
+        ]
+        rows, _, _ = _run_get_rows(monkeypatch, "secret_incidents", responses)
+        assert rows == [{"id": 1, "date": "2026-01-01"}]
+
 
 class TestResumeCheckpoints:
     def test_resumes_from_saved_url(self, monkeypatch: Any) -> None:
