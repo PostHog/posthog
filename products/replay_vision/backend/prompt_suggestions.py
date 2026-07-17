@@ -34,6 +34,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.replay_vision.backend.feedback_themes import refresh_feedback_themes_if_stale, theme_lines
+from products.replay_vision.backend.gemini_models import INTERACTIVE_HELPER_MODEL
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -44,7 +45,7 @@ from products.replay_vision.backend.models.replay_scanner_prompt_suggestion impo
 
 logger = structlog.get_logger(__name__)
 
-_SUGGESTION_MODEL = "gemini-3.1-flash-lite-preview"
+_SUGGESTION_MODEL = INTERACTIVE_HELPER_MODEL
 _MODEL_CALL_TIMEOUT_MS = 90_000
 # The agentic path digs through sessions before rewriting, so give it the stronger model.
 _AGENT_MODEL = "gemini-3-flash-preview"

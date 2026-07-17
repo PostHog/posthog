@@ -18,12 +18,13 @@ from google.genai.types import GenerateContentConfig
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, Field
 
+from products.replay_vision.backend.gemini_models import INTERACTIVE_HELPER_MODEL
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 
 logger = structlog.get_logger(__name__)
 
-_THEMES_MODEL = "gemini-3.1-flash-lite-preview"
+_THEMES_MODEL = INTERACTIVE_HELPER_MODEL
 _MODEL_CALL_TIMEOUT_MS = 90_000
 MIN_FEEDBACK_FOR_THEMES = 3
 _MAX_FEEDBACK_COMMENTS = 100

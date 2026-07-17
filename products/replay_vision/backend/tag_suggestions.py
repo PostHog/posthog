@@ -25,6 +25,7 @@ from posthog.models.user import User
 from posthog.queries.property_values import get_event_property_values_from_aggregated_table
 from posthog.rbac.user_access_control import UserAccessControl
 
+from products.replay_vision.backend.gemini_models import INTERACTIVE_HELPER_MODEL
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.tags import slugify_tag
@@ -34,7 +35,7 @@ from ee.hogai.utils.untrusted import neutralize_markup
 logger = structlog.get_logger(__name__)
 
 # Cheap, fast model — this is an interactive form helper, not a recording scan.
-_SUGGESTION_MODEL = "gemini-3.1-flash-lite-preview"
+_SUGGESTION_MODEL = INTERACTIVE_HELPER_MODEL
 _MAX_SUGGESTIONS = 8
 # Bounds on assembled context so a large team/scanner can't blow up the prompt.
 _MAX_REASONING_SAMPLES = 15
