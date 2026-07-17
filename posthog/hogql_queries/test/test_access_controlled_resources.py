@@ -52,6 +52,22 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("multiple", "select 1 from system.notebooks, system.surveys", {"notebook", "survey"}),
             ("no_access_controlled_table", "select 1", set()),
             ("events_table", "select * from events", set()),
+            # Catalog-enriched information_schema tables partition the cache by data_catalog access,
+            # so an allowed user's cached certification/confidence/reasoning rows can't leak to a
+            # denied user on a cache hit.
+            (
+                "information_schema_tables",
+                "select certification from system.information_schema.tables",
+                {"data_catalog"},
+            ),
+            (
+                "information_schema_relationships",
+                "select reasoning from system.information_schema.relationships",
+                {"data_catalog"},
+            ),
+            ("information_schema_metrics", "select name from system.information_schema.metrics", {"data_catalog"}),
+            # The plain schema tables expose no catalog-gated data, so they don't partition on it.
+            ("information_schema_columns", "select * from system.information_schema.columns", set()),
         ]
     )
     def test_hogql_query_system_scopes(self, _name, sql, expected):
