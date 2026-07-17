@@ -1,3 +1,5 @@
+import re
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.settings import (
     BUZZSPROUT_ENDPOINTS,
@@ -25,16 +27,34 @@ def _auth_header_value(api_token: str) -> str:
     return f"Token token={api_token}"
 
 
+# A Buzzsprout podcast ID is a bare identifier (numeric in practice). `podcast_id` is a non-secret,
+# editable field that ends up as a REST path segment, so anything that could make that path resolve
+# to a different origin — a URL scheme, path separators, a query/fragment marker, whitespace, or a
+# `..` traversal — is rejected. Otherwise a value like `https://attacker.example/../<id>` would be
+# treated as an absolute URL by the request layer and the stored token sent to the attacker's host.
+_INVALID_PODCAST_ID = re.compile(r"[\s/\\?#:]|\.\.")
+
+
+def _clean_podcast_id(podcast_id: str) -> str:
+    cleaned = podcast_id.strip()
+    if not cleaned:
+        raise ValueError("A Buzzsprout podcast ID is required.")
+    if _INVALID_PODCAST_ID.search(cleaned):
+        raise ValueError("Invalid Buzzsprout podcast ID. Enter the numeric ID from your Buzzsprout API settings.")
+    return cleaned
+
+
 def _build_path(podcast_id: str, config: BuzzsproutEndpointConfig) -> str:
     if config.account_scoped:
         return config.path
-    return f"{podcast_id.strip()}/{config.path}"
+    return f"{podcast_id}/{config.path}"
 
 
 def validate_credentials(api_token: str, podcast_id: str) -> tuple[bool, str | None]:
-    podcast_id = podcast_id.strip()
-    if not podcast_id:
-        return False, "A Buzzsprout podcast ID is required."
+    try:
+        podcast_id = _clean_podcast_id(podcast_id)
+    except ValueError as e:
+        return False, str(e)
 
     # The episodes endpoint is scoped to the podcast_id, so a 200 confirms both the token and the ID
     # in a single cheap probe.
@@ -66,6 +86,9 @@ def validate_credentials(api_token: str, podcast_id: str) -> tuple[bool, str | N
 
 def buzzsprout_source(api_token: str, podcast_id: str, endpoint: str, team_id: int, job_id: str) -> SourceResponse:
     config = BUZZSPROUT_ENDPOINTS[endpoint]
+    # Guard the sync path with the same check as validation so an edited-in absolute/traversal
+    # podcast_id can never retarget the authenticated request off the Buzzsprout host.
+    podcast_id = _clean_podcast_id(podcast_id)
 
     rest_config: RESTAPIConfig = {
         "client": {

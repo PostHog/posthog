@@ -102,6 +102,29 @@ class TestBuzzsproutRows:
 
         assert snapshots[0]["url"] == f"{BUZZSPROUT_BASE_URL}/123456/episodes.json"
 
+    @pytest.mark.parametrize(
+        "podcast_id",
+        [
+            "https://attacker.example/../../../123456",
+            "http://attacker.example/123456",
+            "123456/../../evil",
+            "123456?x=1",
+            "foo#bar",
+            "foo\\bar",
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retargeting_podcast_id_is_rejected_without_request(self, MockSession, podcast_id) -> None:
+        # `podcast_id` is a non-secret editable field that becomes a REST path segment; a value that
+        # could resolve to another origin must be rejected before any authenticated request is sent.
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}])])
+
+        with pytest.raises(ValueError, match="Invalid Buzzsprout podcast ID"):
+            _rows(buzzsprout_source("test-token", podcast_id, "episodes", team_id=1, job_id="j"))
+
+        session.send.assert_not_called()
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_token_auth_scheme_and_user_agent(self, MockSession) -> None:
         session = MockSession.return_value
@@ -197,6 +220,25 @@ class TestValidateCredentials:
     def test_blank_podcast_id_is_invalid_without_request(self) -> None:
         with mock.patch(BUZZSPROUT_SESSION_PATCH) as mock_session:
             is_valid, message = validate_credentials("test-token", "   ")
+
+        assert is_valid is False
+        assert message is not None
+        mock_session.return_value.get.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "podcast_id",
+        [
+            "https://attacker.example/../../../123456",
+            "123456/../../evil",
+            "123456?x=1",
+            "foo#bar",
+        ],
+    )
+    def test_retargeting_podcast_id_is_invalid_without_request(self, podcast_id) -> None:
+        # Validation must reject a retargeting podcast_id the same way the sync does, so the probe
+        # and the sync can never disagree on the request destination.
+        with mock.patch(BUZZSPROUT_SESSION_PATCH) as mock_session:
+            is_valid, message = validate_credentials("test-token", podcast_id)
 
         assert is_valid is False
         assert message is not None
