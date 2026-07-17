@@ -121,14 +121,18 @@ class TestObservationLabels(_VisionAPITestCase):
         ReplayObservation.objects.filter(id=window_edge.id).update(created_at=now - timedelta(days=13))
         ReplayObservation.objects.filter(id=just_outside.id).update(created_at=now - timedelta(days=14))
         # Prompt-version snapshots: v1 on the older observation, v2 on today's, so markers show the change.
+        # Each config also carries a type-specific field (allow_inconclusive) so the marker's full config,
+        # not just the prompt, is proven to version too.
+        v1_config = {"prompt": "v1 prompt", "allow_inconclusive": False}
+        v2_config = {"prompt": "v2 prompt", "allow_inconclusive": True}
         ReplayObservation.objects.filter(id=earlier.id).update(
-            scanner_snapshot={"scanner_version": 1, "scanner_config": {"prompt": "v1 prompt"}}
+            scanner_snapshot={"scanner_version": 1, "scanner_config": v1_config}
         )
         # The unlabeled observation counts toward v2's scanned total but not its ratings; the failed one
         # counts toward neither, since it never produced a ratable result.
         ReplayObservation.objects.filter(
             id__in=[self.observation.id, same_day_down.id, unlabeled.id, failed.id]
-        ).update(scanner_snapshot={"scanner_version": 2, "scanner_config": {"prompt": "v2 prompt"}})
+        ).update(scanner_snapshot={"scanner_version": 2, "scanner_config": v2_config})
         self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
         for observation in (same_day_down, earlier, outside_window, window_edge, just_outside):
             is_correct = observation is outside_window
@@ -158,6 +162,7 @@ class TestObservationLabels(_VisionAPITestCase):
                     "date": (now - timedelta(days=3)).date().isoformat(),
                     "version": 1,
                     "prompt": "v1 prompt",
+                    "scanner_config": v1_config,
                     "up": 0,
                     "down": 1,
                     "total": 1,
@@ -166,6 +171,7 @@ class TestObservationLabels(_VisionAPITestCase):
                     "date": now.date().isoformat(),
                     "version": 2,
                     "prompt": "v2 prompt",
+                    "scanner_config": v2_config,
                     "up": 1,
                     "down": 1,
                     "total": 3,

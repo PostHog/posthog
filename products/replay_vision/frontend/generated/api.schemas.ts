@@ -1005,6 +1005,8 @@ export interface ObservationVersionMarkerApi {
     version: number
     /** The prompt text this version ran with, taken from the observation run snapshots. */
     prompt: string
+    /** The full type-specific config this version ran with (prompt plus, depending on scanner type, allow_inconclusive, tags, scale, or length), taken from the observation run snapshots. */
+    scanner_config: unknown
     /** Thumbs-up ratings on this version's observations. */
     up: number
     /** Thumbs-down ratings on this version's observations. */
