@@ -223,7 +223,7 @@ def test_resolve_period_since_last_run_vs_last_n_days() -> None:
 async def test_gather_activity_failed_sources(team, sources, expect_raise) -> None:
     await _set_ai_consent(team, True)
     env = ActivityEnvironment()
-    inputs = GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None)
+    inputs = GenerateBriefWorkflowInputs(team_id=team.pk, brief_id=str(uuid.uuid4()), brief_config_id=None)
     with patch("products.pulse.backend.temporal.activities.get_sources", return_value=sources):
         if expect_raise:
             with pytest.raises(ApplicationError) as exc_info:
@@ -242,7 +242,7 @@ async def test_gather_activity_cap_orders_all_three_kinds(team) -> None:
     with patch("products.pulse.backend.temporal.activities.get_sources", return_value=sources):
         items = await env.run(
             gather_brief_inputs_activity,
-            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None),
+            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id=str(uuid.uuid4()), brief_config_id=None),
         )
     assert len(items) == MAX_ITEMS
     kept = {kind: sum(1 for item in items if item["kind"] == kind) for kind in ("health", "movement", "context")}

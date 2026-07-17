@@ -315,6 +315,14 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     permission_classes = [PostHogFeatureFlagPermission, PulseProjectWritePermission]
     queryset = ProductBrief.objects.unscoped()
 
+    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
+        source_read_scopes = ["annotation:read", "subscription:read", "alert:read", "insight:read"]
+        if self.action == "generate":
+            return ["project:write", *source_read_scopes]
+        if self.action in ("list", "retrieve"):
+            return ["project:read", *source_read_scopes]
+        return None
+
     def safely_get_queryset(self, queryset: QuerySet[ProductBrief]) -> QuerySet[ProductBrief]:
         return (
             ProductBrief.objects.for_team(self.team_id)
