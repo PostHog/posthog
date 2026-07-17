@@ -6,7 +6,7 @@ import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
-import { AlertEditorModal, AlertEditorModalLayout } from 'products/alerts/frontend/components/AlertEditorModal'
+import { AlertEditor } from 'products/alerts/frontend/components/AlertEditor'
 import {
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
@@ -49,15 +49,18 @@ function LogsAlertingSectionInner(): JSX.Element {
                 or share feedback with what you'd like to see.
             </LemonBanner>
             <LogsAlertList />
-            <AlertEditorModal
+            <LemonModal
                 isOpen={isModalOpen}
                 onClose={() => {
                     setIsCreating(false)
                     setEditingAlert(null)
                 }}
+                title=""
+                simple
+                width={720}
             >
                 {isModalOpen ? <LogsAlertModalContent editingAlert={editingAlert} /> : null}
-            </AlertEditorModal>
+            </LemonModal>
             <LogsAlertEventHistoryModal alert={viewingHistoryAlert} onClose={() => setViewingHistoryAlert(null)} />
         </>
     )
@@ -87,7 +90,7 @@ function LogsAlertModalContent({ editingAlert }: { editingAlert: LogsAlertConfig
                     enableFormOnSubmit
                     className="LemonModal__layout"
                 >
-                    <AlertEditorModalLayout
+                    <AlertEditor
                         title={editingAlert ? 'Edit alert' : 'New alert'}
                         description="Alerts are checked every 5 minutes."
                         isEditing={editingAlert !== null}
@@ -127,7 +130,7 @@ function LogsAlertModalContent({ editingAlert }: { editingAlert: LogsAlertConfig
                             </LemonBanner>
                         ) : null}
                         <LogsAlertForm />
-                    </AlertEditorModalLayout>
+                    </AlertEditor>
                 </Form>
 
                 <LemonModal
