@@ -47,6 +47,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
+from posthog.models.github_metadata import normalize_github_account_type, project_github_metadata_onto_organization
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.team.team import Team
@@ -2720,6 +2721,26 @@ class GitHubIntegration(GitHubIntegrationBase):
         )
 
     @classmethod
+    def fetch_repository_count(cls, installation_access: GitHubInstallationAccess) -> int | None:
+        """Best-effort installation repository count via a single-page listing. Never raises, no retries."""
+        try:
+            response = github_request(
+                "GET",
+                "https://api.github.com/installation/repositories?per_page=1",
+                source="integration",
+                headers={"Authorization": f"Bearer {installation_access.access_token}"},
+                installation_id=installation_access.installation_id,
+                endpoint="/installation/repositories",
+                timeout=10,
+            )
+            if response.status_code != 200:
+                return None
+            total_count = response.json().get("total_count")
+            return total_count if isinstance(total_count, int) else None
+        except Exception:
+            return None
+
+    @classmethod
     def integration_from_installation_id(
         cls, installation_id: str, team_id: int, created_by: User | None = None
     ) -> Integration:
@@ -2727,7 +2748,9 @@ class GitHubIntegration(GitHubIntegrationBase):
         now = int(time.time())
         expires_in = int(datetime.fromisoformat(installation_access.token_expires_at).timestamp() - now)
 
-        config = {
+        repository_count = cls.fetch_repository_count(installation_access)
+
+        config: dict[str, Any] = {
             "installation_id": installation_id,
             "expires_in": expires_in,
             "refreshed_at": now,
@@ -2735,8 +2758,11 @@ class GitHubIntegration(GitHubIntegrationBase):
             "account": {
                 "type": dot_get(installation_access.installation_info, "account.type", None),
                 "name": dot_get(installation_access.installation_info, "account.login", installation_id),
+                "id": dot_get(installation_access.installation_info, "account.id", None),
             },
         }
+        if repository_count is not None:
+            config["repository_count"] = repository_count
 
         sensitive_config = {"access_token": installation_access.access_token}
 
@@ -2757,7 +2783,36 @@ class GitHubIntegration(GitHubIntegrationBase):
 
         invalidate_github_repository_caches_for_installation(installation_id)
 
+        cls._project_connect_metadata_onto_organization(
+            team_id=team_id,
+            account_type=dot_get(config, "account.type", None),
+            repository_selection=installation_access.repository_selection,
+            repository_count=repository_count,
+        )
+
         return integration
+
+    @staticmethod
+    def _project_connect_metadata_onto_organization(
+        *,
+        team_id: int,
+        account_type: str | None,
+        repository_selection: str | None,
+        repository_count: int | None,
+    ) -> None:
+        """Project connect-time facts onto the org group. Best-effort — never fails the connect flow."""
+        try:
+            organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+            if organization_id is None:
+                return
+            project_github_metadata_onto_organization(
+                organization_id=str(organization_id),
+                account_type=normalize_github_account_type(account_type),
+                repository_selection=repository_selection,
+                repository_count=repository_count,
+            )
+        except Exception as e:
+            capture_exception(e)
 
     @classmethod
     def github_login_from_code(cls, code: str) -> str | None:

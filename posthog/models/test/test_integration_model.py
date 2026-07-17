@@ -1634,8 +1634,9 @@ class TestGitHubIntegrationModel(BaseTest):
         # GET retries the network error once; both attempts record an exception sample.
         assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 2
 
+    @patch("posthog.models.integration.GitHubIntegration.fetch_repository_count", return_value=None)
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
-    def test_github_integration_refresh_token(self, mock_client_request):
+    def test_github_integration_refresh_token(self, mock_client_request, _mock_repo_count):
         mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
 
         with freeze_time("2024-01-01T12:00:00Z"):
@@ -1658,6 +1659,7 @@ class TestGitHubIntegrationModel(BaseTest):
             "account": {
                 "name": "PostHog",
                 "type": "Organization",
+                "id": None,
             },
             "repository_selection": "all",
             "refreshed_at": 1704117600,
@@ -1666,6 +1668,49 @@ class TestGitHubIntegrationModel(BaseTest):
 
         assert integration.sensitive_config == {
             "access_token": "ACCESS_TOKEN",
+        }
+
+    @patch("posthog.models.integration.project_github_metadata_onto_organization")
+    @patch("posthog.models.integration.github_request", side_effect=Exception("network down"))
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_connect_survives_failed_repository_count_fetch(
+        self, mock_client_request, _mock_github_request, mock_project
+    ):
+        mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            integration = GitHubIntegration.integration_from_installation_id("INSTALLATION_ID", self.team.id, self.user)
+
+        assert "repository_count" not in integration.config
+        assert integration.config["repository_selection"] == "all"
+        # The failed count fetch must not block projecting the facts we do know.
+        mock_project.assert_called_once()
+        assert mock_project.call_args.kwargs["repository_count"] is None
+        assert mock_project.call_args.kwargs["account_type"] == "organization"
+
+    @patch("posthog.models.github_metadata.posthoganalytics.group_identify")
+    @patch("posthog.models.integration.github_request")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_connect_projects_metadata_onto_organization_group(
+        self, mock_client_request, mock_github_request, mock_group_identify
+    ):
+        mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
+        mock_github_request.return_value = MagicMock(status_code=200, json=lambda: {"total_count": 5})
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            integration = GitHubIntegration.integration_from_installation_id("INSTALLATION_ID", self.team.id, self.user)
+
+        assert integration.config["repository_count"] == 5
+        mock_group_identify.assert_called_once()
+        group_type, group_key = mock_group_identify.call_args.args[:2]
+        assert group_type == "organization"
+        # Group key must be the organization UUID, not the team id.
+        assert group_key == str(self.team.organization_id)
+        assert group_key != str(self.team.id)
+        assert mock_group_identify.call_args.kwargs["properties"] == {
+            "github_account_type": "organization",
+            "github_repository_selection": "all",
+            "github_repository_count": 5,
         }
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
@@ -1686,9 +1731,10 @@ class TestGitHubIntegrationModel(BaseTest):
         assert integration.errors == "TOKEN_REFRESH_FAILED"
         assert integration.config["refresh_failure_count"] == 1
 
+    @patch("posthog.models.integration.GitHubIntegration.fetch_repository_count", return_value=None)
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
-    def test_github_refresh_access_token_resets_errors(self, mock_client_request, mock_reload):
+    def test_github_refresh_access_token_resets_errors(self, mock_client_request, mock_reload, _mock_repo_count):
         """Test that errors field is reset to empty string after successful refresh_access_token"""
         mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
 
