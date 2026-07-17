@@ -8036,6 +8036,48 @@ export namespace Schemas {
       uploads: UploadTarget[];
     }
 
+    /**
+     * Body of POST /vision/scanners/:id/affected_cohort/. Same qualifiers as the impact GET.
+     */
+    export interface AffectedCohortRequest {
+      /**
+         * Trailing window of observations to count. Defaults to 30 days.
+         * @minimum 1
+         * @maximum 90
+         */
+      window_days?: number;
+      /**
+         * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
+         * @maxLength 100
+         * @nullable
+         */
+      tag?: string | null;
+      /**
+         * Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types.
+         * @nullable
+         */
+      min_score?: number | null;
+      /**
+         * Scorer scanners only: count sessions scoring at or below this value.
+         * @nullable
+         */
+      max_score?: number | null;
+    }
+
+    /**
+     * The static cohort created from the scanner's affected users.
+     */
+    export interface AffectedCohortResponse {
+      /** ID of the created static cohort; usable anywhere cohorts are (funnels, surveys, experiments). */
+      readonly cohort_id: number;
+      /** Generated cohort name, stamped with the creation date since the snapshot doesn't live-update. */
+      readonly name: string;
+      /** Persons actually in the created cohort. Can be lower than `affected_users`: matched distinct IDs without a person profile are dropped, and merged persons deduplicate. */
+      readonly users_in_cohort: number;
+      /** Trailing window the cohort was drawn from, in days. */
+      readonly window_days: number;
+    }
+
     export interface AgentAggregateStats {
       /** Sessions currently in a live state (queued / running). */
       liveCount: number;
@@ -28494,16 +28536,21 @@ export namespace Schemas {
     }
 
     /**
-     * Fleet-wide tally of recently emitted findings — backs the "Scout findings" callout so it
-     * renders from one cheap query instead of the client walking the whole paginated runs window.
+     * Fleet-wide tally of recent scout output — legacy `emit_signal` findings plus reports
+     * authored/edited via the report channel. Backs the "Scout findings" callout so it renders
+     * from one cheap query instead of the client walking the whole paginated runs window.
      */
     export interface FleetFindingsSummary {
-      /** Total findings the fleet emitted in the window — the sum of each emitted run's `emitted_count`, over the most recent 120 emitted runs. */
+      /** Total findings the fleet emitted in the window — the sum of each run's `emitted_count`, over the most recent 120 runs that produced output. */
       count: number;
-      /** Number of distinct scouts (skills) that emitted at least one finding in the window. */
+      /** Number of distinct scouts (skills) that produced output in the window — emitted a finding, or authored/edited an inbox report that survives the 50-report cap (a report-only scout whose touched reports all fell outside the cap is not counted, matching the findings page's scout filter). */
       scout_count: number;
+      /** Number of distinct inbox reports scouts authored via `emit_report`, deduped across runs, over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently touched reports (the same slice the findings page lists). */
+      authored_report_count: number;
+      /** Number of distinct inbox reports scouts edited via `edit_report`, deduped across runs, over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently touched reports (the same slice the findings page lists) and excluding reports also authored within that set (authoring supersedes an edit; a report whose authoring run falls outside the cap counts as edited). */
+      edited_report_count: number;
       /**
-         * ISO-8601 timestamp of the most recently emitted finding's run (TaskRun completion, falling back to run creation), or null when nothing was emitted in the window.
+         * ISO-8601 timestamp of the most recent output run (TaskRun completion, falling back to run creation), or null when nothing was produced in the window.
          * @nullable
          */
       latest_at: string | null;
@@ -33116,6 +33163,8 @@ export namespace Schemas {
       /** Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents. */
       outline: LLMPromptOutlineEntry[];
       version: number;
+      /** The label this prompt was fetched by. Only present when fetching with the label parameter. */
+      label?: string;
       created_at: string;
       updated_at: string;
       deleted: boolean;
@@ -55577,6 +55626,20 @@ export namespace Schemas {
     }
 
     /**
+     * Who this scanner's findings affected in the window; counted from observations, not estimated.
+     */
+    export interface ScannerImpact {
+      /** Distinct sessions with an affected observation in the window. For monitors only verdict-yes observations count; for other scanner types every succeeded observation counts. */
+      readonly affected_sessions: number;
+      /** Distinct users behind the affected sessions, by distinct ID. May include anonymous device IDs when the recorded sessions were not identified. */
+      readonly affected_users: number;
+      /** Affected sessions whose recording carried no distinct ID at all. */
+      readonly sessions_without_user: number;
+      /** Trailing window the counts cover, in days. */
+      readonly window_days: number;
+    }
+
+    /**
      * Per-scanner-type count of enabled vs total scanners.
      */
     export interface ScannerTypeStats {
@@ -68095,6 +68158,12 @@ export namespace Schemas {
      */
     content?: EnvironmentsLlmPromptsNameRetrieveContent;
     /**
+     * Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version.
+     * @minLength 1
+     * @maxLength 128
+     */
+    label?: string;
+    /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
@@ -69608,6 +69677,31 @@ export namespace Schemas {
      * Case-insensitive substring match across name, description, and the prompt in scanner_config.
      */
     search?: string;
+    };
+
+    export type EnvironmentsVisionScannersImpactRetrieveParams = {
+    /**
+     * Scorer scanners only: count sessions scoring at or below this value.
+     * @nullable
+     */
+    max_score?: number | null;
+    /**
+     * Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types.
+     * @nullable
+     */
+    min_score?: number | null;
+    /**
+     * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
+     * @maxLength 100
+     * @nullable
+     */
+    tag?: string | null;
+    /**
+     * Trailing window of observations to count. Defaults to 30 days.
+     * @minimum 1
+     * @maximum 90
+     */
+    window_days?: number;
     };
 
     export type EnvironmentsVisionScannersObservationsListParams = {
@@ -75778,6 +75872,12 @@ export namespace Schemas {
      */
     content?: LlmPromptsNameRetrieveContent;
     /**
+     * Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version.
+     * @minLength 1
+     * @maxLength 128
+     */
+    label?: string;
+    /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
@@ -78400,6 +78500,31 @@ export namespace Schemas {
      * Case-insensitive substring match across name, description, and the prompt in scanner_config.
      */
     search?: string;
+    };
+
+    export type VisionScannersImpactRetrieveParams = {
+    /**
+     * Scorer scanners only: count sessions scoring at or below this value.
+     * @nullable
+     */
+    max_score?: number | null;
+    /**
+     * Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types.
+     * @nullable
+     */
+    min_score?: number | null;
+    /**
+     * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
+     * @maxLength 100
+     * @nullable
+     */
+    tag?: string | null;
+    /**
+     * Trailing window of observations to count. Defaults to 30 days.
+     * @minimum 1
+     * @maximum 90
+     */
+    window_days?: number;
     };
 
     export type VisionScannersObservationsListParams = {

@@ -427,17 +427,18 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(
                 response=FleetFindingsSummarySerializer,
-                description="Fleet-wide tally of recently emitted findings.",
+                description="Fleet-wide tally of recent scout output — findings and report activity.",
             ),
         },
-        summary="Summarise recently emitted findings across the fleet",
+        summary="Summarise recent scout output across the fleet",
         description=(
-            "Return a cheap fleet-wide tally of the findings the scout troop emitted in the recent window — "
-            "the total count, the number of distinct scouts behind them, and the latest emission time. "
-            "Backs the 'Scout findings' callout so it renders from one query instead of the client paging "
-            "through the whole runs window. Counts only runs that emitted at least one finding "
-            "(`emitted_count > 0`) within the last `window_hours` (default 72), capped to the most recent "
-            "120 emitted runs so the count matches what the findings list renders. Strictly team-scoped."
+            "Return a cheap fleet-wide tally of the output the scout troop produced in the recent window — "
+            "the finding count, the distinct reports authored/edited via the report channel, the number of "
+            "distinct scouts behind them, and the latest output time. Backs the 'Scout findings' callout so "
+            "it renders from one query instead of the client paging through the whole runs window. Counts "
+            "runs that emitted at least one finding (`emitted_count > 0`) or authored/edited an inbox report "
+            "within the last `window_hours` (default 72), capped to the most recent 120 such runs so the "
+            "count matches what the findings list renders. Strictly team-scoped."
         ),
         operation_id="signals_scout_runs_findings_summary",
     )
