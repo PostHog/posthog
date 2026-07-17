@@ -569,7 +569,7 @@ export interface tracingDataLogicMeta {
         ) => number
         durationHistogramData: (rawDurationHistogram: DurationHistogramRow[]) => TracingDurationHistogramData
         latencyHeatmapData: (rawLatencyHeatmap: LatencyHeatmapRow[]) => TracingLatencyHeatmapData
-        showHeatmap: (filters: TracingFilters, compareActive: boolean, featureFlags: FeatureFlagsSet) => boolean
+        showHeatmap: (filters: TracingFilters, compareActive: boolean, featureFlags: any) => boolean
         listRows: (spans: Span[], filters: TracingFilters) => Span[]
         listRowDurations: (listRows: Span[]) => number[]
         isDurationMode: (filters: TracingFilters, compareActive: boolean) => boolean
@@ -628,6 +628,8 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 'updateComparisonWindows',
                 'setFilters',
             ],
+            featureFlagLogic,
+            ['setFeatureFlags'],
         ],
     })),
 
@@ -1370,6 +1372,14 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             }),
         // Bulk restores (URL params, saved views) re-query without an interaction capture.
         setFilters: () => actions.runQuery(),
+        // Feature flags land asynchronously (posthog.js /flags), potentially after the first
+        // runQuery. If that flip just made the heatmap visible (?chart=heatmap deep link with
+        // the flag on), fetch the data the earlier runQuery skipped.
+        setFeatureFlags: () => {
+            if (values.showHeatmap && values.rawLatencyHeatmap.length === 0 && !values.latencyHeatmapLoading) {
+                actions.fetchLatencyHeatmap()
+            }
+        },
         // Overlay drags only refetch the aggregation — the sparkline canvas range stays fixed
         // while the user moves windows around within it. The compare-flame refetch (viewer UI
         // state) lives in tracingViewerLogic.
