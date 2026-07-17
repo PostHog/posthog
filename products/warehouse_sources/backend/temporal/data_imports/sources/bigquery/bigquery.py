@@ -126,6 +126,42 @@ BIGQUERY_INVALID_IDENTIFIER_ERROR = (
     "Please check the Project ID and Dataset ID in your source configuration."
 )
 
+# Google's token endpoint rejected the service account grant (rotated/revoked private key or a
+# deleted service account). Shared between onboarding credential validation and the sync-path
+# classifier in `BigQuerySource.get_non_retryable_errors`, so the two stay in lockstep. The wording
+# reads the same in both contexts ("upload a new key file"), so keep it free of context-specific
+# phrasing like "re-enable the sync".
+BIGQUERY_CREDENTIALS_REJECTED_ERROR = (
+    "Your BigQuery service account credentials were rejected by Google. The key may have been "
+    "rotated or revoked, or the service account deleted. Please upload a new Google Cloud JSON key file."
+)
+
+# The private key in the uploaded JSON key file couldn't be parsed (truncated/corrupted PEM body).
+# Shared with the sync-path classifier for lockstep; wording is context-neutral.
+BIGQUERY_INVALID_KEY_FILE_ERROR = (
+    "We couldn't read the private key in your Google Cloud JSON key file — it appears truncated or "
+    "corrupted. Please download a fresh service account key from Google Cloud and re-upload the JSON file."
+)
+
+# Onboarding-time messages. Unlike the sync-path classifier these are only reached during credential
+# validation, where the fix is to correct the input and try again rather than re-enable a sync.
+BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR = (
+    "Your Google Cloud JSON key file is missing required fields. Upload the full service account key "
+    "downloaded from Google Cloud. It must include project_id, private_key, private_key_id, "
+    "client_email, and token_uri."
+)
+
+BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR = (
+    "BigQuery denied access to the configured dataset or tables. Make sure your service account has "
+    "read access (for example the BigQuery Data Viewer role) on the dataset and the tables you want "
+    "to sync, then try again."
+)
+
+BIGQUERY_VALIDATION_GENERIC_ERROR = (
+    "Could not validate your BigQuery credentials. Please check your JSON key file, Project ID, "
+    "Dataset ID, and dataset region, then try again."
+)
+
 # BigQuery occasionally fails a query job with a transient `jobInternalError`, surfaced from the
 # `jobs.getQueryResults` REST call as a 400 BadRequest whose message ends "The job encountered an
 # error during execution. Retrying the job may solve the problem.". The client's default job-retry
@@ -490,7 +526,15 @@ def filter_bigquery_incremental_fields(
 
 def validate_bigquery_credentials(
     dataset_id: str, key_file: dict[str, str], dataset_project_id: str | None, location: str | None
-) -> bool:
+) -> tuple[bool, str | None]:
+    """Validate BigQuery credentials at onboarding time.
+
+    Returns ``(True, None)`` when the service account can list the configured dataset, or
+    ``(False, message)`` with an actionable reason. The common failure modes here (bad/rejected
+    key, missing dataset, wrong region, missing IAM read access) are expected user/config errors,
+    so they're mapped to a clear message instead of surfacing a bare "invalid credentials" and are
+    not reported to error tracking — only genuinely unexpected failures are captured.
+    """
     project_id = key_file.get("project_id")
     private_key = key_file.get("private_key")
     private_key_id = key_file.get("private_key_id")
@@ -498,7 +542,7 @@ def validate_bigquery_credentials(
     token_uri = key_file.get("token_uri")
 
     if not project_id or not private_key or not private_key_id or not client_email or not token_uri:
-        return False
+        return False, BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR
 
     # Trim copy-paste whitespace from the identifiers before they reach BigQuery,
     # which otherwise rejects them with an opaque `Invalid project ID`/`Invalid dataset ID`.
@@ -507,16 +551,32 @@ def validate_bigquery_credentials(
     dataset_project_id = _normalize_identifier(dataset_project_id) if dataset_project_id else dataset_project_id
     location = _normalize_identifier(location) if location else location
 
-    with bigquery_client(project_id, location, private_key, private_key_id, client_email, token_uri) as bq:
-        try:
+    try:
+        with bigquery_client(project_id, location, private_key, private_key_id, client_email, token_uri) as bq:
             bq.list_tables(
                 bq.dataset(dataset_id, project=dataset_project_id or project_id),
                 retry=bigquery.DEFAULT_RETRY.with_timeout(5),
             )
-            return True
-        except Exception as e:
-            capture_exception(e)
-            return False
+        return True, None
+    except Exception as e:
+        # Mirror the stable substrings the sync-path classifier keys off, so the wizard names the
+        # same root causes. Ordering matches `get_non_retryable_errors`: identifier/dataset before
+        # the generic access-denied so the more specific message wins.
+        message = str(e)
+        if "Unable to load PEM file" in message:
+            return False, BIGQUERY_INVALID_KEY_FILE_ERROR
+        if "invalid_grant" in message:
+            return False, BIGQUERY_CREDENTIALS_REJECTED_ERROR
+        if "Invalid project ID" in message or "Invalid dataset ID" in message:
+            return False, BIGQUERY_INVALID_IDENTIFIER_ERROR
+        if "was not found in location" in message or "Not found: Dataset" in message:
+            return False, BIGQUERY_DATASET_NOT_FOUND_ERROR
+        if "Access Denied" in message or "PermissionDenied" in message or "permission denied" in message:
+            return False, BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR
+        # Genuinely unexpected — keep the signal, and fall back to a generic message so no raw
+        # exception text (which can embed ids or tokens) reaches the user.
+        capture_exception(e)
+        return False, BIGQUERY_VALIDATION_GENERIC_ERROR
 
 
 def _get_partition_settings(

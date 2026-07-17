@@ -44,6 +44,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_survey_responses_count_in_period,
     get_teams_with_workflow_billable_invocations_in_period,
     get_teams_with_workflow_emails_sent_in_period,
+    get_teams_with_workflow_push_sent_in_period,
 )
 from posthog.utils import get_current_day
 
@@ -89,6 +90,7 @@ class QuotaResource(Enum):
     SIGNALS_CREDITS = "signals_credits"
     POSTHOG_CODE_CREDITS = "posthog_code_credits"
     WORKFLOW_EMAILS = "workflow_emails"
+    WORKFLOW_PUSH = "workflow_push"
     WORKFLOW_DESTINATIONS = "workflow_destinations_dispatched"
     LOGS_MB_INGESTED = "logs_mb_ingested"
     REPLAY_VISION_CREDITS = "replay_vision_credits"
@@ -114,6 +116,7 @@ OVERAGE_BUFFER = {
     QuotaResource.SIGNALS_CREDITS: 0,
     QuotaResource.POSTHOG_CODE_CREDITS: 0,
     QuotaResource.WORKFLOW_EMAILS: 0,
+    QuotaResource.WORKFLOW_PUSH: 0,
     QuotaResource.WORKFLOW_DESTINATIONS: 0,
     QuotaResource.LOGS_MB_INGESTED: 0,
     QuotaResource.REPLAY_VISION_CREDITS: 0,
@@ -144,6 +147,7 @@ class UsageCounters(TypedDict):
     signals_credits: int
     posthog_code_credits: int
     workflow_emails: int
+    workflow_push: int
     workflow_destinations_dispatched: int
     logs_mb_ingested: int
     replay_vision_credits: int
@@ -972,6 +976,9 @@ def update_all_orgs_billing_quotas(
         "teams_with_workflow_emails_sent_in_period": convert_team_usage_rows_to_dict(
             _timed_query("workflow_emails", get_teams_with_workflow_emails_sent_in_period, period_start, period_end)
         ),
+        "teams_with_workflow_push_sent_in_period": convert_team_usage_rows_to_dict(
+            _timed_query("workflow_push", get_teams_with_workflow_push_sent_in_period, period_start, period_end)
+        ),
         "teams_with_workflow_destinations_in_period": convert_team_usage_rows_to_dict(
             _timed_query(
                 "workflow_invocations", get_teams_with_workflow_billable_invocations_in_period, period_start, period_end
@@ -1044,6 +1051,7 @@ def update_all_orgs_billing_quotas(
             cdp_trigger_events=all_data["teams_with_cdp_trigger_events_metrics"].get(team.id, 0),
             rows_exported=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
             workflow_emails=all_data["teams_with_workflow_emails_sent_in_period"].get(team.id, 0),
+            workflow_push=all_data["teams_with_workflow_push_sent_in_period"].get(team.id, 0),
             workflow_destinations_dispatched=all_data["teams_with_workflow_destinations_in_period"].get(team.id, 0),
             logs_mb_ingested=all_data["teams_with_logs_mb_in_period"].get(team.id, 0),
             replay_vision_credits=all_data["teams_with_replay_vision_credits_used_in_period"].get(team.id, 0),

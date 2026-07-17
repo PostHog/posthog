@@ -2188,7 +2188,7 @@ class JamfProSourceConfig(config.Config):
 
 @config.config
 class JellyfishSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2753,7 +2753,8 @@ class MonoSourceConfig(config.Config):
 
 @config.config
 class MonteCarloSourceConfig(config.Config):
-    pass
+    api_key_id: str
+    api_key_secret: str
 
 
 @config.config
@@ -3755,7 +3756,9 @@ class SecodaSourceConfig(config.Config):
 
 @config.config
 class SecureframeSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
+    region: Literal["us", "uk"] = config.value(default="us")
 
 
 @config.config
@@ -4005,7 +4008,8 @@ class SonarCloudSourceConfig(config.Config):
 
 @config.config
 class SonarqubeSourceConfig(config.Config):
-    pass
+    host: str
+    token: str
 
 
 @config.config
@@ -4036,7 +4040,9 @@ class SplitIoSourceConfig(config.Config):
 
 @config.config
 class SplunkObservabilityCloudSourceConfig(config.Config):
-    pass
+    realm: str
+    access_token: str
+    signalflow_program: str | None = None
 
 
 @config.config

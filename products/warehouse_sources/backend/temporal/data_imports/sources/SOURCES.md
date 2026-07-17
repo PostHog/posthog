@@ -266,6 +266,7 @@ the row lists both.
 | invoiceninja                     | HTTP                        | requests                                                        | ✅                          |
 | ip2whois                         | HTTP                        | requests                                                        | ✅                          |
 | iterable                         | HTTP                        | requests                                                        | ✅                          |
+| jellyfish                        | HTTP                        | requests                                                        | ✅                          |
 | jira                             | HTTP                        | requests                                                        | ✅                          |
 | jobnimbus                        | HTTP                        | requests                                                        | ✅                          |
 | jotform                          | HTTP                        | requests                                                        | ✅                          |
@@ -321,6 +322,7 @@ the row lists both.
 | mollie                           | HTTP                        | requests                                                        | ✅                          |
 | monday                           | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | mongodb                          | DB protocol                 | pymongo                                                         | ➖                          |
+| monte_carlo                      | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | mssql                            | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mux                              | HTTP                        | requests                                                        | ✅                          |
 | my_hours                         | HTTP                        | requests                                                        | ✅                          |
@@ -426,6 +428,7 @@ the row lists both.
 | scale_ai                         | HTTP                        | requests                                                        | ✅                          |
 | scaleway                         | HTTP                        | requests                                                        | ✅                          |
 | secoda                           | HTTP                        | requests                                                        | ✅                          |
+| secureframe                      | HTTP                        | requests                                                        | ✅                          |
 | segment                          | HTTP                        | requests                                                        | ✅                          |
 | semgrep                          | HTTP                        | requests                                                        | ✅                          |
 | sendgrid                         | HTTP                        | requests                                                        | ✅                          |
@@ -451,6 +454,7 @@ the row lists both.
 | snowflake                        | DB protocol                 | snowflake-connector-python                                      | ➖                          |
 | snowplow                         | HTTP                        | requests                                                        | ✅                          |
 | solarwinds_service_desk          | HTTP                        | requests                                                        | ✅                          |
+| sonarqube                        | HTTP                        | requests                                                        | ✅                          |
 | sparkpost                        | HTTP                        | requests                                                        | ✅                          |
 | split_io                         | HTTP                        | requests                                                        | ✅                          |
 | square                           | HTTP                        | requests                                                        | ✅                          |
@@ -731,7 +735,6 @@ doesn't conflict with concurrent PRs.
 - instantly
 - interzoid
 - jamf_pro
-- jellyfish
 - jenkins
 - jfrog_artifactory
 - jobber
@@ -787,7 +790,6 @@ doesn't conflict with concurrent PRs.
 - missive
 - mode
 - mono
-- monte_carlo
 - nasa
 - navan
 - neon
@@ -912,11 +914,9 @@ doesn't conflict with concurrent PRs.
 - snyk
 - solarwinds_service_desk
 - sonar_cloud
-- sonarqube
 - sonatype_nexus
 - sourcegraph
 - spacelift
-- splunk_observability_cloud
 - spotify_ads
 - spotlercrm
 - squadcast
