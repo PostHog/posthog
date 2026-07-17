@@ -340,7 +340,7 @@ export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Elemen
                 )}
             </div>
 
-            <div className="grid grid-cols-1 @4xl:grid-cols-[minmax(0,80ch)_minmax(0,1fr)] gap-5">
+            <div className="grid grid-cols-1 @6xl:grid-cols-[minmax(0,80ch)_minmax(0,1fr)] gap-5">
                 <div className="flex flex-col min-w-0 gap-5">
                     <RunStateStrip report={report} />
                     <RunOutputWidget report={report} />

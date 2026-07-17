@@ -225,7 +225,7 @@ export function ReportDetailSkeleton(): JSX.Element {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
+            <div className="grid grid-cols-1 @6xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
                 <div className="min-w-0 flex flex-col gap-2.5">
                     <div className="h-4 w-28 rounded bg-fill-highlight-100 animate-pulse" />
                     <div className="h-3 w-full rounded bg-fill-highlight-50 animate-pulse" />
@@ -316,7 +316,7 @@ export function InboxDetailFrame({
     }))
 
     const overviewBody = (
-        <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
+        <div className="grid grid-cols-1 @6xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
             <div className="min-w-0">
                 <DetailSection icon={summary.icon} title={summary.title}>
                     {report.summary ? (
