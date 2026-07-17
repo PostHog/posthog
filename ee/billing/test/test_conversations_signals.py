@@ -17,7 +17,9 @@ from products.conversations.backend.models import TeamConversationsSlackConfig, 
 from products.conversations.backend.models.constants import Channel
 
 from ee.billing.salesforce_enrichment.conversations_signals import (
+    _fetch_slack_bot_joined_at_by_channel,
     _get_slack_bot_token,
+    _lookup_slack_bot_joined_at,
     aggregate_conversations_slack_signals_for_orgs,
     build_slack_channel_url,
     build_support_ticket_url,
@@ -34,12 +36,18 @@ class TestConversationsSlackSignals(SimpleTestCase):
         with self.settings(SITE_URL="https://us.posthog.com"):
             assert build_support_ticket_url(2, 1234) == "https://us.posthog.com/project/2/support/tickets/1234"
 
+    @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_slack_bot_joined_at_by_channel")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_last_customer_message_at_by_org")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_latest_support_ticket_rows")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_trusted_slack_channel_activity_rows")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_slack_channel_aggregate_rows")
     def test_aggregates_latest_channel_for_org(
-        self, mock_fetch_rows, mock_fetch_channel_activity, mock_fetch_latest_tickets, mock_fetch_last_customer
+        self,
+        mock_fetch_rows,
+        mock_fetch_channel_activity,
+        mock_fetch_latest_tickets,
+        mock_fetch_last_customer,
+        mock_fetch_bot_joined,
     ):
         org_id = "org-1"
         mock_fetch_rows.return_value = [
@@ -70,6 +78,7 @@ class TestConversationsSlackSignals(SimpleTestCase):
             }
         ]
         mock_fetch_last_customer.return_value = {org_id: dt.datetime(2026, 6, 28, 14, 30, tzinfo=dt.UTC)}
+        mock_fetch_bot_joined.return_value = {("T123", "C_NEW"): dt.datetime(2026, 7, 5, 9, 0, tzinfo=dt.UTC)}
 
         with self.settings(SITE_URL="https://us.posthog.com"):
             result = aggregate_conversations_slack_signals_for_orgs([org_id], include_slack_user_count=False)
@@ -83,7 +92,12 @@ class TestConversationsSlackSignals(SimpleTestCase):
         assert signals.last_slack_activity == dt.datetime(2026, 6, 29, 9, 0, tzinfo=dt.UTC)
         assert signals.most_recent_support_ticket_url == "https://us.posthog.com/project/2/support/tickets/1234"
         assert signals.last_customer_message_at == dt.datetime(2026, 6, 28, 14, 30, tzinfo=dt.UTC)
+        assert signals.slack_bot_joined_at == dt.datetime(2026, 7, 5, 9, 0, tzinfo=dt.UTC)
 
+    @patch(
+        "ee.billing.salesforce_enrichment.conversations_signals._fetch_slack_bot_joined_at_by_channel",
+        return_value={},
+    )
     @patch(
         "ee.billing.salesforce_enrichment.conversations_signals._fetch_last_customer_message_at_by_org",
         return_value={},
@@ -92,7 +106,12 @@ class TestConversationsSlackSignals(SimpleTestCase):
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_trusted_slack_channel_activity_rows")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_slack_channel_aggregate_rows")
     def test_returns_latest_support_ticket_without_slack_rows(
-        self, mock_fetch_rows, mock_fetch_channel_activity, mock_fetch_latest_tickets, _mock_fetch_last_customer
+        self,
+        mock_fetch_rows,
+        mock_fetch_channel_activity,
+        mock_fetch_latest_tickets,
+        _mock_fetch_last_customer,
+        _mock_fetch_bot_joined,
     ):
         org_id = "org-1"
         mock_fetch_rows.return_value = []
@@ -118,6 +137,10 @@ class TestConversationsSlackSignals(SimpleTestCase):
         assert signals.most_recent_support_ticket_url == "https://us.posthog.com/project/2/support/tickets/5678"
 
     @patch(
+        "ee.billing.salesforce_enrichment.conversations_signals._fetch_slack_bot_joined_at_by_channel",
+        return_value={},
+    )
+    @patch(
         "ee.billing.salesforce_enrichment.conversations_signals._fetch_last_customer_message_at_by_org",
         return_value={},
     )
@@ -125,7 +148,12 @@ class TestConversationsSlackSignals(SimpleTestCase):
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_trusted_slack_channel_activity_rows")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_slack_channel_aggregate_rows")
     def test_returns_empty_when_no_rows(
-        self, mock_fetch_rows, mock_fetch_channel_activity, mock_fetch_latest_tickets, _mock_fetch_last_customer
+        self,
+        mock_fetch_rows,
+        mock_fetch_channel_activity,
+        mock_fetch_latest_tickets,
+        _mock_fetch_last_customer,
+        _mock_fetch_bot_joined,
     ):
         mock_fetch_rows.return_value = []
         mock_fetch_channel_activity.return_value = []
@@ -134,6 +162,51 @@ class TestConversationsSlackSignals(SimpleTestCase):
         result = aggregate_conversations_slack_signals_for_orgs(["org-1"], include_slack_user_count=False)
 
         assert result == {}
+
+    @patch("ee.billing.salesforce_enrichment.conversations_signals.query_with_columns")
+    def test_fetch_slack_bot_joined_at_keys_rows_by_workspace_and_channel(self, mock_query):
+        # The ClickHouse driver can return naive datetimes; they must come back UTC-aware.
+        mock_query.return_value = [
+            {"slack_team_id": "T123", "slack_channel_id": "C1", "bot_joined_at": dt.datetime(2026, 7, 5, 9, 0)},
+            {
+                "slack_team_id": "T999",
+                "slack_channel_id": "C2",
+                "bot_joined_at": dt.datetime(2026, 7, 6, 10, 0, tzinfo=dt.UTC),
+            },
+        ]
+
+        result = _fetch_slack_bot_joined_at_by_channel(["C1", "C2"])
+
+        assert result == {
+            ("T123", "C1"): dt.datetime(2026, 7, 5, 9, 0, tzinfo=dt.UTC),
+            ("T999", "C2"): dt.datetime(2026, 7, 6, 10, 0, tzinfo=dt.UTC),
+        }
+
+    @patch("ee.billing.salesforce_enrichment.conversations_signals.query_with_columns")
+    def test_fetch_slack_bot_joined_at_skips_query_without_channels(self, mock_query):
+        # An empty IN () clause is a ClickHouse syntax error, so the guard is load-bearing.
+        assert _fetch_slack_bot_joined_at_by_channel([]) == {}
+        mock_query.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("workspace_match", "T123", "C1", dt.datetime(2026, 7, 5, 9, 0, tzinfo=dt.UTC)),
+            ("workspace_mismatch", "T999", "C1", None),
+            # Workspace-less rows fall back to a channel-only match, earliest candidate wins.
+            ("no_workspace_falls_back", None, "C1", dt.datetime(2026, 7, 4, 8, 0, tzinfo=dt.UTC)),
+            ("no_workspace_no_match", None, "C_UNKNOWN", None),
+            ("no_channel", "T123", None, None),
+        ]
+    )
+    def test_lookup_slack_bot_joined_at(
+        self, _name: str, slack_team_id: str | None, slack_channel_id: str | None, expected: dt.datetime | None
+    ) -> None:
+        joined_at_by_channel = {
+            ("T123", "C1"): dt.datetime(2026, 7, 5, 9, 0, tzinfo=dt.UTC),
+            ("T456", "C1"): dt.datetime(2026, 7, 4, 8, 0, tzinfo=dt.UTC),
+        }
+
+        assert _lookup_slack_bot_joined_at(joined_at_by_channel, slack_team_id, slack_channel_id) == expected
 
     @patch("ee.billing.salesforce_enrichment.conversations_signals.WebClient")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._get_slack_bot_token")

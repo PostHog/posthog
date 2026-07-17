@@ -12,6 +12,9 @@ from django.db.models.functions import Cast, Coalesce
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.execute import query_with_columns
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.temporal.common.logger import get_logger
@@ -35,6 +38,7 @@ class ConversationsSlackSignals:
     last_slack_activity: dt.datetime | None
     most_recent_support_ticket_url: str | None
     last_customer_message_at: dt.datetime | None = None
+    slack_bot_joined_at: dt.datetime | None = None
 
 
 def build_slack_channel_url(slack_channel_id: str, slack_team_id: str | None = None) -> str:
@@ -248,6 +252,81 @@ def _fetch_latest_support_ticket_rows(org_ids: list[str]) -> list[dict[str, obje
     )
 
 
+# PostHog's own analytics project on US cloud; every region's internal analytics
+# (posthoganalytics.capture) reports into it.
+INTERNAL_ANALYTICS_TEAM_ID = 2
+_BOT_JOINED_CHANNEL_EVENT = "support slack bot joined channel"
+# Channel joins are only tracked since the event's introduction in July 2026; the bound
+# also lets ClickHouse prune partitions.
+_BOT_JOINED_TRACKING_SINCE = dt.datetime(2026, 7, 1, tzinfo=dt.UTC)
+
+
+def _fetch_slack_bot_joined_at_by_channel(
+    slack_channel_ids: list[str],
+) -> dict[tuple[str, str], dt.datetime]:
+    """First time the support Slack bot joined each (workspace, channel) pair.
+
+    ``_track_bot_joined_channel`` (products/conversations/backend/slack.py) reports
+    the join as an internal analytics event carrying the Slack workspace and channel
+    ids but no customer org, so callers match the timestamps to an org through the
+    org's selected channel.
+    """
+    if not slack_channel_ids:
+        return {}
+
+    query = """
+        SELECT
+            JSONExtractString(properties, 'slack_team_id') AS slack_team_id,
+            JSONExtractString(properties, 'slack_channel_id') AS slack_channel_id,
+            min(timestamp) AS bot_joined_at
+        FROM events
+        WHERE team_id = %(team_id)s
+          AND event = %(event)s
+          AND timestamp >= %(since)s
+          AND JSONExtractString(properties, 'slack_channel_id') IN %(channel_ids)s
+        GROUP BY slack_team_id, slack_channel_id
+    """
+    with tags_context(usage_report="salesforce_conversations_slack_signals"):
+        rows = query_with_columns(
+            query,
+            {
+                "team_id": INTERNAL_ANALYTICS_TEAM_ID,
+                "event": _BOT_JOINED_CHANNEL_EVENT,
+                "since": _BOT_JOINED_TRACKING_SINCE,
+                "channel_ids": slack_channel_ids,
+            },
+            workload=Workload.OFFLINE,
+        )
+
+    joined_at_by_channel: dict[tuple[str, str], dt.datetime] = {}
+    for row in rows:
+        value = row["bot_joined_at"]
+        if not isinstance(value, dt.datetime):
+            continue
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=dt.UTC)
+        joined_at_by_channel[(str(row["slack_team_id"]), str(row["slack_channel_id"]))] = value
+    return joined_at_by_channel
+
+
+def _lookup_slack_bot_joined_at(
+    joined_at_by_channel: dict[tuple[str, str], dt.datetime],
+    slack_team_id: str | None,
+    slack_channel_id: str | None,
+) -> dt.datetime | None:
+    """Resolve the bot-joined timestamp for a selected channel row.
+
+    Rows without a workspace id fall back to a channel-id-only match; channel ids are
+    only unique per workspace, so take the earliest across candidates.
+    """
+    if slack_channel_id is None:
+        return None
+    if slack_team_id is not None:
+        return joined_at_by_channel.get((slack_team_id, slack_channel_id))
+    candidates = [value for (_, channel_id), value in joined_at_by_channel.items() if channel_id == slack_channel_id]
+    return min(candidates) if candidates else None
+
+
 _COMMENT_ITEM_ID_CHUNK_SIZE = 1000
 
 
@@ -361,6 +440,13 @@ def aggregate_conversations_slack_signals_for_orgs(
         if org_id not in selected_latest_ticket_rows:
             selected_latest_ticket_rows[org_id] = row
 
+    selected_channel_ids: set[str] = set()
+    for row in selected_rows.values():
+        channel_id = row.get("slack_channel_id")
+        if isinstance(channel_id, str) and channel_id:
+            selected_channel_ids.add(channel_id)
+    bot_joined_at_by_channel = _fetch_slack_bot_joined_at_by_channel(sorted(selected_channel_ids))
+
     result: dict[str, ConversationsSlackSignals] = {}
     for org_id in sorted(set(selected_rows) | set(selected_latest_ticket_rows)):
         row = selected_rows.get(org_id, {})
@@ -406,6 +492,7 @@ def aggregate_conversations_slack_signals_for_orgs(
             last_slack_activity=last_slack_activity,
             most_recent_support_ticket_url=most_recent_support_ticket_url,
             last_customer_message_at=last_customer_message_at_by_org.get(org_id),
+            slack_bot_joined_at=_lookup_slack_bot_joined_at(bot_joined_at_by_channel, slack_team_id, slack_channel_id),
         )
 
     LOGGER.info("fetched_conversations_slack_signals", org_count=len(org_ids), signals_found=len(result))
