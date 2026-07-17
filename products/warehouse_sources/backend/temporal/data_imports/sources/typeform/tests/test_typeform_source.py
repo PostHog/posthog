@@ -23,10 +23,12 @@ class TestTypeformSource:
         assert field.defaultValue == "completed"
         assert [option.value for option in field.options] == ["completed", "completed,partial,started"]
 
-    def test_response_types_field_warns_about_full_refresh(self):
+    def test_response_types_field_points_to_delete_and_resync(self):
         field = self._response_types_field()
         assert field.caption is not None
-        assert "full refresh" in field.caption.lower()
+        # The caption must name the exact destructive action, since a plain "Sync now"
+        # won't backfill the newly included partial/started responses.
+        assert "delete table and resync" in field.caption.lower()
 
     def test_get_schemas_completed_only_uses_submitted_at(self):
         config = TypeformSourceConfig(auth_token="token", response_types="completed")

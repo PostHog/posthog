@@ -62,6 +62,20 @@ def _truncate_stream(text: str, cap: int = _STREAM_CAP_CHARS) -> str:
     return f"{text[:cap]}\n… [output truncated: exceeded {cap // 1024} KB]"
 
 
+def _preview_safe_cell(value: Any) -> Any:
+    """Coerce one preview cell to a JSON-encodable value (fallback path only)."""
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass  # pd.isna rejects containers and some objects — fall through to str
+    return str(value)
+
+
 def _load_headless_pyplot() -> Any:
     # matplotlib is heavy and sandbox-only; keep it off the module import path (ruff TID253),
     # and force the Agg backend before pyplot loads so figures render without a display.
@@ -288,7 +302,16 @@ class KernelSession:
         columns = [str(column) for column in df.columns]
         types = [[str(column), str(dtype)] for column, dtype in zip(df.columns, df.dtypes)]
         # to_json coerces numpy scalars, NaN and datetimes to JSON-native values in one pass.
-        rows = json.loads(df.head(limit).to_json(orient="values", date_format="iso"))
+        try:
+            rows = json.loads(df.head(limit).to_json(orient="values", date_format="iso"))
+        except (OverflowError, UnicodeDecodeError, ValueError, TypeError):
+            # Frames can carry values ujson can't encode — raw bytes from ClickHouse-native
+            # binary columns, or exotic objects user code produced. The preview is
+            # display-only (paging reads the Arrow frame), so degrade per cell instead of
+            # failing a run whose compute succeeded.
+            rows = [
+                [_preview_safe_cell(cell) for cell in row] for row in df.head(limit).itertuples(index=False, name=None)
+            ]
         # The preview is display-only (paging reads the Arrow frame), so huge cells get clipped.
         rows = [
             [

@@ -72,15 +72,24 @@ def update_related_teams_metadata_cache_task(organization_id: int | None = None,
     the signal enqueues a single task no matter how many teams the org or project owns, and each
     per-team update runs as its own task so the work spreads across workers.
     """
-    if organization_id is not None:
-        team_ids = Team.objects.filter(organization_id=organization_id).values_list("id", flat=True)
-    elif project_id is not None:
-        team_ids = Team.objects.filter(project_id=project_id).values_list("id", flat=True)
-    else:
-        return
+    try:
+        if organization_id is not None:
+            team_ids = Team.objects.filter(organization_id=organization_id).values_list("id", flat=True)
+        elif project_id is not None:
+            team_ids = Team.objects.filter(project_id=project_id).values_list("id", flat=True)
+        else:
+            return
 
-    for team_id in team_ids:
-        update_team_metadata_cache_task.delay(team_id)
+        for team_id in team_ids:
+            update_team_metadata_cache_task.delay(team_id)
+    except Exception as e:
+        logger.exception(
+            "Failed to fan out related team metadata cache refresh",
+            organization_id=organization_id,
+            project_id=project_id,
+            error=str(e),
+        )
+        raise
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

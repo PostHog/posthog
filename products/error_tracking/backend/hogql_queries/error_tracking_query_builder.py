@@ -212,7 +212,7 @@ class ErrorTrackingQueryBuilder:
         # Bucketing by bin_idx here lets the outer query assemble volumeRange
         # from the small post-aggregation set instead of per-event arrayMap.
         group_by: list[ast.Expr] = [ast.Field(chain=["fp_hash"])]
-        if self.query.withAggregations:
+        if self.query.withAggregations and self.query.volumeResolution > 0:
             group_by.append(ast.Field(chain=["bin_idx"]))
         return ast.SelectQuery(
             select=self._inner_select_expressions(),
@@ -246,12 +246,15 @@ class ErrorTrackingQueryBuilder:
         ]
 
         if self.query.withAggregations:
-            exprs.append(
-                ast.Alias(
-                    alias="bin_idx",
-                    expr=_bin_idx_expr(self.date_from, self.date_to, self.query.volumeResolution),
+            # volumeResolution=0 means counts only: computing bins with it
+            # would divide by zero in ClickHouse.
+            if self.query.volumeResolution > 0:
+                exprs.append(
+                    ast.Alias(
+                        alias="bin_idx",
+                        expr=_bin_idx_expr(self.date_from, self.date_to, self.query.volumeResolution),
+                    )
                 )
-            )
             # `count(DISTINCT uuid)` is equivalent to `count()` because uuid is
             # the events primary key, but pays for a distinct hashset per group.
             exprs.append(ast.Alias(alias="occ", expr=ast.Call(name="count", args=[])))
@@ -433,9 +436,10 @@ class ErrorTrackingQueryBuilder:
                     ast.Alias(alias="occurrences", expr=ast.Call(name="sum", args=[ast.Field(chain=["ev", "occ"])])),
                     ast.Alias(alias="sessions", expr=_merge("sessions_state", "uniq")),
                     ast.Alias(alias="users", expr=_merge("users_state", "uniq")),
-                    ast.Alias(alias="volumeRange", expr=_volume_range_expr(self.query.volumeResolution)),
                 ]
             )
+            if self.query.volumeResolution > 0:
+                exprs.append(ast.Alias(alias="volumeRange", expr=_volume_range_expr(self.query.volumeResolution)))
 
         if self.query.withFirstEvent:
             exprs.append(ast.Alias(alias="first_event_uuid", expr=_merge("first_event_uuid_state", "argMin")))
