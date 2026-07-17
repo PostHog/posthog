@@ -17,8 +17,9 @@ import structlog
 from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from pydantic import BaseModel, ValidationError
-from requests.exceptions import HTTPError
+from requests.exceptions import ConnectionError, HTTPError, Timeout
 from rest_framework_csv.renderers import CSVRenderer
+from retry import retry
 
 from posthog.schema import QuerySchemaRoot
 
@@ -50,6 +51,13 @@ logger = structlog.get_logger(__name__)
 RESULT_LIMIT_KEYS = ("distinct_ids",)
 RESULT_LIMIT_LENGTH = 10
 QUERY_PAGE_SIZE = 10000
+
+# Retry the loopback HTTP call in the legacy insights-API export path on transient network
+# errors (e.g. a worker that momentarily can't DNS-resolve its own hostname). HTTPError is
+# intentionally excluded — it's handled by the caller (404 as end-of-data, query-size retry).
+EXPORT_API_CALL_RETRIES = 3
+EXPORT_API_CALL_RETRY_DELAY = 1
+EXPORT_API_CALL_RETRY_BACKOFF = 2
 
 
 def sanitize_value_for_excel(value: Any) -> Any:
@@ -649,6 +657,12 @@ def get_limit_param_key(path: str) -> str:
     return "breakdown_limit" if breakdown is not None else "limit"
 
 
+@retry(
+    exceptions=(ConnectionError, Timeout),
+    tries=EXPORT_API_CALL_RETRIES,
+    delay=EXPORT_API_CALL_RETRY_DELAY,
+    backoff=EXPORT_API_CALL_RETRY_BACKOFF,
+)
 def make_api_call(
     access_token: str,
     body: Any,
