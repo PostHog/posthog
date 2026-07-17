@@ -1,14 +1,14 @@
-from typing import Any
-
 from unittest.mock import patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_api_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import RESTAPIConfig
 
 
 def test_data_map_reshapes_rows_declaratively() -> None:
-    config: dict[str, Any] = {
+    config: RESTAPIConfig = {
         "client": {"base_url": "https://api.example.com"},
+        "resource_defaults": None,
         "resources": [
             {
                 "name": "things",
