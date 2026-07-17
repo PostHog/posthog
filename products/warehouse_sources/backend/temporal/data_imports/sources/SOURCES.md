@@ -350,6 +350,7 @@ the row lists both.
 | northpass_lms                    | HTTP                        | requests                                                        | ✅                          |
 | notion                           | HTTP                        | requests                                                        | ✅                          |
 | omnisend                         | HTTP                        | requests                                                        | ✅                          |
+| octopus_deploy                   | HTTP                        | requests                                                        | ✅                          |
 | oncehub                          | HTTP                        | requests                                                        | ✅                          |
 | onepagecrm                       | HTTP                        | requests                                                        | ✅                          |
 | onepassword                      | HTTP (cursor pagination)    | requests                                                        | ✅                          |
@@ -812,7 +813,6 @@ doesn't conflict with concurrent PRs.
 - nutshell
 - nylas
 - octolens
-- octopus_deploy
 - onedrive
 - onehundredms
 - onesignal
