@@ -2419,6 +2419,111 @@ first so the latest fixes are loaded.
 
 ---
 
+### ✅ Stage 5c — UI trigger: review any installation-accessible PR from the Code review scene (BUILT 2026-07-16)
+
+> **Status: BUILT 2026-07-16** (same-day decision round with the maintainer, then implemented — see
+> "As built" at the end of this section). Not yet e2e'd against a live non-`posthog/posthog` PR.
+
+**Motivation.** The label trigger needs `.github/workflows/review-hog.yml` in every repo it serves — only
+`PostHog/posthog` has it, so every other `posthog/*` repo is out of reach unless we replicate the workflow
+file across the org. Instead: a **"Review this PR"** field in the Code review scene that starts the same
+server-side review for any PR the team's GitHub App installation can access — no per-repo CI configuration
+at all. Everything below the trigger already supports this: `_build_inputs` takes any `owner/repo`, the
+fetch activity resolves the installation token per repository (`first_for_team_repository`), fork rejection
+is authoritative server-side, and the deterministic per-PR workflow id + `USE_EXISTING` absorbs re-triggers.
+
+**Decisions locked (maintainer, 2026-07-16):**
+
+- **Always publish — no per-run toggle.** The UI trigger is label-path parity for repos the label can't
+  reach; `publish=True` is fixed. Results are additionally viewable in the findings drawer as usual.
+- **Team gate = `settings.REVIEWHOG_TEAM_ID` only** (prod team 2; local team 1). The endpoint rejects any
+  other team. No server-side feature-flag check — the scene's `REVIEW_HOG` flag gates discoverability only,
+  and the hard team check bounds the cost surface for now. Widening beyond the dogfood team is a later,
+  deliberate decision.
+- **Requester wins.** The acting user is the requesting PostHog user via the existing `acting_user_id`
+  override (`resolved_from="override"`): their perspectives / blind-spots / validator / urgency threshold
+  drive the run, and the report lands in their "For you" recent-reviews scope. The PR author's
+  `review_labeled_prs` opt-out stays label-only (its copy is label-specific; an explicit human ask is like
+  a manual CLI run). The GitHub author can be anyone, including a bot — no author→user mapping is needed.
+- **Repo scope = installation access, not a hardcoded org list.**
+  `GitHubIntegration.first_for_team_repository(team_id, repository)` is the boundary — for team 2 that IS
+  the `posthog` org — checked **synchronously at trigger time** so an inaccessible repo 400s immediately
+  with a clear message. The label endpoint's "no GitHub I/O" principle deliberately does not apply here:
+  that endpoint has the Action's upstream gates; the UI has none, and a silent async failure (the fetch
+  activity fails before the report row exists) would leave the user staring at nothing.
+
+**Design shape (v1):**
+
+- **New team-scoped, session-authenticated trigger action** (e.g. `POST` `trigger` on the
+  `review_hog/reviews` viewset), taking `pr_url`. The unscoped shared-secret `ReviewHogTriggerViewSet` and
+  its `ALLOWED_REPOS` stay untouched as the CI interface — the two callers have different auth and scope
+  rules, so they don't share an endpoint.
+- Sync pre-checks in the action: parse the URL (`PRParser`), team gate, installation-access check (above).
+  Optionally one PR-meta fetch to reject 404s/forks synchronously — authoritative fork rejection stays in
+  the fetch activity either way. Drafts remain reviewable + publishable (existing posture; the UI copy
+  should say the review is posted to the PR).
+- `start_review_pr_workflow(pr_url=…, publish=True, acting_user_id=request.user.id,
+trigger_source=TRIGGER_UI)` with `user_id = request.user.id` too (inbox precedent: the run user must be a
+  real active org member — the requester is one by construction). New `TRIGGER_UI = "ui"` constant beside
+  label/inbox/manual; ungated in the workflow's gate map (explicit ask); update the `trigger_source`
+  comment on `ReviewReport`.
+- **Frontend:** a PR-URL input + submit button in `CodeReviewScene` near "Your recent reviews"
+  (`reviewHogSettingsLogic` action + generated client; button disabled/loading in flight). On 202, reload
+  the recent-reviews list — the row appears once the fetch activity creates the report, and the existing
+  in-progress poll takes over. Hide the field when the trigger isn't available for the team (surface a
+  `can_trigger` boolean, e.g. on the settings GET, computed from the team gate).
+- **Accepted / out of scope for v1:** no rate limit beyond the per-PR workflow-id dedupe (internal dogfood
+  team; revisit if abused); PR URLs only (no branch targets from the UI); the label Action keeps working
+  unchanged for `PostHog/posthog`.
+
+**As built (2026-07-16):**
+
+- `backend/api/reviews.py` — `trigger` action on `ReviewRecentReviewsViewSet`
+  (`POST /api/projects/:id/review_hog/reviews/trigger/`): team gate vs `settings.REVIEWHOG_TEAM_ID`
+  (403), `PRParser` URL parse (400), sync `GitHubIntegration.first_for_team_repository` access check
+  (400), then `start_review_pr_workflow(publish=True, user_id=acting_user_id=request.user.id,
+trigger_source=TRIGGER_UI)` → `202 {workflow_id, status}`. The URL is canonicalized (trailing
+  `/files` etc. dropped) before it reaches the workflow id.
+- `backend/temporal/types.py` — `TRIGGER_UI = "ui"`; ungated in the workflow's gate map (no
+  workflow.py change, so no Temporal versioning concern).
+- `backend/api/settings.py` — `can_trigger_reviews` (read-only method field) on the settings GET;
+  the scene hides the trigger field when it's false.
+- `frontend/CodeReviewScene.tsx` — `TriggerReviewSection` (PR-URL input + submit, above the
+  recent-reviews block; button loading/disabled while in flight);
+  `frontend/reviewHogSettingsLogic.ts` — `triggerPrUrl` / `triggeringReview` state +
+  `submitTriggerReview` listener (toast on error, clear + reload recent reviews on 202; the new
+  report row appears once the fetch activity creates it and the in-progress poll takes over).
+- Tests: `backend/tests/test_ui_trigger_api.py` (gate, URL parse, access check, workflow kwargs,
+  `can_trigger_reviews` exposure), `test_settings_api.py` defaults updated, two
+  `reviewHogSettingsLogic.test.ts` cases (in-flight flag resets on both outcomes).
+- **Sync PR fetch (added 2026-07-16, closing the original "v1 gap"):** the action makes one
+  `GET /pulls/{n}` (`_fetch_pr_metadata`) so the answer is honest — nonexistent (404), fork, and
+  closed PRs reject immediately with a message instead of dying async before the report row exists,
+  and a PR whose current head equals the report's `published_head_sha` returns
+  `200 {status: "already_reviewed"}` (no run, info toast, watch not armed) instead of a false
+  "started". The report lookup is `repository__iexact` — triggers store differing casings. The
+  fetch activity keeps the authoritative fork gate.
+- **Cross-caller same-head caveat (pre-existing resume identity, now easier to reach):** the per-head
+  working-state cache is roster-blind, and the UI trigger lets different acting users hit the same
+  head. Three of four paths are safe: already-published head → the trigger answers
+  `already_reviewed` without starting (the workflow's fetch early-exit backstops the race; the
+  report is per-PR, not per-caller); run in flight → the deterministic workflow id + `USE_EXISTING`
+  joins it; new head →
+  nothing persisted under the new `head_sha`, full recompute under the new caller's roster. The
+  unsafe window: a prior turn that persisted working state **without** stamping `published_head_sha`
+  (a zero-findings turn — the watermark records only on a real post — or a crashed turn). A different
+  caller's re-trigger then resumes those rows: the persisted perspective selection is reused verbatim
+  (name-mapped, so the new caller's customs fall out of planned chunks), and perspective results
+  resume on positional `(pass_number, chunk_id)` keys — slot = position in the acting user's sorted
+  enabled set — so differing rosters silently mis-map slots. Identical rosters (canonicals only, or
+  the same customs) are always safe. This is the finding-identity residual already noted in the
+  blind-spot section; the fix belongs there: key results by `skill_name`(+version) instead of slot,
+  and drop persisted selection/results whose recorded roster differs from the run's.
+- Generated clients (`frontend/generated/*`) come from CI's OpenAPI auto-commit
+  (`hogli build:openapi` was unavailable in the authoring environment).
+
+---
+
 ### ✅ Stage 6 — Inbox trigger: auto-review self-driving implementations (BUILT 2026-07-02, trigger redesigned + dogfood e2e ✅ 2026-07-03)
 
 > **Status: BUILT + e2e'd, uncommitted.** (The implementation spec, `STAGE_6_PLAN.md`, was deleted
@@ -2920,6 +3025,36 @@ file to prove a gap and another agent read it mid-experiment.
 **Still deferred (own steps):** validator selection in the ReviewHog skills **UI** (ships with the perspective UI —
 API/MCP only for now); a partial unique index if a hard DB single-active guarantee is ever wanted (app-level matches
 perspectives today).
+
+##### ✅ BUILT 2026-07-16 — per-user VISIBILITY of custom review skills (menus show canonicals + your own)
+
+Custom review skills were team-visible: all three config menus (perspectives / validators / blind-spots) listed every team `LLMSkill` with the prefix,
+so one user's custom appeared in — and was enableable by exact name from — every teammate's Code review tab, with the clutter compounding as customs multiply.
+Locked with the user (AskUserQuestion, 2026-07-16):
+
+- **Visibility rule:** a skill is visible to a user iff its name is canonical (`CANONICAL_*_SKILL_NAMES` — by name, so a team-edited canonical stays visible to everyone)
+  OR the **earliest live version's `created_by`** is that user.
+  This refines the 2026-06-29 "`created_by` is audit-only" lock: still audit-only for identity and editing (edits mint new versions stamped with the _editor_ and do NOT transfer visibility);
+  the first version's author now governs **menu visibility only**.
+  Earliest _live_ version rather than literally `version=1`: deleted rows are excluded, so an archived name later recreated by another user belongs to the new author
+  (deleted `(name, version)` pairs can duplicate — the unique constraints only cover `deleted=False`).
+- **Strict, no grandfathering** (decided while the feature had no external adopters): `partial_update` 404s on a non-visible skill exactly like a missing one
+  (a distinct error would leak that the name exists), closing the enable-any-team-skill-by-name backdoor. No data migration; the loaders backstop instead.
+- **Loader backstop:** `load_perspectives_for_run` warn-and-skips an enabled name outside the acting user's visible set
+  (same posture and hole-preserving `pass_number` semantics as the dead-skill skip), and `_load_single_active_skill` falls back to the canonical on a foreign selection —
+  so a pre-fix foreign-enabled row stops running rather than running invisibly, self-healing with no migration.
+- **Scope:** all three review menus. The team-level Skills page (`/skills`) intentionally keeps showing all team skills —
+  this is a clutter fix, not confidentiality: bodies stay team-readable there, and teammates can still edit each other's customs (accepted risk).
+  Signals scouts share the identical all-team-menu pattern; same future problem, deliberately out of scope here.
+- **Consequences:** a custom whose author's account is deleted (`created_by` → NULL on SET_NULL) is visible to no one and stops running
+  (its config rows CASCADE with the account); cleanup is archiving from the Skills page.
+  A skill authored through an agent session is stamped with that session's user.
+  "Adopt a teammate's skill" is now duplicate-under-a-new-name (v1 `created_by` = the duplicator), not enable-by-name.
+
+Implementation: `visible_skill_names(team_id, user_id, prefix, canonical_names)` in `skill_loader.py` (one `DISTINCT ON (name) ORDER BY name, version` query over live rows),
+used by all three config viewsets (`list` + `partial_update`) and both loader paths.
+Tests: per surface, a teammate's custom is hidden from `list` and 404s on PATCH; the perspective loader skips a foreign-enabled row keeping pass-number holes;
+the single-active loader falls back to canonical on a foreign selection; existing custom-skill fixtures now stamp `created_by`.
 
 The fact that keeps all of this safe: **the output schema is fixed; only the skill (logic) is editable.** Every
 perspective validates against `IssuesReview`/`Issue`, the validator against `IssueValidation`, chunking against
