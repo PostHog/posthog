@@ -1,5 +1,16 @@
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
+
+# Simplecast's live REST API is labeled "2.0" (same https://api.simplecast.com host and Bearer
+# auth the client already uses). UNVERSIONED_API_VERSION ("v1") is the framework placeholder that
+# pre-versioning source rows carry; it maps to the same wire behaviour, so those syncs are
+# unaffected. Header-based version selection is announced by Simplecast but not yet live, so both
+# versions currently hit the one available API.
+SIMPLECAST_API_VERSION_2_0 = "2.0"
+SUPPORTED_VERSIONS = (UNVERSIONED_API_VERSION, SIMPLECAST_API_VERSION_2_0)
+DEFAULT_VERSION = SIMPLECAST_API_VERSION_2_0
+
 
 @dataclass
 class SimpleCastEndpointConfig:

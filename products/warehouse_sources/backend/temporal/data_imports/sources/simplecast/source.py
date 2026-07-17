@@ -22,8 +22,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SimpleCastSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.settings import (
+    DEFAULT_VERSION,
     ENDPOINTS,
     SIMPLECAST_ENDPOINTS,
+    SUPPORTED_VERSIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.simplecast import (
     SimpleCastResumeConfig,
@@ -36,6 +38,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SimpleCastSource(ResumableSource[SimpleCastSourceConfig, SimpleCastResumeConfig]):
     api_docs_url = "https://apidocs.simplecast.com"
+
+    supported_versions = SUPPORTED_VERSIONS
+    default_version = DEFAULT_VERSION
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -131,4 +136,5 @@ You can create an API token on the **Private Apps** page in [Simplecast](https:/
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
         )
