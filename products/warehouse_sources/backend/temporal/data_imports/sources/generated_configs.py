@@ -4024,7 +4024,9 @@ class SourcegraphSourceConfig(config.Config):
 
 @config.config
 class SpaceliftSourceConfig(config.Config):
-    pass
+    account_name: str
+    api_key_id: str
+    api_key_secret: str
 
 
 @config.config
