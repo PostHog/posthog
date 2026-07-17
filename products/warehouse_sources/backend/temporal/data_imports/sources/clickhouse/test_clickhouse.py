@@ -5,7 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
-from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError
+from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError, ProgrammingError
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -776,6 +776,46 @@ class TestGetClientTransientRetry:
                 self._connect()
         assert mock_get_client.call_count == 1
         mock_sleep.assert_not_called()
+
+
+class TestGetClientSessionSettings:
+    """`_get_client` applies tuning settings after connect, tolerating a
+    readonly source profile that rejects them instead of failing the sync."""
+
+    def _connect(self, settings):
+        return _get_client(
+            host="h",
+            port=8443,
+            database="default",
+            user="default",
+            password=None,
+            secure=True,
+            verify=True,
+            settings=settings,
+        )
+
+    def test_readonly_setting_does_not_fail_connection(self):
+        client = MagicMock()
+
+        def set_setting(key, _value):
+            if key == "max_block_size":
+                raise ProgrammingError("Setting max_block_size is unknown or readonly")
+
+        client.set_client_setting.side_effect = set_setting
+        with patch.object(ch_module, "get_client", return_value=client):
+            result = self._connect({"max_block_size": 20000, "optimize_read_in_order": 1})
+
+        assert result is client
+        # The rejected setting is skipped; the accepted one is still applied.
+        client.set_client_setting.assert_any_call("optimize_read_in_order", 1)
+
+    def test_settings_applied_after_connect_not_at_construction(self):
+        client = MagicMock()
+        with patch.object(ch_module, "get_client", return_value=client) as mock_get_client:
+            self._connect({"max_block_size": 20000})
+
+        assert "settings" not in mock_get_client.call_args.kwargs
+        client.set_client_setting.assert_called_once_with("max_block_size", 20000)
 
 
 class TestTranslateError:
