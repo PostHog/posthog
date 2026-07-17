@@ -154,6 +154,7 @@ jobs:
                       "personhog-leader": 115,
                       "personhog-replica": 140,
                       "personhog-router": 38,
+                      "personhog-stateright": 700,
                       "posthog-symbol-data": 19,
                       "property-defs-rs": 136,
                       "replay-anonymizer-node": 20,

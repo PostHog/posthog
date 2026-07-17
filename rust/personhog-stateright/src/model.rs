@@ -416,6 +416,13 @@ impl Model for HandoffModel {
                     &active,
                     self.partitions as u32,
                 );
+                if plan.handoffs.is_empty() {
+                    // An empty plan is a no-op successor the checker would
+                    // dedup anyway; disabling the action instead skips the
+                    // clone-and-hash per state, which dominates once
+                    // Rebalance is enabled everywhere.
+                    return None;
+                }
                 // The plan's order follows HashMap iteration; sort so
                 // sequential handoff-id assignment is deterministic
                 // (next_state must be a pure function of its inputs).

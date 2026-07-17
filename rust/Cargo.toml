@@ -111,6 +111,16 @@ opt-level = 3
 [profile.dev.package.stateright]
 opt-level = 3
 
+# The model's rebalance action runs the production placement computation
+# (plan_partial_rebalance, the sticky strategy, the handoff diff) in every
+# explored state, so the crates that host it need the same treatment or
+# the checker's hot loop drops back to opt-level 0.
+[profile.dev.package.personhog-coordination]
+opt-level = 3
+
+[profile.dev.package.assignment-coordination]
+opt-level = 3
+
 [workspace.dependencies]
 aho-corasick = "1.1"
 anyhow = "1.0"

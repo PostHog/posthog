@@ -7,3 +7,11 @@ fail-fast = false
 
 [profile.ci.junit]
 path = "junit.xml"
+
+# The two-partition double-zombie model checks each saturate every core
+# (stateright spawn_bfs); running them concurrently on a small CI runner
+# roughly doubles both. Requiring all test threads runs them one at a
+# time with the full machine each.
+[[profile.ci.overrides]]
+filter = 'package(personhog-stateright) and (test(two_partitions_double_zombie_loses_acked_writes) or test(epoch_fenced_two_partitions_double_zombie_is_safe))'
+threads-required = "num-cpus"
