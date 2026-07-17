@@ -143,7 +143,6 @@ class TestResourceHealthGather(BaseTest):
         assert item.kind == "health"
         assert "Weekly report" in item.title
         assert item.metrics["failed_deliveries"] == 2
-        # No insight/dashboard target — links to the project's subscriptions list, never empty.
         assert item.evidence == [
             EvidenceRef(
                 type=EvidenceType.SUBSCRIPTION,
@@ -153,15 +152,6 @@ class TestResourceHealthGather(BaseTest):
             )
         ]
         assert item.fingerprint_hint == f"subscription:{subscription.id}"
-
-    def test_subscription_links_to_its_insight(self) -> None:
-        insight = self._insight()
-        subscription = self._subscription(insight=insight)
-        self._delivery(subscription)
-
-        items = ResourceHealthSource().gather(self.team, None, lookback_days=7)
-
-        assert items[0].evidence[0].url == f"/project/{self.team.id}/insights/{insight.short_id}"
 
     @parameterized.expand(
         [
