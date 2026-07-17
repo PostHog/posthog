@@ -7083,6 +7083,48 @@ class TestSurveyStatsPerQuestion(ClickhouseTestMixin, APIBaseTest):
         # Base "yes" answers (2) plus the French "oui" (1) all land on "yes", not "no".
         self.assertEqual(per_q[choice_qid]["distribution"], {"yes": 3})
 
+    def test_per_question_stats_ignores_translations_with_mismatched_length(self):
+        choice_qid = str(uuid.uuid4())
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Desync",
+            type="popover",
+            questions=[
+                {
+                    "id": choice_qid,
+                    "type": "single_choice",
+                    "question": "Pick one",
+                    "choices": ["yes", "no", "maybe"],
+                    # A choice was removed from the base without updating the translation, so the
+                    # arrays no longer align by position. Positional mapping is unsafe — the
+                    # translated answer must fall into <other>, not be misattributed to a base choice.
+                    "translations": {"fr": {"choices": ["oui", "non"]}},
+                },
+            ],
+            start_date=datetime(2024, 5, 1, tzinfo=UTC),
+        )
+        for distinct_id, choice in [("u-1", "yes"), ("u-2", "oui")]:
+            create_person(team=self.team, distinct_ids=[distinct_id])
+            _create_event(
+                team=self.team,
+                event="survey sent",
+                distinct_id=distinct_id,
+                timestamp="2024-06-10 09:00:00",
+                properties={"$survey_id": str(survey.id), f"$survey_response_{choice_qid}": choice},
+            )
+        flush_persons_and_events()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/?include_per_question_stats=true"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        per_q = {q["question_id"]: q for q in response.json()["per_question_stats"]}
+
+        # Base "yes" still matches; the misaligned French "oui" is bucketed as <other> rather than
+        # being folded into the wrong base choice.
+        self.assertEqual(per_q[choice_qid]["distribution"], {"yes": 1, "<other>": 1})
+        self.assertEqual(per_q[choice_qid]["response_count"], 2)
+
 
 class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
     SURVEY_PAYLOAD = {

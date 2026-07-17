@@ -2315,6 +2315,36 @@ describe('processResultsForSurveyQuestions', () => {
             expect(dataMap.get('Yes')).toEqual({ label: 'Yes', value: 5, isPredefined: true })
             expect(dataMap.get('No')).toEqual({ label: 'No', value: 0, isPredefined: true })
         })
+
+        it('falls back to base-only matching when the translation array length is out of sync', () => {
+            const questions = [
+                {
+                    id: 'single-q1',
+                    type: SurveyQuestionType.SingleChoice as const,
+                    question: 'Pick one',
+                    choices: ['Yes', 'No', 'Maybe'],
+                    // A choice was removed from the base without updating the translation, so the
+                    // arrays no longer align by position. Positional mapping is unsafe here — a
+                    // translated answer must NOT be silently folded into the wrong base choice.
+                    translations: {
+                        fr: { choices: ['Oui', 'Non'] },
+                    },
+                },
+            ]
+            const rows: [string, string, number][] = [
+                ['single-q1', 'Yes', 3],
+                ['single-q1', 'Oui', 2],
+            ]
+
+            const processed = processResultsForSurveyQuestions(questions, rows)
+            const singleData = processed['single-q1'] as ChoiceQuestionProcessedResponses
+
+            const dataMap = new Map(singleData.data.map((item) => [item.label, item]))
+            // Base answers still match; the translated answer surfaces as its own "Other" row
+            // rather than being misattributed to a base choice.
+            expect(dataMap.get('Yes')).toEqual({ label: 'Yes', value: 3, isPredefined: true })
+            expect(dataMap.get('Oui')).toEqual({ label: 'Oui', value: 2, isPredefined: false })
+        })
     })
 
     describe('Open Questions', () => {
