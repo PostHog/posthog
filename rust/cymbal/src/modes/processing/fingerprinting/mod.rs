@@ -498,7 +498,11 @@ impl FingerprintStrategy {
         }
 
         // Otherwise, get more granular
-        fp.update(self.function_normalize.apply(&frame.mangled_name).as_bytes());
+        fp.update(
+            self.function_normalize
+                .apply(&frame.mangled_name)
+                .as_bytes(),
+        );
         included_pieces.push("Mangled function name");
 
         if self.unresolved_include_line {
