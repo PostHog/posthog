@@ -1,6 +1,6 @@
 {
     "name": "@posthog/desktop",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "private": true,
     "description": "PostHog desktop app: an Electron shell that serves the locally built PostHog frontend and proxies API calls to PostHog Cloud (US or EU)",
     "type": "module",
