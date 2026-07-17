@@ -114,7 +114,6 @@ from products.data_warehouse.backend.presentation.views.source_api_versions impo
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.facade.api import validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
-    CustomOAuth2Integration,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
@@ -126,7 +125,6 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.source_management import (
     DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
     DEFAULT_LAG_WARNING_THRESHOLD_MB,
-    MAX_CUSTOM_SOURCES_PER_TEAM,
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
     AnySource,
@@ -158,7 +156,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_integration_accounts,
     get_cdc_adapter,
     get_primary_key_columns,
-    manifest_request_hosts,
     repair_cdc_source,
     source_requires_ssl,
     source_type_supports_cdc,
@@ -469,7 +466,6 @@ def get_postgres_source_table_location(
     )
 
 
-CUSTOM_SOURCE_LIMIT_MESSAGE = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
 DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
     "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, and Redshift sources."
 )
@@ -477,12 +473,8 @@ DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
 DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", "redshift"]
 
 
-def count_active_custom_sources(team_id: int) -> int:
-    return (
-        ExternalDataSource.objects.filter(team_id=team_id, source_type=ExternalDataSourceType.CUSTOM)
-        .exclude(deleted=True)
-        .count()
-    )
+def count_active_sources(team_id: int, source_type: str) -> int:
+    return ExternalDataSource.objects.filter(team_id=team_id, source_type=source_type).exclude(deleted=True).count()
 
 
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
@@ -1008,52 +1000,27 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             incoming_job_inputs.get("ssh_tunnel"),
         )
 
-        # The custom source's connection target lives inside the manifest, not a top-level `host`.
-        # A manifest edit that introduces a new request host would send the preserved credential
-        # somewhere it wasn't going before — the same exfiltration risk, so require re-entry too.
-        manifest_host_added = False
-        if source_type_model == ExternalDataSourceType.CUSTOM and "manifest_json" in incoming_job_inputs:
-            new_hosts = manifest_request_hosts(incoming_job_inputs.get("manifest_json"))
-            existing_hosts = manifest_request_hosts(existing_job_inputs.get("manifest_json"))
-            manifest_host_added = bool(new_hosts - existing_hosts)
+        # Some sources keep their connection target somewhere other than a named field — Custom's
+        # lives inside its manifest. An edit that introduces a new request host would send the
+        # preserved credential somewhere it wasn't going before, the same exfiltration risk, so
+        # require re-entry too. The source decides; the API never names the source type.
+        job_inputs_host_added = source.job_inputs_add_connection_host(incoming_job_inputs, existing_job_inputs)
 
-        # A row-backed OAuth2 custom source carries no secret in job_inputs — the client secret +
-        # tokens live in the bound CustomOAuth2Integration row and are injected at sync time. So
-        # `has_preserved_credentials` never sees a preserved secret for it, yet a host change would
-        # still redirect the row's injected token to the new host. Re-entering every secret the row
-        # holds satisfies the gate the same way typing a password does for other sources: because a
-        # config change makes adoption replace the row's secrets with the typed ones outright (see
-        # _apply_oauth2_material — the rotated-token keep-rule is suspended on config change), only
-        # material the editor provably possesses is ever sent to the new host.
-        bound_integration = None
-        if source_type_model == ExternalDataSourceType.CUSTOM:
-            bound_integration = (
-                CustomOAuth2Integration.objects.for_team(instance.team_id).filter(external_data_source=instance).first()
-            )
-        reentered_oauth2_secrets = False
-        if bound_integration is not None:
-            held_secret_fields = [
-                incoming_field
-                for row_key, incoming_field in (
-                    ("client_secret", "auth_oauth2_client_secret"),
-                    ("refresh_token", "auth_oauth2_refresh_token"),
-                )
-                if bound_integration.sensitive_config.get(row_key)
-            ]
-            reentered_oauth2_secrets = bool(held_secret_fields) and all(
-                bool(incoming_job_inputs.get(field)) for field in held_secret_fields
-            )
-        preserved_oauth2_integration = bound_integration is not None and not reentered_oauth2_secrets
+        # Some sources keep their secrets in a bound row, not job_inputs (Custom's
+        # CustomOAuth2Integration) — the generic preserved-credentials check can't see those, yet a
+        # host change would still redirect the row's injected token. The source reports whether such
+        # row-backed secrets are preserved (not re-entered) on this update.
+        preserved_row_backed_credentials = source.has_preserved_row_backed_credentials(instance, incoming_job_inputs)
 
-        if connection_host_changed or ssh_tunnel_changed or manifest_host_added:
+        if connection_host_changed or ssh_tunnel_changed or job_inputs_host_added:
             gate_sensitive_fields = sensitive_fields - _CREATION_ONLY_SECRET_FIELDS
             preserved_credentials = has_preserved_credentials(
                 existing_job_inputs, incoming_job_inputs, gate_sensitive_fields
             )
-            if preserved_credentials or preserved_oauth2_integration:
+            if preserved_credentials or preserved_row_backed_credentials:
                 if ssh_tunnel_changed:
                     raise ValidationError("Changing the SSH tunnel requires re-entering your database credentials.")
-                if manifest_host_added:
+                if job_inputs_host_added:
                     raise ValidationError("Changing the manifest's request host requires re-entering your credentials.")
                 raise ValidationError("Changing the connection host requires re-entering your credentials.")
 
@@ -2068,15 +2035,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 if isinstance(value, str):
                     payload[key] = value.strip()
         source_type_model = ExternalDataSourceType(source_type)
-        if (
-            source_type_model == ExternalDataSourceType.CUSTOM
-            and count_active_custom_sources(self.team_id) >= MAX_CUSTOM_SOURCES_PER_TEAM
-        ):
+        source = SourceRegistry.get_source(source_type_model)
+        max_instances = source.max_instances_per_team
+        if max_instances is not None and count_active_sources(self.team_id, source_type_model) >= max_instances:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": CUSTOM_SOURCE_LIMIT_MESSAGE},
+                data={"message": f"You can create at most {max_instances} sources of this type per project."},
             )
-        source = SourceRegistry.get_source(source_type_model)
         if skip_credential_validation:
             source_config: Config = source.parse_config(payload)
         else:
@@ -2104,16 +2069,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             direct_query_enabled=direct_query_enabled,
         )
 
-        if source_type_model == ExternalDataSourceType.CUSTOM:
-            # Claim the OAuth2 integration row for the new source right away instead of waiting for the
-            # first sync's trust-on-first-use claim, closing the window where another create by the same
-            # user (matching the same unbound row) could adopt it. The guarded filter makes a lost race
-            # a no-op; sync-time authorization remains the backstop.
-            oauth2_integration_id = (new_source_model.job_inputs or {}).get("auth_oauth2_integration_id")
-            if oauth2_integration_id:
-                CustomOAuth2Integration.objects.for_team(self.team_id).filter(
-                    id=oauth2_integration_id, external_data_source__isnull=True
-                ).update(external_data_source=new_source_model)
+        # Post-create hook (Custom claims its bound OAuth2 integration row here). No-op otherwise.
+        source.on_source_created(new_source_model, self.team_id)
 
         # CDC: gate per-source-type adapter availability up front so downstream blocks
         # can `if cdc_enabled` without repeating the source-type check.

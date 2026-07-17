@@ -313,6 +313,32 @@ class _BaseSource(ABC, Generic[ConfigType]):
         incoming and existing inputs so a source can gate on context. Default: none."""
         return []
 
+    # Cap on how many active sources of this type a team may have (``None`` = unlimited). Custom
+    # sources are capped; everything else is open. The API enforces this at create.
+    max_instances_per_team: int | None = None
+
+    def job_inputs_add_connection_host(
+        self, incoming_job_inputs: dict[str, Any], existing_job_inputs: dict[str, Any]
+    ) -> bool:
+        """Whether an update introduces a new outbound connection host that isn't a named
+        ``connection_host_fields`` change — e.g. Custom's target lives inside its manifest. When
+        ``True`` the API requires credential re-entry (same exfiltration gate as a host change).
+        Default: no such field."""
+        return False
+
+    def has_preserved_row_backed_credentials(
+        self, source_model: "ExternalDataSource", incoming_job_inputs: dict[str, Any]
+    ) -> bool:
+        """For sources whose secrets live in a bound row (not ``job_inputs``) — Custom's
+        ``CustomOAuth2Integration``: whether the row still holds secrets the editor did NOT re-enter
+        on this update. ``has_preserved_credentials`` can't see those, so a host change would still
+        redirect the row's injected token. Default: no row-backed credentials."""
+        return False
+
+    def on_source_created(self, source_model: "ExternalDataSource", team_id: int) -> None:
+        """Post-create hook. Custom claims its OAuth2 integration row here. No-op by default."""
+        return None
+
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
         """Best-effort teardown of CDC resources tied to the source. No-op by default."""
         return None
