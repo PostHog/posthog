@@ -4157,10 +4157,6 @@ class TestExternalDataSource(APIBaseTest):
         with (
             patch.object(source, "validate_credentials_for_access_method", return_value=(True, None)),
             patch.object(source, "get_schemas", return_value=[fake_schema]),
-            patch(
-                "products.data_warehouse.backend.presentation.views.external_data_source.is_xmin_enabled_for_team",
-                return_value=True,
-            ),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
@@ -4557,7 +4553,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_available": True,
                     "append_available": True,
                     "cdc_available": None,
-                    "xmin_available": None,
+                    "xmin_available": False,
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
@@ -4628,7 +4624,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_available": True,
                     "append_available": True,
                     "cdc_available": None,
-                    "xmin_available": None,
+                    "xmin_available": False,
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
@@ -4735,18 +4731,21 @@ class TestExternalDataSource(APIBaseTest):
 
         data = response.json()
 
-        assert response.status_code, status.HTTP_200_OK
+        assert response.status_code == status.HTTP_200_OK
         assert len(data) == 1
         assert data[0]["id"] == str(job.pk)
         assert data[0]["status"] == "Completed"
         assert data[0]["rows_synced"] == 100
         assert data[0]["schema"]["id"] == str(schema.pk)
         assert data[0]["workflow_run_id"] is not None
+        assert data[0]["billable"] is True
 
-    def test_source_jobs_billable_job(self):
+    def test_source_jobs_includes_non_billable(self):
+        # Non-billable jobs (system-initiated runs the customer isn't charged for) must show up
+        # in the sync history, flagged so the UI can tag them.
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
-        ExternalDataJob.objects.create(
+        job = ExternalDataJob.objects.create(
             team=self.team,
             pipeline=source,
             schema=schema,
@@ -4763,8 +4762,10 @@ class TestExternalDataSource(APIBaseTest):
 
         data = response.json()
 
-        assert response.status_code, status.HTTP_200_OK
-        assert len(data) == 0
+        assert response.status_code == status.HTTP_200_OK
+        assert len(data) == 1
+        assert data[0]["id"] == str(job.pk)
+        assert data[0]["billable"] is False
 
     def test_source_jobs_pagination(self):
         source = self._create_external_data_source()
