@@ -3,6 +3,7 @@ import z from 'zod'
 import { hasScope, hasScopes } from '@/lib/api'
 import { OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth-scopes.generated'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
+import { isStaffOnlyTool } from '@/lib/staff-only-tools'
 
 import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
 import toolDefinitionsJson from '../../schema/tool-definitions.json'
@@ -296,6 +297,11 @@ export function getScopeGatedTools(scopes: string[], options?: ToolFilterOptions
         const definition = toolDefinitions[name]
         const required = definition?.required_scopes ?? []
         if (!definition || required.length === 0 || hasScopes(scopes, required)) {
+            continue
+        }
+        // Never hint at staff-only tools — an "add this scope" nudge would
+        // advertise a staff surface to customers who can never call it.
+        if (isStaffOnlyTool(required)) {
             continue
         }
         gated.push({
