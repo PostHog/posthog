@@ -759,6 +759,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         return {
             "401 Client Error": "The upstream API rejected the request with HTTP 401. Check that the configured auth credentials are correct.",
             "403 Client Error": "The upstream API rejected the request with HTTP 403. The configured credentials may lack the required permissions.",
+            # The request shape — path, query params, and the incremental cursor's wire format —
+            # is entirely manifest-driven, so a 400 is deterministic: the same request recurs on
+            # every retry. Stop retrying and point at the config the user can actually change.
+            "400 Client Error": "The upstream API rejected the request with HTTP 400. Check the resource's path, query params, and — for an incremental sync — the cursor's date format in the manifest, then try again.",
             # A schema points to a resource the manifest no longer defines (renamed or removed
             # in an edit while the table's sync stayed scheduled). Permanent until the config is
             # fixed — match the stable suffix, not the variable resource name in the message.

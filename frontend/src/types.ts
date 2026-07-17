@@ -82,6 +82,7 @@ import { AlertType } from 'products/alerts/frontend/types'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import type { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
@@ -4907,6 +4908,8 @@ export interface Experiment {
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
     conclusion_comment?: string | null
+    /** Code task opened to remove the experiment's flag code, when requested on end/ship. */
+    flag_cleanup_task_id?: string | null
     user_access_level: AccessControlLevel
 }
 
@@ -5747,6 +5750,7 @@ export const API_SCOPE_OBJECTS = [
     'signal_scout',
     'signal_scout_internal',
     'signal_scout_report',
+    'stamphog',
     'streamlit_app',
     'subscription',
     'survey',
@@ -5997,7 +6001,8 @@ export interface DataWarehouseTable {
     name: string
     format: DataWarehouseTableTypes
     url_pattern: string
-    credential: DataWarehouseCredential
+    /** Null for tables without user-provided credentials, e.g. created by a managed pipeline. */
+    credential: DataWarehouseCredential | null
     external_data_source?: ExternalDataSource
     external_schema?: SimpleExternalDataSourceSchema
     options?: { csv_allow_double_quotes?: boolean | null }
@@ -6153,6 +6158,7 @@ export interface ExternalDataSourceCreatePayload {
     prefix?: string
     description?: string
     access_method?: 'warehouse' | 'direct'
+    direct_query_enabled?: boolean
     created_via: 'web' | 'api' | 'mcp'
     payload: Record<string, any>
 }
@@ -6174,8 +6180,11 @@ export interface ExternalDataSource {
     prefix: string | null
     description: string | null
     access_method?: 'warehouse' | 'direct'
+    direct_query_enabled?: boolean
+    auto_sync_new_schemas?: boolean
+    auto_sync_schema_patterns?: string[] | null
     created_via: 'web' | 'api' | 'mcp' | 'wizard' | null
-    engine?: 'duckdb' | 'postgres' | 'mysql' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | null
     latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
@@ -6425,6 +6434,11 @@ export interface ExternalDataJob {
      * (cdc-only history table). `null` for non-CDC syncs.
      */
     cdc_write_mode?: 'incremental_merge' | 'scd2_append' | null
+    /**
+     * Whether the rows synced by this job count toward billing. `false` for system-initiated
+     * runs the customer isn't charged for. `null` on legacy rows and means billable.
+     */
+    billable?: boolean | null
 }
 
 export interface SimpleDataWarehouseTable {
@@ -7454,7 +7468,7 @@ export interface Conversation {
      */
     agent_runtime?: 'langgraph' | 'sandbox'
     /** Backing products/tasks Task for sandbox conversations. Null until the first message creates it. `latest_run` is the newest TaskRun id used to bootstrap the sandbox stream. */
-    task?: { id: string; latest_run: string | null } | null
+    task?: { id: string; latest_run: string | null; runtime?: RuntimeEnumApi } | null
 }
 
 export interface ConversationDetail extends Conversation {

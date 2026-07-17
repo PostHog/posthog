@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-15 20:20:01 UTC
+// Generated at: 2026-07-17 10:32:20 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -30,6 +30,7 @@ export type CanonicalProvider =
     | 'baidu-fp4'
     | 'baidu-fp8'
     | 'baseten-fp4'
+    | 'baseten-fp8'
     | 'cerebras-fp16'
     | 'chutes-fp4'
     | 'chutes-fp8'
@@ -83,6 +84,7 @@ export type CanonicalProvider =
     | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mara'
+    | 'meta'
     | 'minimax'
     | 'minimax-fp8'
     | 'minimax-highspeed'
@@ -106,7 +108,7 @@ export type CanonicalProvider =
     | 'novita-int4'
     | 'nvidia'
     | 'nvidia-bf16'
-    | 'open-inference-int8'
+    | 'open-inference-bf16'
     | 'openai'
     | 'openai-default'
     | 'openai-default-flex'

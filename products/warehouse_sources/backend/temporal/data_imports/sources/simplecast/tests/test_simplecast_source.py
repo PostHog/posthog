@@ -5,9 +5,13 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SimpleCastSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.settings import (
+    ENDPOINTS,
+    SIMPLECAST_API_VERSION_2_0,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.simplecast import (
     SimpleCastResumeConfig,
 )
@@ -112,6 +116,12 @@ class TestSimpleCastSource:
         manager = self.source.get_resumable_source_manager(mock.MagicMock())
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is SimpleCastResumeConfig
+
+    def test_supports_legacy_and_2_0_with_2_0_default(self) -> None:
+        # 2.0 is the live Simplecast API and the new default; the legacy placeholder stays supported
+        # so existing pinned rows keep resolving to their unchanged wire behaviour.
+        assert self.source.supported_versions == (UNVERSIONED_API_VERSION, SIMPLECAST_API_VERSION_2_0)
+        assert self.source.default_version == SIMPLECAST_API_VERSION_2_0
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.source.simplecast_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

@@ -17,9 +17,11 @@ import {
 } from '~/layout/scenes/components/SceneMenuBar'
 import { notebooksModel } from '~/models/notebooksModel'
 
+import { isMarkdownNotebookContent } from './Notebook/markdownNotebookV2'
 import { notebookLogic } from './Notebook/notebookLogic'
 import { notebookSettingsLogic } from './Notebook/notebookSettingsLogic'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
+import { isKernelUiEnabled } from './utils'
 
 const RESOURCE_TYPE = 'notebook'
 
@@ -33,14 +35,15 @@ export function NotebookSceneMenuBar({ shortId }: { shortId: string }): JSX.Elem
 
 function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, showHistory, isLocalOnly } = useValues(logic)
+    const { notebook, showHistory, isLocalOnly, content } = useValues(logic)
     const { openShareModal, duplicateNotebook, downloadMarkdown, copyMarkdown, setShowHistory } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { isMarkdownExpanded, showKernelInfo } = useValues(notebookSettingsLogic)
     const { setIsMarkdownExpanded, setShowKernelInfo } = useActions(notebookSettingsLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
     const canDelete = !isLocalOnly && !notebook?.is_template
-    const showKernelToggle = !!featureFlags[FEATURE_FLAGS.NOTEBOOK_PYTHON]
+    // The kernel info panel only renders for markdown (V2) notebooks, so hide the toggle elsewhere
+    const showKernelToggle = isKernelUiEnabled(featureFlags) && isMarkdownNotebookContent(content)
 
     return (
         <SceneMenuBar>
