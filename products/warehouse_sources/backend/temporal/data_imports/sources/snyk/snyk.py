@@ -160,7 +160,13 @@ def _validated_org_id(organization_id: str) -> str:
 def _resolve_org_ids(
     session: requests.Session, host: str, organization_id: Optional[str], logger: FilteringBoundLogger
 ) -> list[str]:
-    """The org ids to fan out over: the configured single org, or every org the token can see."""
+    """The org ids to fan out over: the configured single org, or every org the token can see.
+
+    The multi-org list is sorted so the fan-out order is deterministic across runs. ``/orgs`` takes
+    no sort param and JSON:API doesn't guarantee response ordering, so without this the positional
+    resume in ``_iter_fan_out`` could skip an org if the API returned the list in a different order
+    after a crash.
+    """
     if organization_id and organization_id.strip():
         return [_validated_org_id(organization_id)]
 
@@ -169,7 +175,7 @@ def _resolve_org_ids(
     while url:
         items, url = _fetch_list_page(session, url, host, logger)
         org_ids.extend(item["id"] for item in items)
-    return org_ids
+    return sorted(org_ids)
 
 
 def _initial_params(
@@ -253,8 +259,10 @@ def _iter_fan_out(
     """Walk every org and emit each org's rows, injecting ``organization_id`` into each row."""
     org_ids = _resolve_org_ids(session, host, organization_id, logger)
 
-    # Resolve the saved org bookmark to the slice of orgs still to process. If the bookmarked org
-    # no longer exists (removed between runs), start over — merge dedupes the re-pulled rows.
+    # Resolve the saved org bookmark to the slice of orgs still to process. ``_resolve_org_ids``
+    # returns a sorted list, so this positional slice is stable even if the API reordered the orgs
+    # between the crash and the retry. If the bookmarked org no longer exists (removed between runs),
+    # start over — merge dedupes the re-pulled rows.
     resume = manager.load_state() if manager.can_resume() else None
     start_index = 0
     resume_url: str | None = None

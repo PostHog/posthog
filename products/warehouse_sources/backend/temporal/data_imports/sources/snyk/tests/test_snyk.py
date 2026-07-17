@@ -305,6 +305,24 @@ class TestPerOrgFanOut:
         rows = _collect("issues", self._two_org_pages(), manager, monkeypatch)
         assert [row["id"] for row in rows] == ["i1", "i2"]
 
+    def test_resume_survives_reordered_org_list(self, monkeypatch: Any) -> None:
+        # /orgs has no sort param, so the API may return orgs in a different order after a crash.
+        # Sorting keeps the positional resume stable: o3 (not yet processed) must not be skipped
+        # just because the raw response now lists it before the bookmarked o2, and the already-done
+        # o1 must not be re-fetched (its URL is absent, so a fetch would raise).
+        o2_page2 = f"{HOST}/rest/orgs/o2/issues?version={SNYK_REST_VERSION}&starting_after=cursor"
+        pages = {
+            ORGS_URL: ([{"id": "o3"}, {"id": "o2"}, {"id": "o1"}], None),
+            o2_page2: ([{"id": "i2b"}], None),
+            _issues_url("o3"): ([{"id": "i3"}], None),
+        }
+        manager = _FakeResumableManager(SnykResumeConfig(next_url=o2_page2, org_id="o2"))
+        rows = _collect("issues", pages, manager, monkeypatch)
+        assert rows == [
+            {"id": "i2b", "organization_id": "o2"},
+            {"id": "i3", "organization_id": "o3"},
+        ]
+
 
 class TestIncrementalFilters:
     @parameterized.expand(
