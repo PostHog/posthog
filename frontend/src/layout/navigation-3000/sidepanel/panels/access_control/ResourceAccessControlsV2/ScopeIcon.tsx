@@ -12,6 +12,7 @@ import {
     IconLive,
     IconListTree,
     IconLlmAnalytics,
+    IconMCP,
     IconMessage,
     IconNotebook,
     IconNotification,
@@ -69,6 +70,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconBug />
         case 'logs':
             return <IconLive />
+        case 'mcp_analytics':
+            return <IconMCP />
         case 'metrics':
             return <IconPulse />
         case 'notebook':
