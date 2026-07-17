@@ -166,6 +166,19 @@ export type CdpConfig = ClickhouseConfig & {
     // Throttle: most groups drained per tick, and most invocations per group.
     CYCLOTRON_POISON_PILL_AUTODRAIN_GROUP_BATCH: number
     CYCLOTRON_POISON_PILL_AUTODRAIN_MAX_COUNT_PER_GROUP: number
+
+    // Timing-edit reschedule sweep (CyclotronV2Manager.rescheduleParkedJobs)
+    // Scoped JWT keys authenticating Django's calls to the reschedule_parked route — comma-separated,
+    // newest first (first signs, all verify). Deliberately NOT the fleet-wide INTERNAL_API_SECRET
+    // (see .agents/security.md): empty in prod means the route fails closed until provisioned.
+    WORKFLOWS_RESCHEDULE_JWT_SECRET: string
+    CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: number
+    CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: number
+    CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: number
+    CYCLOTRON_NODE_RESCHEDULE_MAX_WINDOW_SECONDS: number
+    CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: number
+    CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: number
+    CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: number
 }
 
 export function getDefaultCdpConfig(): CdpConfig {
@@ -312,5 +325,19 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_POISON_PILL_AUTODRAIN_MAX_ATTEMPTS: 3,
         CYCLOTRON_POISON_PILL_AUTODRAIN_GROUP_BATCH: 100,
         CYCLOTRON_POISON_PILL_AUTODRAIN_MAX_COUNT_PER_GROUP: 1000,
+
+        // Floor > the hog flow cache's worst-case staleness (~6 min), so swept jobs
+        // always wake against post-edit config. Rate sized well under hogflow worker
+        // steady-state throughput: the past incident class here is an instantaneous
+        // mass wake, so wakes are trickled (500k parked @ 200/s ≈ 42 min spread).
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOWS_RESCHEDULE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-reschedule-jwt' : '',
+        CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: 600,
+        CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: 200,
+        CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: 300,
+        CYCLOTRON_NODE_RESCHEDULE_MAX_WINDOW_SECONDS: 14400,
+        CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: 5000,
+        CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: 20,
+        CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: 100,
     }
 }

@@ -88,9 +88,10 @@ recoverable via the standard rerun tooling rather than a bespoke table.
   Jobs are ephemeral (deleted after completion),
   so a durable activity log would give visibility into historical runs
   without keeping the jobs table unbounded.
-- **`action_id` column for workflows** —
-  an additional indexed column so scheduled workflow actions
-  can be queried and displayed more effectively
+- **Surfacing `action_id` for workflows** —
+  the column exists and parked rows are indexed by it
+  (`idx_cyclotron_jobs_action_reschedule`, used by the timing-edit reschedule sweep),
+  but scheduled workflow actions still aren't queryable or displayable in product
   (e.g. "show me all pending actions for this workflow step").
 - **Cancellation API** —
   API tooling to cancel scheduled jobs by query
