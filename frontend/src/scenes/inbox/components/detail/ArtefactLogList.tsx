@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconExternal } from '@posthog/icons'
-import { LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -133,6 +133,7 @@ function CollapsibleReasoning({ text }: { text: string }): JSX.Element {
 function CollapsibleNote({ note, author }: { note: string; author?: string }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const preview = note.split('\n').find((line) => line.trim()) ?? note
+    const hasMore = note.trim() !== preview.trim()
     return (
         <div className="flex w-full min-w-0 flex-col gap-1">
             <button
@@ -141,7 +142,13 @@ function CollapsibleNote({ note, author }: { note: string; author?: string }): J
                 className="flex w-full min-w-0 items-center gap-1 rounded px-1 py-0.5 text-left text-xs text-secondary transition-colors hover:bg-fill-highlight-50"
             >
                 {expanded ? <IconChevronDown className="shrink-0" /> : <IconChevronRight className="shrink-0" />}
-                <span className="truncate">{expanded ? 'Hide note' : preview}</span>
+                {expanded || !hasMore ? (
+                    <span className="truncate">{expanded ? 'Hide note' : preview}</span>
+                ) : (
+                    <Tooltip title={note}>
+                        <span className="truncate">{preview}</span>
+                    </Tooltip>
+                )}
             </button>
             {expanded ? (
                 <div className="min-w-0">
@@ -201,6 +208,7 @@ function ContentChangeBody({
 
     if (collapse) {
         const preview = current.split('\n').find((line) => line.trim()) ?? current
+        const hasMore = current.trim() !== preview.trim()
         return (
             <div className="flex w-full min-w-0 flex-col gap-1">
                 <button
@@ -209,7 +217,13 @@ function ContentChangeBody({
                     className="flex w-full min-w-0 items-center gap-1 rounded px-1 py-0.5 text-left text-xs text-secondary transition-colors hover:bg-fill-highlight-50"
                 >
                     {expanded ? <IconChevronDown className="shrink-0" /> : <IconChevronRight className="shrink-0" />}
-                    <span className="truncate">{expanded ? 'Hide new value' : preview}</span>
+                    {expanded || !hasMore ? (
+                        <span className="truncate">{expanded ? 'Hide new value' : preview}</span>
+                    ) : (
+                        <Tooltip title={current}>
+                            <span className="truncate">{preview}</span>
+                        </Tooltip>
+                    )}
                 </button>
                 {expanded ? (
                     <>

@@ -140,7 +140,9 @@ function RunStateStrip({ report }: { report: SignalReport }): JSX.Element {
         report.status === SignalReportStatus.IN_PROGRESS || report.status === SignalReportStatus.PENDING_INPUT
     const isFailed = report.status === SignalReportStatus.FAILED
     const prSlug = report.implementation_pr_url ? parsePrRepoSlug(report.implementation_pr_url) : null
-    const timestamp = report.updated_at ?? report.created_at
+    // While live, "Started" must reflect when the run began (total time since start), not the last-touch
+    // time — otherwise the relative timestamp reads as the current iteration rather than the whole run.
+    const timestamp = isLive ? (report.created_at ?? report.updated_at) : (report.updated_at ?? report.created_at)
 
     return (
         <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs text-tertiary">
