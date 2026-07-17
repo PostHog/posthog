@@ -595,6 +595,7 @@ from .printify.source import PrintifySource
 from .productboard.source import ProductboardSource
 from .productive.source import ProductiveSource
 from .prompting_company.source import PromptingCompanySource
+from .promptwatch.source import PromptWatchSource
 from .pulumi_cloud.source import PulumiCloudSource
 from .pylon.source import PylonSource
 from .pypi.source import PyPISource
