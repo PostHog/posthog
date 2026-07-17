@@ -1235,7 +1235,9 @@ export interface experimentLogicActions {
         rolloutPercentage: number | undefined
         variants: MultivariateFlagVariant[]
     }
-    updateExperiment: (update: ExperimentUpdatePayload) => ExperimentUpdatePayload
+    updateExperiment: (
+        update: ExperimentUpdatePayload | (() => ExperimentUpdatePayload)
+    ) => ExperimentUpdatePayload | (() => ExperimentUpdatePayload)
     updateExperimentCollectionGoal: () => {
         value: true
     }
@@ -1254,10 +1256,10 @@ export interface experimentLogicActions {
     }
     updateExperimentSuccess: (
         experimentUpdate: Experiment,
-        payload?: ExperimentUpdatePayload
+        payload?: ExperimentUpdatePayload | (() => ExperimentUpdatePayload)
     ) => {
         experimentUpdate: Experiment
-        payload?: ExperimentUpdatePayload
+        payload?: ExperimentUpdatePayload | (() => ExperimentUpdatePayload)
     }
     updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => {
         variantPreviewMediaIds: Record<string, string[]>
