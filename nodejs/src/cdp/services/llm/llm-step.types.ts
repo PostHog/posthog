@@ -42,6 +42,12 @@ export interface LlmStepCompletion {
     parsed?: unknown
     model?: string
     usage?: { inputTokens?: number; outputTokens?: number }
+    // Set when the full completion was spilled to object storage because it was too large to keep in
+    // cyclotron_jobs.state. `text`/`parsed` are then a truncated preview; the full payload lives at
+    // `ref` and is retrievable via the LlmBlobStore. Keeps the parked row small at scale.
+    ref?: string
+    byteSize?: number
+    truncated?: boolean
 }
 
 // A terminal error the executor gave up on, written into state so the parked job's handler can

@@ -7,11 +7,21 @@ import { LiquidRenderer } from '~/cdp/utils/liquid'
 import { UUIDT } from '~/common/utils/utils'
 
 import { CyclotronJobInvocationHogFlow } from '../../../types'
-import { findContinueAction } from '../hogflow-utils'
+import { findContinueAction, findNextAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
 type LlmAction = Extract<HogFlowAction, { type: 'llm' }>
+
+// The error/timeout branch, if the author wired one: a `branch` edge with index 0 out of the LLM
+// step. When present, a failed or timed-out call routes there so the workflow can fall back (retry,
+// rules path, notify a human). When absent, the step falls through to on_error (continue / abort).
+function findErrorBranch(invocation: CyclotronJobInvocationHogFlow, action: LlmAction): HogFlowAction | undefined {
+    const hasErrorBranch = invocation.hogFlow.edges.some(
+        (edge) => edge.from === action.id && edge.type === 'branch' && edge.index === 0
+    )
+    return hasErrorBranch ? findNextAction(invocation.hogFlow, action.id, 0) : undefined
+}
 
 // Thrown when the timeout backstop fires without a completion. Surfaced through the executor's
 // on_error handling (continue / abort), same as any other step error.
@@ -39,11 +49,15 @@ export class LlmActionHandler implements ActionHandler {
 
         // Resume paths first - the executor woke us by writing into state.
 
-        // Terminal error: take the on_error path immediately rather than waiting out the backstop.
+        // Terminal error: take the error branch if wired, else fall through to on_error handling.
         if (currentAction.llmError) {
             const error = currentAction.llmError
             currentAction.llmError = undefined
             currentAction.llmRequestId = undefined
+            const errorBranch = findErrorBranch(invocation, action)
+            if (errorBranch) {
+                return { nextAction: errorBranch, result: { error: error.message } }
+            }
             throw new Error(`LLM step failed: ${error.message}`)
         }
 
@@ -61,6 +75,10 @@ export class LlmActionHandler implements ActionHandler {
         // Already dispatched and re-entered with no result: the timeout backstop fired.
         if (currentAction.llmRequestId) {
             currentAction.llmRequestId = undefined
+            const errorBranch = findErrorBranch(invocation, action)
+            if (errorBranch) {
+                return { nextAction: errorBranch, result: { timedOut: true } }
+            }
             throw new LlmStepTimeoutError(action.config.max_wait_duration)
         }
 

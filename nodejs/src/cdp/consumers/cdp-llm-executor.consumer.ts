@@ -9,6 +9,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
+import { LlmBlobStore, buildLlmBlobStore } from '../services/llm/llm-blob-store'
 import { executeLlmRequest } from '../services/llm/llm-executor-core'
 import { FetchLlmGatewayClient, LlmGatewayClient } from '../services/llm/llm-gateway.client'
 import { LlmStepRequest } from '../services/llm/llm-step.types'
@@ -41,9 +42,11 @@ export class CdpLlmExecutorConsumer<
     protected kafkaConsumer: KafkaConsumerInterface
     private cyclotronPool: Pool
     private gatewayClient: LlmGatewayClient
+    private blobStore: LlmBlobStore | null
 
     constructor(config: TConfig, deps: CdpConsumerBaseDeps, gatewayClient?: LlmGatewayClient) {
         super(config, deps)
+        this.blobStore = buildLlmBlobStore()
         this.kafkaConsumer = createKafkaConsumer({
             groupId: 'cdp-llm-executor-consumer',
             topic: KAFKA_CDP_LLM_REQUESTS,
@@ -77,6 +80,7 @@ export class CdpLlmExecutorConsumer<
                 request,
                 gatewayClient: this.gatewayClient,
                 pool: this.cyclotronPool,
+                blobStore: this.blobStore ?? undefined,
             })
             counterLlmWakeOutcome.labels({ outcome }).inc()
         } catch (err) {

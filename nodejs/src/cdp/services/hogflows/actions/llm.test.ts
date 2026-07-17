@@ -102,4 +102,48 @@ describe('action.llm', () => {
         // It must not silently advance or re-dispatch on timeout.
         expect(result.llmRequests).toHaveLength(1)
     })
+
+    describe('with an error branch wired', () => {
+        beforeEach(() => {
+            hogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        llm: {
+                            type: 'llm',
+                            config: {
+                                model: 'openai/gpt-4',
+                                messages: [{ role: 'user', content: { value: 'hi', templating: 'liquid' } }],
+                                max_wait_duration: '5m',
+                            },
+                        },
+                        next: { type: 'delay', config: { delay_duration: '1h' } },
+                        on_failure: { type: 'delay', config: { delay_duration: '1h' } },
+                    },
+                    edges: [
+                        { from: 'llm', to: 'next', type: 'continue' },
+                        { from: 'llm', to: 'on_failure', type: 'branch', index: 0 },
+                    ],
+                })
+                .build()
+            action = findActionByType(hogFlow, 'llm')!
+            invocation = createExampleHogFlowInvocation(hogFlow)
+            invocation.state.currentAction = { id: action.id, startedAtTimestamp: DateTime.utc().toMillis() }
+            result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
+        })
+
+        it('routes a terminal error to the branch instead of throwing', () => {
+            run()
+            invocation.state.currentAction!.llmError = { message: 'gateway 500', retriable: true }
+
+            const res = run()
+            expect(res.nextAction).toEqual(findActionById(hogFlow, 'on_failure'))
+        })
+
+        it('routes a timeout to the branch instead of throwing', () => {
+            run()
+            const res = run() // backstop fired, no result
+
+            expect(res.nextAction).toEqual(findActionById(hogFlow, 'on_failure'))
+        })
+    })
 })
