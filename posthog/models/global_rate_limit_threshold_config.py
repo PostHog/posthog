@@ -1,6 +1,6 @@
 import json
 
-from django.db import models
+from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
@@ -40,8 +40,14 @@ class GlobalRateLimitThresholdConfig(UUIDModel):
             "set applies it only to this token and distinct_id."
         ),
     )
-    threshold = models.PositiveBigIntegerField(help_text="Max events allowed per rate-limit window for this key.")
+    threshold = models.PositiveBigIntegerField(
+        help_text=(
+            "Max events allowed per rate-limit window for this key. 0 is a kill switch: it blocks the key entirely."
+        )
+    )
     note = models.TextField(blank=True, null=True, help_text="Optional note explaining why this override exists")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         unique_together = ("token", "distinct_id")
@@ -55,23 +61,26 @@ class GlobalRateLimitThresholdConfig(UUIDModel):
 
 
 def regenerate_redis_thresholds() -> None:
-    """Rebuild the Redis threshold blob from all rows; delete the key when empty."""
+    """Rebuild the Redis threshold blob from all rows.
+
+    Writes an explicit empty blob (``{}``) when no rows remain rather than
+    deleting the key: capture treats an absent key as fail-static (keeps its
+    current map), so a deliberate clear must be a written state.
+    """
     redis_client = get_client(PLUGINS_RELOAD_REDIS_URL)
 
-    configs = list(GlobalRateLimitThresholdConfig.objects.all().order_by("id"))
-    if not configs:
-        redis_client.delete(CUSTOM_THRESHOLDS_REDIS_KEY)
-        return
-
+    configs = GlobalRateLimitThresholdConfig.objects.all().order_by("id")
     thresholds = {config.resolved_key: config.threshold for config in configs}
     redis_client.set(CUSTOM_THRESHOLDS_REDIS_KEY, json.dumps(thresholds))
 
 
 @receiver(post_save, sender=GlobalRateLimitThresholdConfig)
 def update_redis_thresholds_on_save(sender, instance, created=False, **kwargs) -> None:
-    regenerate_redis_thresholds()
+    # Defer to commit: the admin wraps save_model in a transaction, so publishing
+    # inside the signal would leak a threshold to capture that a rollback erases.
+    transaction.on_commit(regenerate_redis_thresholds)
 
 
 @receiver(post_delete, sender=GlobalRateLimitThresholdConfig)
 def update_redis_thresholds_on_delete(sender, instance, **kwargs) -> None:
-    regenerate_redis_thresholds()
+    transaction.on_commit(regenerate_redis_thresholds)

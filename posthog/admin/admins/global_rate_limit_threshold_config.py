@@ -14,11 +14,21 @@ class GlobalRateLimitThresholdConfigAdmin(admin.ModelAdmin):
         "threshold",
         "display_resolved_key",
         "note",
+        "updated_at",
     )
     list_per_page = 20
-    readonly_fields = ("display_team_id", "display_resolved_key")
+    readonly_fields = ("display_team_id", "display_resolved_key", "created_at", "updated_at")
     search_fields = ("token", "distinct_id", "note")
-    fields = ("token", "distinct_id", "threshold", "note", "display_team_id", "display_resolved_key")
+    fields = (
+        "token",
+        "distinct_id",
+        "threshold",
+        "note",
+        "display_team_id",
+        "display_resolved_key",
+        "created_at",
+        "updated_at",
+    )
 
     def get_queryset(self, request):
         from posthog.models.team.team import Team

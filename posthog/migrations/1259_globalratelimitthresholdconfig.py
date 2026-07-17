@@ -6,7 +6,7 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-    dependencies = [('posthog', '1258_duckgressinkschemastate_queue_last_applied_at')]
+    dependencies = [("posthog", "1258_duckgressinkschemastate_queue_last_applied_at")]
 
     operations = [
         migrations.CreateModel(
@@ -30,7 +30,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "threshold",
-                    models.PositiveBigIntegerField(help_text="Max events allowed per rate-limit window for this key."),
+                    models.PositiveBigIntegerField(
+                        help_text="Max events allowed per rate-limit window for this key. 0 is a kill switch: it blocks the key entirely."
+                    ),
                 ),
                 (
                     "note",
@@ -38,6 +40,8 @@ class Migration(migrations.Migration):
                         blank=True, help_text="Optional note explaining why this override exists", null=True
                     ),
                 ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
             ],
             options={
                 "unique_together": {("token", "distinct_id")},

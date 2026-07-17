@@ -2,6 +2,8 @@ import json
 
 from posthog.test.base import BaseTest
 
+from django.db import transaction
+
 from parameterized import parameterized
 
 from posthog.models.global_rate_limit_threshold_config import (
@@ -39,29 +41,51 @@ class TestGlobalRateLimitThresholdConfig(BaseTest):
         self.assertEqual(config.resolved_key, f"phc_abc:{'d' * MAX_DISTINCT_ID_CHARS}")
 
     def test_post_save_writes_blob(self):
-        GlobalRateLimitThresholdConfig.objects.create(token="phc_abc", threshold=1000)
-        GlobalRateLimitThresholdConfig.objects.create(token="phc_abc", distinct_id="noisy_user", threshold=50)
+        with self.captureOnCommitCallbacks(execute=True):
+            GlobalRateLimitThresholdConfig.objects.create(token="phc_abc", threshold=1000)
+            GlobalRateLimitThresholdConfig.objects.create(token="phc_abc", distinct_id="noisy_user", threshold=50)
 
         self.assertEqual(self._blob(), {"phc_abc": 1000, "phc_abc:noisy_user": 50})
 
     def test_update_threshold_updates_blob(self):
-        config = GlobalRateLimitThresholdConfig.objects.create(token="phc_abc", threshold=1000)
+        with self.captureOnCommitCallbacks(execute=True):
+            config = GlobalRateLimitThresholdConfig.objects.create(token="phc_abc", threshold=1000)
         self.assertEqual(self._blob(), {"phc_abc": 1000})
 
-        config.threshold = 25
-        config.save()
+        with self.captureOnCommitCallbacks(execute=True):
+            config.threshold = 25
+            config.save()
         self.assertEqual(self._blob(), {"phc_abc": 25})
 
     def test_delete_regenerates_blob(self):
-        config = GlobalRateLimitThresholdConfig.objects.create(token="phc_abc", threshold=1000)
-        GlobalRateLimitThresholdConfig.objects.create(token="phc_xyz", threshold=2000)
+        with self.captureOnCommitCallbacks(execute=True):
+            config = GlobalRateLimitThresholdConfig.objects.create(token="phc_abc", threshold=1000)
+            GlobalRateLimitThresholdConfig.objects.create(token="phc_xyz", threshold=2000)
 
-        config.delete()
+        with self.captureOnCommitCallbacks(execute=True):
+            config.delete()
         self.assertEqual(self._blob(), {"phc_xyz": 2000})
 
-    def test_delete_last_row_removes_key(self):
-        config = GlobalRateLimitThresholdConfig.objects.create(token="phc_abc", threshold=1000)
-        self.assertIsNotNone(self.redis_client.get(CUSTOM_THRESHOLDS_REDIS_KEY))
+    def test_delete_last_row_writes_empty_blob(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            config = GlobalRateLimitThresholdConfig.objects.create(token="phc_abc", threshold=1000)
+        self.assertEqual(self._blob(), {"phc_abc": 1000})
 
-        config.delete()
+        # Clearing the last row writes an explicit empty blob, not a delete: capture
+        # treats an absent key as fail-static, so a clear must be a written state.
+        with self.captureOnCommitCallbacks(execute=True):
+            config.delete()
+        self.assertIsNotNone(self.redis_client.get(CUSTOM_THRESHOLDS_REDIS_KEY))
+        self.assertEqual(self._blob(), {})
+
+    def test_rollback_discards_redis_write(self):
+        # The publish is deferred to commit, so a rolled-back save must never leak
+        # a threshold to capture (Redis is not part of the DB transaction).
+        class Boom(Exception):
+            pass
+
+        with self.assertRaises(Boom), transaction.atomic():
+            GlobalRateLimitThresholdConfig.objects.create(token="phc_abc", threshold=1000)
+            raise Boom()
+
         self.assertIsNone(self.redis_client.get(CUSTOM_THRESHOLDS_REDIS_KEY))
