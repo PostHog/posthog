@@ -69,6 +69,7 @@ class HogQLContext:
     external_tables: dict[str, "ClickHouseExternalTable"] = field(default_factory=dict, compare=False, repr=False)
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.
     within_non_hogql_query: bool = False
+    use_new_events_schema: Optional[bool] = None
     # Enable full SELECT queries and subqueries in ClickHouse
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
@@ -79,6 +80,7 @@ class HogQLContext:
     output_format: str | None = None
     # Globals that will be resolved in the context of the query
     globals: Optional[dict] = None
+    property_type_overrides: Optional[dict[str, str]] = None
     # Per-query data that query runners want to ingest into the HogQL resolution (e.g. pending updates
     # merged into a table via UNION ALL in error tracking).
     data_to_ingest: dict[str, Any] = field(default_factory=dict)
@@ -119,8 +121,8 @@ class HogQLContext:
     workload: Optional[Workload] = None
     # Per-query cache of the `system.information_schema` introspection result (populated lazily in
     # posthog/hogql/database/schema/information_schema.py). A dict keyed by the pushed-down table
-    # filter, so information_schema tables resolving to the same bound within one query walk the
-    # database (and fire the warehouse metadata ORM queries) only once.
+    # filter and holding lazy introspection objects, so tables resolving to the same bound walk the
+    # database only once while surface-specific catalog metadata is fetched only when requested.
     information_schema_introspection: Optional[Any] = field(default=None, compare=False, repr=False)
     # Property-level access control: set of (property_name, PropertyDefinition.Type) tuples
     # that the current user is denied access to. Populated before type resolution so that
@@ -142,6 +144,15 @@ class HogQLContext:
     def __post_init__(self):
         if self.team:
             self.team_id = self.team.id
+
+    def uses_new_events_schema(self) -> bool:
+        if self.use_new_events_schema is None:
+            # Deferred: keeps posthog.models off this module's import path (see _default_modifiers).
+            from posthog.models.event.new_events_schema import use_new_events_schema  # noqa: PLC0415
+
+            # Pin per context so an instance-setting flip can't mix schemas within one query.
+            self.use_new_events_schema = use_new_events_schema(self.team_id)
+        return self.use_new_events_schema
 
     def add_value(self, value: Any) -> str:
         key = f"hogql_val_{len(self.values)}"

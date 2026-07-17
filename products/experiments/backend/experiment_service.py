@@ -77,7 +77,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
     ExposureFreezeBlocker,
     experiment_has_legacy_metrics,
-    holdout_filters_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
@@ -93,7 +92,12 @@ from products.feature_flags.backend.facade.api import (
     update_flag,
     user_can_edit_flag,
 )
-from products.feature_flags.backend.facade.filters import restrict_groups_to_cohort, strip_group_cohort_restriction
+from products.feature_flags.backend.facade.filters import (
+    restrict_groups_to_cohort,
+    set_holdout,
+    strip_group_cohort_restriction,
+)
+from products.feature_flags.backend.facade.rules import experiment_rule_from_filters
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 from products.notifications.backend.facade.api import (
@@ -1231,7 +1235,7 @@ class ExperimentService:
 
         if existing_flag:
             self._validate_existing_flag(existing_flag)
-            variants = existing_flag.filters.get("multivariate", {}).get("variants", list(DEFAULT_VARIANTS))
+            variants = experiment_rule_from_filters(existing_flag.filters or {}).variants or list(DEFAULT_VARIANTS)
             return existing_flag, variants
 
         config = feature_flag_config or {}
@@ -1251,13 +1255,16 @@ class ExperimentService:
         # prompt experiments map each variant to {"prompt_name": ..., "prompt_version": ...})
         # and any future key — is applied as-is so nothing the serializer accepted is
         # silently dropped.
-        feature_flag_filters = {
-            "aggregation_group_type_index": None,
-            **{k: v for k, v in config_filters.items() if k not in ("groups", "multivariate")},
-            "groups": [{"properties": [], "rollout_percentage": experiment_rollout_percentage}],
-            "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
-            **holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None),
-        }
+        feature_flag_filters = set_holdout(
+            {
+                "aggregation_group_type_index": None,
+                **{k: v for k, v in config_filters.items() if k not in ("groups", "multivariate")},
+                "groups": [{"properties": [], "rollout_percentage": experiment_rollout_percentage}],
+                "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
+            },
+            holdout_id=holdout.id if holdout else None,
+            exclusion_percentage=holdout.exclusion_percentage if holdout else None,
+        )
 
         feature_flag_data: dict[str, Any] = {
             "key": feature_flag_key,
@@ -2369,7 +2376,7 @@ class ExperimentService:
 
             def _open() -> None:
                 try:
-                    tasks_facade.create_and_run_task(
+                    created = tasks_facade.create_and_run_task(
                         team=team,
                         title=title,
                         description=description,
@@ -2380,6 +2387,12 @@ class ExperimentService:
                         interaction_origin="experiments",
                         ai_stage="implementation",
                     )
+                    Experiment.objects.filter(id=experiment_id, team_id=team.id).update(
+                        flag_cleanup_task_id=created.task_id
+                    )
+                    # on_commit runs before the view serializes the response — reflect the id on the
+                    # in-memory instance so the end/ship response already carries it.
+                    experiment.flag_cleanup_task_id = created.task_id
                 except Exception:
                     logger.exception("experiment_cleanup_pr_task_failed", experiment_id=experiment_id)
 
@@ -3075,13 +3088,16 @@ class ExperimentService:
             # merged, and variants always resolve against the flag); every other validated filters
             # key is merged as-is over the flag's current filters, so nothing the serializer
             # accepted is silently dropped.
-            new_filters = {
-                **existing_filters,
-                **{k: v for k, v in config_filters.items() if k not in ("groups", "multivariate")},
-                "groups": new_groups,
-                "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
-                **holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None),
-            }
+            new_filters = set_holdout(
+                {
+                    **existing_filters,
+                    **{k: v for k, v in config_filters.items() if k not in ("groups", "multivariate")},
+                    "groups": new_groups,
+                    "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
+                },
+                holdout_id=holdout.id if holdout else None,
+                exclusion_percentage=holdout.exclusion_percentage if holdout else None,
+            )
 
             flag_update_data: dict[str, Any] = {"filters": new_filters}
             if "ensure_experience_continuity" in feature_flag_config:
@@ -3092,12 +3108,11 @@ class ExperimentService:
             update_flag(
                 feature_flag,
                 {
-                    "filters": {
-                        **feature_flag.filters,
-                        **holdout_filters_for_flag(
-                            holdout.id if holdout else None, holdout.filters if holdout else None
-                        ),
-                    }
+                    "filters": set_holdout(
+                        feature_flag.filters,
+                        holdout_id=holdout.id if holdout else None,
+                        exclusion_percentage=holdout.exclusion_percentage if holdout else None,
+                    )
                 },
                 team=self.team,
                 user=self.user,

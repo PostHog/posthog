@@ -951,8 +951,10 @@ class TestCDCExtractActivity:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch.object(CDCExtractActivity, "_pause_cdc_extraction_schedule")
     def test_unmergeable_schema_fails_non_retryably(
         self,
+        _mock_pause_schedule,
         mock_close_conns,
         MockJob,
         MockSourceModel,
@@ -1806,8 +1808,10 @@ class TestErrorClassification:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch.object(CDCExtractActivity, "_pause_cdc_extraction_schedule")
     def test_non_retryable_error_raises_nonretryable_and_captures(
         self,
+        _mock_pause_schedule,
         mock_close_conns,
         MockJob,
         MockSourceModel,
@@ -1878,12 +1882,14 @@ class TestErrorClassification:
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch.object(CDCExtractActivity, "_pause_cdc_extraction_schedule")
     def test_missing_slot_or_publication_marks_cdc_broken(
         self,
         _name,
         exc_cls,
         exc_message,
         expected_reason,
+        mock_pause,
         mock_close_conns,
         MockSourceModel,
         mock_get_schemas,
@@ -1893,9 +1899,8 @@ class TestErrorClassification:
         mock_get_machine_id,
         mock_mark_broken,
     ):
-        # A missing slot/publication is non-retryable and must trip mark_cdc_broken (pause + persist
-        # the broken marker) so the schedule stops firing against a resource that no longer exists.
-        # A transient auth failure, equally non-retryable, must NOT — it could recover.
+        # Slot/publication errors mark_cdc_broken (pause + broken marker); an auth failure has an
+        # intact slot, so it pauses the schedule directly without the broken marker.
         source = _make_source()
         MockSourceModel.objects.get.return_value = source
         schema = _make_schema("users", cdc_mode="streaming", source=source)
@@ -1919,10 +1924,12 @@ class TestErrorClassification:
 
         if expected_reason is None:
             mock_mark_broken.assert_not_called()
+            mock_pause.assert_called_once()
         else:
             mock_mark_broken.assert_called_once()
             assert mock_mark_broken.call_args.args[0] is source
             assert mock_mark_broken.call_args.args[1] == expected_reason
+            mock_pause.assert_not_called()
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.mark_cdc_broken")
     @patch(
@@ -1998,8 +2005,10 @@ class TestErrorClassification:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch.object(CDCExtractActivity, "_pause_cdc_extraction_schedule")
     def test_analytics_failure_does_not_mask_nonretryable(
         self,
+        _mock_pause_schedule,
         mock_close_conns,
         MockJob,
         MockSourceModel,
@@ -2410,7 +2419,11 @@ class TestFailureVisibilityJobs:
         mock_activity.heartbeat = MagicMock()
         mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=attempt)
 
-        with pytest.raises((NonRetryableException, psycopg.OperationalError)):
+        # The non-retryable pause hits Temporal (sync_connect); stub it so these stay off the network.
+        with (
+            patch.object(CDCExtractActivity, "_pause_cdc_extraction_schedule"),
+            pytest.raises((NonRetryableException, psycopg.OperationalError)),
+        ):
             cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
 
     @parameterized.expand(
