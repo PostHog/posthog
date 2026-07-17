@@ -2,6 +2,7 @@ import dataclasses
 from time import sleep
 from typing import Any, ClassVar, Literal, Optional, Union, cast
 
+from clickhouse_driver import errors as clickhouse_driver_errors
 from opentelemetry import trace
 
 from posthog.schema import (
@@ -66,6 +67,21 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 tracer = trace.get_tracer(__name__)
 
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
+TRANSIENT_CONNECTION_ERROR_RETRY_DELAY_SECONDS = 1.0
+
+# Connection-level failures raised when ClickHouse drops the TCP connection mid-read (server-side
+# query kill, OOM, replica restart, or a network blip). These aren't ServerExceptions, so
+# wrap_clickhouse_query_error passes them through unwrapped and they never reached the S3 retry
+# below. The driver disconnects the client on any error, so a retry pulls a freshly reconnected
+# client from the pool. Only safe here because these are read-only query executions.
+TRANSIENT_CONNECTION_ERRORS: tuple[type[BaseException], ...] = (
+    EOFError,  # "Unexpected EOF while reading bytes" from the driver's socket reader
+    clickhouse_driver_errors.NetworkError,
+    clickhouse_driver_errors.SocketTimeoutError,
+    clickhouse_driver_errors.UnexpectedPacketFromServerError,
+    clickhouse_driver_errors.UnknownPacketFromServerError,
+    clickhouse_driver_errors.PartiallyConsumedQueryError,
+)
 
 
 @dataclasses.dataclass
@@ -662,6 +678,10 @@ class HogQLQueryExecutor:
                 except (CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead):
                     # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
                     sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
+                    self.results, self.types = run_clickhouse_query()
+                except TRANSIENT_CONNECTION_ERRORS:
+                    # A dropped ClickHouse connection is transient; one retry reconnects and usually succeeds
+                    sleep(TRANSIENT_CONNECTION_ERROR_RETRY_DELAY_SECONDS)
                     self.results, self.types = run_clickhouse_query()
             except Exception as e:
                 if self.debug:
