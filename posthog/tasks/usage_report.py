@@ -1384,24 +1384,26 @@ def get_teams_with_ai_event_count_in_period(
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.USAGE_REPORT):
         # nosemgrep: clickhouse-fstring-param-audit - property document/table expressions are internal fragments
-        base_counts = sync_execute(
+        base_rows = sync_execute(
             f"""
             -- Gateway events are wallet-billed, so exempt them: subtract one per distinct
             -- verified $ai_gateway_request_id (a replayed signature reuses one id, so it's
             -- worth one exemption and the copies stay billable). Both markers are
             -- capture-stamped (#64806), not client-settable; a non-empty request_id is
             -- required so one without it stays billable.
-            -- Perf: extract request_id only for verified rows (normally ≈0), so
-            -- non-gateway rows pay just the verified-bool extraction, not a string
-            -- extraction each, across the full AI event volume.
+            -- Perf: extract request_id and relay only for verified rows (normally ≈0),
+            -- so non-gateway rows pay just the verified-bool extraction, not string
+            -- extractions across the full AI event volume.
             SELECT
                 team_id,
-                COUNT() - uniqExactIf(request_id, verified AND request_id != '') as count
+                COUNT() - uniqExactIf(request_id, verified AND request_id != '') AS count,
+                max(relay) AS has_verified_relay
             FROM (
                 SELECT
                     team_id,
-                    {verified_expr} IN ('true', '1') as verified,
-                    if(verified, {request_id_expr}, '') as request_id
+                    {verified_expr} IN ('true', '1') AS verified,
+                    if(verified, {request_id_expr}, '') AS request_id,
+                    if(verified, {relay_expr}, '') IN ('true', '1') AS relay
                 FROM {events_read_table(use_new)}
                 WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
             )
@@ -1412,6 +1414,10 @@ def get_teams_with_ai_event_count_in_period(
             settings=CH_BILLING_SETTINGS,
             ch_user=ClickHouseUser.BILLING,
         )
+
+        base_counts = [(team_id, count) for team_id, count, _ in base_rows]
+        if not any(has_verified_relay for _, _, has_verified_relay in base_rows):
+            return base_counts
 
         # nosemgrep: clickhouse-fstring-param-audit - property document/table expressions are internal fragments
         sponsored_counts = sync_execute(

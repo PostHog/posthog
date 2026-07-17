@@ -1518,6 +1518,31 @@ class TestQueryUsageReportSQL:
     @patch("posthog.tasks.usage_report.get_property_string_expr", return_value=("property_expr", {}))
     @patch("posthog.tasks.usage_report.use_new_events_schema", return_value=False)
     @patch("posthog.tasks.usage_report.sync_execute")
+    def test_get_teams_with_ai_event_count_skips_sponsorship_query_without_verified_relays(
+        self,
+        mock_sync_execute: MagicMock,
+        _mock_use_new_events_schema: MagicMock,
+        _mock_get_property_string_expr: MagicMock,
+        _mock_events_read_table: MagicMock,
+    ) -> None:
+        from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
+
+        begin = datetime(2026, 6, 15, tzinfo=tzutc())
+        end = begin + timedelta(days=1)
+        mock_sync_execute.return_value = [(1, 150, 0), (2, 20, 0)]
+
+        result = get_teams_with_ai_event_count_in_period(begin, end)
+
+        assert result == [(1, 150), (2, 20)]
+        mock_sync_execute.assert_called_once()
+        base_query = mock_sync_execute.call_args.args[0]
+        assert "if(verified, property_expr, '') IN ('true', '1') AS relay" in base_query
+        assert "max(relay) AS has_verified_relay" in base_query
+
+    @patch("posthog.tasks.usage_report.events_read_table", return_value="events")
+    @patch("posthog.tasks.usage_report.get_property_string_expr", return_value=("property_expr", {}))
+    @patch("posthog.tasks.usage_report.use_new_events_schema", return_value=False)
+    @patch("posthog.tasks.usage_report.sync_execute")
     def test_get_teams_with_ai_event_count_subtracts_bounded_gateway_sponsorship(
         self,
         mock_sync_execute: MagicMock,
@@ -1532,14 +1557,16 @@ class TestQueryUsageReportSQL:
 
         begin = datetime(2026, 6, 15, tzinfo=tzutc())
         end = begin + timedelta(days=1)
-        mock_sync_execute.side_effect = [[(1, 150), (2, 20)], [(1, 100)]]
+        mock_sync_execute.side_effect = [[(1, 150, 1), (2, 20, 0)], [(1, 100)]]
 
         result = get_teams_with_ai_event_count_in_period(begin, end)
 
         assert result == [(1, 50), (2, 20)]
         assert mock_sync_execute.call_count == 2
+        base_query = mock_sync_execute.call_args_list[0].args[0]
         sponsor_query = mock_sync_execute.call_args_list[1].args[0]
         sponsor_params = mock_sync_execute.call_args_list[1].args[1]
+        assert "max(relay) AS has_verified_relay" in base_query
         assert "uniqExact(tuple(event, span_id))" in sponsor_query
         assert "sponsors.generation_count * %(allowance)s" in sponsor_query
         assert sponsor_params["allowance"] == GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION

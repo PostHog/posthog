@@ -236,11 +236,26 @@ async fn send_signed_request_with_client(
     secret: &str,
 ) -> u16 {
     let body = request.encode_to_vec();
-    let signature = sign_gateway_body(secret, &body, DEFAULT_TEST_TIME);
+    let signature = sign_gateway_body(
+        secret,
+        "application/x-protobuf",
+        "",
+        &body,
+        DEFAULT_TEST_TIME,
+    );
 
+    send_signed_body_with_client(client, body, "application/x-protobuf", signature).await
+}
+
+async fn send_signed_body_with_client(
+    client: &TestClient,
+    body: Vec<u8>,
+    content_type: &str,
+    signature: String,
+) -> u16 {
     let resp = client
         .post(ENDPOINT)
-        .header("Content-Type", "application/x-protobuf")
+        .header("Content-Type", content_type)
         .header("Authorization", format!("Bearer {}", TOKEN))
         .header("PostHog-Ai-Gateway-Signature", signature)
         .header("PostHog-Ai-Gateway-Signed-At", DEFAULT_TEST_TIME)
@@ -251,13 +266,19 @@ async fn send_signed_request_with_client(
     resp.status().as_u16()
 }
 
-fn sign_gateway_body(secret: &str, body: &[u8], signed_at: &str) -> String {
+fn sign_gateway_body(
+    secret: &str,
+    content_type: &str,
+    content_encoding: &str,
+    body: &[u8],
+    signed_at: &str,
+) -> String {
     let body_digest = hex::encode(Sha256::digest(body));
     let fields = [
         TOKEN,
         "otel-v1",
-        "application/x-protobuf",
-        "",
+        content_type,
+        content_encoding,
         body_digest.as_str(),
         signed_at,
     ];
@@ -405,6 +426,64 @@ async fn test_verified_gateway_batch_stamps_trusted_provenance() {
     let data = parse_event_data(&events[0]);
     assert_eq!(data["properties"]["$ai_gateway_verified"], true);
     assert_eq!(data["properties"]["$ai_gateway_relay"], true);
+}
+
+#[tokio::test]
+async fn test_signed_json_batch_stamps_trusted_provenance() {
+    const SECRET: &str = "test-signing-secret";
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            ai_gateway_signing_secret: Some(SECRET.to_string()),
+            ..Default::default()
+        },
+    );
+    let body = serde_json::to_vec(&make_single_span_request()).unwrap();
+    let signature = sign_gateway_body(SECRET, "application/json", "", &body, DEFAULT_TEST_TIME);
+
+    let status = send_signed_body_with_client(&client, body, "application/json", signature).await;
+    assert_eq!(status, 200);
+
+    let events = sink.get_events().await;
+    let data = parse_event_data(&events[0]);
+    assert_eq!(data["properties"]["$ai_gateway_verified"], true);
+    assert_eq!(data["properties"]["$ai_gateway_relay"], true);
+}
+
+#[tokio::test]
+async fn test_signed_json_body_mismatch_rejects_trusted_provenance() {
+    const SECRET: &str = "test-signing-secret";
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            ai_gateway_signing_secret: Some(SECRET.to_string()),
+            ..Default::default()
+        },
+    );
+    let signed_body = serde_json::to_vec(&make_single_span_request()).unwrap();
+    let signature = sign_gateway_body(
+        SECRET,
+        "application/json",
+        "",
+        &signed_body,
+        DEFAULT_TEST_TIME,
+    );
+    let mut request = make_single_span_request();
+    request.resource_spans[0].schema_url = "tampered".to_string();
+    let body = serde_json::to_vec(&request).unwrap();
+
+    let status = send_signed_body_with_client(&client, body, "application/json", signature).await;
+    assert_eq!(status, 200);
+
+    let events = sink.get_events().await;
+    let data = parse_event_data(&events[0]);
+    let properties = data["properties"].as_object().unwrap();
+    assert!(!properties.contains_key("$ai_gateway_verified"));
+    assert!(!properties.contains_key("$ai_gateway_relay"));
 }
 
 #[tokio::test]
