@@ -38,6 +38,12 @@ class AlertMetric(models.TextChoices):
     AVG_SCORE = "avg_score", "Average score"  # scorer scanners only
 
 
+class AlertDirection(models.TextChoices):
+    # Which side of the threshold breaches. Both bounds are inclusive.
+    ABOVE = "above", "At or above"
+    BELOW = "below", "At or below"
+
+
 class VisionAction(TeamScopedRootMixin, UUIDModel):
     """An "and then…" automation over a scanner's observations: gather, (optionally) synthesize, deliver.
 
