@@ -363,9 +363,9 @@ class TestPublishReviewGate:
 class TestFormatIssueComment:
     @parameterized.expand(
         [
-            (IssuePriority.MUST_FIX, "Must_fix-D1242F", "must_fix"),
-            (IssuePriority.SHOULD_FIX, "Should_fix-E36209", "should_fix"),
-            (IssuePriority.CONSIDER, "Consider-0969DA", "consider"),
+            (IssuePriority.MUST_FIX, "must_fix-D1242F", "must_fix"),
+            (IssuePriority.SHOULD_FIX, "should_fix-E36209", "should_fix"),
+            (IssuePriority.CONSIDER, "consider-0969DA", "consider"),
         ]
     )
     def test_severity_badge_tracks_priority(self, priority: IssuePriority, badge_fragment: str, alt: str) -> None:
@@ -386,3 +386,12 @@ class TestFormatIssueComment:
         before_details = body[: body.index("<details>")]
         assert finding.body in before_details
         assert finding.suggestion in before_details
+
+    def test_title_leads_and_badges_tag_it_without_line_refs(self) -> None:
+        # The layout contract: the title leads, the badges tag it right below (not above), and the
+        # redundant line-ref block is gone — the comment is anchored inline and lines live in the prompt.
+        finding = _finding()
+        body = _format_issue_comment(finding, _verdict())
+
+        assert body.index(f"### {finding.title}") < body.index("![should_fix]")
+        assert "<sub>" not in body

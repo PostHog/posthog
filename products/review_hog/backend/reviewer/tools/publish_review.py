@@ -7,11 +7,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import effective_priority
-from products.review_hog.backend.reviewer.diff_position import (
-    build_diff_line_map,
-    find_diff_position,
-    format_line_ranges,
-)
+from products.review_hog.backend.reviewer.diff_position import build_diff_line_map, find_diff_position
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, load_valid_findings
@@ -184,9 +180,9 @@ def publish_review(
 # alt text is the raw enum value: the priority still reads in email digests and when images are
 # blocked, and screen readers announce it. Colors track a red → orange → blue calm-down scale.
 _PRIORITY_BADGE: dict[IssuePriority, tuple[str, str]] = {
-    IssuePriority.MUST_FIX: ("Must fix", "D1242F"),
-    IssuePriority.SHOULD_FIX: ("Should fix", "E36209"),
-    IssuePriority.CONSIDER: ("Consider", "0969DA"),
+    IssuePriority.MUST_FIX: ("must fix", "D1242F"),
+    IssuePriority.SHOULD_FIX: ("should fix", "E36209"),
+    IssuePriority.CONSIDER: ("consider", "0969DA"),
 }
 # Neutral grey for the category chip — it's context, not severity, so it shouldn't compete for color.
 _CATEGORY_BADGE_COLOR = "656D76"
@@ -212,19 +208,17 @@ def _finding_badge_line(priority: IssuePriority, category: str | None) -> str:
 def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdict) -> str:
     """Format a finding + its verdict as an inline comment body.
 
-    Leads with colored severity/category badges and surfaces the problem and the fix inline, so a
-    reader sees what the finding is without expanding anything; the validator's argumentation and the
-    copy-paste AI prompt stay folded behind `<details>`.
+    Leads with the title, tags it with colored severity/category badges, then surfaces the problem and
+    the fix inline, so a reader sees what the finding is without expanding anything; the validator's
+    argumentation and the copy-paste AI prompt stay folded behind `<details>`. Line refs are omitted —
+    the comment is anchored inline (GitHub shows the code) and the lines also live in the AI prompt.
     """
-    formatted_lines = format_line_ranges(finding.lines)
     priority = effective_priority(finding.priority, verdict.adjusted_priority)
 
     lines = [
-        _finding_badge_line(priority, verdict.category),
-        "",
         f"### {finding.title}",
         "",
-        f"<sub>Lines {formatted_lines}</sub>",
+        _finding_badge_line(priority, verdict.category),
         "",
         finding.body,
         "",
