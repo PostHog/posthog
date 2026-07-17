@@ -17,7 +17,7 @@ from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models import Organization, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
@@ -173,6 +173,29 @@ class TestSkillLoader(BaseTest):
             metadata=seeded_metadata,
         )
         loaded = load_skill_for_run(self.team, "signals-scout-general")
+        assert [(a.role, a.email) for a in loaded.authors] == [("creator", self.user.email)]
+
+    def test_authors_exclude_users_without_project_access(self) -> None:
+        # An author's display name is self-editable and flows into a privileged prompt, so a
+        # former member must stop resolving the moment their access is revoked — otherwise they
+        # keep a post-revocation steering channel into scheduled runs (and waste an editor slot
+        # on someone reviewer routing can't reach anyway).
+        ben = User.objects.create_and_join(self.organization, "ben@posthog.com", None, "Ben")
+        v1 = self._create_skill("signals-scout-errors")
+        v1.created_by = ben
+        v1.is_latest = False
+        v1.save()
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="A test skill",
+            body="edited body",
+            version=2,
+            is_latest=True,
+            created_by=self.user,
+        )
+        OrganizationMembership.objects.filter(user=ben).delete()
+        loaded = load_skill_for_run(self.team, "signals-scout-errors")
         assert [(a.role, a.email) for a in loaded.authors] == [("creator", self.user.email)]
 
     def test_authors_empty_for_pristine_canonical_skill(self) -> None:

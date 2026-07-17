@@ -97,9 +97,20 @@ def resolve_skill_authors(team: Team, skill_name: str) -> list[SkillAuthor]:
     `MAX_SKILL_VERSION`, so this stays cheap regardless of edit churn. Rows with a null
     `created_by` (system-seeded versions, deleted users) carry no routable identity and are
     skipped; a skill with only such rows resolves to no authors.
+
+    Authors are restricted to `team.all_users_with_access()` — the same boundary the
+    `scout-members-list` reviewer roster uses. A former member's profile (notably the
+    self-editable display name) must not keep flowing into a privileged prompt after their
+    access is revoked, and an unroutable author would only waste an editor slot anyway.
     """
     rows = (
-        LLMSkill.objects.filter(team=team, name=skill_name, deleted=False, created_by__isnull=False)
+        LLMSkill.objects.filter(
+            team=team,
+            name=skill_name,
+            deleted=False,
+            created_by__isnull=False,
+            created_by__in=team.all_users_with_access(),
+        )
         .values("created_by__uuid", "created_by__first_name", "created_by__last_name", "created_by__email")
         .annotate(first_authored_at=Min("created_at"), last_authored_at=Max("created_at"))
         .order_by("first_authored_at")
@@ -109,7 +120,9 @@ def resolve_skill_authors(team: Team, skill_name: str) -> list[SkillAuthor]:
         return []
 
     def to_author(person: dict, role: Literal["creator", "editor"]) -> SkillAuthor:
-        name = f"{person['created_by__first_name']} {person['created_by__last_name']}".strip()
+        # Collapse whitespace so a multi-line display name can't break out of the prompt's
+        # one-line list-item structure.
+        name = " ".join(f"{person['created_by__first_name']} {person['created_by__last_name']}".split())
         return SkillAuthor(
             name=name or person["created_by__email"],
             email=person["created_by__email"],
