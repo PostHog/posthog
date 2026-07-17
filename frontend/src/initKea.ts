@@ -8,7 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError } from 'lib/api-error'
+import { isAccessDeniedError, isEndpointNotFoundError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -176,7 +176,10 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                // A 404 from the unrouted-path catch-all (a POST to a path the backend doesn't
+                // route for this team) is expected, gracefully-handled noise — not a code
+                // regression — so it's dropped from error tracking like transient gateway errors.
+                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !isEndpointNotFoundError(error)) {
                     posthog.captureException(error)
                 }
             },
