@@ -452,6 +452,7 @@ the row lists both.
 | snowflake                        | DB protocol                 | snowflake-connector-python                                      | ➖                          |
 | snowplow                         | HTTP                        | requests                                                        | ✅                          |
 | solarwinds_service_desk          | HTTP                        | requests                                                        | ✅                          |
+| sonarqube                        | HTTP                        | requests                                                        | ✅                          |
 | sparkpost                        | HTTP                        | requests                                                        | ✅                          |
 | split_io                         | HTTP                        | requests                                                        | ✅                          |
 | square                           | HTTP                        | requests                                                        | ✅                          |
@@ -912,7 +913,6 @@ doesn't conflict with concurrent PRs.
 - snyk
 - solarwinds_service_desk
 - sonar_cloud
-- sonarqube
 - sonatype_nexus
 - sourcegraph
 - spacelift
