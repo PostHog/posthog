@@ -915,7 +915,9 @@ class CodaSourceConfig(config.Config):
 
 @config.config
 class CodacySourceConfig(config.Config):
-    pass
+    api_token: str
+    organization: str
+    provider: Literal["gh", "gl", "bb"] = config.value(default="gh")
 
 
 @config.config
