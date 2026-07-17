@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegrap
 from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegraph.sourcegraph import (
     MAX_RESPONSE_BYTES,
     SourcegraphHostNotAllowedError,
+    SourcegraphPaginationLimitError,
     SourcegraphQueryError,
     SourcegraphResponseTimeoutError,
     SourcegraphResponseTooLargeError,
@@ -155,6 +156,44 @@ class TestGetRows:
         )
 
         assert rows == []
+        assert session.post.call_count == 1
+
+    def test_endless_pagination_stops_at_the_page_limit(self, host_is_safe, session):
+        # A customer-controlled host that always returns a full page + fresh cursor + hasNextPage
+        # must fail the run at the page cap rather than loop until the activity's week-long timeout.
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        session.post.side_effect = lambda *args, **kwargs: _response(
+            json_data=_connection_page("repositories", [{"id": "r"}], end_cursor="c", has_next_page=True)
+        )
+
+        with mock.patch(f"{MODULE}.MAX_PAGES_PER_RUN", 3):
+            with pytest.raises(SourcegraphPaginationLimitError):
+                list(
+                    get_rows(
+                        "sourcegraph.example.com", "sgp_token", "repositories", mock.MagicMock(), manager, team_id=1
+                    )
+                )
+
+        assert session.post.call_count == 3
+
+    def test_endless_pagination_stops_at_the_deadline(self, host_is_safe, session):
+        # The cumulative wall-clock bound catches a host that drips full pages slowly enough to stay
+        # under the page cap; a deadline already in the past trips right after the first page.
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        session.post.side_effect = lambda *args, **kwargs: _response(
+            json_data=_connection_page("repositories", [{"id": "r"}], end_cursor="c", has_next_page=True)
+        )
+
+        with mock.patch(f"{MODULE}.MAX_PAGINATION_SECONDS", -1):
+            with pytest.raises(SourcegraphPaginationLimitError):
+                list(
+                    get_rows(
+                        "sourcegraph.example.com", "sgp_token", "repositories", mock.MagicMock(), manager, team_id=1
+                    )
+                )
+
         assert session.post.call_count == 1
 
     def test_unpaginated_endpoint_fetches_once_and_warns_on_truncation(self, host_is_safe, session):
@@ -323,7 +362,7 @@ class TestReadBounded:
             if not closed.wait(5.0):
                 raise AssertionError("watchdog did not close the response")
             raise requests.exceptions.ChunkedEncodingError("connection closed")
-            yield  # unreachable; makes this a generator so iter_content returns an iterator
+            yield  # type: ignore[unreachable]  # makes this a generator so iter_content returns an iterator
 
         response = mock.MagicMock()
         response.iter_content.side_effect = blocking_read

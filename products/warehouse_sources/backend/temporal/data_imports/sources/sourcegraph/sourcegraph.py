@@ -27,6 +27,15 @@ MAX_RETRY_AFTER_SECONDS = 60
 # have more than a handful of orgs; a truncated fetch is logged.
 UNPAGINATED_FETCH_LIMIT = 1000
 
+# The Sourcegraph host is customer-controlled, so its cursor pagination is untrusted: a malicious
+# or compromised instance can hand back an endless run of full pages with fresh cursors and keep an
+# import worker occupied until the activity's week-long timeout. Bound a single run by both page
+# count and cumulative wall-clock so an endless (or pathologically slow) stream fails the sync
+# instead of holding the worker — a real instance completes well inside both. At page_size 100 the
+# page cap is ~10M rows; the deadline sits far below the activity ceiling.
+MAX_PAGES_PER_RUN = 100_000
+MAX_PAGINATION_SECONDS = 6 * 60 * 60
+
 HOST_NOT_ALLOWED_ERROR = "Sourcegraph host is not allowed"
 GRAPHQL_ERROR_PREFIX = "Sourcegraph GraphQL error"
 
@@ -68,6 +77,12 @@ class SourcegraphResponseTooLargeError(Exception):
 
 
 class SourcegraphResponseTimeoutError(Exception):
+    pass
+
+
+class SourcegraphPaginationLimitError(Exception):
+    """A single run walked more pages, or ran longer, than the per-run bounds allow."""
+
     pass
 
 
@@ -359,11 +374,15 @@ def get_rows(
     if after:
         logger.debug(f"Sourcegraph: resuming {endpoint} from cursor {after}")
 
+    pagination_deadline = time.monotonic() + MAX_PAGINATION_SECONDS
+    pages_fetched = 0
+
     while True:
         data = _execute(session, url, headers, config.query, {"first": config.page_size, "after": after}, logger)
         connection = data.get(config.data_path) or {}
         nodes = connection.get("nodes") or []
         page_info = connection.get("pageInfo") or {}
+        pages_fetched += 1
 
         if nodes:
             yield nodes
@@ -376,6 +395,19 @@ def get_rows(
         # skipping it — merge dedupes on the primary key.
         resumable_source_manager.save_state(SourcegraphResumeConfig(cursor=end_cursor))
         after = end_cursor
+
+        # A customer-controlled host can hand back an endless run of full pages with fresh cursors;
+        # fail the run once it crosses either per-run bound so it can't occupy a worker until the
+        # activity's week-long timeout. The cursor is already checkpointed, so an activity retry
+        # within this job resumes from here rather than re-walking from the start.
+        if pages_fetched >= MAX_PAGES_PER_RUN:
+            raise SourcegraphPaginationLimitError(
+                f"Sourcegraph {endpoint} exceeded the per-run page limit ({MAX_PAGES_PER_RUN})"
+            )
+        if time.monotonic() > pagination_deadline:
+            raise SourcegraphPaginationLimitError(
+                f"Sourcegraph {endpoint} exceeded the per-run pagination deadline ({MAX_PAGINATION_SECONDS:g}s)"
+            )
 
 
 def sourcegraph_source(
