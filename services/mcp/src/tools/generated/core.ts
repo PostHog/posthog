@@ -568,6 +568,9 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
         if (params.hedgehog_config !== undefined) {
             body['hedgehog_config'] = params.hedgehog_config
         }
+        if (params.avatar_url !== undefined) {
+            body['avatar_url'] = params.avatar_url
+        }
         if (params.allow_sidebar_suggestions !== undefined) {
             body['allow_sidebar_suggestions'] = params.allow_sidebar_suggestions
         }
