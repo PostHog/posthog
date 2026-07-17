@@ -688,6 +688,30 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.MCPToolQualityRowsQuery]: {
+        name: 'MCP tool quality rows',
+        description: 'Per-tool quality metrics for the Tool quality tab.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolQualityDailyStatsQuery]: {
+        name: 'MCP tool quality daily stats',
+        description: 'Interval-bucketed activity series for the Tool quality tab.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolCategoryCountsQuery]: {
+        name: 'MCP tool category counts',
+        description: 'Per-category call counts for the Tool quality tab.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolCategoriesQuery]: {
+        name: 'MCP tool categories',
+        description: 'Distinct tool categories for the Tool quality scope selector.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
