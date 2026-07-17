@@ -5,6 +5,8 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
+from django.conf import settings
+
 from posthog.schema import CachedActorsPropertyTaxonomyQueryResponse, CachedEventTaxonomyQueryResponse
 
 from posthog.models.group.util import create_group
@@ -369,9 +371,12 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
                 toolkit.retrieve_event_or_action_property_values(item, "id"),
                 "9, 8, 7, 6, 5, 4, 3, 2, 1, 0",
             )
+            # events_json stores Datetime-typed values as a ClickHouse DateTime, which renders
+            # space-separated; the legacy string column returns the raw ISO value.
+            date_sep = " " if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "T"
             self.assertEqual(
                 toolkit.retrieve_event_or_action_property_values(item, "date"),
-                f'"{datetime(2024, 1, 1).isoformat()}"',
+                f'"{datetime(2024, 1, 1).isoformat(sep=date_sep)}"',
             )
 
     @patch.object(DummyToolkit, "_retrieve_event_or_action_taxonomy")
