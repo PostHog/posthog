@@ -167,7 +167,9 @@ class SquadcastClient:
         return response.json()
 
 
-def _extract_rows(data: Any, envelope: tuple[str, ...]) -> list[dict[str, Any]]:
+# Elements are unvalidated upstream JSON, so this is honestly `list[Any]` — `_prepare_rows`
+# guards against non-dict elements at runtime.
+def _extract_rows(data: Any, envelope: tuple[str, ...]) -> list[Any]:
     current = data
     for key in envelope:
         if not isinstance(current, dict):
@@ -176,9 +178,7 @@ def _extract_rows(data: Any, envelope: tuple[str, ...]) -> list[dict[str, Any]]:
     return current if isinstance(current, list) else []
 
 
-def _prepare_rows(
-    rows: list[dict[str, Any]], config: SquadcastEndpointConfig, team_id: str | None = None
-) -> list[dict[str, Any]]:
+def _prepare_rows(rows: list[Any], config: SquadcastEndpointConfig, team_id: str | None = None) -> list[Any]:
     """Drop credential-bearing fields (live keys must never land in warehouse tables) and stamp
     the owning team onto fan-out rows — most Squadcast payloads don't carry it."""
     for row in rows:
