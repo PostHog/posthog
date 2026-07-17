@@ -335,7 +335,6 @@ export interface sourceWizardLogicValues {
     breadcrumbs: Breadcrumb[]
     canGoBack: boolean
     canGoNext: boolean
-    nextButtonDisabledReason: string | null
     cdcPrereqsCheckResult: {
         errors: string[]
         valid: boolean
@@ -383,6 +382,7 @@ export interface sourceWizardLogicValues {
         | 'Select tables to query'
         | 'Set up webhook'
         | 'Tables ready to query'
+    nextButtonDisabledReason: string | null
     nextButtonText: string
     requiredTables: any
     returnConfig: {
