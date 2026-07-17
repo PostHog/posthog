@@ -94,8 +94,8 @@ export interface findingsLogicValues {
     totalCount: number
     touchedReports: {
         action: ScoutReportAction
+        hasLiveTouch: boolean
         id: string
-        latestRunId: string
         runIds: string[]
         skillName: string
         skillNames: string[]
@@ -177,8 +177,8 @@ export interface findingsLogicMeta {
         emittedRunsKey: (emittedRuns: SignalScoutRunSummary[]) => string
         touchedReports: (emittedRuns: SignalScoutRunSummary[]) => {
             action: ScoutReportAction
+            hasLiveTouch: boolean
             id: string
-            latestRunId: string
             runIds: string[]
             skillName: string
             skillNames: string[]
@@ -186,8 +186,8 @@ export interface findingsLogicMeta {
         touchedReportsKey: (
             touchedReports: {
                 action: ScoutReportAction
+                hasLiveTouch: boolean
                 id: string
-                latestRunId: string
                 runIds: string[]
                 skillName: string
                 skillNames: string[]
@@ -197,8 +197,8 @@ export interface findingsLogicMeta {
             scoutReports: SignalReport[],
             touchedReports: {
                 action: ScoutReportAction
+                hasLiveTouch: boolean
                 id: string
-                latestRunId: string
                 runIds: string[]
                 skillName: string
                 skillNames: string[]
@@ -221,8 +221,8 @@ export interface findingsLogicMeta {
             rows: ScoutEmissionRow[],
             touchedReports: {
                 action: ScoutReportAction
+                hasLiveTouch: boolean
                 id: string
-                latestRunId: string
                 runIds: string[]
                 skillName: string
                 skillNames: string[]
@@ -243,8 +243,8 @@ export interface findingsLogicMeta {
         authoredReportCount: (
             touchedReports: {
                 action: ScoutReportAction
+                hasLiveTouch: boolean
                 id: string
-                latestRunId: string
                 runIds: string[]
                 skillName: string
                 skillNames: string[]
@@ -253,8 +253,8 @@ export interface findingsLogicMeta {
         editedReportCount: (
             touchedReports: {
                 action: ScoutReportAction
+                hasLiveTouch: boolean
                 id: string
-                latestRunId: string
                 runIds: string[]
                 skillName: string
                 skillNames: string[]
@@ -275,8 +275,8 @@ export interface findingsLogicMeta {
             emissions: SignalScoutEmission[],
             touchedReports: {
                 action: ScoutReportAction
+                hasLiveTouch: boolean
                 id: string
-                latestRunId: string
                 runIds: string[]
                 skillName: string
                 skillNames: string[]
