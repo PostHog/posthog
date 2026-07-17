@@ -53,7 +53,8 @@ final word). **Reviewing includes resolving**: a published review chains into th
 which also carries a single-active resolution-criteria skill block and a split Review button with
 review-without-resolving / resolve-only side actions). Standalone entry: `POST /api/review_hog/resolve`, the
 `run_resolution` command, or the UI's resolve-only action. Design + decision record: DECISIONS.md Stage 7;
-vocabulary: CONTEXT.md.
+vocabulary: CONTEXT.md; the live-e2e qualification plan (the resolver fixes its own PR):
+`eval/experiments/2026-07-resolution-e2e/PLAN.md`.
 
 The full roadmap — every open thread with its reasoning, the loop design, the grounded implementation maps, and
 the experiment backlog — is in [DECISIONS.md](./DECISIONS.md) (start at its "🎯 NEXT" section) and `eval/`

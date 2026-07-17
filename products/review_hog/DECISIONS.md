@@ -2772,8 +2772,9 @@ fleet-level control during alpha).
 > the chained `ReviewPRWorkflow` fire-and-forget ABANDON child dispatch (gating below), `run_resolution` command.
 > Model pin: `RESOLUTION_*` constants (validator's Claude tier); cap: `MAX_THREADS_PER_RUN = 20`, overflow named
 > in the run-summary `note`. **Not yet done:** live e2e on a real PR (verify the installation token can
-> `resolveReviewThread` — the interactive prototype hit token-capability failures there), the label Action client,
-> and self-driving calling the endpoint after implementation PRs gather comments.
+> `resolveReviewThread` — the interactive prototype hit token-capability failures there; the qualification run is
+> planned end-to-end in `eval/experiments/2026-07-resolution-e2e/PLAN.md` — the resolver fixes its own PR #72074),
+> the label Action client, and self-driving calling the endpoint after implementation PRs gather comments.
 >
 > **Superseded same day — reviewing includes resolving (maintainer decision, 2026-07-17).** The first cut gated
 > chaining on a per-run caller flag (`resolve=true` on the label trigger, default-False `resolve_comments` input);
