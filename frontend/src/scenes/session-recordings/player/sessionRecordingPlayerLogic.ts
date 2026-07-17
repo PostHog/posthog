@@ -638,17 +638,19 @@ export interface sessionRecordingPlayerLogicActions {
     } // deletedRecordingsLogic
     startReplayExport: (
         sessionRecordingId: string,
-        format?: ExporterFormat,
-        timestamp?: number,
-        duration?: number,
-        mode?: SessionRecordingPlayerMode,
-        options?: {
-            css_selector?: string
-            filename?: string
-            height?: number
-            skip_inactivity?: boolean
-            width?: number
-        }
+        format?: ExporterFormat | undefined,
+        timestamp?: number | undefined,
+        duration?: number | undefined,
+        mode?: SessionRecordingPlayerMode | undefined,
+        options?:
+            | {
+                  css_selector?: string
+                  filename?: string
+                  height?: number
+                  skip_inactivity?: boolean
+                  width?: number
+              }
+            | undefined
     ) => {
         duration: number | undefined
         format: ExporterFormat | undefined
