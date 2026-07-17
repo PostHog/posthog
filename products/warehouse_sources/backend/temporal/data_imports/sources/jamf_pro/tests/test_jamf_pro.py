@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.j
     JamfProHostNotAllowedError,
     JamfProPaginationLimitError,
     JamfProResponseTooLargeError,
+    JamfProResponseTooSlowError,
     JamfProResumeConfig,
     JamfProTokenManager,
     _build_params,
@@ -211,6 +212,17 @@ class TestTokenManager:
         manager = JamfProTokenManager(session, "example.jamfcloud.com", CLIENT_CREDENTIALS)
         with pytest.raises(requests.HTTPError):
             manager.get_token()
+
+    def test_slow_token_response_is_rejected(self):
+        # A host dribbling the token body under the read timeout must not hold a worker open past the
+        # wall-clock budget. A negative budget forces the deadline into the past on the first chunk.
+        token_resp = _response(json_data=TOKEN_JSON)
+        session = _session(post_responses=[token_resp])
+        manager = JamfProTokenManager(session, "example.jamfcloud.com", CLIENT_CREDENTIALS)
+        with mock.patch.object(jamf_pro_module, "MAX_DOWNLOAD_SECONDS", -1):
+            with pytest.raises(JamfProResponseTooSlowError):
+                manager.get_token()
+        token_resp.close.assert_called()
 
 
 class TestValidateCredentials:
@@ -465,6 +477,37 @@ class TestGetRows:
                         team_id=1,
                     )
                 )
+
+    def test_slow_page_body_is_rejected(self):
+        # The token mints within budget; the page body then dribbles past the wall-clock budget and
+        # must be aborted. The read timeout only bounds each socket read, not total transfer time.
+        manager = self._manager()
+        clock = {"t": 0.0}
+        token_resp = _response(json_data=TOKEN_JSON)
+        page_resp = _response(json_data={"results": [{"id": "1"}]})
+
+        def slow_page_chunks(*args, **kwargs):
+            clock["t"] += jamf_pro_module.MAX_DOWNLOAD_SECONDS + 1  # jump past the budget mid-download
+            yield b'{"results": []}'
+
+        page_resp.iter_content.side_effect = slow_page_chunks
+        session = _session(post_responses=[token_resp], get_responses=[page_resp])
+        with (
+            mock.patch.object(jamf_pro_module.time, "monotonic", lambda: clock["t"]),
+            mock.patch.object(jamf_pro_module, "make_tracked_session", return_value=session),
+        ):
+            with pytest.raises(JamfProResponseTooSlowError):
+                list(
+                    get_rows(
+                        host="example.jamfcloud.com",
+                        credentials=CLIENT_CREDENTIALS,
+                        endpoint="computers",
+                        logger=mock.MagicMock(),
+                        resumable_source_manager=manager,
+                        team_id=1,
+                    )
+                )
+        page_resp.close.assert_called()
 
     def test_pagination_stops_when_server_never_terminates(self):
         # A server returning a non-empty page forever with no totalCount would otherwise loop until

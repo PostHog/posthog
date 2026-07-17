@@ -33,6 +33,12 @@ _RESPONSE_CHUNK_BYTES = 64 * 1024
 # Only a bounded prefix of an error body is read for logging, so a hostile server can't exhaust
 # memory through the error path either.
 _ERROR_BODY_PREVIEW_BYTES = 2 * 1024
+# Wall-clock budget for downloading one response body. `requests`' timeout only bounds each
+# individual socket read, so a host that dribbles the body one byte at a time under the read timeout
+# could hold the connection (and a shared worker) open indefinitely while staying under
+# MAX_RESPONSE_BYTES. This caps total transfer time — 100 MiB in 300s is a ~0.34 MiB/s floor, far
+# below any real API response and far above a slow-drip stall.
+MAX_DOWNLOAD_SECONDS = 300
 
 # A misbehaving or hostile server can return a non-empty `results` page forever while omitting or
 # inflating `totalCount`, pinning the (up to week-long) resumable activity in an endless fetch loop.
@@ -66,21 +72,33 @@ class JamfProResponseTooLargeError(Exception):
     pass
 
 
+class JamfProResponseTooSlowError(Exception):
+    pass
+
+
 class JamfProPaginationLimitError(Exception):
     pass
 
 
 def _read_capped_json(response: requests.Response) -> Any:
-    """Parse a streamed JSON response, refusing a body larger than ``MAX_RESPONSE_BYTES``.
+    """Parse a streamed JSON response, refusing a body past ``MAX_RESPONSE_BYTES`` or ``MAX_DOWNLOAD_SECONDS``.
 
-    ``iter_content`` decodes any content-encoding, so the cap bounds the decompressed size and a
-    compressed body can't slip past it. The response is always closed, so an aborted read doesn't
-    leak the connection.
+    The host is customer-controlled, so a body must never be buffered unbounded (size cap) nor be
+    allowed to hold the connection open indefinitely by dribbling under the per-read timeout (time
+    cap). ``iter_content`` decodes any content-encoding, so the size cap bounds the decompressed
+    body and a compressed one can't slip past it. Both caps are non-retryable — re-fetching the same
+    page yields the same oversized/slow body. The response is always closed, so an aborted read
+    doesn't leak the connection.
     """
     chunks: list[bytes] = []
     total = 0
+    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
     try:
         for chunk in response.iter_content(chunk_size=_RESPONSE_CHUNK_BYTES):
+            if time.monotonic() > deadline:
+                raise JamfProResponseTooSlowError(
+                    f"Jamf Pro response exceeded the {MAX_DOWNLOAD_SECONDS}s download budget; aborting"
+                )
             if not chunk:
                 continue
             total += len(chunk)
@@ -95,10 +113,17 @@ def _read_capped_json(response: requests.Response) -> Any:
 
 
 def _read_body_preview(response: requests.Response) -> str:
-    """Read a bounded prefix of a streamed body for error logging, never buffering it whole."""
+    """Read a bounded prefix of a streamed body for error logging, never buffering it whole.
+
+    Bounded by both the preview size and the wall-clock budget so a slow-dribbling error body can't
+    stall the log path either.
+    """
     chunks: list[bytes] = []
     total = 0
+    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
     for chunk in response.iter_content(chunk_size=_RESPONSE_CHUNK_BYTES):
+        if time.monotonic() > deadline:
+            break
         if not chunk:
             continue
         chunks.append(chunk)
