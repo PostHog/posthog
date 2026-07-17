@@ -233,12 +233,9 @@ describe('buildAgentTools', () => {
         const seedOnlyBuilt = await buildAgentTools(seedOnly, makeDeps(seedOnly))
         expect(seedOnlyBuilt.tools.map((t) => t.label)).not.toContain('@posthog/identity-connect')
 
-        const linkable = makeRev(
-            [],
-            [],
-            seedOnly.spec.mcps,
-            [{ kind: 'posthog', id: 'posthog', scopes: ['user:read'] }]
-        )
+        const linkable = makeRev([], [], seedOnly.spec.mcps, [
+            { kind: 'posthog', id: 'posthog', scopes: ['user:read'], binding: 'principal' },
+        ])
         const linkableBuilt = await buildAgentTools(linkable, makeDeps(linkable))
         expect(linkableBuilt.tools.map((t) => t.label)).toContain('@posthog/identity-connect')
     })

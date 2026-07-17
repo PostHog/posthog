@@ -110,8 +110,7 @@ describe('example: agent-builder bundle', () => {
         const parsed = AgentSpecSchema.parse(spec)
         expect(parsed.identity_providers).toEqual([])
         const chat = parsed.triggers.find((trigger) => trigger.type === 'chat')
-        const posthogMode =
-            chat?.type === 'chat' ? chat.auth?.modes.find((mode) => mode.type === 'posthog') : undefined
+        const posthogMode = chat?.type === 'chat' ? chat.auth?.modes.find((mode) => mode.type === 'posthog') : undefined
         expect(posthogMode?.type === 'posthog' ? posthogMode.scopes : []).toEqual(
             expect.arrayContaining(['agents:read', 'agents:write', 'agent_session:read'])
         )
