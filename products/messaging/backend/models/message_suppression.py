@@ -2,7 +2,7 @@ from django.db import models
 from django.db.models import Q
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel
 
 
 class SuppressionSource(models.TextChoices):
@@ -13,7 +13,7 @@ class SuppressionSource(models.TextChoices):
     MANUAL = "MANUAL"
 
 
-class MessageSuppression(TeamScopedRootMixin, UUIDTModel):
+class MessageSuppression(TeamScopedRootMixin, UUIDModel):
     """
     Per-team list of email addresses we should not send to because they can't (or shouldn't)
     receive mail. Two ways an address lands here:

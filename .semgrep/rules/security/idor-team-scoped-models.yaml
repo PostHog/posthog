@@ -197,6 +197,7 @@ rules:
                               |MarketingAnalyticsGoalMapping
                               |MessageCategory
                               |MessageRecipientPreference
+                              |MessageSuppression
                               |MessageTemplate
                               |Metric
                               |RelationshipProposal
@@ -500,6 +501,7 @@ rules:
                         |MarketingAnalyticsGoalMapping
                         |MessageCategory
                         |MessageRecipientPreference
+                        |MessageSuppression
                         |MessageTemplate
                         |Metric
                         |RelationshipProposal
