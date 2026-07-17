@@ -186,6 +186,28 @@ def _to_epoch_ms(value: Any) -> int | None:
     return None
 
 
+def _pin_job_url(base_url: str, url: Any) -> str | None:
+    """Re-anchor a response-supplied job URL onto the configured origin, trusting only its path.
+
+    Discovered job URLs are fetched later with the stored Basic credentials, so they must never
+    steer a request off the validated instance: a compromised response could otherwise hand back an
+    attacker URL (receiving the token in cleartext) or an internal address the configured-host SSRF
+    check never examined. Rebuilding from the configured scheme + netloc plus the response path also
+    drops any userinfo/query/fragment, and keeps discovery working when Jenkins' self-configured
+    root URL differs from the URL the user connected with (a common reverse-proxy setup).
+    """
+    if not isinstance(url, str) or "\\" in url or "%5c" in url.lower():
+        return None
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    if not parsed.path.startswith("/"):
+        return None
+    base = urlparse(base_url)
+    return f"{base.scheme}://{base.netloc}{parsed.path}"
+
+
 def _discover_jobs(
     session: requests.Session,
     base_url: str,
@@ -210,13 +232,13 @@ def _discover_jobs(
         for job in jobs:
             if not isinstance(job, dict):
                 continue
-            job_url = job.get("url")
-            # `url` is the globally unique, stable identifier; skip anything without it and guard
-            # against a plugin that links a folder back into its own subtree.
+            # The pinned URL is the globally unique, stable identifier; skip anything without one
+            # and guard against a plugin that links a folder back into its own subtree.
+            job_url = _pin_job_url(base_url, job.get("url"))
             if not job_url or job_url in seen_urls:
                 continue
             seen_urls.add(job_url)
-            yield {"id": job_url, **job}
+            yield {**job, "id": job_url, "url": job_url}
 
             if _is_job_container(job) and depth + 1 < MAX_JOB_DEPTH:
                 frontier.append((job_url, depth + 1))

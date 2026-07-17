@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.je
     _get_build_rows,
     _is_job_container,
     _iter_job_builds,
+    _pin_job_url,
     _to_epoch_ms,
     normalize_base_url,
     validate_credentials,
@@ -56,6 +57,26 @@ class TestNormalizeBaseUrl:
     def test_rejects(self, _name: str, raw: str) -> None:
         with pytest.raises(ValueError):
             normalize_base_url(raw)
+
+
+class TestPinJobUrl:
+    @parameterized.expand(
+        [
+            # Response-supplied job URLs are fetched with the stored Basic credentials, so only their
+            # path may be trusted — an off-origin URL must be re-anchored, never dialed as returned.
+            ("same_origin_passthrough", "https://j/job/svc/", "https://j/job/svc/"),
+            ("off_host_reanchored", "http://evil.example/steal/", "https://j/steal/"),
+            ("internal_ip_reanchored", "http://169.254.169.254/latest/", "https://j/latest/"),
+            ("userinfo_dropped", "https://user:pw@j/job/svc/", "https://j/job/svc/"),
+            ("query_and_fragment_dropped", "https://j/job/svc/?a=1#f", "https://j/job/svc/"),
+            ("backslash_rejected", "https://j\\@evil/job/", None),
+            ("relative_path_rejected", "job/svc/", None),
+            ("non_string_rejected", 123, None),
+            ("none_rejected", None, None),
+        ]
+    )
+    def test_pins_to_configured_origin(self, _name: str, url: Any, expected: str | None) -> None:
+        assert _pin_job_url("https://j", url) == expected
 
 
 class TestIsJobContainer:
@@ -158,6 +179,33 @@ class TestDiscoverJobs:
             urls = [job["url"] for job in _discover_jobs(MagicMock(), "https://j", ("u", "t"), MagicMock())]
 
         assert sorted(urls) == ["https://j/job/svc/", "https://j/job/team/", "https://j/job/team/job/api/"]
+
+    def test_off_origin_job_urls_are_never_fetched(self) -> None:
+        # A compromised response marks an attacker URL as a buildable folder; recursion and the
+        # yielded row must both stay pinned to the configured origin so the Basic credentials are
+        # never sent off-instance.
+        root = {
+            "jobs": [
+                {
+                    "name": "evil",
+                    "url": "http://evil.example/exfil/",
+                    "_class": "com.cloudbees.hudson.plugins.folder.Folder",
+                    "buildable": True,
+                },
+            ]
+        }
+
+        fetched: list[str] = []
+
+        def fake_fetch(_session: Any, url: str, *_args: Any, **_kwargs: Any) -> MagicMock:
+            fetched.append(url)
+            return _resp(root if len(fetched) == 1 else {"jobs": []})
+
+        with mock.patch.object(jenkins, "_fetch", side_effect=fake_fetch):
+            rows = list(_discover_jobs(MagicMock(), "https://j", ("u", "t"), MagicMock()))
+
+        assert [r["url"] for r in rows] == ["https://j/exfil/"]
+        assert all(url.startswith("https://j/") for url in fetched)
 
     def test_respects_depth_cap(self) -> None:
         # Every level returns a folder pointing one level deeper; the cap must bound the fetches so a
