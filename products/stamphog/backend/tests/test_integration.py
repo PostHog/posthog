@@ -608,6 +608,97 @@ def test_post_verdict_adopts_own_orphan_approval_instead_of_reposting(
         assert run.posted_review_id == approvals[0]["id"]
 
 
+@pytest.mark.parametrize(
+    "include_peer_live_approval",
+    [False, True],
+    ids=["orphan_only_swept", "peer_live_approval_kept"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_non_approve_terminal_sweeps_supersession_orphan(
+    team, stamphog_chain: StamphogChain, include_peer_live_approval: bool
+) -> None:
+    # Supersession orphan race: an older run cleared post_verdict's guards, got superseded, then landed its
+    # GitHub approval AFTER this newer run's startup sweep already ran. This newer run refuses, so nothing
+    # would list our approvals again — the terminal sweep on the refusing run must retract the orphan, or it
+    # keeps satisfying branch protection over a refusing verdict. The keep-set case seeds a NEWER run's
+    # legitimately-persisted approval too: that one must survive the sweep.
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    head_sha = "sha-refused"
+    recorder.register_pr(REPO, 150, _pr_object(150, "devex-dev", head_sha))
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=150, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha=head_sha,
+        status=ReviewRunStatus.REVIEWING,
+        output={"reviewer_raw": _refused_engine_output()},
+    )
+    # The orphan: an active APPROVE by our bot at an older head, with no live ReviewRun pointing at it.
+    github_reviews = [
+        {"id": 8181, "state": "APPROVED", "commit_id": "sha-old", "user": {"login": "stamphog[bot]", "type": "Bot"}}
+    ]
+    if include_peer_live_approval:
+        ReviewRun.objects.for_team(team.id).create(
+            team_id=team.id,
+            pull_request=pull_request,
+            head_sha="sha-newer",
+            status=ReviewRunStatus.COMPLETED,
+            verdict=ReviewVerdict.APPROVED,
+            posted_review_id=9191,
+        )
+        github_reviews.append(
+            {
+                "id": 9191,
+                "state": "APPROVED",
+                "commit_id": "sha-newer",
+                "user": {"login": "stamphog[bot]", "type": "Bot"},
+            }
+        )
+    recorder.pr_reviews[(REPO, 150)] = github_reviews
+
+    with override_settings(STAMPHOG_GITHUB_APP_SLUG="stamphog"):
+        result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    assert result == {"verdict": str(ReviewVerdict.REFUSED)}
+    run.refresh_from_db()
+    assert run.verdict == ReviewVerdict.REFUSED
+    # The orphan is always swept; a peer run's live persisted approval (9191) is never touched.
+    dismissals = [w for w in recorder.github_writes if w["kind"] == "dismiss_review"]
+    assert [d["review_id"] for d in dismissals] == [8181]
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_failed_run_terminal_sweeps_supersession_orphan(team, stamphog_chain: StamphogChain) -> None:
+    # A newer run that FAILS leaves the same exposure a refusing one does: an older superseded run's
+    # approval can land on GitHub after this run's startup sweep, and a FAILED run never lists approvals
+    # again. mark_review_failed must run the GitHub-side sweep at its terminal to retract that orphan.
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=151, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha151a", status=ReviewRunStatus.REVIEWING
+    )
+    recorder.pr_reviews[(REPO, 151)] = [
+        {"id": 8282, "state": "APPROVED", "commit_id": "sha-old", "user": {"login": "stamphog[bot]", "type": "Bot"}}
+    ]
+
+    with override_settings(STAMPHOG_GITHUB_APP_SLUG="stamphog"):
+        _run_activity(
+            mark_review_failed,
+            MarkReviewFailedInput(review_run_id=str(run.id), team_id=team.id, error="worker lost"),
+        )
+
+    run.refresh_from_db()
+    assert run.status == ReviewRunStatus.FAILED
+    dismissals = [w for w in recorder.github_writes if w["kind"] == "dismiss_review"]
+    assert [d["review_id"] for d in dismissals] == [8282]
+
+
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_fetch_review_context_carries_inline_review_threads(team, stamphog_chain: StamphogChain) -> None:
     # A maintainer's unresolved inline "do not merge" lives only on the GraphQL review-threads surface;

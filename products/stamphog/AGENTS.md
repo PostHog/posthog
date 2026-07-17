@@ -32,6 +32,15 @@ head-changing event must retract standing approvals itself:
   paths (this sweep and `post_verdict`'s adopt) identify "ours" via the exact `<slug>[bot]` login and
   do NOTHING when `STAMPHOG_GITHUB_APP_SLUG` is unset — a fuzzy "any Bot" match must never dismiss or
   adopt another bot's review.
+- A run that reaches a **non-approve terminal** (`post_verdict`'s gated/refused/escalate/wait branch,
+  or `mark_review_failed`) re-runs the GitHub-side own-approvals sweep at its own end
+  (`_sweep_orphan_approvals_at_terminal`). This closes the supersession race: an older run can clear
+  `post_verdict`'s final guards, get superseded, then land its GitHub approval AFTER the newer run's
+  STARTUP sweep — and if the newer run refuses (or fails), nothing lists our approvals again, so the
+  orphan stands over a refusing verdict. The keep-set excludes every OTHER live run's persisted
+  `posted_review_id` (writer-pinned read), so a slow run at terminal never dismisses a newer run's
+  legit approval. UNLIKE the fail-closed startup sweep, the terminal sweep is fail-open: a GitHub error
+  must not block the terminal save (the integrity gap on error is the pre-existing exposure, no worse).
 
 ## Supersession and terminal states
 
