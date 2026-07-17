@@ -225,6 +225,14 @@ pub struct Config {
     #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
     pub routing_strategy: RoutingStrategy,
 
+    /// Aperture width for `INGESTION_ROUTING_STRATEGY=aperture`: how many
+    /// workers this dispatcher's ring slice spans. The fleet's slices tile the
+    /// pool, so effective total coverage is `min_aperture x dispatchers`
+    /// (bounded by the pool). Small values maximize sub-batch consolidation;
+    /// the width becomes feedback-driven in a later stage.
+    #[envconfig(from = "INGESTION_MIN_APERTURE", default = "3")]
+    pub min_aperture: usize,
+
     // ---- Peer awareness ----
     /// Kubernetes Service whose EndpointSlices list this consumer's own peer
     /// pods. Enables coordination-free peer awareness (each pod's stable index

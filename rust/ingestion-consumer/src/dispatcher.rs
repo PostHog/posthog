@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use k8s_awareness::PeerTracker;
 use metrics::{counter, gauge, histogram};
 
+use crate::aperture;
 use crate::debug_recorder::{
     record_if, DebugEventKind, DebugRecorder, DispatcherLoad, LoadEntry, SubBatchInfo,
 };
@@ -185,6 +187,10 @@ pub struct Dispatcher {
     /// order: pin_table → sentinel; the sentinel never takes the pin table),
     /// so its check order matches the intended per-key send order.
     key_sentinel: Arc<KeyOrderSentinel>,
+    /// Peer tracker + aperture width for [`RoutingStrategy::Aperture`]: this
+    /// dispatcher's ring slice is derived from its agreed peer index. `None`
+    /// (or a not-yet-known peer index) falls back to the full healthy pool.
+    aperture: Option<(Arc<PeerTracker>, usize)>,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
 }
@@ -202,6 +208,7 @@ impl Dispatcher {
             registry,
             router: Mutex::new(Router::new(strategy)),
             key_sentinel: Arc::new(KeyOrderSentinel::new()),
+            aperture: None,
             debug_recorder: None,
         }
     }
@@ -218,6 +225,7 @@ impl Dispatcher {
             registry,
             router: Mutex::new(Router::with_seed(strategy, seed)),
             key_sentinel: Arc::new(KeyOrderSentinel::new()),
+            aperture: None,
             debug_recorder: None,
         }
     }
@@ -226,6 +234,14 @@ impl Dispatcher {
     /// so rebalances can reset its baselines.
     pub fn key_order_sentinel(&self) -> Arc<KeyOrderSentinel> {
         Arc::clone(&self.key_sentinel)
+    }
+
+    /// Enable deterministic-aperture candidate narrowing: unpinned keys route
+    /// within this dispatcher's slice of the worker ring, `min_aperture` wide.
+    /// Only consulted under [`RoutingStrategy::Aperture`]. Call before the
+    /// dispatcher is shared.
+    pub fn set_aperture(&mut self, tracker: Arc<PeerTracker>, min_aperture: usize) {
+        self.aperture = Some((tracker, min_aperture.max(1)));
     }
 
     /// Inject the debug UI recorder. Call before the dispatcher is shared.
@@ -352,8 +368,29 @@ impl Dispatcher {
             unpinned_groups.sort_unstable_by(|a, b| b.messages.len().cmp(&a.messages.len()));
         }
 
+        // Aperture: narrow the candidates to this dispatcher's ring slice, so
+        // the fleet's slices tile the pool and each batch consolidates onto
+        // few workers. Falls back to the full healthy pool while the peer set
+        // is unknown (startup, peer awareness disabled).
+        let narrowed = if router.strategy() == RoutingStrategy::Aperture {
+            self.aperture.as_ref().and_then(|(tracker, width)| {
+                let peers = tracker.snapshot();
+                let ring = aperture::sorted_ring(self.registry.workers());
+                aperture::ring_slice(
+                    &ring,
+                    &healthy,
+                    peers.self_index,
+                    peers.peer_count(),
+                    *width,
+                )
+            })
+        } else {
+            None
+        };
+        let candidates: &[WorkerId] = narrowed.as_deref().unwrap_or(&healthy);
+
         for group in unpinned_groups {
-            let Some(worker) = router.select(&healthy, &working_load) else {
+            let Some(worker) = router.select(candidates, &working_load) else {
                 // No routable worker right now (e.g. the whole pool is draining
                 // during a deploy overlap). Stash the group so the flush loop
                 // can route it once a worker returns — dropping it would fail
@@ -1319,6 +1356,80 @@ mod tests {
 
         let b = dispatcher.assign("b", make_msgs(&[("t", "user-1")]));
         assert!(b.is_empty());
+    }
+
+    // ---- deterministic aperture ----
+
+    fn peer_tracker(self_ip: &str, peer_ips: &[&str]) -> Arc<PeerTracker> {
+        let tracker = PeerTracker::new(self_ip.parse().unwrap());
+        tracker.set_peers(&peer_ips.iter().map(|ip| ip.parse().unwrap()).collect());
+        tracker
+    }
+
+    #[test]
+    fn test_aperture_routes_unpinned_keys_within_ring_slice() {
+        // Peer 1 of 2 over a 6-worker ring with width 2 owns ring positions
+        // 3 and 4; every fresh key must land there, nowhere else.
+        let mut dispatcher =
+            Dispatcher::with_strategy(healthy_registry(6), RoutingStrategy::Aperture);
+        dispatcher.set_aperture(peer_tracker("10.0.0.2", &["10.0.0.1", "10.0.0.2"]), 2);
+
+        let msgs: Vec<_> = (0..10).map(|i| make_msg("t", &format!("u{i}"))).collect();
+        let sub_batches = dispatcher.assign("b", msgs);
+
+        let total: usize = sub_batches.iter().map(|b| b.messages.len()).sum();
+        assert_eq!(total, 10);
+        assert!(
+            sub_batches
+                .iter()
+                .all(|b| b.worker == wid(3) || b.worker == wid(4)),
+            "all sub-batches must stay within the dispatcher's ring slice"
+        );
+    }
+
+    #[test]
+    fn test_aperture_slices_tile_across_peers_without_overlap() {
+        // Two dispatchers with complementary indices must route into disjoint
+        // slices — the property that keeps the fleet covering the whole pool.
+        let keys: Vec<_> = (0..10).map(|i| format!("u{i}")).collect();
+        let mut used: Vec<Vec<WorkerId>> = Vec::new();
+        for self_ip in ["10.0.0.1", "10.0.0.2"] {
+            let mut dispatcher =
+                Dispatcher::with_strategy(healthy_registry(6), RoutingStrategy::Aperture);
+            dispatcher.set_aperture(peer_tracker(self_ip, &["10.0.0.1", "10.0.0.2"]), 2);
+            let msgs: Vec<_> = keys.iter().map(|k| make_msg("t", k)).collect();
+            used.push(
+                dispatcher
+                    .assign("b", msgs)
+                    .iter()
+                    .map(|b| b.worker.clone())
+                    .collect(),
+            );
+        }
+        assert!(
+            used[0].iter().all(|w| !used[1].contains(w)),
+            "peer slices must not overlap: {used:?}"
+        );
+    }
+
+    #[test]
+    fn test_aperture_falls_back_to_full_pool_while_self_unknown() {
+        // Before this pod is a ready endpoint (self_index None), aperture must
+        // not stall or funnel everything through a guessed slice — it routes
+        // over the full pool like plain P2C.
+        let mut dispatcher =
+            Dispatcher::with_strategy_seeded(healthy_registry(4), RoutingStrategy::Aperture, 7);
+        dispatcher.set_aperture(peer_tracker("10.0.0.9", &["10.0.0.1", "10.0.0.2"]), 1);
+
+        let msgs: Vec<_> = (0..30).map(|i| make_msg("t", &format!("u{i}"))).collect();
+        let sub_batches = dispatcher.assign("b", msgs);
+
+        let total: usize = sub_batches.iter().map(|b| b.messages.len()).sum();
+        assert_eq!(total, 30, "no messages may be dropped or stalled");
+        assert!(
+            sub_batches.len() > 1,
+            "fallback must spread beyond a single-worker slice"
+        );
     }
 
     // ---- graceful drain ----
