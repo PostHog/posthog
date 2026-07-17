@@ -5,9 +5,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("posthog", "1257_datadeletionrequest_approved_automatically_and_more"),
-    ]
+    dependencies = [("posthog", "1260_activitylog_idx_alog_org_created_at_and_more")]
 
     operations = [
         migrations.AlterField(
