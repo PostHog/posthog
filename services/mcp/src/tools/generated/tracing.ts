@@ -112,7 +112,7 @@ const apmServicesList = (): ToolBase<typeof ApmServicesListSchema, unknown> => (
 
 const ApmSpansAggregateSchema = TracingSpansAggregateCreateBody
 
-const apmSpansAggregate = (): ToolBase<typeof ApmSpansAggregateSchema, unknown> => ({
+const apmSpansAggregate = (): ToolBase<typeof ApmSpansAggregateSchema, Schemas._TracingAggregationResponse> => ({
     name: 'apm-spans-aggregate',
     schema: ApmSpansAggregateSchema,
     handler: async (context: Context, params: z.infer<typeof ApmSpansAggregateSchema>) => {
@@ -121,12 +121,12 @@ const apmSpansAggregate = (): ToolBase<typeof ApmSpansAggregateSchema, unknown> 
         if (params.query !== undefined) {
             body['query'] = params.query
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas._TracingAggregationResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/aggregate/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['results', 'compare']) as typeof result
+        const filtered = pickResponseFields(result, ['results', 'compare', 'has_more', 'next_offset']) as typeof result
         return filtered
     },
 })
