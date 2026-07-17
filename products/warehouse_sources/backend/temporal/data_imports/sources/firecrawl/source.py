@@ -139,6 +139,7 @@ You can create an API key in your [Firecrawl dashboard](https://www.firecrawl.de
         return firecrawl_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
