@@ -1272,7 +1272,7 @@ class DolibarrSourceConfig(config.Config):
 
 @config.config
 class DopplerSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
