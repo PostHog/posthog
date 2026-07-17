@@ -2252,7 +2252,9 @@ class JellyfishSourceConfig(config.Config):
 
 @config.config
 class JenkinsSourceConfig(config.Config):
-    pass
+    host: str
+    username: str
+    api_token: str
 
 
 @config.config
