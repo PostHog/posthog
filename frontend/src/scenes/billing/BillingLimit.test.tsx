@@ -1,7 +1,7 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
@@ -26,15 +26,21 @@ const makeProduct = (): BillingProductV2Type => ({
 
 describe('BillingLimit', () => {
     let patchedBody: any = null
+    let billingState: BillingType
 
     const seedBilling = async (customLimits: BillingType['custom_limits_usd']): Promise<void> => {
-        const billingSeed = { ...billingJson, custom_limits_usd: customLimits }
+        billingState = { ...billingJson, custom_limits_usd: customLimits }
         useMocks({
-            get: { '/api/billing': () => [200, billingSeed] },
+            get: { '/api/billing': () => [200, billingState] },
             patch: {
                 '/api/billing': async ({ request }) => {
                     patchedBody = await request.json()
-                    return [200, billingSeed]
+                    // Persist the change like the backend does so the reload after save renders the new limit.
+                    billingState = {
+                        ...billingState,
+                        custom_limits_usd: { ...billingState.custom_limits_usd, ...patchedBody.custom_limits_usd },
+                    }
+                    return [200, billingState]
                 },
             },
         })
@@ -55,24 +61,35 @@ describe('BillingLimit', () => {
         document.querySelectorAll('body > div:not(#root)').forEach((el) => el.remove())
     })
 
-    it('saving a new limit PATCHes billing with the entered value under custom_limits_usd', async () => {
-        await seedBilling({})
-        render(
-            <Provider>
-                <BillingLimit product={makeProduct()} />
-            </Provider>
-        )
+    // $0 is a real limit (drop all usage), not "no limit" — it must survive the save/reload
+    // round-trip and render, which the billingProductLogic selector test alone can't prove.
+    it.each([
+        { entered: '2000', savedLimit: 2000, renderedAmount: '$2,000' },
+        { entered: '0', savedLimit: 0, renderedAmount: '$0' },
+    ])(
+        'saving a limit ($entered) PATCHes it under custom_limits_usd and renders the saved value',
+        async ({ entered, savedLimit, renderedAmount }) => {
+            await seedBilling({})
+            render(
+                <Provider>
+                    <BillingLimit product={makeProduct()} />
+                </Provider>
+            )
 
-        await userEvent.click(await screen.findByText('Set a billing limit'))
-        const input = screen.getByTestId('billing-limit-input-product_analytics')
-        await userEvent.clear(input)
-        await userEvent.type(input, '2000')
-        await userEvent.click(screen.getByTestId('save-billing-limit-product_analytics'))
+            await userEvent.click(await screen.findByText('Set a billing limit'))
+            const input = screen.getByTestId('billing-limit-input-product_analytics')
+            await userEvent.clear(input)
+            await userEvent.type(input, entered)
+            await userEvent.click(screen.getByTestId('save-billing-limit-product_analytics'))
 
-        await waitFor(() => expect(patchedBody).toEqual({ custom_limits_usd: { product_analytics: 2000 } }))
-    })
+            expect(await screen.findByTestId('billing-limit-set-product_analytics')).toHaveTextContent(
+                `You have a ${renderedAmount} billing limit set`
+            )
+            expect(patchedBody).toEqual({ custom_limits_usd: { product_analytics: savedLimit } })
+        }
+    )
 
-    it('removing an existing limit PATCHes billing with a null limit', async () => {
+    it('removing an existing limit PATCHes a null limit and re-renders as unset', async () => {
         await seedBilling({ product_analytics: 500 })
         render(
             <Provider>
@@ -83,6 +100,9 @@ describe('BillingLimit', () => {
         await userEvent.click(await screen.findByText('Edit limit'))
         await userEvent.click(screen.getByTestId('remove-billing-limit-product_analytics'))
 
-        await waitFor(() => expect(patchedBody).toEqual({ custom_limits_usd: { product_analytics: null } }))
+        expect(await screen.findByTestId('billing-limit-not-set-product_analytics')).toHaveTextContent(
+            'You do not have a billing limit set'
+        )
+        expect(patchedBody).toEqual({ custom_limits_usd: { product_analytics: null } })
     })
 })
