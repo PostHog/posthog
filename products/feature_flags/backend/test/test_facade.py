@@ -20,6 +20,7 @@ from products.feature_flags.backend.facade.filters import (
     group_cohort_restriction_blocker,
     groups_carry_restriction_marker,
     restrict_groups_to_cohort,
+    set_holdout,
     strip_group_cohort_restriction,
 )
 from products.feature_flags.backend.facade.rules import ExperimentRuleConfig, HoldoutRef, experiment_rule_from_filters
@@ -301,6 +302,24 @@ class TestFilterTransforms:
     def test_group_cohort_restriction_blocker(self, _name: str, filters: dict, expected: str | None):
         assert group_cohort_restriction_blocker(filters) == expected
 
+    @parameterized.expand(
+        [
+            ("write", 7, 10, {"id": 7, "exclusion_percentage": 10}),
+            ("clear_both_missing", None, None, None),
+            ("clear_missing_id", None, 10, None),
+            ("clear_missing_exclusion", 7, None, None),
+        ]
+    )
+    def test_set_holdout(
+        self, _name: str, holdout_id: int | None, exclusion_percentage: float | None, expected: dict | None
+    ):
+        filters = {"groups": [{"properties": []}], "holdout": {"id": 1, "exclusion_percentage": 5}}
+
+        result = set_holdout(filters, holdout_id=holdout_id, exclusion_percentage=exclusion_percentage)
+
+        assert result == {"groups": [{"properties": []}], "holdout": expected}
+        assert filters["holdout"] == {"id": 1, "exclusion_percentage": 5}
+
 
 class TestExperimentRuleFromFilters:
     @parameterized.expand(
@@ -340,6 +359,21 @@ class TestExperimentRuleFromFilters:
                 "group_without_rollout_and_null_holdout",
                 {"groups": [{"properties": []}], "holdout": None, "multivariate": {"variants": []}},
                 ExperimentRuleConfig(variants=[], rollout_percentage=None, assign_variant_by=None, holdout=None),
+            ),
+            (
+                "holdout_without_id_reads_as_no_holdout",
+                {"holdout": {"exclusion_percentage": 10}},
+                ExperimentRuleConfig(variants=[], rollout_percentage=None, assign_variant_by=None, holdout=None),
+            ),
+            (
+                "holdout_without_exclusion_percentage",
+                {"holdout": {"id": 7}},
+                ExperimentRuleConfig(
+                    variants=[],
+                    rollout_percentage=None,
+                    assign_variant_by=None,
+                    holdout=HoldoutRef(id=7, exclusion_percentage=None),
+                ),
             ),
             (
                 "null_multivariate",
