@@ -86,6 +86,10 @@ Each user is categorized into one of four statuses for each time period:
 - **Resurrecting** – the user was inactive for one or more periods and became active again.
 - **Dormant** – the user was active in the previous period but did not perform the event in the current period. Dormant counts are shown as negative values.
 
+## Anonymous users are excluded
+
+Lifecycle only counts users with person profiles. Events captured without one (event property `$process_person_profile` set to `false` — anonymous users on SDKs configured with `person_profiles: 'identified_only'`, the default in posthog-js) are excluded entirely. In projects with anonymous traffic, lifecycle totals are therefore expected to be far lower than a trends unique-user count of the same event. This is by design, not a bug or data loss. To compare like-for-like against a trends query, exclude events where `$process_person_profile` is `false`.
+
 ## Time interval
 
 Specify the time interval using the `interval` field. Available intervals are: `hour`, `day`, `week`, `month`. The default is `day`.
@@ -160,6 +164,7 @@ Lifecycle insights do **not** support math aggregation types. Do not set `math` 
 # Reminders
 
 - Lifecycle insights support only **one** series — do not add multiple events or actions.
+- Lifecycle excludes anonymous users (events with `$process_person_profile: false`), so totals are expected to be lower than unique-user trends of the same event.
 - Do not set `math` on the series node — lifecycle does not support math aggregation.
 - Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.
 - Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.

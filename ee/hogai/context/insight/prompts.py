@@ -117,6 +117,8 @@ Date|$pageview -> sign up conversion|$pageview -> sign up drop-off
 LIFECYCLE_EXAMPLE_PROMPT = """
 You are given a table with the results of a lifecycle query. Values are separated by the pipe character "|" and rows are separated by newlines. The first row is the header row. The first column is the date, and the remaining columns show the count of users in each lifecycle status for that period: New (first-time users), Returning (active in the previous period), Resurrecting (returning after inactivity), and Dormant (previously active but inactive, shown as negative values). If the query has multiple event series, each series is shown in a separate section with an "Event:" header.
 
+Important: lifecycle queries only include users with person profiles. Events captured without one (event property `$process_person_profile` set to `false` - anonymous users on SDKs configured with `person_profiles: 'identified_only'`, the default in posthog-js) are excluded entirely. In projects with anonymous traffic, lifecycle user counts are therefore expected to be far lower than a trends unique-user count of the same event; this is by design, not a bug or data loss. To compare like-for-like in a trends query, exclude events where `$process_person_profile` is `false`.
+
 Example:
 ```
 Date|New|Returning|Resurrecting|Dormant
@@ -317,17 +319,6 @@ Interval|$pageview|signup
 1 day|200|100
 2 days|150|120
 3 days|100|80
-```
-""".strip()
-
-LIFECYCLE_EXAMPLE_PROMPT = """
-You are given a table with the results of a lifecycle query. Values are separated by the pipe character "|" and rows are separated by newlines. The first row is the header row. The first column is the date, and the remaining columns are the user counts for each lifecycle status: new, returning, resurrecting, and dormant. Dormant values are negative, representing users who stopped performing the event.
-
-Example:
-```
-Date|new|returning|resurrecting|dormant
-2025-01-20|46|120|15|-30
-2025-01-21|38|105|22|-45
 ```
 """.strip()
 
