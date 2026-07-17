@@ -12,10 +12,13 @@ import re
 import math
 import datetime as dt
 from collections.abc import Sequence
+from functools import lru_cache
 from typing import Any, Literal
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -237,6 +240,30 @@ def _filters_expr(filters: Sequence[MetricFilter]) -> ast.Expr:
     return ast.And(exprs=conditions)
 
 
+@lru_cache(maxsize=128)
+def _static_database(timezone: str | None, week_start_day: int | None) -> Database:
+    """Constructing the static schema instantiates every table model (~5ms);
+    it varies only by these two team fields, so instances are shared. The
+    queries in this module only ever read the database — nothing on their
+    execution path registers warehouse/external tables or otherwise mutates
+    it — which is what makes sharing safe."""
+    return Database(timezone=timezone, week_start_day=week_start_day)
+
+
+def _static_schema_context(team: Team) -> HogQLContext:
+    """The queries in this module are authored against `posthog.metrics` only,
+    with every user input bound as a constant — the static schema is all they
+    can reference. Handing the executor a prebuilt database skips the full
+    per-team schema build (warehouse tables, views, joins, group mappings:
+    several Postgres round trips per query) that those queries can never use.
+    """
+    return HogQLContext(
+        team_id=team.pk,
+        enable_select_queries=True,
+        database=_static_database(team.timezone, team.week_start_day),
+    )
+
+
 class MetricQueryRunner:
     def __init__(
         self,
@@ -299,6 +326,7 @@ class MetricQueryRunner:
             team=self.team,
             workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
             settings=_QUERY_SETTINGS,
+            context=_static_schema_context(self.team),
         )
         self._raise_on_truncation(response.results)
 
@@ -326,6 +354,7 @@ class MetricQueryRunner:
             team=self.team,
             workload=Workload.LOGS,
             settings=_QUERY_SETTINGS,
+            context=_static_schema_context(self.team),
         )
         self._raise_on_truncation(response.results)
 
@@ -372,6 +401,97 @@ class MetricQueryRunner:
         for index, group in enumerate(self.group_by):
             label_expr = ast.Call(name="toString", args=[attribute_field(group.key, scope=group.scope.value)])
             query.select.insert(1 + index, ast.Alias(alias=f"group_{index}", expr=label_expr))
+            query.group_by.append(ast.Field(chain=[f"group_{index}"]))
+
+    def _splice_group_columns_windowed(self, query: ast.SelectQuery) -> None:
+        """Same contract as `_splice_group_columns`, for the two-subquery
+        window-function queries (rate/increase/histogram_quantile).
+
+        Labels are computed in the innermost subquery — where the raw Map
+        columns live — and passed up as short strings. Computing them in the
+        outer query would force `attributes`/`resource_attributes` into the
+        innermost select list, and every selected column is materialized per
+        row through the window function's partition sort."""
+        assert query.group_by is not None
+        assert query.select_from is not None
+        middle = query.select_from.table
+        assert isinstance(middle, ast.SelectQuery)
+        assert middle.select_from is not None
+        inner = middle.select_from.table
+        assert isinstance(inner, ast.SelectQuery)
+        for index, group in enumerate(self.group_by):
+            label_expr = ast.Call(name="toString", args=[attribute_field(group.key, scope=group.scope.value)])
+            inner.select.insert(1 + index, ast.Alias(alias=f"group_{index}", expr=label_expr))
+            middle.select.insert(1 + index, ast.Alias(alias=f"group_{index}", expr=ast.Field(chain=[f"group_{index}"])))
+            query.select.insert(1 + index, ast.Alias(alias=f"group_{index}", expr=ast.Field(chain=[f"group_{index}"])))
+            query.group_by.append(ast.Field(chain=[f"group_{index}"]))
+
+    def _post_agg_label_expr(self, key: str, scope: str) -> ast.Expr:
+        """`attribute_field` rebuilt over the label carriers: the same
+        resource-first/attribute-fallback resolution, but reading the
+        `any(...)`-aggregated per-series copies instead of the per-row
+        columns. The raw `attributes_map_str` carrier stores keys with a
+        `__str` type tag, so the attribute branch looks up the tagged key —
+        exactly what the `attributes` ALIAS strips per row."""
+        if key in _SERVICE_NAME_KEYS:
+            return ast.Field(chain=["__label_svc"])
+        resource_lookup = parse_expr(
+            "arrayElement(__label_res, {name})", placeholders={"name": ast.Constant(value=key)}
+        )
+        attribute_lookup = parse_expr(
+            "arrayElement(__label_attrs, {name})", placeholders={"name": ast.Constant(value=f"{key}__str")}
+        )
+        if scope == "resource":
+            return resource_lookup
+        if scope == "attribute":
+            return attribute_lookup
+        return parse_expr(
+            "if({resource} != '', {resource}, {attribute})",
+            placeholders={"resource": resource_lookup, "attribute": attribute_lookup},
+        )
+
+    def _splice_group_columns_counter(self, query: ast.SelectQuery) -> None:
+        """Group labels for the bucket-aggregated counter query.
+
+        A label is constant within a series by construction — the series key
+        hashes exactly the columns a label is derived from — but aggregate
+        arguments are still evaluated for every input row, so `any(label)`
+        in the innermost GROUP BY pays two map lookups plus toString per
+        sample. Instead the innermost layer carries `any()` copies of only
+        the columns the requested labels need, and the label expressions run
+        one layer up, once per (series, bucket) row."""
+        assert query.group_by is not None
+        layers: list[ast.SelectQuery] = [query]
+        while True:
+            select_from = layers[-1].select_from
+            assert select_from is not None
+            table = select_from.table
+            if not isinstance(table, ast.SelectQuery):
+                break
+            layers.append(table)
+        assert len(layers) == 3  # aggregate <- window <- GROUP BY (time, series_key)
+        inner = layers[-1]
+        label_layer = layers[-2]
+
+        carriers: list[tuple[str, str]] = []  # (alias, source column)
+        if any(g.key in _SERVICE_NAME_KEYS for g in self.group_by):
+            carriers.append(("__label_svc", "service_name"))
+        scopes = {g.scope.value for g in self.group_by if g.key not in _SERVICE_NAME_KEYS}
+        if scopes & {"resource", "auto"}:
+            carriers.append(("__label_res", "resource_attributes"))
+        if scopes & {"attribute", "auto"}:
+            carriers.append(("__label_attrs", "attributes_map_str"))
+        for alias, column in carriers:
+            inner.select.append(ast.Alias(alias=alias, expr=ast.Call(name="any", args=[ast.Field(chain=[column])])))
+
+        for index, group in enumerate(self.group_by):
+            label_expr = ast.Call(name="toString", args=[self._post_agg_label_expr(group.key, scope=group.scope.value)])
+            label_layer.select.insert(1 + index, ast.Alias(alias=f"group_{index}", expr=label_expr))
+            for middle in layers[1:-2]:
+                middle.select.insert(
+                    1 + index, ast.Alias(alias=f"group_{index}", expr=ast.Field(chain=[f"group_{index}"]))
+                )
+            query.select.insert(1 + index, ast.Alias(alias=f"group_{index}", expr=ast.Field(chain=[f"group_{index}"])))
             query.group_by.append(ast.Field(chain=[f"group_{index}"]))
 
     def _type_filter_expr(self) -> ast.Expr:
@@ -421,8 +541,8 @@ class MetricQueryRunner:
         """rate/increase: per-underlying-series deltas, then aggregate.
 
         Each physical series (service_name, resource_fingerprint, datapoint
-        attributes) gets its samples diffed in timestamp order via a window
-        function, Prometheus-style:
+        attributes — hashed together into `series_key`) gets its samples
+        diffed in timestamp order, Prometheus-style:
 
         - cumulative temporality: contribution = value - prev, clamped for
           counter resets (value < prev means the counter restarted, so the
@@ -430,6 +550,12 @@ class MetricQueryRunner:
           series contributes 0 (its history is unknown).
         - delta temporality: each sample already is the increase, so it
           contributes its own value.
+
+        Samples are hash-aggregated into (series, bucket) rows first — the
+        in-bucket deltas come from a sorted per-bucket value array — so the
+        window function that carries each bucket's boundary (its first
+        sample diffs against the previous bucket's last) only sorts
+        series x buckets rows, not every sample.
 
         `increase` sums contributions per bucket; `rate` divides by the
         bucket length in seconds.
@@ -439,39 +565,43 @@ class MetricQueryRunner:
         query = parse_select(
             """
                 SELECT
-                    toStartOfInterval(sample_timestamp, {interval}) AS time,
-                    sum(contribution) / {divisor} AS value
+                    time,
+                    sum(if(
+                        temporality = 'delta',
+                        delta_increase,
+                        in_bucket_increase + multiIf(
+                            isNull(prev_bucket_last), 0.0,
+                            first_value >= assumeNotNull(prev_bucket_last), first_value - assumeNotNull(prev_bucket_last),
+                            first_value
+                        )
+                    )) / {divisor} AS value
                 FROM (
                     SELECT
-                        timestamp AS sample_timestamp,
-                        service_name AS service_name,
-                        attributes AS attributes,
-                        resource_attributes AS resource_attributes,
-                        multiIf(
-                            aggregation_temporality = 'delta', value,
-                            isNull(prev_value), 0.0,
-                            value >= assumeNotNull(prev_value), value - assumeNotNull(prev_value),
-                            value
-                        ) AS contribution
+                        time,
+                        series_key,
+                        temporality,
+                        delta_increase,
+                        arraySum(arrayMap((d, v) -> if(d >= 0.0, d, v), arrayDifference(sorted_values), sorted_values)) AS in_bucket_increase,
+                        arrayElement(sorted_values, 1) AS first_value,
+                        lagInFrame(toNullable(arrayElement(sorted_values, -1))) OVER (
+                            PARTITION BY series_key
+                            ORDER BY time ASC
+                            ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
+                        ) AS prev_bucket_last
                     FROM (
                         SELECT
-                            timestamp,
-                            service_name,
-                            value,
-                            aggregation_temporality,
-                            attributes,
-                            resource_attributes,
-                            lagInFrame(toNullable(value)) OVER (
-                                PARTITION BY service_name, resource_fingerprint, cityHash64(attributes)
-                                ORDER BY timestamp ASC
-                                ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
-                            ) AS prev_value
+                            toStartOfInterval(timestamp, {interval}) AS time,
+                            cityHash64(tuple(service_name, resource_fingerprint, attributes_map_str)) AS series_key,
+                            any(aggregation_temporality) AS temporality,
+                            sum(value) AS delta_increase,
+                            arraySort((v, t) -> t, groupArray(value), groupArray(timestamp)) AS sorted_values
                         FROM posthog.metrics
                         WHERE metric_name = {metric_name}
                           AND timestamp >= {date_from}
                           AND timestamp < {date_to}
                           AND {filters}
                           AND {type_filter}
+                        GROUP BY time, series_key
                     )
                 )
                 GROUP BY time
@@ -490,7 +620,7 @@ class MetricQueryRunner:
             },
         )
         assert isinstance(query, ast.SelectQuery)
-        self._splice_group_columns(query)
+        self._splice_group_columns_counter(query)
         return query
 
     def _build_histogram_query(self) -> ast.SelectQuery:
@@ -507,9 +637,6 @@ class MetricQueryRunner:
                 FROM (
                     SELECT
                         timestamp AS sample_timestamp,
-                        service_name AS service_name,
-                        attributes AS attributes,
-                        resource_attributes AS resource_attributes,
                         histogram_bounds AS histogram_bounds,
                         multiIf(
                             aggregation_temporality = 'delta', counts_f,
@@ -521,10 +648,7 @@ class MetricQueryRunner:
                     FROM (
                         SELECT
                             timestamp,
-                            service_name,
                             aggregation_temporality,
-                            attributes,
-                            resource_attributes,
                             histogram_bounds,
                             arrayMap(x -> toFloat(x), histogram_counts) AS counts_f,
                             lagInFrame(arrayMap(x -> toFloat(x), histogram_counts)) OVER (
@@ -556,5 +680,5 @@ class MetricQueryRunner:
             },
         )
         assert isinstance(query, ast.SelectQuery)
-        self._splice_group_columns(query)
+        self._splice_group_columns_windowed(query)
         return query

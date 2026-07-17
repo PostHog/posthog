@@ -735,9 +735,9 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         rows = self._run("rate")
         self.assertEqual([row["value"] for row in rows], [0.5])
 
-    def test_counter_query_partitions_by_hash_not_stringified_map(self):
-        # toString(attributes) stringifies a Map per row for the lagInFrame
-        # window's partition key; cityHash64 gives a fixed-width key at the
+    def test_counter_query_keys_series_by_hash_not_stringified_map(self):
+        # toString(attributes) stringifies a Map per row when used as the
+        # series identity key; cityHash64 gives a fixed-width key at the
         # same cost resource_fingerprint already pays for resource attributes.
         # A regression back to toString() silently reintroduces a ~40% p99
         # latency regression (see the metrics-query-partition-key-hash PR).
@@ -753,7 +753,9 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "clickhouse",
         )
-        self.assertIn("cityHash64(metrics.attributes)", sql)
+        self.assertIn(
+            "cityHash64(tuple(metrics.service_name, metrics.resource_fingerprint, metrics.attributes_map_str))", sql
+        )
         self.assertNotIn("toString(metrics.attributes)", sql)
 
     def test_counter_reset_counts_post_reset_value(self):

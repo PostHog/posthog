@@ -93,6 +93,15 @@ class MetricsTable(Table):
         "attributes": MapStringDatabaseField(
             name="attributes", nullable=False, description="Per-data-point OpenTelemetry attributes as a string map."
         ),
+        # `attributes` is a ClickHouse ALIAS that mapApply-strips a 5-char type
+        # tag off every key of this physical column; hot query paths hash or
+        # carry the raw map to skip that per-row transformation.
+        "attributes_map_str": MapStringDatabaseField(
+            name="attributes_map_str",
+            nullable=False,
+            hidden=True,
+            description="Raw per-data-point attributes with type-tagged keys (e.g. `source__str`); prefer `attributes`.",
+        ),
     }
 
     def to_printed_clickhouse(self, context):
