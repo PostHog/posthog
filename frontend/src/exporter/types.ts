@@ -38,6 +38,7 @@ export interface ExportedData extends SharingConfigurationSettings {
     shareToken?: string // JWT token for password-protected shares
     type: ExportType
     dashboard?: DashboardType
+    dashboardAutoRefreshEnabled?: boolean
     insight?: InsightModel
     themes?: DataColorThemeModel[]
     recording?: SessionRecordingType
