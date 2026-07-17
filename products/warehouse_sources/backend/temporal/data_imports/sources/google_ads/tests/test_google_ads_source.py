@@ -1278,6 +1278,20 @@ class TestApiVersionDispatch:
         client.get_service.assert_called_once_with("GoogleAdsFieldService", version=api_version, interceptors=mock.ANY)
 
 
+class TestDiscoveryVersionThreading:
+    _SCHEMAS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.get_schemas"
+
+    @pytest.mark.parametrize("pin, expected", [("v23", "v23"), ("v24", "v24"), (None, "v24")])
+    def test_get_schemas_discovers_against_resolved_pin(self, pin, expected):
+        # Discovery must reconcile against the source's pinned version, not always the default —
+        # a v23-pinned source must not discover schemas under the newer default (v24).
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        with mock.patch(self._SCHEMAS_PATH, return_value={}) as mock_get_schemas:
+            GoogleAdsSource().get_schemas(config, team_id=1, api_version=pin)
+
+        mock_get_schemas.assert_called_once_with(config, 1, expected)
+
+
 class TestTypeUrlVersionResolution:
     @pytest.mark.parametrize("api_version", ["v23", "v24"])
     def test_resolves_enum_type_url_against_matching_version(self, api_version):

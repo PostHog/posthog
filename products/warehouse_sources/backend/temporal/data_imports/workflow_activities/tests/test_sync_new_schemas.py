@@ -8,9 +8,11 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 
-def _patch_common(source_mock):
+def _patch_common(source_mock, source_api_version="v1"):
     """Patch DB + registry so the activity runs without a database or real source."""
-    existing_source = mock.MagicMock(source_type="GoogleAds", job_inputs={"k": "v"}, deleted=False)
+    existing_source = mock.MagicMock(
+        source_type="GoogleAds", job_inputs={"k": "v"}, deleted=False, api_version=source_api_version
+    )
     objects = mock.MagicMock()
     objects.filter.return_value.exclude.return_value.exists.return_value = True
     objects.get.return_value = existing_source
@@ -25,8 +27,9 @@ def _patch_common(source_mock):
     )
 
 
-def _run_activity(source_mock):
-    patches = _patch_common(source_mock)
+def _run_activity(source_mock, supported_versions=("v1",), source_api_version="v1"):
+    source_mock.supported_versions = supported_versions
+    patches = _patch_common(source_mock, source_api_version)
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
         sync_new_schemas_activity(SyncNewSchemasActivityInputs(source_id="src", team_id=1))
 
@@ -58,6 +61,24 @@ def test_get_schemas_error_handling(error_msg, non_retryable, expected_exc):
     else:
         with pytest.raises(Exception, match=expected_exc):
             _run_activity(source_mock)
+
+
+@pytest.mark.parametrize(
+    "supported_versions, threads_pin",
+    [(("v1",), False), (("v23", "v24"), True)],
+    ids=["single_version_does_not_thread", "multi_version_threads_pin"],
+)
+def test_discovery_threads_pin_only_for_multi_version_sources(supported_versions, threads_pin):
+    source_mock = mock.MagicMock()
+    source_mock.parse_config.return_value = {"cfg": True}
+    source_mock.get_schemas.return_value = []
+
+    _run_activity(source_mock, supported_versions=supported_versions, source_api_version="v23")
+
+    if threads_pin:
+        source_mock.get_schemas.assert_called_once_with({"cfg": True}, 1, api_version="v23")
+    else:
+        source_mock.get_schemas.assert_called_once_with({"cfg": True}, 1)
 
 
 def test_unparseable_config_is_skipped():

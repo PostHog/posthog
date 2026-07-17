@@ -215,12 +215,18 @@ class _BaseSource(ABC, Generic[ConfigType]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         """Return the list of schemas available for this source.
 
         ``force_refresh=True`` instructs the source to bypass any internal cache
         of upstream schema discovery (e.g. paginated API listings). Sources
         without caches can ignore the flag.
+
+        ``api_version`` is a source instance's stored pin (``None`` resolves to
+        ``default_version`` via ``resolve_api_version``). Multi-version sources should
+        accept it so schema discovery reconciles against the pinned version rather than
+        always the default; single-version sources can ignore it.
         """
         raise NotImplementedError()
 

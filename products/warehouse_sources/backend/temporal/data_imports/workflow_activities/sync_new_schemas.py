@@ -69,7 +69,13 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             return
 
         try:
-            schemas = new_source.get_schemas(config, inputs.team_id)
+            # Reconcile against the source's pinned version, not just the default. Only
+            # multi-version sources thread the pin into get_schemas; single-version sources
+            # discover under their one version regardless, so leave their call unchanged.
+            if len(new_source.supported_versions) > 1:
+                schemas = new_source.get_schemas(config, inputs.team_id, api_version=source.api_version)
+            else:
+                schemas = new_source.get_schemas(config, inputs.team_id)
         except Exception as e:
             # Schema discovery is best-effort and runs on its own ~6h cadence. If the source's
             # credentials are broken (expired/revoked tokens, permission denied, deleted account,
