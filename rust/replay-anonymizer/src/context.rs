@@ -43,9 +43,17 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// The only budgeted cv decompression path — cv code must not call `gzip::gunzip` directly.
-    pub fn gunzip_cv(&self, raw: &[u8]) -> Result<Vec<u8>> {
-        let out = crate::gzip::gunzip(raw)?;
+    /// The only budgeted cv decompression path — cv code must not call the `gzip` codecs directly.
+    /// Dispatches on the leading magic: gzip is the SDK wire format, zstd is what the anonymizer
+    /// itself re-emits (so re-scrubbing already-anonymized data works). Unknown magic fails closed.
+    pub fn decompress_cv(&self, raw: &[u8]) -> Result<Vec<u8>> {
+        let out = if raw.starts_with(&crate::gzip::GZIP_MAGIC) {
+            crate::gzip::gunzip(raw)?
+        } else if raw.starts_with(&crate::gzip::ZSTD_MAGIC) {
+            crate::gzip::unzstd(raw)?
+        } else {
+            bail!("cv stream is neither gzip nor zstd");
+        };
         match self.cv_budget.get().checked_sub(out.len()) {
             Some(rest) => self.cv_budget.set(rest),
             None => bail!("message exceeds the cumulative cv decompression budget"),
@@ -84,6 +92,33 @@ impl<'a> Ctx<'a> {
 mod tests {
     use super::*;
     use crate::testkit::png_data_uri;
+
+    #[test]
+    fn decompress_cv_dispatches_on_magic_and_budgets_both_codecs() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let payload = b"x".repeat(1000);
+        let gz = crate::gzip::gzip(&payload).unwrap();
+        let zs = crate::gzip::compress_cv(&payload).unwrap();
+        for compressed in [&gz, &zs] {
+            let ctx = Ctx::new(&allow);
+            assert_eq!(ctx.decompress_cv(compressed).unwrap(), payload);
+
+            let ctx = Ctx::new(&allow);
+            ctx.cv_budget.set(10);
+            let err = ctx.decompress_cv(compressed).unwrap_err().to_string();
+            assert!(err.contains("budget"), "got: {err}");
+        }
+    }
+
+    #[test]
+    fn decompress_cv_fails_closed_on_unknown_magic() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let ctx = Ctx::new(&allow);
+        assert!(ctx
+            .decompress_cv(b"plainly not a compressed stream")
+            .is_err());
+        assert!(ctx.decompress_cv(b"").is_err());
+    }
 
     #[test]
     fn blur_memo_is_stable_and_keyed_per_image() {
