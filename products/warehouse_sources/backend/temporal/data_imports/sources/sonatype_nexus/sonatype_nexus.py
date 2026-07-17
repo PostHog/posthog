@@ -265,6 +265,15 @@ def _get_repository_fanout_rows(
                 next_token = data.get("continuationToken")
                 page_count += 1
 
+                # Check the cumulative deadline immediately after every response, before the
+                # terminal-page break — otherwise a host that enumerates many repositories and
+                # slow-drips each one's single terminal page to just under the per-response budget
+                # would bypass the check and hold the worker for repositories × MAX_RESPONSE_SECONDS.
+                if time.monotonic() > pagination_deadline:
+                    raise SonatypeNexusPaginationError(
+                        f"Nexus pagination exceeded the {MAX_PAGINATION_SECONDS:g}s time budget for repository={repository}"
+                    )
+
                 if items:
                     yield items
                     # Save AFTER yielding so a crash re-yields the in-flight page
@@ -285,10 +294,6 @@ def _get_repository_fanout_rows(
                 if page_count >= MAX_PAGES_PER_ENDPOINT:
                     raise SonatypeNexusPaginationError(
                         f"Nexus pagination exceeded {MAX_PAGES_PER_ENDPOINT} pages for repository={repository}"
-                    )
-                if time.monotonic() > pagination_deadline:
-                    raise SonatypeNexusPaginationError(
-                        f"Nexus pagination exceeded the {MAX_PAGINATION_SECONDS:g}s time budget for repository={repository}"
                     )
                 token = next_token
         except requests.HTTPError as exc:

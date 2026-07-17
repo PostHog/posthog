@@ -404,6 +404,22 @@ class TestGetRowsRepositoryFanout:
         with pytest.raises(SonatypeNexusPaginationError):
             list(get_rows("https://n.example.com", "u", "p", "components", mock.MagicMock(), manager))
 
+    @mock.patch(f"{_MODULE}.MAX_PAGINATION_SECONDS", -1)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_pagination_time_budget_raises_on_terminal_pages(self, mock_session):
+        # A host that slow-drips a single terminal page (no continuation token) per repository
+        # must still trip the cumulative deadline — the check runs after every response, not only
+        # before continuing to a next page, so terminal pages can't bypass it across many repos.
+        mock_session.return_value.get.side_effect = [
+            _response(_REPOSITORIES),
+            _response({"items": [{"id": "d1"}], "continuationToken": None}),
+            _response({"items": [{"id": "m1"}], "continuationToken": None}),
+        ]
+
+        manager = _make_manager()
+        with pytest.raises(SonatypeNexusPaginationError):
+            list(get_rows("https://n.example.com", "u", "p", "components", mock.MagicMock(), manager))
+
 
 class TestSonatypeNexusSource:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
