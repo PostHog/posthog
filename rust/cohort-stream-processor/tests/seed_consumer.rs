@@ -1,42 +1,44 @@
-//! End-to-end tests for the cascade transport against a **real** Kafka broker: the keyed
-//! `cohort_cascade_events` produce, the assignment-mirrored cascade follower, and the worker-affined
-//! re-evaluation of referrer cohorts — wired like `main.rs` with the gate on.
+//! End-to-end tests for the backfill seed path against a **real** Kafka broker: the keyed
+//! `cohort_stream_seed_events` produce, the assignment-mirrored seed follower (5-topic
+//! co-assignment), the apply fence, and the worker-affined tile apply with `origin` tagging —
+//! wired like `main.rs` with the seed gate on.
 //!
 //! `#[ignore]`d by default (group joins and `incremental_assign` semantics the in-process
-//! `MockCluster` does not exercise faithfully). All topics are created with the production partition
-//! count (64) because the routing invariant is the thing under test. Run against a local stack
-//! serially:
+//! `MockCluster` does not exercise faithfully). All topics are created with the production
+//! partition count (64) because the routing invariant is the thing under test. Run against a local
+//! stack serially:
 //!
 //! ```sh
-//! cargo test -p cohort-stream-processor --test cascade_consumer -- --ignored --test-threads=1
+//! cargo test -p cohort-stream-processor --test seed_consumer -- --ignored --test-threads=1
 //! ```
-//!
-//! Each test deletes its topics on the way out via `with_topics_cleanup`.
 
 use std::collections::HashSet;
 use std::future::Future;
+use std::num::NonZeroU32;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use chrono_tz::UTC;
-use cohort_stream_processor::cascade::{first_cascade, CascadeMessage};
+use cohort_core::seed::{ClaimEpoch, ConditionHash, RunId, SChunkMs, SeedTile};
 use cohort_stream_processor::consumers::{
     CascadeRoute, CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer, MergeRoute,
-    TransferRoute,
+    SeedFollowerConsumer, TransferRoute,
 };
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFiltersBuilder, TeamId,
 };
 use cohort_stream_processor::partitions::{
-    merge_partition_key, partition_of, run_rebalance_worker, CohortConsumerContext, Follower,
-    FollowerSet, OffsetTracker, PartitionRouter, COHORT_PARTITION_COUNT,
+    merge_partition_key, partition_for, partition_of, run_rebalance_worker, CohortConsumerContext,
+    ConsumerPauser, Follower, FollowerSet, LiveWatermarks, OffsetTracker, PartitionPauser,
+    PartitionRouter, COHORT_PARTITION_COUNT,
 };
 use cohort_stream_processor::producer::{
-    CascadeSink, CohortMembershipChange, KafkaCascadeSink, KafkaMembershipSink,
-    KafkaStreamEventSink, KafkaTransferSink, MembershipSink, MembershipStatus, StreamEventSink,
-    TransferSink,
+    CascadeSink, ChangeOrigin, CohortMembershipChange, KafkaCascadeSink, KafkaMembershipSink,
+    KafkaSeedTileSink, KafkaStreamEventSink, KafkaTransferSink, MembershipSink, MembershipStatus,
+    SeedTileSink, StreamEventSink, TransferSink,
 };
+use cohort_stream_processor::stage1::bucket_tz::day_idx_in_tz;
 use cohort_stream_processor::store::{
     CohortStore, OffloadConfig, OffloadMode, StoreConfig, StoreHandle,
 };
@@ -60,45 +62,35 @@ use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 const TEAM: i32 = 7;
-const A_HASH: &str = "aaaaaaaaaaaaaaaa";
 const NUM_PARTITIONS: i32 = COHORT_PARTITION_COUNT as i32;
-const TS: &str = "2026-06-10 12:34:56.789000";
 const COMMIT_INTERVAL: Duration = Duration::from_millis(250);
 const RECV_TIMEOUT: Duration = Duration::from_millis(200);
+/// Effectively never: the idle probe must not open a fence behind an assertion's back.
+const PROBE_NEVER: Duration = Duration::from_secs(3_600);
 
 fn bootstrap_servers() -> String {
     std::env::var("KAFKA_HOSTS").unwrap_or_else(|_| "localhost:9092".to_string())
 }
 
-/// Cohort 2 (A): single `performed_event` on `$a`. Cohort 1 (B): pure cohort-ref to A.
-/// With the cascade gate on, B is `Stage2ComposableRef` — only a cascade from A can flip it,
-/// never its own event.
-fn cascade_catalog() -> CatalogHandle {
-    let a_leaf = json!({
-        "type": "behavioral", "value": "performed_event", "key": "$a",
+/// One single-leaf behavioral cohort sharing the tile's condition hash.
+fn seed_catalog() -> CatalogHandle {
+    let leaf = json!({
+        "type": "behavioral", "value": "performed_event", "key": "$pageview",
         "time_value": 7, "time_interval": "day",
-        "conditionHash": A_HASH,
-        "bytecode": ["_H", 1, 32, "$a", 32, "event", 1, 1, 11],
+        "conditionHash": "0123456789abcdef",
+        "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
     });
-    let ref_leaf = json!({ "type": "cohort", "value": 2, "negation": false });
     let mut builder = TeamFiltersBuilder::default();
-    builder
-        .add_cohort(
-            CohortId(2),
-            TeamId(TEAM),
-            &json!({ "properties": { "type": "AND", "values": [a_leaf] } }),
-        )
-        .expect("add cohort A");
     builder
         .add_cohort(
             CohortId(1),
             TeamId(TEAM),
-            &json!({ "properties": { "type": "AND", "values": [ref_leaf] } }),
+            &json!({ "properties": { "type": "AND", "values": [leaf] } }),
         )
-        .expect("add cohort B");
+        .expect("add cohort");
     CatalogHandle::from_catalog(FilterCatalog::from_teams([(
         TeamId(TEAM),
-        builder.freeze_with(UTC, true),
+        builder.freeze(UTC),
     )]))
 }
 
@@ -240,8 +232,8 @@ fn topic_message_count(topic: &str) -> i64 {
         .sum()
 }
 
-/// Read up to `expected` messages (all partitions from the beginning). Assigned explicitly — no group
-/// join, no commit.
+/// Read up to `expected` messages (all partitions from the beginning). Assigned explicitly — no
+/// group join, no commit.
 async fn consume_all(topic: &str, expected: usize, deadline: Duration) -> Vec<(i32, Vec<u8>)> {
     let consumer: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", bootstrap_servers())
@@ -287,14 +279,35 @@ fn part(person: Uuid) -> u16 {
     partition_of(TeamId(TEAM), &person, COHORT_PARTITION_COUNT) as u16
 }
 
-fn envelope(person: Uuid, event: &str, source_offset: i64) -> Vec<u8> {
+/// The seed group's committed next-offset for `partition`, read without joining the group.
+fn seed_group_committed(group: &str, topic: &str, partition: i32) -> Option<i64> {
+    let consumer: StreamConsumer = follower_client_config(group)
+        .create()
+        .expect("create committed-offset verifier");
+    let mut tpl = TopicPartitionList::new();
+    tpl.add_partition(topic, partition);
+    let committed = consumer
+        .committed_offsets(tpl, Duration::from_secs(10))
+        .ok()?;
+    committed
+        .elements_for_topic(topic)
+        .iter()
+        .find(|elem| elem.partition() == partition)
+        .and_then(|elem| match elem.offset() {
+            Offset::Offset(next) => Some(next),
+            _ => None,
+        })
+}
+
+/// A name-mismatched warm-up event: folds (advancing the watermark) without flipping anything.
+fn warm_envelope(person: Uuid, source_offset: i64) -> Vec<u8> {
     serde_json::to_vec(&json!({
         "team_id": TEAM,
         "person_id": person.to_string(),
         "distinct_id": "d",
         "uuid": Uuid::from_u128(0xE0_0000 + source_offset as u128).to_string(),
-        "event": event,
-        "timestamp": TS,
+        "event": "$warm",
+        "timestamp": "2026-06-10 12:34:56.789000",
         "properties": "{}",
         "person_properties": null,
         "elements_chain": null,
@@ -304,23 +317,36 @@ fn envelope(person: Uuid, event: &str, source_offset: i64) -> Vec<u8> {
     .expect("serialize envelope")
 }
 
-async fn produce_event(
-    producer: &FutureProducer,
-    topic: &str,
-    person: Uuid,
-    event: &str,
-    source_offset: i64,
-) {
+async fn produce_warm_event(producer: &FutureProducer, topic: &str, person: Uuid, offset: i64) {
     let key = merge_partition_key(TeamId(TEAM), &person);
-    let payload = envelope(person, event, source_offset);
-    let (partition, _offset) = producer
+    let payload = warm_envelope(person, offset);
+    let (partition, _) = producer
         .send(
             FutureRecord::to(topic).key(&key).payload(&payload),
             Timeout::After(Duration::from_secs(10)),
         )
         .await
-        .expect("produce event");
+        .expect("produce warm event");
     assert_eq!(partition as u16, part(person), "event must co-partition");
+}
+
+fn tile(person: Uuid, s_chunk_ms: i64) -> SeedTile {
+    SeedTile::new(
+        TeamId(TEAM),
+        person,
+        ConditionHash::parse("0123456789abcdef").unwrap(),
+        NonZeroU32::new(2).unwrap(),
+        day_idx_in_tz(chrono::Utc::now().timestamp_millis(), UTC),
+        SChunkMs(s_chunk_ms),
+        RunId(Uuid::from_u128(0xBF)),
+        ClaimEpoch(1),
+    )
+}
+
+/// Produce a tile through the production sink (the same keying the seeder and the re-key path use).
+async fn produce_tile(seed_sink: &KafkaSeedTileSink, produced: SeedTile) {
+    let acks = seed_sink.produce(vec![produced]).await;
+    assert!(acks.iter().all(Result::is_ok), "tile produce must ack");
 }
 
 fn open_store(dir: &TempDir) -> CohortStore {
@@ -336,16 +362,18 @@ struct Topics {
     merges: String,
     transfers: String,
     cascade: String,
+    seeds: String,
     shadow: String,
 }
 
 impl Topics {
     fn unique(suffix: &Uuid) -> Self {
         Self {
-            events: format!("cohort_stream_events_cascade_{suffix}"),
+            events: format!("cohort_stream_events_seed_{suffix}"),
             merges: format!("person_merge_events_{suffix}"),
             transfers: format!("cohort_merge_state_transfer_{suffix}"),
             cascade: format!("cohort_cascade_events_{suffix}"),
+            seeds: format!("cohort_stream_seed_events_{suffix}"),
             shadow: format!("cohort_membership_changed_{suffix}"),
         }
     }
@@ -356,12 +384,13 @@ impl Topics {
         }
     }
 
-    fn names(&self) -> [&str; 5] {
+    fn names(&self) -> [&str; 6] {
         [
             &self.events,
             &self.merges,
             &self.transfers,
             &self.cascade,
+            &self.seeds,
             &self.shadow,
         ]
     }
@@ -372,6 +401,7 @@ struct Groups {
     merges: String,
     transfers: String,
     cascade: String,
+    seeds: String,
 }
 
 impl Groups {
@@ -381,17 +411,19 @@ impl Groups {
             merges: format!("cohort-stream-merges-{suffix}"),
             transfers: format!("cohort-stream-merge-apply-{suffix}"),
             cascade: format!("cohort-stream-cascade-{suffix}"),
+            seeds: format!("cohort-stream-seeds-{suffix}"),
         }
     }
 }
 
-fn register_instance(manager: &mut Manager) -> [Handle; 4] {
+fn register_instance(manager: &mut Manager) -> [Handle; 5] {
     let options = || ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15));
     [
         manager.register("consumer", options()),
         manager.register("merge-follower", options()),
         manager.register("transfer-follower", options()),
         manager.register("cascade-follower", options()),
+        manager.register("seed-follower", options()),
     ]
 }
 
@@ -417,9 +449,10 @@ async fn spawn_instance(
     groups: &Groups,
     store: CohortStore,
     catalog: CatalogHandle,
-    handles: [Handle; 4],
+    handles: [Handle; 5],
+    fence_margin_ms: i64,
 ) -> Instance {
-    let [events_handle, merge_handle, transfer_handle, cascade_handle] = handles;
+    let [events_handle, merge_handle, transfer_handle, cascade_handle, seed_handle] = handles;
     let kafka_config = producer_kafka_config();
 
     let transfer_sink: Arc<dyn TransferSink> = Arc::new(
@@ -432,10 +465,15 @@ async fn spawn_instance(
             .await
             .expect("create re-key sink"),
     );
-    let cascade_sink = Arc::new(
+    let cascade_sink: Arc<dyn CascadeSink> = Arc::new(
         KafkaCascadeSink::new(&kafka_config, topics.cascade.clone())
             .await
             .expect("create cascade sink"),
+    );
+    let seed_tile_sink: Arc<dyn SeedTileSink> = Arc::new(
+        KafkaSeedTileSink::new(&kafka_config, topics.seeds.clone())
+            .await
+            .expect("create seed re-key sink"),
     );
     let membership_sink: Arc<dyn MembershipSink> = Arc::new(
         KafkaMembershipSink::new(&kafka_config, topics.shadow.clone())
@@ -452,19 +490,11 @@ async fn spawn_instance(
         stage2_orphan_gc_enabled: true,
         cascade_sink,
         cascade_tracker: Arc::new(OffsetTracker::new()),
-        cascade: CascadeConfig {
-            enabled: true,
-            depth_cap: 8,
-            fanout_cap: 1000,
-        },
+        cascade: CascadeConfig::default(),
         partition_count: COHORT_PARTITION_COUNT,
-        seed_tile_sink: Arc::new(cohort_stream_processor::producer::CaptureSeedTileSink::new()),
-        seed_tracker: Arc::new(
-            cohort_stream_processor::partitions::offset_tracker::OffsetTracker::new(),
-        ),
-        live_watermarks: Arc::new(
-            cohort_stream_processor::partitions::watermarks::LiveWatermarks::new(),
-        ),
+        seed_tile_sink,
+        seed_tracker: Arc::new(OffsetTracker::new()),
+        live_watermarks: Arc::new(LiveWatermarks::new()),
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(
@@ -498,10 +528,16 @@ async fn spawn_instance(
             .create()
             .expect("create cascade follower consumer"),
     );
+    let seeds_consumer: Arc<StreamConsumer> = Arc::new(
+        follower_client_config(&groups.seeds)
+            .create()
+            .expect("create seed follower consumer"),
+    );
     let followers = Arc::new(FollowerSet::new([
         Follower::new(merges_consumer.clone(), topics.merges.clone()),
         Follower::new(transfers_consumer.clone(), topics.transfers.clone()),
         Follower::new(cascade_consumer.clone(), topics.cascade.clone()),
+        Follower::new(seeds_consumer.clone(), topics.seeds.clone()),
     ]));
 
     let (context, rebalance_rx) = CohortConsumerContext::new(dispatcher.clone());
@@ -511,6 +547,7 @@ async fn spawn_instance(
     events_client
         .subscribe(&[topics.events.as_str()])
         .expect("subscribe events");
+    let events_client = Arc::new(events_client);
 
     let (command_tx, command_rx) = mpsc::unbounded_channel();
     let mut tasks = vec![tokio::spawn(run_rebalance_worker(
@@ -554,8 +591,28 @@ async fn spawn_instance(
     );
     tasks.push(tokio::spawn(cascade_follower.process()));
 
+    let seed_pauser: Arc<dyn PartitionPauser> = Arc::new(ConsumerPauser::new(
+        seeds_consumer.clone(),
+        topics.seeds.clone(),
+    ));
+    let seed_follower = SeedFollowerConsumer::new(
+        seeds_consumer,
+        topics.seeds.clone(),
+        events_client.clone(),
+        topics.events.clone(),
+        dispatcher.clone(),
+        seed_handle,
+        seed_pauser,
+        100,
+        RECV_TIMEOUT,
+        COMMIT_INTERVAL,
+        fence_margin_ms,
+        PROBE_NEVER,
+    );
+    tasks.push(tokio::spawn(seed_follower.process()));
+
     let events_consumer = CohortStreamEventsConsumer::new(
-        Arc::new(events_client),
+        events_client,
         topics.events.clone(),
         dispatcher.clone(),
         events_handle,
@@ -571,84 +628,18 @@ async fn spawn_instance(
     Instance { dispatcher, tasks }
 }
 
-/// Cascade produces must co-partition with `partition_of(team, person)` so a flip lands on the worker
-/// that owns the person's `cf_stage2` row.
+/// A tile lands on its owning worker via the 5-topic co-assignment, applies behind an open
+/// fence, emits a tagged change, and the seed group's commits reach the produced high-water mark.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
-async fn cascade_producer_co_partitions_with_events() {
-    let suffix = Uuid::new_v4();
-    let cascade_topic = format!("cascade_routing_{suffix}");
-    with_topics_cleanup(&[&cascade_topic], async {
-        create_topic(&cascade_topic, NUM_PARTITIONS).await;
-
-        let sink = KafkaCascadeSink::new(&producer_kafka_config(), cascade_topic.clone())
-            .await
-            .expect("create cascade sink");
-
-        let mut spread = HashSet::new();
-        let messages: Vec<CascadeMessage> = [2i32, 7, 42, 99]
-            .into_iter()
-            .flat_map(|team| {
-                (1..=24u128).map(move |n| {
-                    let person = Uuid::from_u128(((team as u128) << 64) | n);
-                    first_cascade(
-                        CohortMembershipChange {
-                            team_id: team,
-                            cohort_id: 91204,
-                            person_id: person.to_string(),
-                            last_updated: TS.to_string(),
-                            status: MembershipStatus::Entered,
-                            origin: None,
-                            run_id: None,
-                        },
-                        n as i64,
-                    )
-                })
-            })
-            .collect();
-        let total = messages.len();
-        let acks = sink.produce(messages).await;
-        assert!(acks.iter().all(Result::is_ok), "all cascade produces ack");
-
-        let on_wire = consume_all(&cascade_topic, total, Duration::from_secs(30)).await;
-        assert_eq!(on_wire.len(), total, "all produced cascades are readable");
-        for (partition, payload) in &on_wire {
-            let message: CascadeMessage = serde_json::from_slice(payload).unwrap();
-            let person = Uuid::parse_str(&message.change.person_id).unwrap();
-            assert_eq!(
-                *partition as u32,
-                partition_of(
-                    TeamId(message.change.team_id),
-                    &person,
-                    COHORT_PARTITION_COUNT
-                ),
-                "cascade for ({}, {person}) landed off its partition",
-                message.change.team_id,
-            );
-            spread.insert(*partition);
-        }
-        assert!(
-            spread.len() >= 16,
-            "{total} cascades should cover many partitions, got {}",
-            spread.len(),
-        );
-    })
-    .await;
-}
-
-/// One `$a` event flips A (cohort 2); the first-hop cascade re-evaluates B (cohort 1, a pure ref),
-/// which flips and emits an external change plus a depth-2 onward cascade.
-/// External bytes are exactly the five-key `CohortMembershipChange` shape.
-#[tokio::test]
-#[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
-async fn cascade_reevaluates_a_referrer_end_to_end() {
+async fn seed_tile_applies_on_the_owning_worker_and_commits_to_the_hwm() {
     let suffix = Uuid::new_v4();
     let topics = Topics::unique(&suffix);
     let groups = Groups::unique(&suffix);
     with_topics_cleanup(&topics.names(), async {
         topics.create().await;
 
-        let mut manager = Manager::builder("cascade-e2e-itest")
+        let mut manager = Manager::builder("seed-e2e-itest")
             .with_trap_signals(false)
             .build();
         let handles = register_instance(&mut manager);
@@ -660,8 +651,9 @@ async fn cascade_reevaluates_a_referrer_end_to_end() {
             &topics,
             &groups,
             open_store(&dir),
-            cascade_catalog(),
+            seed_catalog(),
             handles,
+            2_000,
         )
         .await;
         wait_for(
@@ -672,91 +664,138 @@ async fn cascade_reevaluates_a_referrer_end_to_end() {
         .await;
 
         let alice = Uuid::from_u128(0xA11CE);
+        // One folded live event opens the fence for the hour-old scan point.
         let producer = murmur2_producer();
-        produce_event(&producer, &topics.events, alice, "$a", 0).await;
+        produce_warm_event(&producer, &topics.events, alice, 0).await;
+
+        let seed_sink = KafkaSeedTileSink::new(&producer_kafka_config(), topics.seeds.clone())
+            .await
+            .expect("create test seed sink");
+        let s_chunk = chrono::Utc::now().timestamp_millis() - 3_600_000;
+        produce_tile(&seed_sink, tile(alice, s_chunk)).await;
 
         wait_for(
-            "both cohort flips on the shadow topic",
+            "the seeded flip on the shadow topic",
             Duration::from_secs(60),
-            || topic_message_count(&topics.shadow) == 2,
+            || topic_message_count(&topics.shadow) == 1,
         )
         .await;
-
-        let changes: Vec<CohortMembershipChange> =
-            consume_all(&topics.shadow, 2, Duration::from_secs(30))
-                .await
-                .iter()
-                .map(|(_, payload)| serde_json::from_slice(payload).expect("decode change"))
-                .collect();
-        let entered: HashSet<i32> = changes
-            .iter()
-            .filter(|c| c.person_id == alice.to_string() && c.status == MembershipStatus::Entered)
-            .map(|c| c.cohort_id)
-            .collect();
-        assert_eq!(
-            entered,
-            HashSet::from([1, 2]),
-            "A entered from the event and B entered from the cascade re-evaluation",
-        );
-
-        let (_, payload) = consume_all(&topics.shadow, 1, Duration::from_secs(10))
+        let (partition, payload) = consume_all(&topics.shadow, 1, Duration::from_secs(30))
             .await
             .into_iter()
             .next()
-            .expect("one external change");
-        let value: serde_json::Value = serde_json::from_slice(&payload).unwrap();
-        let mut keys: Vec<&str> = value
-            .as_object()
-            .unwrap()
-            .keys()
-            .map(String::as_str)
-            .collect();
-        keys.sort_unstable();
+            .expect("one membership change");
+        let change: CohortMembershipChange = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(change.person_id, alice.to_string());
+        assert_eq!(change.cohort_id, 1);
+        assert_eq!(change.status, MembershipStatus::Entered);
+        assert_eq!(change.origin, Some(ChangeOrigin::Seed));
+        assert_eq!(change.run_id, Some(RunId(Uuid::from_u128(0xBF))));
+        // The shadow topic is person-id keyed, so it does not co-partition with the owning
+        // worker; only the keying is assertable.
         assert_eq!(
-            keys,
-            vec![
-                "cohort_id",
-                "last_updated",
-                "person_id",
-                "status",
-                "team_id"
-            ],
-            "external topic carries exactly the five-key shape, no cascade fields",
+            partition as u32,
+            partition_for(&alice.to_string(), COHORT_PARTITION_COUNT),
+            "the change is person-id keyed on the shadow topic",
         );
 
-        // Cascade topic carries depth-1 (A) and depth-2 (B) hops, both keyed on alice's partition.
+        // Run-completion precondition: committed ⇒ durably applied, reaching the produced HWM.
+        let seed_partition = part(alice) as i32;
         wait_for(
-            "the depth-1 and depth-2 cascades on the wire",
-            Duration::from_secs(60),
-            || topic_message_count(&topics.cascade) == 2,
+            "the seed group's committed offset to reach the produced HWM",
+            Duration::from_secs(30),
+            || seed_group_committed(&groups.seeds, &topics.seeds, seed_partition) == Some(1),
         )
         .await;
-        let cascades: Vec<(i32, CascadeMessage)> =
-            consume_all(&topics.cascade, 2, Duration::from_secs(30))
-                .await
-                .iter()
-                .map(|(p, payload)| (*p, serde_json::from_slice(payload).expect("decode cascade")))
-                .collect();
-        for (partition, message) in &cascades {
-            assert_eq!(
-                *partition as u16,
-                part(alice),
-                "cascade keyed on alice's partition"
-            );
-            assert_eq!(
-                message.originating_cohort_id, 2,
-                "the chain originated at A"
-            );
-        }
-        let by_cohort: HashSet<(i32, u8)> = cascades
-            .iter()
-            .map(|(_, m)| (m.change.cohort_id, m.depth))
-            .collect();
+
+        shutdown.request_shutdown();
+        instance.join().await;
+    })
+    .await;
+}
+
+/// A tile scanned "now" stays fenced until live consumption flows past `s_chunk + margin`.
+#[tokio::test]
+#[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
+async fn fence_holds_a_fresh_tile_until_live_consumption_passes_its_scan_point() {
+    let suffix = Uuid::new_v4();
+    let topics = Topics::unique(&suffix);
+    let groups = Groups::unique(&suffix);
+    with_topics_cleanup(&topics.names(), async {
+        topics.create().await;
+
+        let mut manager = Manager::builder("seed-fence-itest")
+            .with_trap_signals(false)
+            .build();
+        let handles = register_instance(&mut manager);
+        let shutdown = handles[0].clone();
+        let _monitor = manager.monitor_background();
+
+        let fence_margin_ms = 5_000;
+        let dir = TempDir::new().unwrap();
+        let instance = spawn_instance(
+            &topics,
+            &groups,
+            open_store(&dir),
+            seed_catalog(),
+            handles,
+            fence_margin_ms,
+        )
+        .await;
+        wait_for(
+            "the consumer to own every partition",
+            Duration::from_secs(30),
+            || instance.owned().len() == NUM_PARTITIONS as usize,
+        )
+        .await;
+
+        let alice = Uuid::from_u128(0xA11CE);
+        let seed_sink = KafkaSeedTileSink::new(&producer_kafka_config(), topics.seeds.clone())
+            .await
+            .expect("create test seed sink");
+        let s_chunk = chrono::Utc::now().timestamp_millis();
+        produce_tile(&seed_sink, tile(alice, s_chunk)).await;
+
+        // No watermark at all: fail-closed, nothing applies, nothing commits.
+        tokio::time::sleep(Duration::from_secs(3)).await;
         assert_eq!(
-            by_cohort,
-            HashSet::from([(2, 1), (1, 2)]),
-            "first hop is A at depth 1, the onward hop is B at depth 2",
+            topic_message_count(&topics.shadow),
+            0,
+            "the fenced tile must not apply",
         );
+        assert_eq!(
+            seed_group_committed(&groups.seeds, &topics.seeds, part(alice) as i32),
+            None,
+            "a held tile's offset must never commit",
+        );
+
+        // A live event folded before `s_chunk + margin` has elapsed still leaves the fence closed.
+        let producer = murmur2_producer();
+        produce_warm_event(&producer, &topics.events, alice, 0).await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert_eq!(
+            topic_message_count(&topics.shadow),
+            0,
+            "a watermark below s_chunk + margin keeps the fence closed",
+        );
+
+        // Past s_chunk + margin, a newer live fold opens the fence for the held tile.
+        tokio::time::sleep(Duration::from_millis(fence_margin_ms as u64 + 1_500)).await;
+        produce_warm_event(&producer, &topics.events, alice, 1).await;
+        wait_for(
+            "the fence to open and the held tile to apply",
+            Duration::from_secs(60),
+            || topic_message_count(&topics.shadow) == 1,
+        )
+        .await;
+        let (_, payload) = consume_all(&topics.shadow, 1, Duration::from_secs(30))
+            .await
+            .into_iter()
+            .next()
+            .expect("one membership change");
+        let change: CohortMembershipChange = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(change.origin, Some(ChangeOrigin::Seed));
+        assert_eq!(change.person_id, alice.to_string());
 
         shutdown.request_shutdown();
         instance.join().await;
