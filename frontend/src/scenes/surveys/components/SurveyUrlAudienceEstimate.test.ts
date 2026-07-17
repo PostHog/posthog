@@ -18,11 +18,6 @@ describe('getUrlAudienceEstimateParams', () => {
             expected: { url: '/pricing', operator: PropertyOperator.IContains },
         },
         {
-            name: 'not contains',
-            conditions: { url: '/pricing', urlMatchType: SurveyMatchType.NotIContains },
-            expected: { url: '/pricing', operator: PropertyOperator.NotIContains },
-        },
-        {
             name: 'exact with a full URL',
             conditions: { url: 'https://example.com/pricing', urlMatchType: SurveyMatchType.Exact },
             expected: { url: 'https://example.com/pricing', operator: PropertyOperator.Exact },
@@ -33,29 +28,39 @@ describe('getUrlAudienceEstimateParams', () => {
             expected: null,
         },
         {
-            name: 'is not',
-            conditions: { url: 'https://example.com/admin', urlMatchType: SurveyMatchType.IsNot },
-            expected: { url: 'https://example.com/admin', operator: PropertyOperator.IsNot },
-        },
-        {
             name: 'valid regex',
             conditions: { url: '^https://example.com/docs/.*', urlMatchType: SurveyMatchType.Regex },
             expected: { url: '^https://example.com/docs/.*', operator: PropertyOperator.Regex },
         },
         {
-            name: 'invalid regex',
+            name: 'regex invalid everywhere',
             conditions: { url: '(unclosed', urlMatchType: SurveyMatchType.Regex },
             expected: null,
         },
         {
-            name: 'invalid not-regex',
-            conditions: { url: '(unclosed', urlMatchType: SurveyMatchType.NotRegex },
+            name: 'regex valid in JS but not in RE2 (lookahead) never queries',
+            conditions: { url: '^https://example\\.com/(?!admin)', urlMatchType: SurveyMatchType.Regex },
             expected: null,
         },
         {
             name: 'url is trimmed',
             conditions: { url: '  /pricing  ', urlMatchType: SurveyMatchType.Contains },
             expected: { url: '/pricing', operator: PropertyOperator.IContains },
+        },
+        {
+            name: 'negative operators show no estimate: is not',
+            conditions: { url: 'https://example.com/admin', urlMatchType: SurveyMatchType.IsNot },
+            expected: null,
+        },
+        {
+            name: 'negative operators show no estimate: not contains',
+            conditions: { url: '/pricing', urlMatchType: SurveyMatchType.NotIContains },
+            expected: null,
+        },
+        {
+            name: 'negative operators show no estimate: not regex',
+            conditions: { url: '^https://example.com/docs/.*', urlMatchType: SurveyMatchType.NotRegex },
+            expected: null,
         },
     ])('$name', ({ conditions, expected }) => {
         expect(getUrlAudienceEstimateParams(conditions)).toEqual(expected)

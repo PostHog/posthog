@@ -1,10 +1,12 @@
 import { useValues } from 'kea'
+import { RE2JS } from 're2js'
 import { useEffect, useState } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { cn } from 'lib/utils/css-classes'
+import { uuid } from 'lib/utils/dom'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { HogQLQueryString } from '~/queries/utils'
@@ -20,14 +22,13 @@ const URL_AUDIENCE_ESTIMATE_TAGS = {
     name: 'survey_url_audience_estimate' as const,
 }
 
-// SurveyMatchType members alias PropertyOperator values, but the enums are distinct to TypeScript
-const SURVEY_MATCH_TYPE_TO_PROPERTY_OPERATOR: Record<SurveyMatchType, PropertyOperator> = {
+// Positive match types only: an estimate for a negative condition ("doesn't contain ...") counts
+// nearly everyone, which costs a full scan for a number that misleads more than it informs.
+// SurveyMatchType members alias PropertyOperator values, but the enums are distinct to TypeScript.
+const SURVEY_MATCH_TYPE_TO_PROPERTY_OPERATOR: Partial<Record<SurveyMatchType, PropertyOperator>> = {
     [SurveyMatchType.Exact]: PropertyOperator.Exact,
-    [SurveyMatchType.IsNot]: PropertyOperator.IsNot,
     [SurveyMatchType.Contains]: PropertyOperator.IContains,
-    [SurveyMatchType.NotIContains]: PropertyOperator.NotIContains,
     [SurveyMatchType.Regex]: PropertyOperator.Regex,
-    [SurveyMatchType.NotRegex]: PropertyOperator.NotRegex,
 }
 
 type UrlAudienceEstimate =
@@ -44,18 +45,24 @@ export function getUrlAudienceEstimateParams(
         return null
     }
     const matchType = conditions?.urlMatchType || SurveyMatchType.Contains
+    const operator = SURVEY_MATCH_TYPE_TO_PROPERTY_OPERATOR[matchType]
+    if (!operator) {
+        return null
+    }
     // $current_url always includes protocol and host, so an exact match against a bare path never matches
     if (matchType === SurveyMatchType.Exact && url.startsWith('/')) {
         return null
     }
-    if (matchType === SurveyMatchType.Regex || matchType === SurveyMatchType.NotRegex) {
+    if (matchType === SurveyMatchType.Regex) {
+        // The estimate runs in ClickHouse, which evaluates RE2 — JS-only syntax (e.g. lookaheads)
+        // can be a valid survey condition yet would only ever produce a failing query here
         try {
-            new RegExp(url)
+            RE2JS.compile(url)
         } catch {
             return null
         }
     }
-    return { url, operator: SURVEY_MATCH_TYPE_TO_PROPERTY_OPERATOR[matchType] }
+    return { url, operator }
 }
 
 /** Estimated unique users who viewed pages matching the survey's URL condition in the last
@@ -75,10 +82,13 @@ export function SurveyUrlAudienceEstimate({ className }: { className?: string })
             return
         }
 
-        const abortController = new AbortController()
-        const timeout = window.setTimeout(async () => {
-            setEstimate({ status: 'loading' })
+        // Show progress immediately so a stale count never lingers through the debounce window
+        setEstimate({ status: 'loading' })
 
+        const abortController = new AbortController()
+        const clientQueryId = uuid()
+        let queryInFlight = false
+        const timeout = window.setTimeout(async () => {
             try {
                 const query = `
                     SELECT uniq(person_id)
@@ -88,7 +98,9 @@ export function SurveyUrlAudienceEstimate({ className }: { className?: string })
                         AND {filters}
                 ` as HogQLQueryString
 
+                queryInFlight = true
                 const response = await api.queryHogQL<[[number]]>(query, URL_AUDIENCE_ESTIMATE_TAGS, {
+                    clientQueryId,
                     requestOptions: { signal: abortController.signal },
                     queryParams: {
                         filters: {
@@ -103,9 +115,12 @@ export function SurveyUrlAudienceEstimate({ className }: { className?: string })
                         },
                     },
                 })
+                queryInFlight = false
 
-                setEstimate({ status: 'loaded', count: response.results?.[0]?.[0] ?? 0 })
+                const count = response.results?.[0]?.[0]
+                setEstimate(typeof count === 'number' ? { status: 'loaded', count } : { status: 'error' })
             } catch (error) {
+                queryInFlight = false
                 if ((error as { name?: string }).name !== 'AbortError') {
                     setEstimate({ status: 'error' })
                 }
@@ -115,6 +130,10 @@ export function SurveyUrlAudienceEstimate({ className }: { className?: string })
         return () => {
             window.clearTimeout(timeout)
             abortController.abort()
+            if (queryInFlight) {
+                // Aborting only drops the connection — also cancel the ClickHouse query server-side
+                void api.insights.cancelQuery(clientQueryId)
+            }
         }
     }, [url, operator])
 
@@ -122,26 +141,34 @@ export function SurveyUrlAudienceEstimate({ className }: { className?: string })
         return null
     }
 
+    let content: JSX.Element
     if (estimate.status === 'loading') {
-        return (
+        content = (
             <p className={cn('text-xs text-muted flex items-center gap-1', className)}>
                 <Spinner className="text-xs" /> Estimating matching users...
             </p>
         )
-    }
-
-    if (estimate.status === 'error') {
-        return (
+    } else if (estimate.status === 'error') {
+        content = (
             <p className={cn('text-xs text-muted', className)}>
                 Unable to estimate matching users for this URL condition.
             </p>
         )
+    } else if (estimate.count === 0) {
+        content = (
+            <p className={cn('text-xs text-muted', className)}>
+                No pageviews matched this URL condition in the last {URL_AUDIENCE_ESTIMATE_DAYS} days. Double-check the
+                pattern if you expected matches.
+            </p>
+        )
+    } else {
+        content = (
+            <p className={cn('text-xs text-muted', className)}>
+                About {humanFriendlyNumber(estimate.count)} unique {estimate.count === 1 ? 'user' : 'users'} viewed
+                matching URLs in the last {URL_AUDIENCE_ESTIMATE_DAYS} days.
+            </p>
+        )
     }
 
-    return (
-        <p className={cn('text-xs text-muted', className)}>
-            About {humanFriendlyNumber(estimate.count)} unique {estimate.count === 1 ? 'user' : 'users'} viewed matching
-            URLs in the last {URL_AUDIENCE_ESTIMATE_DAYS} days.
-        </p>
-    )
+    return <div aria-live="polite">{content}</div>
 }
