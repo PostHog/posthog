@@ -86,6 +86,31 @@ pub struct ProcessingConfig {
     #[envconfig(default = "60000")]
     pub process_slow_log_threshold_ms: u64,
 
+    /// Bounded retries for the /process pipeline when it fails with a transient
+    /// database error — a connection reset or one severed mid-query, surfacing as
+    /// `expected to read N bytes, got 0 bytes at EOF`. The shared pool's
+    /// `test_before_acquire` recycles connections that are already dead when acquired,
+    /// but a connection severed after that health check (Postgres failover, restart,
+    /// pgbouncer cycling a backend) still fails the in-flight query. Re-running the
+    /// pipeline picks up a fresh connection; the heavy resolution work is served from
+    /// caches warmed by the failed attempt, so the replay is cheap. `0` disables
+    /// retries; the first attempt still runs.
+    #[envconfig(from = "CYMBAL_PROCESS_DB_MAX_RETRIES", default = "2")]
+    pub process_db_max_retries: u32,
+
+    /// Initial backoff between /process DB retries, in milliseconds. Each attempt
+    /// doubles the wait (capped at `CYMBAL_PROCESS_DB_RETRY_MAX_BACKOFF_MS`), plus up
+    /// to ~50% jitter so a fleet of pods doesn't retry in lockstep after a shared
+    /// database blip.
+    #[envconfig(from = "CYMBAL_PROCESS_DB_RETRY_BACKOFF_MS", default = "50")]
+    pub process_db_retry_backoff_ms: u64,
+
+    /// Upper bound on the /process DB retry backoff window, in milliseconds. Kept well
+    /// under the caller's request timeout so an in-process retry finishes before the
+    /// caller gives up and retries the whole batch itself.
+    #[envconfig(from = "CYMBAL_PROCESS_DB_RETRY_MAX_BACKOFF_MS", default = "500")]
+    pub process_db_retry_max_backoff_ms: u64,
+
     #[envconfig(default = "300")]
     pub team_cache_ttl_secs: u64,
 
