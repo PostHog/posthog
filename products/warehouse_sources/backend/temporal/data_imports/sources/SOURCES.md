@@ -109,6 +109,7 @@ the row lists both.
 | callrail                         | HTTP                        | requests                                                        | ✅                          |
 | campaign_monitor                 | HTTP                        | requests                                                        | ✅                          |
 | campayn                          | HTTP                        | requests                                                        | ✅                          |
+| campfire                         | HTTP                        | requests                                                        | ✅                          |
 | canny                            | HTTP                        | requests                                                        | ✅                          |
 | capsule_crm                      | HTTP                        | requests                                                        | ✅                          |
 | care_quality_commission          | HTTP                        | requests                                                        | ✅                          |
@@ -117,6 +118,7 @@ the row lists both.
 | chargedesk                       | HTTP                        | requests                                                        | ✅                          |
 | chargify                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | charthop                         | HTTP                        | requests                                                        | ✅                          |
+| chatwoot                         | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | checkmarx                        | HTTP                        | requests                                                        | ✅                          |
 | checkout_com                     | HTTP                        | requests                                                        | ✅                          |
 | churnkey                         | HTTP                        | requests                                                        | ✅                          |
@@ -152,6 +154,7 @@ the row lists both.
 | convertkit                       | HTTP                        | requests                                                        | ✅                          |
 | convex                           | HTTP                        | requests                                                        | ✅                          |
 | copper                           | HTTP                        | requests                                                        | ✅                          |
+| coralogix                        | HTTP                        | requests                                                        | ✅                          |
 | coupa                            | HTTP                        | requests                                                        | ✅                          |
 | coveralls                        | HTTP                        | requests                                                        | ✅                          |
 | crates_io                        | HTTP                        | requests                                                        | ✅                          |
@@ -194,6 +197,7 @@ the row lists both.
 | elasticemail                     | HTTP                        | requests                                                        | ✅                          |
 | elasticsearch                    | HTTP                        | requests                                                        | ✅                          |
 | emailoctopus                     | HTTP                        | requests                                                        | ✅                          |
+| env0                             | HTTP                        | requests                                                        | ✅                          |
 | eventbrite                       | HTTP                        | requests                                                        | ✅                          |
 | eventee                          | HTTP                        | requests                                                        | ✅                          |
 | eventzilla                       | HTTP                        | requests                                                        | ✅                          |
@@ -283,6 +287,7 @@ the row lists both.
 | jobnimbus                        | HTTP                        | requests                                                        | ✅                          |
 | jotform                          | HTTP                        | requests                                                        | ✅                          |
 | judgeme_reviews                  | HTTP                        | requests                                                        | ✅                          |
+| jumpcloud                        | HTTP                        | requests                                                        | ✅                          |
 | justcall                         | HTTP                        | requests                                                        | ✅                          |
 | justsift                         | HTTP                        | requests                                                        | ✅                          |
 | k6_cloud                         | HTTP                        | requests                                                        | ✅                          |
@@ -473,6 +478,7 @@ the row lists both.
 | snowplow                         | HTTP                        | requests                                                        | ✅                          |
 | snyk                             | HTTP                        | requests                                                        | ✅                          |
 | solarwinds_service_desk          | HTTP                        | requests                                                        | ✅                          |
+| sonar_cloud                      | HTTP                        | requests                                                        | ✅                          |
 | sonarqube                        | HTTP                        | requests                                                        | ✅                          |
 | spacelift                        | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | sparkpost                        | HTTP                        | requests                                                        | ✅                          |
@@ -480,6 +486,7 @@ the row lists both.
 | squadcast                        | HTTP                        | requests                                                        | ✅                          |
 | square                           | HTTP                        | requests                                                        | ✅                          |
 | squarespace                      | HTTP                        | requests                                                        | ✅                          |
+| statuscake                       | HTTP                        | requests                                                        | ✅                          |
 | statuspage                       | HTTP                        | requests                                                        | ✅                          |
 | stigg                            | HTTP                        | requests                                                        | ✅                          |
 | stripe                           | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
@@ -492,6 +499,7 @@ the row lists both.
 | taboola                          | HTTP                        | requests                                                        | ✅                          |
 | tailscale                        | HTTP                        | requests                                                        | ✅                          |
 | tavus                            | HTTP                        | requests                                                        | ✅                          |
+| tawk_to                          | HTTP                        | requests                                                        | ✅                          |
 | teamcity                         | HTTP                        | requests                                                        | ✅                          |
 | teamtailor                       | HTTP                        | requests                                                        | ✅                          |
 | teamwork                         | HTTP                        | requests                                                        | ✅                          |
@@ -630,11 +638,9 @@ doesn't conflict with concurrent PRs.
 - browse_ai
 - cal_com
 - campaign_manager_360
-- campfire
 - captain_data
 - cart_com
 - castor_edc
-- chatwoot
 - chift
 - chorus
 - cin7
@@ -649,7 +655,6 @@ doesn't conflict with concurrent PRs.
 - codecov
 - constant_contact
 - copper
-- coralogix
 - cosmosdb
 - couchbase
 - criteo
@@ -679,7 +684,6 @@ doesn't conflict with concurrent PRs.
 - eloqua
 - employment_hero
 - encharge
-- env0
 - expensify
 - facebook_pages
 - fastbill
@@ -752,7 +756,6 @@ doesn't conflict with concurrent PRs.
 - jfrog_artifactory
 - jobber
 - judgeme_reviews
-- jumpcloud
 - justsift
 - kafka
 - kajabi
@@ -851,6 +854,7 @@ doesn't conflict with concurrent PRs.
 - primetric
 - productive
 - prompting_company
+- promptwatch
 - qdrant
 - qonto
 - qualtrics
@@ -919,14 +923,12 @@ doesn't conflict with concurrent PRs.
 - smartengage
 - smartwaiver
 - solarwinds_service_desk
-- sonar_cloud
 - sonatype_nexus
 - sourcegraph
 - spacelift
 - spotify_ads
 - spotlercrm
 - statsig
-- statuscake
 - stockdata
 - strava
 - streamelements
@@ -940,7 +942,6 @@ doesn't conflict with concurrent PRs.
 - swonkie
 - synthesia
 - systeme
-- tawk_to
 - teachable
 - telli
 - tempo

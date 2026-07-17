@@ -54,6 +54,11 @@ class EvidenceRef:
         return self.type == EvidenceType.INSIGHT
 
     @property
+    def citation(self) -> dict[str, str]:
+        """Structured citation the frontend renders directly — no client-side parsing of the ref."""
+        return {"type": self.type.value, "ref": self.ref, "label": self.label, "url": self.url}
+
+    @property
     def metric_ref(self) -> dict[str, str] | None:
         """This ref's contribution to an opportunity's metric_ref, when it is the backing insight."""
         return {"insight_short_id": self.ref} if self.is_insight else None
