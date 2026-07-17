@@ -371,20 +371,9 @@ def test_retry_on_transient_api_error_bubbles_network_error_after_max_retries(er
         assert fn.call_count == 10
 
 
-def test_google_sheets_source_retries_transient_error_on_data_reads():
-    """A transient 5xx on the cell-reading calls (`get_all_values`/`get_all_records`)
-    must be retried, not surfaced on the first occurrence. These reads issue their own
-    Sheets API requests separate from worksheet acquisition, so they need the same
-    backoff — otherwise a "[503]: The service is currently unavailable." blip fails the
-    sync."""
+def _rows_from_source(mock_worksheet: mock.MagicMock) -> list[dict[str, Any]]:
+    """Drive `google_sheets_source` against a mocked worksheet and return the yielded records."""
     config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
-
-    mock_worksheet = mock.MagicMock()
-    # First header read hits a transient 503, then succeeds on retry.
-    mock_worksheet.get_all_values.side_effect = [_api_error(503), [["id"]]]
-    # The data read also hits a transient 503 once before returning rows.
-    mock_worksheet.get_all_records.side_effect = [_api_error(503), [{"id": 1}]]
-
     with (
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.get_schemas",
@@ -397,36 +386,72 @@ def test_google_sheets_source_retries_transient_error_on_data_reads():
         mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.time"),
     ):
         response = google_sheets_source(config, "sheet1", db_incremental_field_last_value=None)
-        list(cast(Iterable[Any], response.items()))
+        tables = list(cast(Iterable[Any], response.items()))
 
-    assert mock_worksheet.get_all_values.call_count == 2
-    assert mock_worksheet.get_all_records.call_count == 2
+    return [record for table in tables for record in table.to_pylist()]
+
+
+def test_google_sheets_source_retries_transient_error_on_data_read():
+    """A transient 5xx on the cell-reading call must be retried, not surfaced on the first
+    occurrence. The data read issues its own Sheets API request separate from worksheet
+    acquisition, so it needs the same backoff — otherwise a "[503]: The service is currently
+    unavailable." blip fails the sync."""
+    mock_worksheet = mock.MagicMock()
+    mock_worksheet.get_all_values.side_effect = [
+        [["id"]],  # header read (`get_all_values("1:1")`) succeeds
+        _api_error(503),  # data read hits a transient 503...
+        [["id"], ["1"]],  # ...then succeeds on retry
+    ]
+
+    assert _rows_from_source(mock_worksheet) == [{"id": 1}]
+    assert mock_worksheet.get_all_values.call_count == 3
 
 
 def test_google_sheets_source_reads_blank_cells_as_null():
-    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
-
+    """Blank cells must import as null, not empty string, so numeric columns with gaps keep their
+    numeric type instead of being coerced to text."""
     mock_worksheet = mock.MagicMock()
-    mock_worksheet.get_all_values.return_value = [["id", "NumericColumnWithBlanks"]]
-    mock_worksheet.get_all_records.return_value = [
+    mock_worksheet.get_all_values.return_value = [
+        ["id", "NumericColumnWithBlanks"],
+        ["1", "1.5"],
+        ["2", ""],
+    ]
+
+    assert _rows_from_source(mock_worksheet) == [
         {"id": 1, "NumericColumnWithBlanks": 1.5},
         {"id": 2, "NumericColumnWithBlanks": None},
     ]
 
-    with (
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.get_schemas",
-            return_value=[("sheet1", 123)],
-        ),
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets._get_worksheet",
-            return_value=mock_worksheet,
-        ),
-    ):
-        response = google_sheets_source(config, "sheet1", db_incremental_field_last_value=None)
-        list(cast(Iterable[Any], response.items()))
 
-    mock_worksheet.get_all_records.assert_called_once_with(default_blank=None)
+@pytest.mark.parametrize(
+    "grid,expected",
+    [
+        pytest.param(
+            [["id", "", "name"], ["1", "x", "Ann"]],
+            [{"id": 1, "column_2": "x", "name": "Ann"}],
+            id="blank_header_cell",
+        ),
+        pytest.param(
+            [["id", "id"], ["1", "2"]],
+            [{"id": 1, "column_2": 2}],
+            id="exact_duplicate_header",
+        ),
+        pytest.param(
+            [["年齢", "業界経験年数"], ["30", "5"]],
+            [{"年齢": 30, "業界経験年数": 5}],
+            id="distinct_non_latin_headers",
+        ),
+    ],
+)
+def test_google_sheets_source_tolerates_malformed_headers(grid, expected):
+    """Blank/duplicate header cells used to raise a deterministic GSpreadException out of
+    `get_all_records`, breaking the sync entirely. Read the raw grid instead and keep every column:
+    blank/duplicate cells get a deterministic positional name and no data is dropped. Distinct
+    non-Latin headers keep their raw keys here and are disambiguated downstream."""
+    mock_worksheet = mock.MagicMock()
+    mock_worksheet.get_all_values.return_value = grid
+
+    assert _rows_from_source(mock_worksheet) == expected
 
 
 @pytest.mark.parametrize(
@@ -509,6 +534,10 @@ def test_assert_unique_normalized_column_names_raises_on_normalized_collision(he
         pytest.param(["id", "", "name"], id="blank_cells_ignored"),
         # Exact duplicates are left to gspread's own "contains duplicates" check.
         pytest.param(["id", "id"], id="exact_duplicate"),
+        # Non-Latin headers all collapse to the same placeholder, but the user can't rename them
+        # into distinct Latin names — downstream normalization disambiguates them, so the guard
+        # must not dead-end the sync here.
+        pytest.param(["年齢", "業界経験年数"], id="distinct_non_latin"),
     ],
 )
 def test_assert_unique_normalized_column_names_allows_valid_headers(headers):

@@ -1,3 +1,4 @@
+import re
 import time
 import random
 from collections.abc import Callable
@@ -10,6 +11,7 @@ import requests
 from cachetools import Cache, TTLCache, cached
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
+from gspread.utils import numericise_all, to_records
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -81,6 +83,18 @@ _SPREADSHEET_NOT_FOUND_MESSAGE = (
 
 T = TypeVar("T")
 
+_RE_LATIN_ALPHANUMERIC = re.compile(r"[a-zA-Z0-9]")
+
+
+def _has_normalizable_content(header: str) -> bool:
+    """Whether a header has any Latin letters/digits to build a column name from.
+
+    `NamingConvention` strips every non-ASCII character, so a header made only of non-Latin
+    script (e.g. Japanese "年齢") collapses to the same placeholder as any other such header.
+    Those collisions can't be resolved by renaming — there's nothing Latin to change — so the
+    guard skips them and lets downstream column-name disambiguation give them distinct names."""
+    return bool(_RE_LATIN_ALPHANUMERIC.search(header))
+
 
 def _assert_unique_normalized_column_names(headers: list[str]) -> None:
     """Fail early when two header cells collapse to the same column name.
@@ -90,10 +104,13 @@ def _assert_unique_normalized_column_names(headers: list[str]) -> None:
     same column. gspread only rejects *exact* duplicate headers, so these near-duplicates slip past it
     and fail much later with an opaque "duplicate column name" deep in table creation, after the sync
     has already started. Detect the collision up front and raise an actionable message naming the
-    offending headers instead. Exact duplicates are left to gspread's own check."""
+    offending headers instead. Exact duplicates are left to gspread's own check.
+
+    Headers with no Latin content are exempt: the user can't rename them into distinct names, and
+    downstream normalization already disambiguates them, so raising here would only dead-end the sync."""
     seen: dict[str, str] = {}
     for header in headers:
-        if not header or not header.strip():
+        if not header or not header.strip() or not _has_normalizable_content(header):
             continue
         normalized = NamingConvention.normalize_identifier(header)
         previous = seen.get(normalized)
@@ -187,6 +204,46 @@ def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet
     return _retry_on_transient_api_error(execute)
 
 
+def _sanitize_record_headers(headers: list[str]) -> list[str]:
+    """Return column names safe to build records from, tolerating blank/duplicate header cells.
+
+    gspread's `get_all_records` requires every header cell to be unique and non-empty and aborts
+    otherwise. Blank cells and exact-duplicate headers also collapse when zipped into a record dict,
+    silently dropping a column's data. Keep the first occurrence of each header untouched (so working
+    column names never change) and give blank cells or repeat occurrences a deterministic positional
+    name so no column is dropped and the sync can proceed. Headers that merely normalize to the same
+    identifier (e.g. two non-Latin headers) stay distinct here and are disambiguated downstream."""
+    seen: set[str] = set()
+    sanitized: list[str] = []
+    for index, header in enumerate(headers):
+        if not header or not header.strip() or header in seen:
+            name = f"column_{index + 1}"
+            while name in seen:
+                name = f"_{name}"
+        else:
+            name = header
+        seen.add(name)
+        sanitized.append(name)
+    return sanitized
+
+
+def _read_records(worksheet: gspread.Worksheet) -> list[dict[str, Any]]:
+    """Read every row as a record, tolerating blank or duplicate header cells.
+
+    gspread's `get_all_records` raises a `GSpreadException` when the header row has blank or duplicate
+    cells. That failure is deterministic, so the transient-error retry never helps and the sync fails
+    permanently. Read the raw grid instead and build the records ourselves after giving blank/duplicate
+    header cells stable names. Numericising with `default_blank=None` matches the previous
+    `get_all_records(default_blank=None)` behavior so blank cells still import as null and numeric
+    columns are still typed as numbers."""
+    rows = _retry_on_transient_api_error(lambda: worksheet.get_all_values())
+    if not rows or rows == [[]]:
+        return []
+    headers = _sanitize_record_headers(rows[0])
+    values = [numericise_all(row, default_blank=None) for row in rows[1:]]
+    return to_records(headers, values)
+
+
 def get_schemas(config: GoogleSheetsSourceConfig) -> list[tuple[str, int]]:
     """Returns a tuple of worksheets in the form of (title, id)"""
 
@@ -271,9 +328,9 @@ def google_sheets_source(
         primary_keys = ["id"]
 
     # Note: this source intentionally remains a SimpleSource rather than a ResumableSource.
-    # gspread's get_all_records() performs a single Sheets API call that returns every row at
-    # once, with no pagination cursor, continuation token, or range handle exposed to the
-    # caller. The loop below yields exactly one batch, so there is no intermediate checkpoint
+    # Reading the sheet performs a single Sheets API call that returns every row at once, with
+    # no pagination cursor, continuation token, or range handle exposed to the caller. The loop
+    # below yields exactly one batch, so there is no intermediate checkpoint
     # where some rows have been emitted and others are still pending — the two states are
     # "nothing yielded yet" and "fully done". A ResumableSource would have no cursor to
     # persist and would still have to re-download the entire sheet on restart, so it adds no
@@ -283,9 +340,7 @@ def google_sheets_source(
     def get_rows():
         worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
-        # default_blank defaults to "", which turns empty cells into strings and breaks numeric
-        # columns that legitimately have gaps. None lets blank cells import as null instead.
-        values = _retry_on_transient_api_error(lambda: worksheet.get_all_records(default_blank=None))
+        values = _read_records(worksheet)
 
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             values = [value for value in values if value.get("id", 0) > db_incremental_field_last_value]
