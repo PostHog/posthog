@@ -18,6 +18,7 @@ from requests import Response, get
 from rest_framework import status
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_instance_license
+from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
@@ -27,6 +28,7 @@ from ee.billing.billing_types import BillingPeriod, CustomerInfo, CustomerProduc
 from ee.billing.quota_limiting import QuotaResource
 from ee.billing.test.test_billing_manager import create_default_products_response
 from ee.models.license import License
+from ee.models.rbac.access_control import AccessControl
 
 
 def create_usage_summary(**kwargs) -> dict[str, Any]:
@@ -1285,6 +1287,143 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         passed_params = call_args[1]
         self.assertEqual(passed_params["teams_map"], {})
         mock_get_teams_map.assert_called_once()
+
+    @staticmethod
+    def _member_access_flags(key: str, *args: Any, **kwargs: Any) -> bool:
+        return key == MEMBER_BILLING_USAGE_ACCESS_FLAG
+
+    def _make_team_private(self, team: Team) -> None:
+        AccessControl.objects.create(
+            team=team,
+            resource="project",
+            resource_id=str(team.id),
+            access_level="none",
+            organization_member=None,
+            role=None,
+        )
+
+    def _setup_member_with_private_team(self) -> Team:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        private_team = Team.objects.create(organization=self.organization, name="Private Team")
+        self._make_team_private(private_team)
+        return private_team
+
+    @parameterized.expand([("usage",), ("spend",)])
+    @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.feature_enabled_or_false")
+    def test_member_team_ids_intersected_with_accessible_teams(
+        self,
+        endpoint: str,
+        mock_flag_eval: MagicMock,
+        mock_get_usage_data: MagicMock,
+        mock_get_spend_data: MagicMock,
+    ):
+        private_team = self._setup_member_with_private_team()
+        mock_flag_eval.side_effect = self._member_access_flags
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+        mock_get_spend_data.return_value = self.MOCK_SPEND_DATA
+
+        response = self.client.get(f"/api/billing/{endpoint}/?team_ids=[{self.team.pk},{private_team.pk}]")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_fetch = mock_get_usage_data if endpoint == "usage" else mock_get_spend_data
+        mock_fetch.assert_called_once()
+        passed_params = mock_fetch.call_args[0][1]
+        self.assertEqual(passed_params["team_ids"], [self.team.pk])
+        self.assertEqual(passed_params["teams_map"], {self.team.pk: self.team.name})
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.feature_enabled_or_false")
+    def test_member_without_team_ids_gets_accessible_teams_injected(
+        self, mock_flag_eval: MagicMock, mock_get_usage_data: MagicMock
+    ):
+        self._setup_member_with_private_team()
+        mock_flag_eval.side_effect = self._member_access_flags
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+
+        response = self.client.get("/api/billing/usage/?start_date=2025-01-01")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_get_usage_data.assert_called_once()
+        passed_params = mock_get_usage_data.call_args[0][1]
+        self.assertEqual(passed_params["team_ids"], [self.team.pk])
+        self.assertEqual(passed_params["teams_map"], {self.team.pk: self.team.name})
+
+    @parameterized.expand([("usage",), ("spend",)])
+    @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.feature_enabled_or_false")
+    def test_member_requesting_only_inaccessible_teams_gets_403(
+        self,
+        endpoint: str,
+        mock_flag_eval: MagicMock,
+        mock_get_usage_data: MagicMock,
+        mock_get_spend_data: MagicMock,
+    ):
+        private_team = self._setup_member_with_private_team()
+        mock_flag_eval.side_effect = self._member_access_flags
+
+        response = self.client.get(f"/api/billing/{endpoint}/?team_ids=[{private_team.pk}]")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        # An empty team_ids list means "all teams" to the billing service, so it must never be called here
+        mock_get_usage_data.assert_not_called()
+        mock_get_spend_data.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.feature_enabled_or_false")
+    def test_member_with_zero_accessible_teams_never_calls_billing(
+        self, mock_flag_eval: MagicMock, mock_get_usage_data: MagicMock
+    ):
+        self._setup_member_with_private_team()
+        self._make_team_private(self.team)
+        mock_flag_eval.side_effect = self._member_access_flags
+
+        response = self.client.get("/api/billing/usage/")
+
+        # TeamMemberAccessPermission rejects a member whose current team is private; the in-view
+        # zero-accessible-teams guard backstops it. Either way billing must never be called, since
+        # an absent or empty team_ids means "all teams" to the billing service.
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_usage_data.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.feature_enabled_or_false")
+    def test_member_response_team_id_options_filtered(self, mock_flag_eval: MagicMock, mock_get_usage_data: MagicMock):
+        private_team = self._setup_member_with_private_team()
+        mock_flag_eval.side_effect = self._member_access_flags
+        deleted_team_id = 999999
+        mock_get_usage_data.return_value = {
+            "results": [{"data": [1, 2], "count": 2}],
+            "team_id_options": [self.team.pk, private_team.pk, deleted_team_id],
+        }
+
+        response = self.client.get("/api/billing/usage/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["team_id_options"], [self.team.pk])
+        self.assertEqual(data["results"], [{"data": [1, 2], "count": 2}])
+
+    @parameterized.expand([("not-json",), ('["a"]',)])
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.feature_enabled_or_false")
+    def test_member_malformed_team_ids_returns_400(
+        self, raw_team_ids: str, mock_flag_eval: MagicMock, mock_get_usage_data: MagicMock
+    ):
+        self._setup_member_with_private_team()
+        mock_flag_eval.side_effect = self._member_access_flags
+
+        response = self.client.get(f"/api/billing/usage/?team_ids={raw_team_ids}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_get_usage_data.assert_not_called()
 
 
 class TestBillingPermissionDeniedForMembers(APILicensedTest):

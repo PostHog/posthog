@@ -1,4 +1,6 @@
-from typing import Any, Optional
+import json
+from collections.abc import Callable, Sequence
+from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth.models import AbstractUser
@@ -19,7 +21,7 @@ from posthog.api.utils import action
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Organization, OrganizationIntegration, Team
+from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.ph_client import feature_enabled_or_false
 from posthog.utils import get_trusted_client_ip, relative_date_parse
@@ -76,7 +78,7 @@ class CanViewBillingUsage(permissions.BasePermission):
             org = view._get_org_required()
         except Exception:
             return False
-        membership = OrganizationMembership.objects.filter(user=request.user, organization=org).first()
+        membership = OrganizationMembership.objects.filter(user=cast(User, request.user), organization=org).first()
         if membership is None:
             return False
         if membership.level >= OrganizationMembership.Level.ADMIN:
@@ -128,6 +130,16 @@ class BillingUsageRequestSerializer(serializers.Serializer):
     def validate_end_date(self, value: Optional[str]) -> Optional[str]:
         """Validate and normalize the end_date."""
         return self._parse_date(value, "end_date")
+
+
+def _parse_team_ids(raw_team_ids: str) -> list[int]:
+    try:
+        parsed = json.loads(raw_team_ids)
+        if not isinstance(parsed, list):
+            raise ValueError("team_ids must be a JSON array")
+        return [int(team_id) for team_id in parsed]
+    except (ValueError, TypeError):
+        raise ValidationError({"team_ids": "team_ids must be a JSON array of team IDs."})
 
 
 @extend_schema(tags=["billing"])
@@ -578,34 +590,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         permission_classes=[permissions.IsAuthenticated, CanViewBillingUsage],
     )
     def usage(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        organization = self._get_org_required()
-        billing_manager = self.get_billing_manager()
-
-        serializer = BillingUsageRequestSerializer(data=request.GET)
-        serializer.is_valid(raise_exception=True)
-
-        teams_map = self._get_teams_map(organization)
-
-        try:
-            params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
-            params_to_pass["teams_map"] = teams_map
-            res = billing_manager.get_usage_data(organization, params_to_pass)
-            return Response(res, status=status.HTTP_200_OK)
-        except Exception as e:
-            if len(e.args) > 2:
-                detail_object = e.args[2]
-                if not isinstance(detail_object, dict):
-                    raise
-                return Response(
-                    {
-                        "statusText": e.args[0],
-                        "detail": detail_object.get("error_message", detail_object),
-                        "code": detail_object.get("code"),
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            else:
-                raise
+        return self._usage_or_spend_response(request, self.get_billing_manager().get_usage_data)
 
     @action(
         methods=["GET"],
@@ -615,19 +600,43 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def spend(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         """Endpoint to fetch spend data (proxy to billing service)."""
+        return self._usage_or_spend_response(request, self.get_billing_manager().get_spend_data)
+
+    def _usage_or_spend_response(
+        self, request: Request, fetch: Callable[[Organization, dict[str, Any]], dict[str, Any]]
+    ) -> HttpResponse:
         organization = self._get_org_required()
-        billing_manager = self.get_billing_manager()
 
         serializer = BillingUsageRequestSerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
+        params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
 
-        teams_map = self._get_teams_map(organization)
+        # Admins may query any team; members are scoped to teams they can access, so private
+        # projects never reach the billing service (which cannot enforce per-team access itself).
+        accessible_team_ids: Optional[list[int]] = None
+        if not self._is_org_admin(request, organization):
+            user = cast(User, request.user)
+            accessible_team_ids = list(user.teams.filter(organization=organization).values_list("id", flat=True))
+            accessible_set = set(accessible_team_ids)
+            raw_team_ids = params_to_pass.get("team_ids")
+            if raw_team_ids:
+                requested_team_ids = _parse_team_ids(raw_team_ids)
+                scoped_team_ids = [team_id for team_id in requested_team_ids if team_id in accessible_set]
+                if not scoped_team_ids:
+                    # Never forward an empty list: the billing service treats it as "all teams"
+                    raise PermissionDenied("You do not have access to any of the requested projects.")
+                params_to_pass["team_ids"] = scoped_team_ids
+            elif not accessible_team_ids:
+                # Backstop: TeamMemberAccessPermission normally rejects such members earlier.
+                # Don't call billing at all, since an empty team_ids list would mean "all teams" there.
+                return Response({"results": [], "team_id_options": []}, status=status.HTTP_200_OK)
+            else:
+                params_to_pass["team_ids"] = accessible_team_ids
+
+        params_to_pass["teams_map"] = self._get_teams_map(organization, team_ids=accessible_team_ids)
 
         try:
-            params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
-            params_to_pass["teams_map"] = teams_map
-            res = billing_manager.get_spend_data(organization, params_to_pass)
-            return Response(res, status=status.HTTP_200_OK)
+            res = fetch(organization, params_to_pass)
         except Exception as e:
             if len(e.args) > 2:
                 detail_object = e.args[2]
@@ -644,12 +653,28 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
-    def _get_teams_map(self, organization: Organization) -> dict[int, str]:
+        if accessible_team_ids is not None and isinstance(res, dict) and "team_id_options" in res:
+            accessible_set = set(accessible_team_ids)
+            res["team_id_options"] = [
+                team_id for team_id in (res.get("team_id_options") or []) if team_id in accessible_set
+            ]
+        return Response(res, status=status.HTTP_200_OK)
+
+    def _is_org_admin(self, request: Request, organization: Organization) -> bool:
+        return OrganizationMembership.objects.filter(
+            user=cast(User, request.user), organization=organization, level__gte=OrganizationMembership.Level.ADMIN
+        ).exists()
+
+    def _get_teams_map(self, organization: Organization, team_ids: Optional[Sequence[int]] = None) -> dict[int, str]:
         """
-        Safely build a mapping of team.id to team.name for the org. Return empty dict on failure.
+        Safely build a mapping of team.id to team.name for the org, optionally limited to team_ids.
+        Return empty dict on failure.
         """
         try:
-            return {team.id: team.name for team in Team.objects.filter(organization=organization)}
+            teams = Team.objects.filter(organization=organization)
+            if team_ids is not None:
+                teams = teams.filter(id__in=team_ids)
+            return {team.id: team.name for team in teams}
         except Exception as e:
             capture_exception(e, {"organization_id": organization.id})
             return {}
