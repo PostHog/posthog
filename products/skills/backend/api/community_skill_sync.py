@@ -1,10 +1,12 @@
 from typing import Any
 
-from django.db import transaction
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import DatabaseError, transaction
 from django.utils import timezone
 
-import requests
 import structlog
+
+from posthog.egress.github.transport import github_request
 
 from ..models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillTrustTier
 from .skill_services import MAX_SKILL_BODY_BYTES, MAX_SKILL_FILE_BYTES, MAX_SKILL_FILE_COUNT
@@ -13,7 +15,16 @@ logger = structlog.get_logger(__name__)
 
 _VALID_TRUST_TIERS = set(CommunitySkillTrustTier.values)
 # CharField columns that raise DataError past their max_length — checked before persisting.
-_CHECKED_CHAR_FIELDS = ("slug", "name", "description", "license", "compatibility", "author_handle", "github_url")
+_CHECKED_CHAR_FIELDS = (
+    "slug",
+    "name",
+    "description",
+    "license",
+    "compatibility",
+    "author_handle",
+    "github_url",
+    "source_sha",
+)
 
 COMMUNITY_SKILLS_REPO = "PostHog/community-skills"
 COMMUNITY_SKILLS_BRANCH = "main"
@@ -53,6 +64,10 @@ def _validate_entry_within_caps(entry: dict[str, Any]) -> None:
         if path in seen_paths:
             raise ValueError(f"duplicate file path '{path}'")
         seen_paths.add(path)
+        content_type = f.get("content_type", "text/plain") or "text/plain"
+        ct_max = CommunitySkillFile._meta.get_field("content_type").max_length
+        if ct_max is not None and len(content_type) > ct_max:
+            raise ValueError(f"file '{path}' content_type exceeds the {ct_max} character limit")
         content = f.get("content", "") or ""
         if len(content.encode("utf-8")) > MAX_SKILL_FILE_BYTES:
             raise ValueError(f"file '{f.get('path')}' exceeds the {MAX_SKILL_FILE_BYTES} byte limit")
@@ -78,7 +93,7 @@ def _upsert_community_skill(entry: dict[str, Any]) -> bool:
     defaults: dict[str, Any] = {
         "name": entry["name"],
         "description": entry["description"],
-        "body": entry.get("body", ""),
+        "body": entry.get("body") or "",
         "license": entry.get("license", ""),
         "compatibility": entry.get("compatibility", ""),
         "allowed_tools": entry.get("allowed_tools", []),
@@ -122,7 +137,16 @@ def sync_community_skills_from_github(registry_url: str = COMMUNITY_SKILLS_REGIS
     single fetch is enough. Skills missing from the registry are soft-deleted. Returns a
     summary of {synced, skipped, removed} counts.
     """
-    response = requests.get(registry_url, timeout=COMMUNITY_SKILLS_SYNC_TIMEOUT_SECONDS)
+    # Identity-blind GitHub egress: an unauthenticated CDN fetch with no installation to meter,
+    # so it records request volume only and skips the limiter, but still goes through the gated,
+    # recorded transport rather than hand-rolled requests.
+    response = github_request(
+        "GET",
+        registry_url,
+        source="community_skills",
+        installation_id=None,
+        timeout=COMMUNITY_SKILLS_SYNC_TIMEOUT_SECONDS,
+    )
     response.raise_for_status()
     payload = response.json()
     entries = payload.get("skills", [])
@@ -137,6 +161,7 @@ def sync_community_skills_from_github(registry_url: str = COMMUNITY_SKILLS_REGIS
 
     synced = 0
     skipped = 0
+    processed_ok = 0
     seen_slugs: set[str] = set()
     for entry in entries:
         if not isinstance(entry, dict):
@@ -149,21 +174,24 @@ def sync_community_skills_from_github(registry_url: str = COMMUNITY_SKILLS_REGIS
         seen_slugs.add(slug)
         try:
             created_or_updated = _upsert_community_skill(entry)
-        except (KeyError, ValueError, TypeError):
-            # One bad entry (missing required field, oversized payload) must not abort the
-            # whole loop or skip the soft-delete reconciliation below.
+        except (KeyError, ValueError, TypeError, AttributeError, DjangoValidationError, DatabaseError):
+            # One bad entry (missing/oversized/mistyped field, or a constraint violation) must not
+            # abort the whole loop or skip the reconciliation below. Each upsert runs in its own
+            # atomic block, so a DatabaseError has already rolled back cleanly by the time we catch.
             logger.warning("community_skills_sync_skipped_invalid_entry", slug=slug, exc_info=True)
             skipped += 1
             continue
+        processed_ok += 1
         if created_or_updated:
             synced += 1
         else:
             skipped += 1
 
-    # Fail-safe: a non-empty registry that parsed into zero valid slugs (schema change, generator
-    # bug, every entry malformed) must not soft-delete the entire catalog — skip reconciliation.
-    if not seen_slugs:
-        logger.warning("community_skills_sync_skipped_no_valid_slugs", entry_count=len(entries))
+    # Fail-safe: only reconcile once at least one entry processed cleanly. A registry that parsed
+    # but yielded zero healthy entries (schema change, generator bug, every entry malformed) must
+    # not soft-delete the catalog — even when the malformed entries carried slugs.
+    if not processed_ok:
+        logger.warning("community_skills_sync_skipped_no_healthy_entries", entry_count=len(entries))
         return {"synced": synced, "skipped": skipped, "removed": 0}
 
     removed = CommunitySkill.objects.filter(deleted=False).exclude(slug__in=seen_slugs).update(deleted=True)

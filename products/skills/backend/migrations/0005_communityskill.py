@@ -111,6 +111,7 @@ class Migration(migrations.Migration):
                 (
                     "user",
                     models.ForeignKey(
+                        db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         to=settings.AUTH_USER_MODEL,
                     ),

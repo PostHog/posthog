@@ -938,7 +938,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              DashboardPrivilege
+                              CommunitySkillVote
+                              |DashboardPrivilege
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
