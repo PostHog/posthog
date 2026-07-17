@@ -2213,6 +2213,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.taskTracker(),
         sceneKey: 'TaskTracker',
         flag: FEATURE_FLAGS.TASKS,
+        pinnedByDefault: true,
         sceneKeys: ['TaskTracker'],
     },
     {

@@ -53,6 +53,9 @@ export const manifest: ProductManifest = {
             href: urls.taskTracker(),
             sceneKey: 'TaskTracker',
             flag: FEATURE_FLAGS.TASKS,
+            // Auto-pin into the Tools sidebar for anyone with the flag, so tasks
+            // reached via the Inbox "discuss" flow are findable without typing /tasks.
+            pinnedByDefault: true,
         },
     ],
 }
