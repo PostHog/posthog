@@ -72,14 +72,25 @@ _EMAIL_FALLBACK_CHANNELS = frozenset({Channel.EMAIL.value, Channel.SLACK.value, 
 # don't pass group properties, or whose last group identify predates the 30-day window.
 # {org_col}/{customer_select} are interpolated from this project's own group-type indexes (see
 # _resolve_groups_from_analytics); column names can't be HogQL placeholders.
+# Only trust an org group that recurs across at least this many of the customer's events.
+# A group carried by a single (or a handful of) event(s) is cheap to spoof with the
+# project's public token, so require a durable signal before it can dictate attribution.
+MIN_ANALYTICS_ATTRIBUTION_EVENTS = 3
+
+# Pick the org group the customer's events carry most often (not merely the most recent),
+# and return its event count so the caller can enforce the durability floor above.
 GROUPS_FROM_EVENTS_QUERY = """
 SELECT
-    argMax({org_col}, timestamp),
+    {org_col} AS organization_key,
+    count() AS event_count,
     {customer_select}
 FROM events
 WHERE distinct_id IN {{distinct_ids}}
   AND timestamp >= now() - INTERVAL 30 DAY
   AND {org_col} != ''
+GROUP BY {org_col}
+ORDER BY event_count DESC
+LIMIT 1
 """
 
 
@@ -94,8 +105,11 @@ def _resolve_groups_from_analytics(team: Team, distinct_ids: list[str]) -> dict 
 
     Event-supplied groups are captured with the project's public token and are
     therefore spoofable — fine for analytics enrichment (same trust level as
-    ``$identify``), never for authorization. ``instance``/``project`` are rebuilt
-    server-side so fallback-path events match ``build_groups()`` output.
+    ``$identify``), never for authorization. To keep a lone spoofed event from
+    dictating the org, only an org group that recurs across at least
+    ``MIN_ANALYTICS_ATTRIBUTION_EVENTS`` of the customer's events is trusted.
+    ``instance``/``project`` are rebuilt server-side so fallback-path events match
+    ``build_groups()`` output.
     """
     if not distinct_ids:
         return None
@@ -140,8 +154,8 @@ def _resolve_groups_from_analytics(team: Team, distinct_ids: list[str]) -> dict 
 
     groups: dict | None = None
     if response.results:
-        org_key, customer_key = response.results[0]
-        if org_key:
+        org_key, event_count, customer_key = response.results[0]
+        if org_key and event_count >= MIN_ANALYTICS_ATTRIBUTION_EVENTS:
             groups = {"instance": SITE_URL, "project": str(team.uuid), "organization": org_key}
             if customer_key:
                 groups["customer"] = customer_key

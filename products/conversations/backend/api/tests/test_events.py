@@ -647,7 +647,7 @@ class TestConversationEvents(BaseTest):
             {"group_type": "organization", "group_type_index": 1},
             {"group_type": "customer", "group_type_index": 2},
         ]
-        mock_hogql.return_value.results = [["org-eu-123", customer_key]]
+        mock_hogql.return_value.results = [["org-eu-123", 5, customer_key]]
 
         capture_ticket_created(self.ticket)
 
@@ -666,7 +666,8 @@ class TestConversationEvents(BaseTest):
     @parameterized.expand(
         [
             ("no_events", []),
-            ("empty_org_key", [["", ""]]),
+            ("empty_org_key", [["", 0, ""]]),
+            ("below_durability_floor", [["org-eu-123", 2, ""]]),
         ]
     )
     @patch("products.conversations.backend.events.capture_internal")
@@ -726,7 +727,7 @@ class TestConversationEvents(BaseTest):
         mock_get_by_email.return_value = {customer_email: person}
 
         mock_group_types.return_value = [{"group_type": "organization", "group_type_index": 0}]
-        mock_hogql.return_value.results = [["org-eu-123", ""]]
+        mock_hogql.return_value.results = [["org-eu-123", 5, ""]]
 
         ticket = Ticket.objects.create_with_number(
             team=self.team,
@@ -744,7 +745,7 @@ class TestConversationEvents(BaseTest):
 
     @parameterized.expand(
         [
-            ("positive", [["org-eu-123", ""]], True),
+            ("positive", [["org-eu-123", 5, ""]], True),
             ("negative", [], False),
         ]
     )
@@ -882,17 +883,36 @@ class TestResolveGroupsFromAnalyticsClickHouse(ClickhouseTestMixin, APIBaseTest)
         ],
     )
     def test_resolves_org_without_customer_group_type(self, _mock_group_types):
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="eu-user-did",
-            properties={"$group_1": "org-eu-123"},
-        )
+        for _ in range(3):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="eu-user-did",
+                properties={"$group_1": "org-eu-123"},
+            )
         flush_persons_and_events()
 
         groups = _resolve_groups_from_analytics(self.team, ["eu-user-did"])
 
         assert groups == {"instance": SITE_URL, "project": str(self.team.uuid), "organization": "org-eu-123"}
+
+    @patch(
+        "products.conversations.backend.events.get_group_types_for_project",
+        return_value=[{"group_type": "organization", "group_type_index": 1}],
+    )
+    def test_org_below_durability_floor_returns_none(self, _mock_group_types):
+        # A group carried by fewer than MIN_ANALYTICS_ATTRIBUTION_EVENTS events is too easy to
+        # spoof to trust, so it must not resolve an org.
+        for _ in range(2):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="eu-user-did",
+                properties={"$group_1": "org-eu-123"},
+            )
+        flush_persons_and_events()
+
+        assert _resolve_groups_from_analytics(self.team, ["eu-user-did"]) is None
 
     @patch(
         "products.conversations.backend.events.get_group_types_for_project",

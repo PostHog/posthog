@@ -1,23 +1,19 @@
 import uuid
 import datetime as dt
-from collections.abc import Callable
-from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.models import Organization, Team, User
 
-from products.conversations.backend.cross_region import OrgIdentity
 from products.conversations.backend.models import TeamConversationsSlackConfig, Ticket
 from products.conversations.backend.models.constants import Channel
 
 from ee.billing.salesforce_enrichment.conversations_signals import (
-    _cross_region_verified_ticket_ids,
     _get_slack_bot_token,
     _tickets_with_verified_org,
     aggregate_conversations_slack_signals_for_orgs,
@@ -221,75 +217,27 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
 
     @parameterized.expand(
         [
-            ("member_distinct_id", lambda self: {"distinct_id": self.user.distinct_id}, True),
-            ("member_email_as_distinct_id", lambda self: {"distinct_id": self.user.email.upper()}, True),
-            ("unknown_identity", lambda self: {"distinct_id": f"stranger-{uuid.uuid4()}"}, False),
-            (
-                "identity_verification_failed",
-                lambda self: {"distinct_id": self.user.distinct_id, "identity_verified": False},
-                False,
-            ),
-            (
-                "identity_never_verified",
-                lambda self: {"distinct_id": self.user.distinct_id, "identity_verified": None},
-                False,
-            ),
+            ("identity_verified", True, True),
+            ("identity_verification_failed", False, False),
+            ("identity_never_assessed", None, False),
         ]
     )
-    def test_only_tickets_with_verified_org_attribution_count(
-        self,
-        _name: str,
-        ticket_kwargs: Callable[["TestConversationsSlackSignalsDatabase"], dict[str, Any]],
-        expected_included: bool,
+    def test_only_identity_verified_tickets_count(
+        self, _name: str, identity_verified: bool | None, expected_included: bool
     ) -> None:
+        # organization_id attribution is trusted as stamped; enrichment gates on the ticket's
+        # own identity attestation. (Spoof resistance lives at attribution time — see the
+        # durability floor tests in products/conversations/backend/api/tests/test_events.py.)
         self._create_slack_ticket(
             channel_id="C123",
             activity_at=dt.datetime(2026, 6, 30, 10, 0, tzinfo=dt.UTC),
-            **ticket_kwargs(self),
+            distinct_id="customer@example.com",
+            identity_verified=identity_verified,
         )
 
         result = aggregate_conversations_slack_signals_for_orgs([self.org_id], include_slack_user_count=False)
 
         assert (self.org_id in result) == expected_included
-
-    def test_malformed_org_id_is_excluded_without_breaking_aggregation(self):
-        malformed_org_id = "not-a-uuid"
-        self._create_slack_ticket(
-            org_id=malformed_org_id,
-            channel_id="C123",
-            activity_at=dt.datetime(2026, 6, 30, 10, 0, tzinfo=dt.UTC),
-        )
-
-        result = aggregate_conversations_slack_signals_for_orgs(
-            [malformed_org_id, self.org_id], include_slack_user_count=False
-        )
-
-        assert result == {}
-
-    def test_spoofed_org_attribution_does_not_poison_another_orgs_signals(self):
-        legit_ticket = self._create_slack_ticket(
-            channel_id="C_LEGIT", activity_at=dt.datetime(2026, 6, 30, 10, 0, tzinfo=dt.UTC)
-        )
-        # The attacker is a genuine member of their own org, but stamps the victim's
-        # org id on a ticket (as spoofed analytics $groups attribution would).
-        _, attacker = self._create_member_of_other_org(f"attacker-{uuid.uuid4()}@posthog.com")
-        self._create_slack_ticket(
-            org_id=self.org_id,
-            channel_id="C_EVIL",
-            activity_at=dt.datetime(2026, 6, 30, 12, 0, tzinfo=dt.UTC),
-            distinct_id=attacker.distinct_id,
-        )
-
-        with self.settings(SITE_URL="https://us.posthog.com"):
-            result = aggregate_conversations_slack_signals_for_orgs([self.org_id], include_slack_user_count=False)
-
-        signals = result[self.org_id]
-        assert signals.slack_channel_url == "https://app.slack.com/client/T123/C_LEGIT"
-        assert signals.slack_issue_count == 1
-        assert (
-            signals.most_recent_support_ticket_url
-            == f"https://us.posthog.com/project/{self.team.id}/support/tickets/{legit_ticket.ticket_number}"
-        )
 
     def test_employee_activity_updates_a_trusted_customer_channel(self):
         customer_activity = dt.datetime(2026, 6, 29, 10, 0, tzinfo=dt.UTC)
@@ -439,27 +387,26 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
         # No token when neither path resolves.
         assert _get_slack_bot_token("TUNMATCHED", None) is None
 
-    @override_settings(CLOUD_DEPLOYMENT="US", CONVERSATIONS_CROSS_REGION_SECRET="secret")
-    def test_cross_region_verified_tickets_join_the_verified_set(self):
-        # A customer whose members live in the sibling region has no local OrganizationMembership,
-        # so the org can't be verified here on its own.
-        sibling_org_id = "019b2be2-5563-0000-6408-1e45bbe55e38"
-        ticket = self._create_slack_ticket(
-            channel_id="C_SIBLING",
+    def test_identity_verified_ticket_is_trusted_without_local_membership(self):
+        # A customer whose members live in another region has no local OrganizationMembership,
+        # but the ticket is identity-verified and carries a resolved org, so it's trusted.
+        cross_region_org_id = "019b2be2-5563-0000-6408-1e45bbe55e38"
+        trusted = self._create_slack_ticket(
+            channel_id="C_TRUSTED",
             activity_at=dt.datetime(2026, 7, 14, 12, 0, tzinfo=dt.UTC),
-            org_id=sibling_org_id,
-            distinct_id="customer@sibling.example.com",
+            org_id=cross_region_org_id,
+            distinct_id="customer@example.com",
+            identity_verified=True,
+        )
+        # Not identity-verified: never trusted, regardless of a resolved org.
+        unattested = self._create_slack_ticket(
+            channel_id="C_UNATTESTED",
+            activity_at=dt.datetime(2026, 7, 14, 12, 0, tzinfo=dt.UTC),
+            org_id=cross_region_org_id,
+            distinct_id="attacker@example.com",
+            identity_verified=False,
         )
 
-        assert not _tickets_with_verified_org().filter(id=ticket.id).exists()
-
-        identity = OrgIdentity(sibling_org_id, "customer@sibling.example.com", "")
-        with patch(
-            "ee.billing.salesforce_enrichment.conversations_signals.verify_org_memberships_cross_region",
-            return_value={identity},
-        ) as probe:
-            cross_region_ids = _cross_region_verified_ticket_ids([sibling_org_id])
-
-        probe.assert_called_once()
-        assert cross_region_ids == {str(ticket.id)}
-        assert _tickets_with_verified_org(cross_region_ids).filter(id=ticket.id).exists()
+        verified_ids = set(_tickets_with_verified_org().values_list("id", flat=True))
+        assert trusted.id in verified_ids
+        assert unattested.id not in verified_ids

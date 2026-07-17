@@ -73,13 +73,6 @@ LLM_ANALYTICS_INTERNAL_TEAM_ID: int = 2
 # Must hold the same value in both regions; unset disables the proxy.
 PERSONAL_SPEND_CROSS_REGION_SECRET: str = get_from_env("PERSONAL_SPEND_CROSS_REGION_SECRET", "")
 
-# Shared secret for cross-region org-membership verification in Conversations Slack
-# enrichment (products/conversations). PostHog's support desk lives on US Cloud but
-# serves customers in both regions, so the enrichment probes the sibling region to
-# verify an org whose members are registered there. Must hold the same value in both
-# regions; unset disables cross-region verification.
-CONVERSATIONS_CROSS_REGION_SECRET: str = get_from_env("CONVERSATIONS_CROSS_REGION_SECRET", "")
-
 # Override for the AI observability trial-eval deprecation cutoff
 AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE: str | None = get_from_env(
     "AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE", optional=True

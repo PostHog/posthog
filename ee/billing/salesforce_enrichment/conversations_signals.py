@@ -5,26 +5,19 @@ from dataclasses import dataclass
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
-from django.db.models import Case, Count, DateTimeField, Exists, Max, Min, OuterRef, Q, QuerySet, UUIDField, When
-from django.db.models.functions import Cast, Coalesce
+from django.db.models import Count, DateTimeField, Max, Min, Q, QuerySet
+from django.db.models.functions import Coalesce
 
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-from posthog.models.organization import OrganizationMembership
 from posthog.temporal.common.logger import get_logger
 
-from products.conversations.backend.cross_region import (
-    OrgIdentity,
-    cross_region_verification_enabled,
-    verify_org_memberships_cross_region,
-)
 from products.conversations.backend.models import TeamConversationsSlackConfig, Ticket
 from products.conversations.backend.models.constants import Channel
 
 LOGGER = get_logger(__name__)
 MAX_SLACK_MEMBER_PAGES = 100
-_UUID_REGEX = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 
 
 @dataclass
@@ -124,99 +117,30 @@ def _activity_at() -> Coalesce:
     return Coalesce("last_message_at", "updated_at", "created_at", output_field=DateTimeField())
 
 
-def _organization_uuid_annotation() -> Case:
-    # organization_id is free text (analytics-derived values are arbitrary), so guard the
-    # uuid cast with CASE — an unguarded cast would abort the whole query on the first
-    # malformed row. Comparing as uuid also lets the membership organization_id index anchor
-    # the EXISTS.
-    return Case(
-        When(organization_id__regex=_UUID_REGEX, then=Cast("organization_id", output_field=UUIDField())),
-        output_field=UUIDField(),
-    )
+def _tickets_with_verified_org() -> QuerySet[Ticket]:
+    """Tickets whose organization attribution is trusted for Salesforce enrichment.
 
-
-def _membership_for_ticket_org() -> QuerySet[OrganizationMembership]:
-    # The ticket's customer identity (the widget's real distinct_id, or the provider-supplied
-    # email that the Slack/Teams/email channels store in distinct_id/email_from) must belong to
-    # a member of the ticket's org.
-    return OrganizationMembership.objects.filter(organization_id=OuterRef("organization_uuid")).filter(
-        Q(user__distinct_id=OuterRef("distinct_id"))
-        | Q(user__email__iexact=OuterRef("distinct_id"))
-        | Q(user__email__iexact=OuterRef("email_from"))
-    )
-
-
-def _tickets_with_verified_org(cross_region_ticket_ids: set[str] | None = None) -> QuerySet[Ticket]:
-    """Tickets whose organization attribution is confirmed through a trusted path.
-
-    ``Ticket.organization_id`` can be stamped from an authoritative
-    ``OrganizationMembership`` lookup, but also from analytics ``$groups``,
-    which are customer-supplied and spoofable. Before an org is used as a
-    Salesforce Account key, re-verify it here: the ticket's customer identity
-    (the widget's real distinct_id, or the provider-supplied email that the
-    Slack/Teams/email channels store in ``distinct_id``/``email_from``) must
-    belong to a member of that organization, and that identity must carry a
-    positive attestation (``identity_verified=True``).
-
-    PostHog's support desk lives in one region but serves customers in both, so a
-    customer's members may be registered in the sibling region and thus invisible
-    to this region's ``OrganizationMembership``. ``cross_region_ticket_ids`` holds
-    the tickets the sibling region already verified for us (see
-    ``_cross_region_verified_ticket_ids``); they're trusted alongside the local check.
+    A ticket qualifies when it carries a positive identity attestation
+    (``identity_verified=True``) and a resolved ``organization_id``. That
+    ``organization_id`` is stamped once at creation (see
+    ``products/conversations/backend/events.py``): either from an authoritative
+    ``OrganizationMembership`` lookup, or — for a customer whose members are
+    registered in another region and so are invisible to this region's Postgres —
+    from a durable analytics ``$groups`` signal. The durability floor on that
+    analytics path is what keeps a single spoofed event from dictating the org, so
+    the enrichment can trust the stamped value without re-deriving it region-locally.
     """
-    verified = Q(org_verified_locally=True)
-    if cross_region_ticket_ids:
-        verified |= Q(id__in=cross_region_ticket_ids)
     return (
-        Ticket.objects.annotate(organization_uuid=_organization_uuid_annotation())
-        .annotate(org_verified_locally=Exists(_membership_for_ticket_org()))
-        .filter(verified, identity_verified=True)
+        Ticket.objects.filter(identity_verified=True).exclude(organization_id__isnull=True).exclude(organization_id="")
     )
 
 
-def _cross_region_verified_ticket_ids(org_ids: list[str]) -> set[str]:
-    """Ticket ids in the batch whose org the SIBLING region can verify.
-
-    Only tickets that fail LOCAL org verification are probed — their org's members
-    live in the other region. Returns an empty set when cross-region verification is
-    disabled or the probe fails, so those orgs simply aren't enriched this run and are
-    retried on the next daily schedule.
-    """
-    if not org_ids or not cross_region_verification_enabled():
-        return set()
-
-    candidates = list(
-        Ticket.objects.annotate(organization_uuid=_organization_uuid_annotation())
-        .annotate(org_verified_locally=Exists(_membership_for_ticket_org()))
-        .filter(identity_verified=True, organization_id__in=org_ids, org_verified_locally=False)
-        .values("id", "organization_id", "distinct_id", "email_from")
-    )
-    if not candidates:
-        return set()
-
-    tickets_by_identity: dict[OrgIdentity, list[str]] = {}
-    for row in candidates:
-        identity = OrgIdentity(
-            organization_id=str(row["organization_id"]),
-            distinct_id=row["distinct_id"] or "",
-            email_from=row["email_from"] or "",
-        )
-        tickets_by_identity.setdefault(identity, []).append(str(row["id"]))
-
-    ticket_ids: set[str] = set()
-    for identity in verify_org_memberships_cross_region(list(tickets_by_identity)):
-        ticket_ids.update(tickets_by_identity.get(identity, []))
-    return ticket_ids
-
-
-def _fetch_slack_channel_aggregate_rows(
-    org_ids: list[str], cross_region_ticket_ids: set[str] | None = None
-) -> list[dict[str, object]]:
+def _fetch_slack_channel_aggregate_rows(org_ids: list[str]) -> list[dict[str, object]]:
     if not org_ids:
         return []
 
     return list(
-        _tickets_with_verified_org(cross_region_ticket_ids)
+        _tickets_with_verified_org()
         .filter(
             channel_source=Channel.SLACK,
             organization_id__in=org_ids,
@@ -290,14 +214,12 @@ def _trusted_channel_sort_key(row: dict[str, object]) -> tuple[str, float, int, 
     )
 
 
-def _fetch_latest_support_ticket_rows(
-    org_ids: list[str], cross_region_ticket_ids: set[str] | None = None
-) -> list[dict[str, object]]:
+def _fetch_latest_support_ticket_rows(org_ids: list[str]) -> list[dict[str, object]]:
     if not org_ids:
         return []
 
     return list(
-        _tickets_with_verified_org(cross_region_ticket_ids)
+        _tickets_with_verified_org()
         .filter(organization_id__in=org_ids)
         .annotate(activity_at=_activity_at())
         .values("organization_id", "team_id", "ticket_number", "activity_at")
@@ -326,12 +248,9 @@ def aggregate_conversations_slack_signals_for_orgs(
         return {}
 
     LOGGER.info("fetching_conversations_slack_signals", org_count=len(org_ids))
-    # Tickets whose org lives in the sibling region, verified there once for the batch and
-    # reused by both the channel and latest-ticket queries below.
-    cross_region_ticket_ids = _cross_region_verified_ticket_ids(org_ids)
-    rows = _fetch_slack_channel_aggregate_rows(org_ids, cross_region_ticket_ids)
+    rows = _fetch_slack_channel_aggregate_rows(org_ids)
     channel_activity_rows = _fetch_trusted_slack_channel_activity_rows(rows)
-    latest_ticket_rows = _fetch_latest_support_ticket_rows(org_ids, cross_region_ticket_ids)
+    latest_ticket_rows = _fetch_latest_support_ticket_rows(org_ids)
 
     channel_activity_by_key = {
         (row.get("team_id"), row.get("slack_team_id"), row.get("slack_channel_id")): row.get("last_slack_activity")
