@@ -61,12 +61,14 @@ MATOMO_ENDPOINTS: dict[str, MatomoEndpointConfig] = {
                 "field_type": IncrementalFieldType.Numeric,
             },
         ],
-        # Bucket by ISO week of the visit's server timestamp. idVisit is an incrementing
-        # integer, so without this the pipeline auto-selects numerical mode and (with the old
-        # partition_size=1) created one Delta partition per visit.
+        # Bucket by month of the visit's server timestamp. idVisit is an incrementing integer,
+        # so without this the pipeline auto-selects numerical mode and (with the old
+        # partition_size=1) created one Delta partition per visit. Month is the coarsest tier;
+        # the auto-repartitioner only steps finer (month -> week -> day -> hour), so starting
+        # here gives it the most headroom if a partition ever outgrows the byte budget.
         partition_mode="datetime",
         partition_keys=["serverTimestamp"],
-        partition_format="week",
+        partition_format="month",
     ),
     # Per-day aggregate reports, date-partitioned via period=day&date=...
     # with the day injected as `_date`.

@@ -289,7 +289,7 @@ class TestMatomoSourceResponse:
         [
             # visits' primary key idVisit is an incrementing int, so it must ship an explicit
             # datetime scheme — otherwise the pipeline buckets one Delta partition per visit.
-            ("visits", "datetime", ["serverTimestamp"], "week"),
+            ("visits", "datetime", ["serverTimestamp"], "month"),
             ("visits_summary", None, None, None),
             ("referrers", None, None, None),
         ],
