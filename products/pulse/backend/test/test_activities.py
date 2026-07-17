@@ -220,10 +220,11 @@ def test_resolve_period_since_last_run_vs_last_n_days() -> None:
         ([_RaisingSource(), _RaisingSource()], True),  # every source failed -> retryable error
     ],
 )
-async def test_gather_activity_failed_sources(team, sources, expect_raise) -> None:
+async def test_gather_activity_failed_sources(team, user, sources, expect_raise) -> None:
     await _set_ai_consent(team, True)
+    brief = await _create_brief(team, user)
     env = ActivityEnvironment()
-    inputs = GenerateBriefWorkflowInputs(team_id=team.pk, brief_id=str(uuid.uuid4()), brief_config_id=None)
+    inputs = GenerateBriefWorkflowInputs(team_id=team.pk, brief_id=str(brief.id), brief_config_id=None)
     with patch("products.pulse.backend.temporal.activities.get_sources", return_value=sources):
         if expect_raise:
             with pytest.raises(ApplicationError) as exc_info:
@@ -233,16 +234,17 @@ async def test_gather_activity_failed_sources(team, sources, expect_raise) -> No
             assert await env.run(gather_brief_inputs_activity, inputs) == []
 
 
-async def test_gather_activity_cap_orders_all_three_kinds(team) -> None:
+async def test_gather_activity_cap_orders_all_three_kinds(team, user) -> None:
     # health > movement > context: with all three over the cap, health and movement survive whole
     # and context is the only kind truncated — a priority swap between movement and context fails this.
     await _set_ai_consent(team, True)
+    brief = await _create_brief(team, user)
     env = ActivityEnvironment()
     sources = [_ManyItemsSource("context", 30), _ManyItemsSource("movement", 25), _ManyItemsSource("health", 10)]
     with patch("products.pulse.backend.temporal.activities.get_sources", return_value=sources):
         items = await env.run(
             gather_brief_inputs_activity,
-            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id=str(uuid.uuid4()), brief_config_id=None),
+            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id=str(brief.id), brief_config_id=None),
         )
     assert len(items) == MAX_ITEMS
     kept = {kind: sum(1 for item in items if item["kind"] == kind) for kind in ("health", "movement", "context")}
