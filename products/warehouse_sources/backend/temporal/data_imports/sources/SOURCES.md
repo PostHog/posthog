@@ -275,6 +275,7 @@ the row lists both.
 | invoiceninja                     | HTTP                        | requests                                                        | ✅                          |
 | ip2whois                         | HTTP                        | requests                                                        | ✅                          |
 | iterable                         | HTTP                        | requests                                                        | ✅                          |
+| jamf_pro                         | HTTP                        | requests                                                        | ✅                          |
 | jellyfish                        | HTTP                        | requests                                                        | ✅                          |
 | jira                             | HTTP                        | requests                                                        | ✅                          |
 | jobnimbus                        | HTTP                        | requests                                                        | ✅                          |
@@ -744,7 +745,6 @@ doesn't conflict with concurrent PRs.
 - instagram
 - instantly
 - interzoid
-- jamf_pro
 - jenkins
 - jfrog_artifactory
 - jobber
