@@ -79,6 +79,44 @@ export interface MessagePreferencesApi {
     preferences: unknown
 }
 
+export interface AddSuppressionRequestApi {
+    /**
+     * The email address to suppress. Will not receive any messages until removed.
+     * @maxLength 512
+     */
+    identifier: string
+}
+
+/**
+ * * `BOUNCE` - Bounce
+ * * `MANUAL` - Manual
+ */
+export type MessageSuppressionSourceEnumApi =
+    (typeof MessageSuppressionSourceEnumApi)[keyof typeof MessageSuppressionSourceEnumApi]
+
+export const MessageSuppressionSourceEnumApi = {
+    Bounce: 'BOUNCE',
+    Manual: 'MANUAL',
+} as const
+
+export interface MessageSuppressionApi {
+    readonly id: string
+    readonly identifier: string
+    readonly source: MessageSuppressionSourceEnumApi
+    /** @nullable */
+    readonly reason: string | null
+    readonly transient_bounce_count: number
+    /** @nullable */
+    readonly last_bounce_at: string | null
+    /** @nullable */
+    readonly last_bounce_diagnostic: string | null
+    readonly suppressed: boolean
+    /** @nullable */
+    readonly suppressed_at: string | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
 /**
  * * `liquid` - liquid
  */

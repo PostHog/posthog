@@ -131,6 +131,9 @@ export type CdpConfig = ClickhouseConfig & {
     SES_ACCESS_KEY_ID: string
     SES_SECRET_ACCESS_KEY: string
     SES_REGION: string
+    // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
+    // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
+    SES_ALLOWED_SNS_TOPIC_ARNS: string
 
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -281,6 +284,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_REGION: isTestEnv() || isDevEnv() ? 'us-east-1' : '',
+        SES_ALLOWED_SNS_TOPIC_ARNS: '',
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,

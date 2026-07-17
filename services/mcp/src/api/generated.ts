@@ -35342,6 +35342,36 @@ export namespace Schemas {
     }
 
     /**
+     * * `BOUNCE` - Bounce
+     * * `MANUAL` - Manual
+     */
+    export type MessageSuppressionSourceEnum = typeof MessageSuppressionSourceEnum[keyof typeof MessageSuppressionSourceEnum];
+
+
+    export const MessageSuppressionSourceEnum = {
+      Bounce: 'BOUNCE',
+      Manual: 'MANUAL',
+    } as const;
+
+    export interface MessageSuppression {
+      readonly id: string;
+      readonly identifier: string;
+      readonly source: MessageSuppressionSourceEnum;
+      /** @nullable */
+      readonly reason: string | null;
+      readonly transient_bounce_count: number;
+      /** @nullable */
+      readonly last_bounce_at: string | null;
+      /** @nullable */
+      readonly last_bounce_diagnostic: string | null;
+      readonly suppressed: boolean;
+      /** @nullable */
+      readonly suppressed_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
      * * `liquid` - liquid
      */
     export type MessageTemplateContentTemplatingEnum = typeof MessageTemplateContentTemplatingEnum[keyof typeof MessageTemplateContentTemplatingEnum];

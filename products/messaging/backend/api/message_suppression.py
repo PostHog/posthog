@@ -1,0 +1,157 @@
+from django.db.models import F
+from django.db.models.functions import Coalesce, Now
+from django.utils import timezone
+
+from drf_spectacular.utils import extend_schema
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.response import Response
+
+from posthog.api.documentation import _FallbackSerializer
+from posthog.api.routing import TeamAndOrgViewSetMixin
+
+from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
+
+
+class SuppressionPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
+class MessageSuppressionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MessageSuppression
+        fields = [
+            "id",
+            "identifier",
+            "source",
+            "reason",
+            "transient_bounce_count",
+            "last_bounce_at",
+            "last_bounce_diagnostic",
+            "suppressed",
+            "suppressed_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class AddSuppressionRequestSerializer(serializers.Serializer):
+    identifier = serializers.CharField(
+        max_length=512,
+        help_text="The email address to suppress. Will not receive any messages until removed.",
+    )
+
+
+class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """
+    Per-team email suppression list. Addresses here are skipped before send.
+
+    Entries are added automatically after an address repeatedly soft-bounces, or manually by a
+    user. This viewset lets users see and edit the list for full visibility.
+    """
+
+    scope_object = "hog_flow"
+    # Custom actions must declare their write status so TeamAndOrgViewSetMixin's AccessControlPermission
+    # checks hog_flow:write on the mutating endpoints; the default 'suppressions' list stays a read.
+    scope_object_write_actions = ["add_suppression", "remove_suppression"]
+    serializer_class = _FallbackSerializer
+
+    @extend_schema(
+        responses={200: MessageSuppressionSerializer(many=True)},
+        summary="List suppressed email addresses for the team",
+    )
+    @action(detail=False, methods=["get"])
+    def suppressions(self, request, **kwargs):
+        """List suppressed recipients for the team, most recently updated first."""
+        suppressions = (
+            MessageSuppression.objects.for_team(self.team_id)
+            .filter(suppressed=True, deleted=False)
+            .order_by("-updated_at")
+        )
+
+        paginator = SuppressionPagination()
+        page = paginator.paginate_queryset(suppressions, request)
+        if page is not None:
+            serializer = MessageSuppressionSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+
+        serializer = MessageSuppressionSerializer(suppressions, many=True)
+        return Response(serializer.data)
+
+    @extend_schema(
+        request=AddSuppressionRequestSerializer,
+        responses={201: MessageSuppressionSerializer},
+        summary="Manually add an email address to the suppression list",
+    )
+    @action(detail=False, methods=["post"])
+    def add_suppression(self, request, **kwargs):
+        """Manually suppress an email address so no workflow sends to it."""
+        serializer = AddSuppressionRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        identifier = serializer.validated_data["identifier"].strip().lower()
+
+        suppression, created = MessageSuppression.objects.for_team(self.team_id).get_or_create(
+            team_id=self.team_id,
+            identifier=identifier,
+            defaults={
+                "created_by": request.user,
+                "source": SuppressionSource.MANUAL,
+                "suppressed": True,
+                "suppressed_at": timezone.now(),
+                "reason": "Manually added",
+            },
+        )
+
+        if not created:
+            # Re-suppress (and un-delete) an existing row, e.g. one that had only been counting
+            # bounces or was previously removed. Coalesce lets Postgres preserve an existing
+            # suppressed_at atomically, so two concurrent add_suppression calls can't both compute
+            # their own now() and overwrite each other.
+            MessageSuppression.objects.for_team(self.team_id).filter(pk=suppression.pk).update(
+                suppressed=True,
+                suppressed_at=Coalesce(F("suppressed_at"), Now()),
+                source=SuppressionSource.MANUAL,
+                reason="Manually added",
+                deleted=False,
+                updated_at=Now(),
+            )
+            suppression.refresh_from_db()
+
+        response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        return Response(MessageSuppressionSerializer(suppression).data, status=response_status)
+
+    @extend_schema(
+        request=AddSuppressionRequestSerializer,
+        responses={204: None},
+        summary="Remove an email address from the suppression list",
+    )
+    @action(detail=False, methods=["post"])
+    def remove_suppression(self, request, **kwargs):
+        """Remove an address from the suppression list so it can receive messages again."""
+        serializer = AddSuppressionRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        identifier = serializer.validated_data["identifier"].strip().lower()
+
+        # Soft-delete and un-suppress. Reset the bounce counter so a previously-dead address that
+        # a user deliberately re-enables starts from a clean slate.
+        updated = (
+            MessageSuppression.objects.for_team(self.team_id)
+            .filter(identifier=identifier)
+            .update(
+                suppressed=False,
+                deleted=True,
+                transient_bounce_count=0,
+                updated_at=timezone.now(),
+            )
+        )
+
+        if not updated:
+            return Response({"error": "Suppression not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)

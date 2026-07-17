@@ -31,6 +31,7 @@ import { HogFunctionTemplateManagerService } from './services/managers/hog-funct
 import { IntegrationManagerService } from './services/managers/integration-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
+import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailService } from './services/messaging/email.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
@@ -89,6 +90,7 @@ export interface CdpCoreServices {
     hogFlowFunctionsService: HogFlowFunctionsService
     recipientsManager: RecipientsManagerService
     recipientPreferencesService: RecipientPreferencesService
+    emailSuppressionService: EmailSuppressionService
     teamWorkflowsConfigService: TeamWorkflowsConfigService
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
@@ -444,7 +446,8 @@ export function createCdpCoreServices(
     )
 
     const recipientsManager = new RecipientsManagerService(deps.postgres)
-    const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
+    const emailSuppressionService = new EmailSuppressionService(deps.postgres)
+    const recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService)
     // MX verdicts live on the dedicated SES Valkey (same instance as the SES rate
     // limiter, separate pool). The pool is created by the server only on pods
     // whose capabilities execute email actions; everywhere else this is null
@@ -487,6 +490,7 @@ export function createCdpCoreServices(
         hogFlowFunctionsService,
         recipientsManager,
         recipientPreferencesService,
+        emailSuppressionService,
         teamWorkflowsConfigService,
         hogFlowExecutor,
         hogFunctionMonitoringService,

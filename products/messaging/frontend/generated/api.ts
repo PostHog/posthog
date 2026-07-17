@@ -10,8 +10,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AddOptOutRequestApi,
+    AddSuppressionRequestApi,
     MessageCategoryApi,
     MessagePreferencesApi,
+    MessageSuppressionApi,
     MessageTemplateApi,
     MessagingCategoriesListParams,
     MessagingTemplatesListParams,
@@ -393,6 +395,66 @@ export const messagingPreferencesWebhookUrlRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getMessagingPreferencesWebhookUrlRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingSuppressionsAddSuppressionCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_suppressions/add_suppression/`
+}
+
+/**
+ * Manually suppress an email address so no workflow sends to it.
+ * @summary Manually add an email address to the suppression list
+ */
+export const messagingSuppressionsAddSuppressionCreate = async (
+    projectId: string,
+    addSuppressionRequestApi: AddSuppressionRequestApi,
+    options?: RequestInit
+): Promise<MessageSuppressionApi> => {
+    return apiMutator<MessageSuppressionApi>(getMessagingSuppressionsAddSuppressionCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addSuppressionRequestApi),
+    })
+}
+
+export const getMessagingSuppressionsRemoveSuppressionCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_suppressions/remove_suppression/`
+}
+
+/**
+ * Remove an address from the suppression list so it can receive messages again.
+ * @summary Remove an email address from the suppression list
+ */
+export const messagingSuppressionsRemoveSuppressionCreate = async (
+    projectId: string,
+    addSuppressionRequestApi: AddSuppressionRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMessagingSuppressionsRemoveSuppressionCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addSuppressionRequestApi),
+    })
+}
+
+export const getMessagingSuppressionsSuppressionsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_suppressions/suppressions/`
+}
+
+/**
+ * List suppressed recipients for the team, most recently updated first.
+ * @summary List suppressed email addresses for the team
+ */
+export const messagingSuppressionsSuppressionsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MessageSuppressionApi[]> => {
+    return apiMutator<MessageSuppressionApi[]>(getMessagingSuppressionsSuppressionsListUrl(projectId), {
         ...options,
         method: 'GET',
     })

@@ -22,6 +22,7 @@ import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { EmailSuppressionService } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
@@ -103,7 +104,8 @@ describe('Hogflow Executor', () => {
             hogExecutor
         )
         const recipientsManager = new RecipientsManagerService(hub.postgres)
-        const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
+        const emailSuppressionService = new EmailSuppressionService(hub.postgres)
+        const recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService)
         // Stubbed to always allow: this suite covers executor routing and flow control,
         // not MX validation (email-validation.service.test.ts does), and the real
         // service would fire live DNS lookups for the fixture recipients here.
