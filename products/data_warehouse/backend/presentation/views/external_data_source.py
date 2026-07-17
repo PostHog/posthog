@@ -78,10 +78,10 @@ from products.data_warehouse.backend.facade.api import (
     detect_schema_clear_transition as detect_sql_schema_clear_transition,
     ensure_cdc_slot_cleanup_schedule,
     get_direct_query_engine,
+    get_namespaced_resource_adapter,
     get_or_create_webhook_hog_function,
     get_postgres_source_location,
     get_webhook_url,
-    github_repositories_for_job_inputs,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
     is_custom_source_ai_builder_enabled_for_team,
@@ -1180,19 +1180,22 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     validated_job_inputs[key] = existing_job_inputs[key]
             validated_data["job_inputs"] = validated_job_inputs
 
-        github_old_repositories: list[str] = []
-        if source_type_model == ExternalDataSourceType.GITHUB and job_inputs_were_submitted:
-            github_old_repositories = github_repositories_for_job_inputs(existing_job_inputs)
+        # Namespaced-resource sources (GitHub repos) track their schema rows against a resource
+        # set in job_inputs; capture the old set before the write so we can reconcile after.
+        namespaced_adapter = get_namespaced_resource_adapter(source_type_model)
+        old_namespaced_resources: list[str] = []
+        if namespaced_adapter is not None and job_inputs_were_submitted:
+            old_namespaced_resources = namespaced_adapter.resources_for_job_inputs(existing_job_inputs)
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
-        if source_type_model == ExternalDataSourceType.GITHUB and job_inputs_were_submitted:
-            # Adds schema rows for added repos, retires removed repos' rows, and reconciles the
-            # per-repo webhooks. No-op when the effective repo list didn't change.
-            reconcile_github_repositories(
+        if namespaced_adapter is not None and job_inputs_were_submitted:
+            # Adds schema rows for added resources, retires removed ones, and reconciles their
+            # webhooks. No-op when the effective resource list didn't change.
+            namespaced_adapter.reconcile_resources(
                 source_model=updated_source,
                 team=instance.team,
-                old_repositories=github_old_repositories,
+                old_resources=old_namespaced_resources,
                 new_config=source_config,
             )
 
@@ -2869,18 +2872,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 descriptions = {
                     name_substitutions.get(name, name): description for name, description in descriptions.items()
                 }
-            # GitHub keeps its legacy repo's rows bare alongside qualified rows for added repos, so
-            # bare↔qualified tail matching would wrongly collapse them; match names exactly and seed
-            # the per-repo location metadata on newly created rows.
-            is_github = instance.source_type == ExternalDataSourceType.GITHUB
+            # Namespaced-resource sources (GitHub) keep the legacy resource's rows bare alongside
+            # qualified rows for the others, so bare↔qualified tail matching would wrongly collapse
+            # them; match names exactly and seed per-resource location metadata on new rows.
+            namespaced_adapter = get_namespaced_resource_adapter(instance.source_type)
             schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
                 schema_names,
                 source_id=str(instance.id),
                 team_id=self.team_id,
                 descriptions=descriptions,
-                strict_name_match=is_github,
-                schema_metadata_by_name={s.name: s.schema_metadata for s in schemas if s.schema_metadata}
-                if is_github
+                strict_name_match=namespaced_adapter is not None and namespaced_adapter.uses_strict_schema_name_match,
+                schema_metadata_by_name=namespaced_adapter.schema_metadata_by_name(schemas)
+                if namespaced_adapter is not None
                 else None,
             )
 
