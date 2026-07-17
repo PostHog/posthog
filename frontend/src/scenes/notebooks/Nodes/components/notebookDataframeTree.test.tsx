@@ -35,18 +35,16 @@ describe('buildDataframeTreeSection', () => {
         // The bug this shipped with: a SQL cell's output lives in ClickHouse and only enters the
         // kernel if something materializes it, but it is referenceable from SQL the whole time.
         // Sourcing the list from the kernel alone hid it entirely.
-        expect(children(buildDataframeTreeSection([sqlNode('events_df')], [], ''))).toEqual([['events_df', undefined]])
+        expect(children(buildDataframeTreeSection([sqlNode('events_df')], []))).toEqual([['events_df', undefined]])
     })
 
     it('greys out a python frame the kernel no longer has, but never a SQL one', () => {
         // A python frame only ever exists in the kernel, so absence means it is really gone. The
         // same absence for a SQL frame means nothing, so the two must not be treated alike.
-        expect(children(buildDataframeTreeSection([sqlNode('events_df'), pythonNode('top50_people')], [], ''))).toEqual(
-            [
-                ['events_df', undefined],
-                ['top50_people', 'Not in the kernel right now — run this cell to make it available'],
-            ]
-        )
+        expect(children(buildDataframeTreeSection([sqlNode('events_df'), pythonNode('top50_people')], []))).toEqual([
+            ['events_df', undefined],
+            ['top50_people', 'Not in the kernel right now. Run the cell that creates it to make it available'],
+        ])
     })
 
     it.each([
@@ -55,15 +53,15 @@ describe('buildDataframeTreeSection', () => {
     ])('greys out an un-run %s cell', (_nodeType, node) => {
         // No successful run means nothing to reference: the backend resolves refs to the latest
         // DONE run and treats a node without one as not-run.
-        expect(children(buildDataframeTreeSection([node], [], ''))).toEqual([
-            ['never_ran', 'Run this cell to make it available'],
+        expect(children(buildDataframeTreeSection([node], []))).toEqual([
+            ['never_ran', 'Run the cell that creates it to make it available'],
         ])
     })
 
     it('shows a materialized frame once, with the kernel shape', () => {
         // A SQL frame a python cell pulled in is both a cell output and a kernel entry. It must
         // not double up, and the kernel's shape wins because it is the current one.
-        const section = buildDataframeTreeSection([sqlNode('people')], [kernelFrame('people')], '')
+        const section = buildDataframeTreeSection([sqlNode('people')], [kernelFrame('people')])
         expect(children(section)).toEqual([['people', undefined]])
         expect(section[0].children?.[0].record?.row_count).toEqual(7)
     })
@@ -71,18 +69,27 @@ describe('buildDataframeTreeSection', () => {
     it('lists a DuckDB table no cell binds', () => {
         // A CREATE TABLE in a DuckDB cell writes no result file and appears nowhere in the
         // document — the kernel's catalog is the only place it exists.
-        expect(children(buildDataframeTreeSection([], [kernelFrame('agg', 'table')], ''))).toEqual([['agg', undefined]])
+        expect(children(buildDataframeTreeSection([], [kernelFrame('agg', 'table')]))).toEqual([['agg', undefined]])
+    })
+
+    it('collapses duplicate names, keeping the last', () => {
+        // Python names are deliberately not disambiguated and default to `df`, so two un-run
+        // Python cells is enough to emit `df` twice — duplicate ids in a virtualized tree.
+        const section = buildDataframeTreeSection([pythonNode('df'), pythonNode('df')], [])
+        expect(children(section)).toHaveLength(1)
+        const ids = (section[0].children ?? []).map((c) => c.id)
+        expect(new Set(ids).size).toEqual(ids.length)
     })
 
     it('has no section when there is nothing to list', () => {
-        expect(buildDataframeTreeSection([], [], '')).toEqual([])
+        expect(buildDataframeTreeSection([], [])).toEqual([])
     })
 
     it('ignores an empty cell nobody has written yet', () => {
         // A blank cell takes the default returnVariable, so it collides with the first one and is
         // renamed sql_df_2 — listing it means every new cell adds a greyed-out row for a frame
         // the user never conceived of.
-        const section = buildDataframeTreeSection([sqlNode('sql_df'), sqlNode('sql_df_2', false, '')], [], '')
+        const section = buildDataframeTreeSection([sqlNode('sql_df'), sqlNode('sql_df_2', false, '')], [])
         expect(children(section)).toEqual([['sql_df', undefined]])
     })
 
@@ -98,27 +105,14 @@ describe('buildDataframeTreeSection', () => {
             hasRun: true,
             code: 'top50 = people.value_counts()',
         }
-        expect(children(buildDataframeTreeSection([ranEmpty], [], ''))).toEqual([
-            ['new-df', "This cell's last run didn't produce a dataframe"],
+        expect(children(buildDataframeTreeSection([ranEmpty], []))).toEqual([
+            ['new-df', "The last run of the cell that creates it didn't produce a dataframe"],
         ])
     })
 
     it('still lists a written cell that has not run', () => {
         // Written but un-run is a real intent to bind that name, so it stays with a nudge to run.
-        const section = buildDataframeTreeSection([sqlNode('draft', false, 'SELECT 1')], [], '')
-        expect(children(section)).toEqual([['draft', 'Run this cell to make it available']])
-    })
-
-    it.each([
-        ['', ['events_df', 'agg']],
-        ['ev', ['events_df']],
-        // Columns match too — the same affordance the warehouse tree gives for a table's fields.
-        ['id', ['events_df']],
-        ['nope', []],
-    ])("filters to the tree's own search term %p", (searchTerm, expected) => {
-        // The tree swaps in its filtered data while searching, so a section that ignored the term
-        // would sit above the results still listing everything.
-        const section = buildDataframeTreeSection([sqlNode('events_df')], [kernelFrame('agg', 'table')], searchTerm)
-        expect(children(section).map(([name]) => name)).toEqual(expected)
+        const section = buildDataframeTreeSection([sqlNode('draft', false, 'SELECT 1')], [])
+        expect(children(section)).toEqual([['draft', 'Run the cell that creates it to make it available']])
     })
 })

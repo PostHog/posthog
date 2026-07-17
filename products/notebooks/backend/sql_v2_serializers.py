@@ -127,6 +127,14 @@ class NotebookSQLV2FrameSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Rows available, or null when counting would require a table scan (a DDL view).",
     )
+    row_count_is_estimate = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "True when row_count is DuckDB's optimizer estimate rather than a count. The estimate "
+            "does not track deletes, so it must never be presented as exact."
+        ),
+    )
 
 
 class NotebookSQLV2EnvelopeSerializer(serializers.Serializer):

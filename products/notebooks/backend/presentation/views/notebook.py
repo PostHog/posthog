@@ -584,12 +584,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return self.get_object()
 
+    def _has_query_access(self) -> bool:
+        return bool(self.user_access_control.check_access_level_for_resource("query", "viewer"))
+
     def _require_query_access(self) -> None:
         # SQLV2 runs arbitrary HogQL and returns analytics rows, so notebook access alone is not
         # enough — a notebook editor whose query access is denied must not read data through it.
         # Mirrors ee/api/subscription.py: the query:read scope gates tokens, this gates sessions
         # (which carry no scopes) and enforces real RBAC for tokens too.
-        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+        if not self._has_query_access():
             raise PermissionDenied("You need query access to run SQL in a notebook.")
 
     def _current_user(self) -> User | None:
@@ -822,10 +825,18 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 "kernel_id": runtime.kernel_id if runtime else None,
                 "kernel_pid": runtime.kernel_pid if runtime else None,
                 "sandbox_id": runtime.sandbox_id if runtime else None,
-                # Journey 7: what a SQL node can currently SELECT from. Gated on the live-checked
-                # status, not runtime.status — the row above is the latest by last_used_at
-                # regardless of state, and a dead kernel's frames are not SELECT-able.
-                "frames": (runtime.frames or []) if runtime and status == KernelRuntime.Status.RUNNING else [],
+                # Journey 7: what a SQL node can currently SELECT from. Gated twice. On the
+                # live-checked status, not runtime.status — the row above is the latest by
+                # last_used_at regardless of state, and a dead kernel's frames are not
+                # SELECT-able. And on query access, because these are column names and types
+                # derived from the user's data: notebook access alone gates liveness (which is
+                # all this endpoint used to return), but not schema. The rest of SQLV2 draws
+                # that line already; this keeps the endpoint's existing surface ungated.
+                "frames": (
+                    (runtime.frames or [])
+                    if runtime and status == KernelRuntime.Status.RUNNING and self._has_query_access()
+                    else []
+                ),
                 "cpu_cores": cpu_cores,
                 "memory_gb": sandbox_config.memory_gb,
                 "disk_size_gb": sandbox_config.disk_size_gb,

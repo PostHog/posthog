@@ -303,6 +303,7 @@ export interface notebookLogicValues {
     editingNodeLogics: BuiltLogic<notebookNodeLogicType>[]
     findNodeLogic: (type: NotebookNodeType, attributes: Record<string, any>) => notebookNodeLogicType | null
     findNodeLogicById: (id: string) => BuiltLogic<notebookNodeLogicType> | null
+    frameNodeSummaries: NotebookFrameNodeSummary[]
     getSharedCachedInlineQueryResults: (nodeId: string | null | undefined) => AnyResponseType | null
     getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel | null
     hogqlSqlNodeIndices: Map<string, number>
@@ -343,7 +344,6 @@ export interface notebookLogicValues {
     shouldBeEditable: boolean
     showHistory: boolean
     sqlNodeIndices: Map<string, number>
-    frameNodeSummaries: NotebookFrameNodeSummary[]
     sqlV2NodeSummaries: SqlV2NodeSummary[]
     syncStatus: NotebookSyncStatus
     title: string

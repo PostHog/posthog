@@ -1,4 +1,5 @@
 import os
+import json
 import tempfile
 
 from django.test import SimpleTestCase
@@ -285,3 +286,39 @@ class TestKernelSessionRunNode(SimpleTestCase):
         envelope = self._run("1 + 1")
 
         self.assertEqual([frame["name"] for frame in envelope["frames"]], [])
+
+    def test_snapshot_keeps_same_named_objects_apart(self):
+        # Keyed on the bare name, a registered frame and a same-named table in another schema
+        # merge into one entry whose columns and row count match neither — a schema the user's
+        # SQL will never see. Only one object is reachable from a bare `FROM`, and DuckDB
+        # resolves the registration first, so that is the one to report.
+        self._run("import pandas as pd\npd.DataFrame({'a': [1, 2, 3]})", output_name="sql_df")
+        self.session.duck.execute("CREATE SCHEMA IF NOT EXISTS other")
+        self.session.duck.execute("CREATE TABLE other.sql_df AS SELECT 99 AS totally_different")
+        envelope = self._run("1 + 1")
+
+        entries = [frame for frame in envelope["frames"] if frame["name"] == "sql_df"]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["kind"], "frame")
+        self.assertEqual(entries[0]["row_count"], 3)
+        self.assertEqual(entries[0]["columns"], [["a", "BIGINT"]])
+
+    def test_snapshot_is_omitted_when_the_catalog_cannot_be_read(self):
+        # An empty list means "the kernel has nothing" and overwrites the stored snapshot; a
+        # failed read knows nothing and must leave it alone. The two must not look alike.
+        self._run("import pandas as pd\npd.DataFrame({'a': [1]})", output_name="kept")
+        self.session.duck.close()
+        envelope = self._run("2 + 2")
+
+        self.assertNotIn("frames", envelope)
+
+    def test_snapshot_stays_within_the_envelope_budget(self):
+        # Column names and type strings are user-controlled and unbounded, so a count cap alone
+        # can still push the envelope past the callback's byte limit — which drops the whole
+        # result, costing the user their run over a sidebar list.
+        wide = ", ".join(f"1 AS {'x' * 300}_{index}" for index in range(60))
+        for table in range(30):
+            self.session.duck.execute(f"CREATE TABLE wide_{table} AS SELECT {wide}")
+        envelope = self._run("3 + 3")
+
+        self.assertLessEqual(len(json.dumps(envelope["frames"])), 300_000)

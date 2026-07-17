@@ -26,6 +26,8 @@ export type NotebookKernelFrame = {
     columns: [string, string][]
     /** Null when counting would need a table scan (a DDL view). */
     row_count: number | null
+    /** True when row_count is DuckDB's estimate, which doesn't track deletes and can be wildly off. */
+    row_count_is_estimate?: boolean
 }
 
 export type NotebookKernelInfo = {

@@ -267,7 +267,12 @@ def ensure_sql_v2_server(notebook: Notebook, user: User | None) -> KernelRuntime
 
     runtime.server_url = credentials.url
     runtime.server_connect_token = credentials.token
-    runtime.save(update_fields=["server_url", "server_connect_token"])
+    # A redeploy relaunches the kernel inside a live sandbox and keeps this row, so the frame
+    # snapshot would outlive the kernel that produced it — the one path where the row's
+    # lifetime stops tracking the kernel's. Its registrations are gone with the namespace, so
+    # drop the snapshot; the next run repopulates it from the new kernel's catalog.
+    runtime.frames = None
+    runtime.save(update_fields=["server_url", "server_connect_token", "frames"])
     return runtime
 
 

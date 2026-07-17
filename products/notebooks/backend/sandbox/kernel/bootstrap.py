@@ -55,9 +55,14 @@ _CELL_CAP_CHARS = 10_000
 _MEDIA_MAX_FIGURES = 8
 _MEDIA_TOTAL_CAP_CHARS = 4_000_000  # base64 chars across all figures (~3 MB of PNG bytes)
 # User SQL can create unboundedly many DuckDB objects; the schema browser only ever renders
-# a list, so cap what the envelope carries rather than let the catalog size it.
+# a list, so cap what the envelope carries rather than let the catalog size it. The byte cap
+# is the one that matters: identifiers and type strings are user-controlled and unbounded
+# (a nested struct type prints in full), so a count cap alone can still push the envelope
+# past the callback's MAX_ENVELOPE_BYTES and cost the user the run's actual result.
 _SNAPSHOT_MAX_OBJECTS = 200
-_SNAPSHOT_MAX_COLUMNS = 500
+_SNAPSHOT_MAX_COLUMNS = 100
+_SNAPSHOT_MAX_IDENTIFIER_CHARS = 200
+_SNAPSHOT_MAX_BYTES = 256_000
 
 
 class _Registration(NamedTuple):
@@ -67,6 +72,13 @@ class _Registration(NamedTuple):
     # "input": materialized from an upstream HogQL node's Arrow file, re-fetched on demand, so it
     # stays referenceable regardless of the namespace (a DuckDB node never binds one there).
     origin: str
+
+
+def _clip_identifier(value: Any) -> str:
+    # Identifiers and type strings are user-controlled and unbounded (a nested struct type
+    # prints in full), and the envelope has a hard byte ceiling.
+    text = str(value)
+    return text if len(text) <= _SNAPSHOT_MAX_IDENTIFIER_CHARS else text[:_SNAPSHOT_MAX_IDENTIFIER_CHARS] + "…"
 
 
 def _safe_len(frame: Any) -> int | None:
@@ -136,14 +148,36 @@ class KernelSession:
 
     def run_node(self, payload: dict[str, Any]) -> dict[str, Any]:
         result = self._execute_node(payload)
+        # Reconciling the registry mutates kernel state, so it is its own step rather than a
+        # side effect of building a display list — a later reader who caches or skips the
+        # snapshot must not silently change what SQL can see.
+        self._reap_stale_registrations()
         # Every envelope carries the snapshot, including error and interrupted ones: a run that
         # failed part-way can still have changed the catalog (a CREATE TABLE before the raise),
-        # and the browser must not miss it until the next successful run.
-        result["frames"] = self._catalog_snapshot()
+        # and the browser must not miss it until the next successful run. A failed snapshot
+        # omits the key entirely — absent means "leave the stored one alone", where an empty
+        # list would mean "the kernel has nothing" and wipe the browser.
+        frames = self._catalog_snapshot()
+        if frames is not None:
+            result["frames"] = frames
         return result
 
-    def _catalog_snapshot(self) -> list[dict[str, Any]]:
+    def _reap_stale_registrations(self) -> None:
+        """Drop registrations the node layer would already reject.
+
+        DuckDB keeps its own reference to a registered object, so `del df` leaves the catalog
+        entry behind while `_register_inputs` would now refuse the name. Follow the node layer
+        rather than the raw catalog, so a later DuckDB node can't read a deleted frame's rows.
+        """
+        for name, registration in list(self._registered.items()):
+            if registration.origin == "output" and not self._is_referenceable(name):
+                self._unregister_duck(name)
+
+    def _catalog_snapshot(self) -> list[dict[str, Any]] | None:
         """The objects a SQL node can currently SELECT from, read from DuckDB's own catalog.
+
+        A pure read: returns None if the catalog can't be read, which the callback treats as
+        "unchanged" rather than "empty".
 
         The catalog is authoritative rather than an approximation: `register`/`unregister`
         keep it in step with the namespace on every path that invalidates a name, and DDL
@@ -153,50 +187,99 @@ class KernelSession:
         try:
             # duckdb_columns() covers tables and views alike, so names/columns/types come in
             # one pass; duckdb_tables() is only needed to tell a table from a view and to pick
-            # up its free estimated_size. `NOT internal` excludes the system catalog.
-            columns_by_name: dict[str, list[list[str]]] = {}
-            for table_name, column_name, data_type in self.duck.execute(
-                "SELECT table_name, column_name, data_type FROM duckdb_columns() "
-                "WHERE NOT internal ORDER BY table_name, column_index"
+            # up its free estimated_size. `NOT internal` excludes the system catalog. Both are
+            # keyed by the qualified triple: a bare name is ambiguous across schemas, and
+            # merging two objects that share one invents a schema matching neither.
+            columns_by_ref: dict[tuple[str, str, str], list[list[str]]] = {}
+            for database_name, schema_name, table_name, column_name, data_type in self.duck.execute(
+                "SELECT database_name, schema_name, table_name, column_name, data_type "
+                "FROM duckdb_columns() WHERE NOT internal ORDER BY table_name, column_index"
             ).fetchall():
-                columns = columns_by_name.setdefault(str(table_name), [])
+                columns = columns_by_ref.setdefault((str(database_name), str(schema_name), str(table_name)), [])
                 if len(columns) < _SNAPSHOT_MAX_COLUMNS:
-                    columns.append([str(column_name), str(data_type)])
-            table_sizes: dict[str, int] = {
-                str(table_name): int(estimated_size or 0)
-                for table_name, estimated_size in self.duck.execute(
-                    "SELECT table_name, estimated_size FROM duckdb_tables() WHERE NOT internal"
+                    columns.append([_clip_identifier(column_name), _clip_identifier(data_type)])
+            table_sizes: dict[tuple[str, str, str], int | None] = {
+                (str(database_name), str(schema_name), str(table_name)): (
+                    int(estimated_size) if estimated_size is not None else None
+                )
+                for database_name, schema_name, table_name, estimated_size in self.duck.execute(
+                    "SELECT database_name, schema_name, table_name, estimated_size "
+                    "FROM duckdb_tables() WHERE NOT internal"
                 ).fetchall()
             }
-        except Exception:  # noqa: BLE001 — the browser is display-only; never fail a run for it
+        except BaseException:  # noqa: BLE001 — incl. KeyboardInterrupt: a stop must not turn an
+            # interrupted envelope into a generic failure, and the browser is display-only.
             logger.exception("nb_kernel catalog snapshot failed")
-            return []
+            return None
 
         frames: list[dict[str, Any]] = []
-        for name in sorted(columns_by_name)[:_SNAPSHOT_MAX_OBJECTS]:
-            entry: dict[str, Any] = {"name": name, "columns": columns_by_name[name]}
-            if name in table_sizes:
-                entry["kind"] = "table"
-                entry["row_count"] = table_sizes[name]
-            elif name in self._registered:
-                registration = self._registered[name]
-                if registration.origin == "output" and not self._is_referenceable(name):
-                    # DuckDB keeps its own reference to a registered object, so `del df` leaves the
-                    # catalog entry behind while _register_inputs would now reject the name. Follow
-                    # the node layer, not the raw catalog, and drop the registration so a later
-                    # DuckDB node can't read the deleted frame's rows either.
-                    self._unregister_duck(name)
-                    continue
-                # A DuckDB view over an object we hold, so len() is free.
-                entry["kind"] = "frame"
-                entry["row_count"] = _safe_len(registration.frame)
-            else:
-                # A view the user created with DDL. Counting it means scanning the base table,
-                # which browsing must never do — so it lists without a row count.
-                entry["kind"] = "view"
-                entry["row_count"] = None
+        budget = _SNAPSHOT_MAX_BYTES
+        for ref in self._resolvable_refs(columns_by_ref):
+            entry = self._catalog_entry(ref, columns_by_ref[ref], table_sizes)
+            cost = len(json.dumps(entry))
+            if cost > budget:
+                # Over budget: stop rather than ship an envelope the callback would reject,
+                # which would cost the user the run's real result over a sidebar list.
+                logger.warning("nb_kernel catalog snapshot truncated at %d objects", len(frames))
+                break
+            budget -= cost
             frames.append(entry)
+            if len(frames) >= _SNAPSHOT_MAX_OBJECTS:
+                break
         return frames
+
+    def _resolvable_refs(
+        self, columns_by_ref: dict[tuple[str, str, str], list[list[str]]]
+    ) -> list[tuple[str, str, str]]:
+        """One ref per bare name: the one an unqualified `FROM <name>` actually reaches.
+
+        Users write bare names, and only one object per name is reachable that way, so listing
+        both would advertise a table their SQL will never read. A registration always shadows
+        (DuckDB puts it in `temp`, which its search path resolves first).
+        """
+        by_name: dict[str, tuple[str, str, str]] = {}
+        for ref in sorted(columns_by_ref):
+            name = ref[2]
+            incumbent = by_name.get(name)
+            if incumbent is None or self._shadow_rank(ref) > self._shadow_rank(incumbent):
+                by_name[name] = ref
+        return [by_name[name] for name in sorted(by_name)]
+
+    def _shadow_rank(self, ref: tuple[str, str, str]) -> int:
+        database, _schema, name = ref
+        # Verified against DuckDB: `register()` creates the view in `temp.main`, and its search
+        # path resolves temp first — a bare `FROM x` reaches the registration even when a table
+        # `x` exists in another schema. Rank by where the object lives, not by name alone: both
+        # refs share the name, so only the database tells the registration from its shadow.
+        if database == "temp":
+            return 2 if name in self._registered else 1
+        return 0
+
+    def _catalog_entry(
+        self,
+        ref: tuple[str, str, str],
+        columns: list[list[str]],
+        table_sizes: dict[tuple[str, str, str], int | None],
+    ) -> dict[str, Any]:
+        name = ref[2]
+        registration = self._registered.get(name)
+        if registration is not None and self._shadow_rank(ref) == 2:
+            # A DuckDB view over an object we hold, so len() is free and exact.
+            return {"name": name, "columns": columns, "kind": "frame", "row_count": _safe_len(registration.frame)}
+        if ref in table_sizes:
+            # estimated_size is the optimizer's cardinality estimate, not a count: it does not
+            # track deletes. Flagged approximate so the UI never presents it as fact, and a
+            # missing estimate stays unknown rather than becoming a confident zero.
+            return {
+                "name": name,
+                "columns": columns,
+                "kind": "table",
+                "row_count": table_sizes[ref],
+                "row_count_is_estimate": True,
+            }
+        # A view the user created with DDL. Counting it means scanning the base table, which
+        # browsing must never do — so it lists without a row count.
+        return {"name": name, "columns": columns, "kind": "view", "row_count": None}
 
     def _is_referenceable(self, name: str) -> bool:
         # The same rule _register_inputs applies to a `local` input, so the browser lists a name

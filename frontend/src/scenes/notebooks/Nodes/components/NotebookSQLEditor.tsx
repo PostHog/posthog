@@ -5,7 +5,6 @@ import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { OutputTab, outputPaneLogic } from 'scenes/data-warehouse/editor/outputPaneLogic'
-import { queryDatabaseLogic } from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
 import { SQLEditor, SQLEditorPanel } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
@@ -30,21 +29,19 @@ export const getNotebookSqlEditorTabId = (nodeId: string | null | undefined, suf
 /**
  * The "Dataframes" section this node contributes to the shared database tree (Journey 7).
  *
- * Reads from logics the notebook already mounts, so it adds no requests: the cells' bound names
- * come from notebookLogic's document, and the kernel's live catalog from notebookKernelInfoLogic,
- * which notebookLogic connects and polls. queryDatabaseLogic is read only for its search term, so
- * the section filters along with the rest of the tree.
+ * Reads only logics notebookLogic already mounts — the document for the names its cells bind,
+ * and notebookKernelInfoLogic for the kernel's catalog — so it adds no requests. It deliberately
+ * does not read queryDatabaseLogic for the search term: reading a logic mounts it, and that one's
+ * afterMount fans out to the warehouse loaders (drafts, joins, tab state), which every notebook
+ * with a SQL cell would then pay on open even with the browser closed. QueryDatabase already
+ * holds the search term and filters these sections itself.
  */
 function useNotebookDataframeTreeSections(): TreeDataItem[] {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { notebookLogic } = useValues(nodeLogic)
     const { frameNodeSummaries } = useValues(notebookLogic)
     const { localFrames } = useValues(notebookKernelInfoLogic({ shortId: notebookLogic.props.shortId }))
-    const { searchTerm } = useValues(queryDatabaseLogic)
-    return useMemo(
-        () => buildDataframeTreeSection(frameNodeSummaries, localFrames, searchTerm ?? ''),
-        [frameNodeSummaries, localFrames, searchTerm]
-    )
+    return useMemo(() => buildDataframeTreeSection(frameNodeSummaries, localFrames), [frameNodeSummaries, localFrames])
 }
 
 const withNotebookHogQLTags = (query: DataVisualizationNode): DataVisualizationNode => ({

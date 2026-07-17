@@ -76,6 +76,10 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
     # Store the raw JSON envelope (JSON-native types) — the serializer's validated_data
     # would coerce result_id to a uuid.UUID, which the JSONField can't serialize.
     envelope = body["envelope"]
+    # The snapshot is kernel state, read only off KernelRuntime. Keeping a copy on every run
+    # row would park a duplicate catalog forever on the table that grows fastest (one row per
+    # cell execution), so it rides the envelope to get here and is then dropped.
+    frames = envelope.pop("frames", None)
 
     try:
         # select_related: the frame snapshot below scopes to the run's user, so fetch it up front
@@ -94,18 +98,19 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
     run.error = envelope.get("error")
     run.save(update_fields=["status", "envelope", "result_id", "error", "updated_at"])
 
-    _store_frame_snapshot(run, envelope, team_id)
+    _store_frame_snapshot(run, frames, team_id)
 
     return JsonResponse({"ok": True})
 
 
-def _store_frame_snapshot(run: NotebookNodeRun, envelope: dict, team_id: int) -> None:
+def _store_frame_snapshot(run: NotebookNodeRun, frames: list | None, team_id: int) -> None:
     """File the run's DuckDB catalog snapshot against the kernel that produced it (Journey 7).
 
-    Only kernel runs (python/duckdb) carry `frames`; a hogql run never enters the kernel and
-    so leaves the previous snapshot standing, which is correct — it changes no local state.
+    `frames` is absent for a hogql run (it never enters the kernel) and for a kernel whose
+    catalog read failed. Both mean "leave the stored snapshot alone" — a hogql run changes no
+    local state, and a failed read knows nothing. Only an actual empty list means "the kernel
+    has nothing", so absent must never be coerced to empty here.
     """
-    frames = envelope.get("frames")
     if frames is None or not run.kernel_runtime_id:
         return
     # Scoped to the dispatch-time kernel rather than "the notebook's current kernel": if the

@@ -73,6 +73,23 @@ export function getSidebarAddJoinSourceTableName(
     }
 }
 
+/**
+ * Keep a section whose folder, or any of its children, matches the search term — the same
+ * name-and-field matching the database tree does for its own tables.
+ */
+const filterTreeSections = (sections: TreeDataItem[], searchTerm: string): TreeDataItem[] => {
+    const needle = searchTerm.trim().toLowerCase()
+    if (!needle) {
+        return sections
+    }
+    const matches = (item: TreeDataItem): boolean =>
+        item.name.toLowerCase().includes(needle) || (item.children ?? []).some(matches)
+    return sections.flatMap((section) => {
+        const children = (section.children ?? []).filter(matches)
+        return children.length ? [{ ...section, children }] : []
+    })
+}
+
 export const QueryDatabase = ({
     virtualizationScrollContainerRef,
     extraTreeSections,
@@ -316,10 +333,16 @@ export const QueryDatabase = ({
         setTreeRef(treeRef)
     }, [treeRef, setTreeRef])
 
-    const treeData = useMemo(
-        () => (extraTreeSections?.length ? [...extraTreeSections, ...displayedTreeData] : displayedTreeData),
-        [extraTreeSections, displayedTreeData]
-    )
+    const treeData = useMemo(() => {
+        if (!extraTreeSections?.length) {
+            return displayedTreeData
+        }
+        // Filtered here rather than by the caller: the tree swaps in its own filtered data while
+        // searching, so an unfiltered section would sit above the results still listing
+        // everything — and keeping the search term on this side means an embedder doesn't have to
+        // mount this logic just to read it.
+        return [...filterTreeSections(extraTreeSections, searchTerm), ...displayedTreeData]
+    }, [extraTreeSections, displayedTreeData, searchTerm])
 
     return (
         <LemonTree
