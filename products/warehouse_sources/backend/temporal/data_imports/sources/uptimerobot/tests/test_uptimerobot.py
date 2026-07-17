@@ -213,6 +213,30 @@ class TestTopLevelRows:
         assert [r["id"] for r in rows] == ["1", "2"]
         assert len(requests_made) == 1
 
+    def test_monitor_credentials_are_stripped_from_rows(self, monkeypatch: Any) -> None:
+        # getMonitors echoes back the monitored endpoint's HTTP Basic Auth credentials and custom
+        # request headers; these must never reach the warehouse where any project member with read
+        # access could recover them.
+        def responder(method: str, data: dict) -> dict:
+            return {
+                "stat": "ok",
+                "pagination": {"offset": 0, "limit": 50, "total": 1},
+                "monitors": [
+                    {
+                        "id": 1,
+                        "friendly_name": "prod",
+                        "http_username": "svc",
+                        "http_password": "hunter2",
+                        "custom_http_headers": {"Authorization": "Bearer tok"},
+                    }
+                ],
+            }
+
+        _patch_post(monkeypatch, responder)
+        rows = _collect(_FakeResumableManager(), "monitors")
+
+        assert rows == [{"id": 1, "friendly_name": "prod"}]
+
     def test_monitors_request_includes_uptime_ratio_params(self, monkeypatch: Any) -> None:
         def responder(method: str, data: dict) -> dict:
             return {"stat": "ok", "pagination": {"offset": 0, "limit": 50, "total": 0}, "monitors": []}

@@ -24,6 +24,19 @@ UPTIMEROBOT_BASE_URL = "https://api.uptimerobot.com/v2"
 # Stable prefix for credential failures — matched by `get_non_retryable_errors` on the source class.
 AUTH_ERROR_PREFIX = "UptimeRobot API key was rejected"
 
+# getMonitors echoes back the monitor's configuration, including the HTTP Basic Auth credentials
+# used to reach the monitored endpoint (`http_username`/`http_password`) and any custom request
+# headers, which routinely carry bearer tokens or API keys. None of these have analytical value and
+# all would let a project member with warehouse read access recover live credentials, so they're
+# stripped from every row defensively regardless of endpoint.
+_SENSITIVE_FIELDS: frozenset[str] = frozenset({"http_username", "http_password", "custom_http_headers"})
+
+
+def _scrub_sensitive(row: dict[str, Any]) -> dict[str, Any]:
+    if _SENSITIVE_FIELDS.isdisjoint(row):
+        return row
+    return {key: value for key, value in row.items() if key not in _SENSITIVE_FIELDS}
+
 
 class UptimeRobotRetryableError(Exception):
     pass
@@ -159,9 +172,10 @@ def _get_top_level_rows(
 
     while True:
         payload = _post(session, config.method, _form_data(api_key, config, offset), logger)
-        rows = payload.get(config.response_key) or []
-        next_offset = _next_offset(payload, offset, len(rows))
+        raw_rows = payload.get(config.response_key) or []
+        next_offset = _next_offset(payload, offset, len(raw_rows))
 
+        rows = [_scrub_sensitive(row) for row in raw_rows]
         if rows:
             yield rows
         if next_offset is None:
@@ -183,7 +197,7 @@ def _flatten_monitor_rows(
                 entry_ts = _to_unix_timestamp(entry.get("datetime"))
                 if entry_ts is not None and entry_ts <= min_exclusive_ts:
                     continue
-            rows.append({**entry, "monitor_id": monitor.get("id")})
+            rows.append(_scrub_sensitive({**entry, "monitor_id": monitor.get("id")}))
     return rows
 
 
