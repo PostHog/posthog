@@ -83,9 +83,14 @@ describe('EvalResultBadges', () => {
             ['true result', makeRun({ result: true }), { type: 'success', label: 'True' }],
             ['false result', makeRun({ result: false }), { type: 'danger', label: 'False' }],
             [
-                'OTel label and numeric score',
-                makeRun({ result: null, score_label: 'pass', score_value: 0.9 }),
-                { type: 'success', label: 'Pass · 0.9' },
+                'imported label result',
+                makeRun({ result: 'pass', result_type: 'label' }),
+                { type: 'success', label: 'Pass' },
+            ],
+            [
+                'imported numeric result',
+                makeRun({ result: 0.9, result_type: 'number' }),
+                { type: 'none', label: '0.9' },
             ],
             [
                 'positive sentiment',
