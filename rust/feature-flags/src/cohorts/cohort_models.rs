@@ -171,11 +171,21 @@ pub struct CohortValues {
 /// `PropertyFilter` requires `key`, so a group (no `key`) falls through to `Group`,
 /// while an ambiguous object carrying both `key` and `values` is kept as the filter
 /// it most likely is rather than silently dropping its `key`/`value`/`operator`.
+///
+/// `Unsupported` is the catch-all last variant: a leaf whose `type` this evaluator
+/// can't resolve from person/group properties — most commonly a `behavioral` filter,
+/// which needs event history over time. Keeping it as raw JSON means one unsupported
+/// leaf no longer aborts parsing of the whole cohort (which previously failed every
+/// referencing flag with `CohortFiltersParsingError`). It contributes no cohort
+/// dependency and is treated as a non-match during evaluation, so the cohort's
+/// person-property leaves still evaluate correctly. Because it deserializes any JSON,
+/// it must stay last so real filters and groups are tried first.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum CohortValuesItem {
     Filter(PropertyFilter),
     Group(CohortValues),
+    Unsupported(serde_json::Value),
 }
 
 #[cfg(test)]
@@ -601,6 +611,30 @@ mod tests {
             size > 1000,
             "Large JSON should have significant estimated size"
         );
+    }
+
+    #[test]
+    fn test_cohort_values_item_untagged_variant_ordering() {
+        // The untagged variant order must keep real filters and groups ahead of the
+        // catch-all: a leaf property filter stays a `Filter`, a group stays a `Group`,
+        // and only a leaf whose `type` we can't parse (e.g. `behavioral`) falls through
+        // to `Unsupported` instead of aborting the whole cohort parse.
+        let filter: CohortValuesItem = serde_json::from_value(serde_json::json!(
+            {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
+        ))
+        .unwrap();
+        assert!(matches!(filter, CohortValuesItem::Filter(_)));
+
+        let group: CohortValuesItem =
+            serde_json::from_value(serde_json::json!({"type": "AND", "values": []})).unwrap();
+        assert!(matches!(group, CohortValuesItem::Group(_)));
+
+        let behavioral: CohortValuesItem = serde_json::from_value(serde_json::json!(
+            {"key": "$pageview", "type": "behavioral", "value": "performed_event",
+             "negation": false, "event_type": "events", "time_value": "30", "time_interval": "day"}
+        ))
+        .unwrap();
+        assert!(matches!(behavioral, CohortValuesItem::Unsupported(_)));
     }
 }
 

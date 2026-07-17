@@ -20,6 +20,9 @@ pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";
 pub const COHORT_CACHE_MISS_COUNTER: &str = "flags_cohort_cache_miss_total";
 pub const COHORT_CACHE_SIZE_BYTES_GAUGE: &str = "flags_cohort_cache_size_bytes";
 pub const COHORT_CACHE_ENTRIES_GAUGE: &str = "flags_cohort_cache_entries";
+// Incremented once per unsupported cohort filter leaf (e.g. a `behavioral` filter)
+// skipped during dependency extraction, instead of failing the whole cohort parse.
+pub const COHORT_UNSUPPORTED_FILTER_COUNTER: &str = "flags_cohort_unsupported_filter_total";
 // Realtime cohort membership cache (CachedCohortMembershipProvider, keyed on
 // (team_id, person_uuid)). hit = lookup fully served from cache; miss = a
 // behavioral cohorts DB query was issued (no cache entry, or the entry was

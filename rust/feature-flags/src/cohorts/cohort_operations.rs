@@ -10,6 +10,7 @@ use crate::cohorts::cohort_models::{
     Cohort, CohortId, CohortProperty, CohortValuesItem, InnerCohortProperty,
 };
 use crate::database::get_connection_with_metrics;
+use crate::metrics::consts::COHORT_UNSUPPORTED_FILTER_COUNTER;
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::OperatorType;
 use crate::utils::graph_utils::{DependencyGraph, DependencyProvider, DependencyType};
@@ -213,6 +214,12 @@ impl Cohort {
                     }
                 }
             }
+            // A leaf we can't resolve here (e.g. a `behavioral` filter) has no cohort
+            // dependency to contribute — count it and move on rather than failing the
+            // whole cohort parse.
+            CohortValuesItem::Unsupported(_) => {
+                common_metrics::inc(COHORT_UNSUPPORTED_FILTER_COUNTER, &[], 1);
+            }
         }
         Ok(())
     }
@@ -284,6 +291,10 @@ fn evaluate_cohort_item(
         CohortValuesItem::Filter(filter) => {
             evaluate_cohort_filter(filter, target_properties, cohort_matches, team_timezone)
         }
+        // A leaf this evaluator can't resolve from person/group properties (e.g. a
+        // `behavioral` filter) is treated as a non-match, so the cohort's evaluable
+        // leaves still decide membership via their AND/OR combination.
+        CohortValuesItem::Unsupported(_) => Ok(false),
     }
 }
 
@@ -1371,6 +1382,105 @@ mod tests {
         assert!(matches!(
             evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &HashMap::new(), Tz::UTC),
             Err(FlagError::CohortFiltersParsingError)
+        ));
+    }
+
+    #[test]
+    fn test_extract_dependencies_tolerates_behavioral_leaf() {
+        // A `behavioral` leaf can't be resolved from person properties here, but it
+        // must not abort dependency extraction — the sibling cohort reference should
+        // still be discovered. Before the fix this returned CohortFiltersParsingError.
+        let cohort = create_dynamic_cohort_with_filters(
+            1,
+            json!({
+                "properties": {
+                    "type": "AND",
+                    "values": [{
+                        "type": "OR",
+                        "values": [
+                            {"key": "$pageview", "type": "behavioral", "value": "performed_event",
+                             "negation": false, "event_type": "events", "time_value": "30", "time_interval": "day"},
+                            {"key": "id", "type": "cohort", "value": 7, "negation": false}
+                        ]
+                    }]
+                }
+            }),
+        );
+
+        let dependencies = cohort
+            .extract_dependencies()
+            .expect("a behavioral leaf must not fail cohort dependency extraction");
+        assert_eq!(dependencies, [7].into_iter().collect());
+    }
+
+    #[test]
+    fn test_evaluate_dynamic_cohorts_with_behavioral_leaf_in_or_group() {
+        // In an OR group, an unresolvable behavioral leaf is a non-match, so an
+        // evaluable person-property sibling still decides membership.
+        let cohort = create_dynamic_cohort_with_filters(
+            1,
+            json!({
+                "properties": {
+                    "type": "OR",
+                    "values": [{
+                        "type": "OR",
+                        "values": [
+                            {"key": "$pageview", "type": "behavioral", "value": "performed_event",
+                             "negation": false, "event_type": "events", "time_value": "30", "time_interval": "day"},
+                            {"key": "plan", "type": "person", "value": "pro", "operator": "exact"}
+                        ]
+                    }]
+                }
+            }),
+        );
+
+        let cohorts = vec![cohort];
+        let static_cohort_matches = HashMap::new();
+
+        let test_cases = [
+            (json!("pro"), true),   // person-property sibling matches -> cohort matches
+            (json!("free"), false), // sibling misses, behavioral leaf non-matches -> no match
+        ];
+        for (plan, expected) in test_cases {
+            let target_properties = HashMap::from([("plan".to_string(), plan.clone())]);
+            let result = evaluate_dynamic_cohorts(
+                1,
+                &target_properties,
+                &cohorts,
+                &static_cohort_matches,
+                Tz::UTC,
+            )
+            .unwrap();
+            assert_eq!(result, expected, "plan={plan} should evaluate to {expected}");
+        }
+    }
+
+    #[test]
+    fn test_evaluate_dynamic_cohorts_with_behavioral_leaf_in_and_group_never_matches() {
+        // In an AND group, the unresolvable behavioral leaf (treated as a non-match)
+        // prevents the group from matching even when the person-property leaf is satisfied.
+        let cohort = create_dynamic_cohort_with_filters(
+            1,
+            json!({
+                "properties": {
+                    "type": "AND",
+                    "values": [{
+                        "type": "AND",
+                        "values": [
+                            {"key": "plan", "type": "person", "value": "pro", "operator": "exact"},
+                            {"key": "$pageview", "type": "behavioral", "value": "performed_event",
+                             "negation": false, "event_type": "events", "time_value": "30", "time_interval": "day"}
+                        ]
+                    }]
+                }
+            }),
+        );
+
+        let cohorts = vec![cohort];
+        let target_properties = HashMap::from([("plan".to_string(), json!("pro"))]);
+        assert!(matches!(
+            evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &HashMap::new(), Tz::UTC),
+            Ok(false)
         ));
     }
 }
