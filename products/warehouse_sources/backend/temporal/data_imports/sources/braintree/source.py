@@ -16,6 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.braintree import (
+    BRAINTREE_VERSION_2019_01_01,
+    BRAINTREE_VERSION_2026_07_14,
     BraintreeResumeConfig,
     braintree_source,
     validate_credentials as validate_braintree_credentials,
@@ -38,8 +40,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class BraintreeSource(ResumableSource[BraintreeSourceConfig, BraintreeResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("2019-01-01", "2026-07-14")
-    default_version = "2026-07-14"
+    supported_versions = (BRAINTREE_VERSION_2019_01_01, BRAINTREE_VERSION_2026_07_14)
+    default_version = BRAINTREE_VERSION_2026_07_14
     api_docs_url = "https://graphql.braintreepayments.com/"
 
     @property
