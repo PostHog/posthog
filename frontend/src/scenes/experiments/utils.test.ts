@@ -39,6 +39,7 @@ import {
     getOrderedMetricsWithResults,
     getSessionLinkabilityEventNames,
     getViewRecordingFilters,
+    getViewRecordingFiltersForVariant,
     getViewRecordingFiltersLegacy,
     isEvenlyDistributed,
     isLegacyExperiment,
@@ -362,6 +363,120 @@ describe('getViewRecordingFilters', () => {
             name: 'action1',
             type: 'actions',
         })
+    })
+})
+
+describe('getViewRecordingFiltersForVariant', () => {
+    const experimentBase = {
+        id: 1,
+        name: 'test experiment',
+        feature_flag_key: 'my-flag',
+        exposure_criteria: undefined,
+        filters: {},
+        metrics: [],
+        metrics_secondary: [],
+        primary_metrics_ordered_uuids: null,
+        secondary_metrics_ordered_uuids: null,
+        saved_metrics_ids: [],
+        saved_metrics: [],
+        parameters: {},
+        secondary_metrics: [],
+        created_at: null,
+        created_by: null,
+        updated_at: null,
+        user_access_level: AccessControlLevel.Editor,
+    } satisfies Experiment
+
+    const customExposure = {
+        exposure_criteria: {
+            exposure_config: {
+                kind: NodeKind.ExperimentEventExposureConfig,
+                event: 'exposure_event',
+                properties: [
+                    { key: 'foo', value: 'bar', operator: PropertyOperator.IsNot, type: PropertyFilterType.Event },
+                ],
+            },
+        },
+    } satisfies Pick<Experiment, 'exposure_criteria'>
+
+    it('default exposure, specific variant: keeps the variant response predicate', () => {
+        expect(getViewRecordingFiltersForVariant({ ...experimentBase }, 'variantA')).toEqual([
+            {
+                id: '$feature_flag_called',
+                name: '$feature_flag_called',
+                type: 'events',
+                properties: [
+                    {
+                        key: '$feature_flag_response',
+                        type: PropertyFilterType.Event,
+                        value: ['variantA'],
+                        operator: PropertyOperator.Exact,
+                    },
+                    {
+                        key: '$feature_flag',
+                        type: PropertyFilterType.Event,
+                        value: 'my-flag',
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+        ])
+    })
+
+    it('default exposure, all variants: drops the variant response predicate, keeps the flag', () => {
+        expect(getViewRecordingFiltersForVariant({ ...experimentBase })).toEqual([
+            {
+                id: '$feature_flag_called',
+                name: '$feature_flag_called',
+                type: 'events',
+                properties: [
+                    {
+                        key: '$feature_flag',
+                        type: PropertyFilterType.Event,
+                        value: 'my-flag',
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+        ])
+    })
+
+    it('custom exposure, specific variant: matches the variant stamp exactly', () => {
+        expect(getViewRecordingFiltersForVariant({ ...experimentBase, ...customExposure }, 'variantA')).toEqual([
+            {
+                id: 'exposure_event',
+                name: 'exposure_event',
+                type: 'events',
+                properties: [
+                    { key: 'foo', value: 'bar', operator: PropertyOperator.IsNot, type: PropertyFilterType.Event },
+                    {
+                        key: '$feature/my-flag',
+                        type: PropertyFilterType.Event,
+                        value: ['variantA'],
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+        ])
+    })
+
+    it('custom exposure, all variants: matches the enrollment stamp being set', () => {
+        expect(getViewRecordingFiltersForVariant({ ...experimentBase, ...customExposure })).toEqual([
+            {
+                id: 'exposure_event',
+                name: 'exposure_event',
+                type: 'events',
+                properties: [
+                    { key: 'foo', value: 'bar', operator: PropertyOperator.IsNot, type: PropertyFilterType.Event },
+                    {
+                        key: '$feature/my-flag',
+                        type: PropertyFilterType.Event,
+                        value: PropertyOperator.IsSet,
+                        operator: PropertyOperator.IsSet,
+                    },
+                ],
+            },
+        ])
     })
 })
 
