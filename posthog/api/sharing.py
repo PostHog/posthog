@@ -186,7 +186,6 @@ SHARING_RESOURCE_EDIT_CHECKS: dict[str, SharingResourceEditCheck | None] = {
     "notebook": _require_resource_editor("notebook", "You don't have edit permissions for this notebook."),
     # Materialized by the user-interviews link-generation flow, never via SharingConfigurationViewSet.
     "interviewee_context": None,
-    "user_interview_topic": None,
 }
 
 
@@ -841,7 +840,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "notebook",
                         "interviewee_context",
                         "interviewee_context__topic",
-                        "user_interview_topic",
                     )
                     .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
                     .get(access_token=access_token)
@@ -1192,18 +1190,30 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             except Exception:
                 raise NotFound("No heatmap found")
         elif isinstance(resource, SharingConfiguration) and resource.interviewee_context:
-            from products.user_interviews.backend.facade.api import has_replied, parse_interviewee_identifier
+            from products.user_interviews.backend.facade.api import (
+                has_replied,
+                is_shared_interviewee_context,
+                parse_interviewee_identifier,
+            )
 
             ic = resource.interviewee_context
             topic = ic.topic
             asset_title = topic.topic or "User interview"
             asset_description = "PostHog AI user interview"
-            user_name = parse_interviewee_identifier(ic.interviewee_identifier).display_name
-            already_replied = has_replied(
-                team_id=topic.team_id,
-                topic_id=topic.id,
-                interviewee_identifier=ic.interviewee_identifier,
-            )
+            # A shared link's IntervieweeContext carries a sentinel identifier: every visitor is a new
+            # anonymous respondent, so there's no fixed name and no "already replied" gate — the
+            # viewer prompts for a name before starting.
+            shared = is_shared_interviewee_context(ic.interviewee_identifier)
+            if shared:
+                user_name = ""
+                already_replied = False
+            else:
+                user_name = parse_interviewee_identifier(ic.interviewee_identifier).display_name
+                already_replied = has_replied(
+                    team_id=topic.team_id,
+                    topic_id=topic.id,
+                    interviewee_identifier=ic.interviewee_identifier,
+                )
             # Keep agent_context, questions, and Vapi credentials OUT of the public HTML —
             # the recipient would otherwise see their own internal-notes context in view-source.
             # The exporter scene fetches those server-side via /start_call/ when the user clicks Start.
@@ -1212,32 +1222,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     "type": "interview",
                     "interview": {
                         "topic_id": str(topic.id),
-                        "interviewee_identifier": ic.interviewee_identifier,
+                        "interviewee_identifier": "" if shared else ic.interviewee_identifier,
                         "user_name": user_name,
                         "topic": topic.topic,
                         "already_replied": already_replied,
-                        "shared": False,
-                    },
-                }
-            )
-        elif isinstance(resource, SharingConfiguration) and resource.user_interview_topic:
-            # Non-personalised (shared) topic link: every visitor is a new anonymous respondent, so
-            # there's no fixed interviewee and never an "already replied" gate. The viewer collects a
-            # name before starting; agent_context/questions/Vapi creds stay off the HTML (fetched at
-            # /start_call/), same as the personalised branch above.
-            topic = resource.user_interview_topic
-            asset_title = topic.topic or "User interview"
-            asset_description = "PostHog AI user interview"
-            exported_data.update(
-                {
-                    "type": "interview",
-                    "interview": {
-                        "topic_id": str(topic.id),
-                        "interviewee_identifier": "",
-                        "user_name": "",
-                        "topic": topic.topic,
-                        "already_replied": False,
-                        "shared": True,
+                        "shared": shared,
                     },
                 }
             )

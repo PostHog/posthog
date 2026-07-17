@@ -12,8 +12,28 @@ from rest_framework import status
 
 from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.user import User
 
-from products.user_interviews.backend.models import UserInterview, UserInterviewClassification, UserInterviewTopic
+from products.user_interviews.backend.facade.api import SHARED_INTERVIEWEE_IDENTIFIER
+from products.user_interviews.backend.models import (
+    IntervieweeContext,
+    UserInterview,
+    UserInterviewClassification,
+    UserInterviewTopic,
+)
+
+
+def _make_shared_config(*, team: Any, topic: UserInterviewTopic, created_by: User) -> SharingConfiguration:
+    """Build a shared link the way the product does — a sentinel IntervieweeContext plus a
+    SharingConfiguration on it (no new model / no main-app FK)."""
+    ic = IntervieweeContext.objects.create(
+        team=team,
+        topic=topic,
+        interviewee_identifier=SHARED_INTERVIEWEE_IDENTIFIER,
+        agent_context="",
+        created_by=created_by,
+    )
+    return SharingConfiguration.objects.create(team=team, interviewee_context=ic, enabled=True)
 
 
 class _FeatureFlagEnabledMixin(APIBaseTest):
@@ -38,14 +58,16 @@ class TestGenerateSharedLink(_FeatureFlagEnabledMixin):
     def _url(self, topic_id: str) -> str:
         return f"/api/environments/{self.team.id}/user_interview_topics/{topic_id}/shared_link/"
 
-    def test_creates_topic_level_share_not_tied_to_an_interviewee(self) -> None:
+    def test_creates_shared_link_via_sentinel_context(self) -> None:
         topic = self._topic()
         response = self.client.post(self._url(str(topic.id)))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
-        config = SharingConfiguration.objects.get(team=self.team, user_interview_topic=topic, enabled=True)
-        # Topic-level share: not attached to any per-invitee IntervieweeContext.
-        assert config.interviewee_context_id is None
+        # Modelled as a sentinel IntervieweeContext (no new model / no main-app FK).
+        ic = IntervieweeContext.objects.get(
+            team=self.team, topic=topic, interviewee_identifier=SHARED_INTERVIEWEE_IDENTIFIER
+        )
+        config = SharingConfiguration.objects.get(team=self.team, interviewee_context=ic, enabled=True)
         assert config.access_token is not None
         assert config.access_token in response.json()["interview_url"]
 
@@ -54,7 +76,18 @@ class TestGenerateSharedLink(_FeatureFlagEnabledMixin):
         first = self.client.post(self._url(str(topic.id))).json()
         second = self.client.post(self._url(str(topic.id))).json()
         assert first["interview_url"] == second["interview_url"]
-        assert SharingConfiguration.objects.filter(user_interview_topic=topic, enabled=True).count() == 1
+        assert (
+            IntervieweeContext.objects.filter(topic=topic, interviewee_identifier=SHARED_INTERVIEWEE_IDENTIFIER).count()
+            == 1
+        )
+        assert (
+            SharingConfiguration.objects.filter(
+                interviewee_context__topic=topic,
+                interviewee_context__interviewee_identifier=SHARED_INTERVIEWEE_IDENTIFIER,
+                enabled=True,
+            ).count()
+            == 1
+        )
 
     def test_shared_link_works_without_any_targeted_interviewees(self) -> None:
         # Unlike generate_links (which needs emails/distinct_ids), a shared link is for a topic with
@@ -74,7 +107,7 @@ class TestSharedInterviewPublicViewer(APIBaseTest):
             agent_context="internal only",
             questions=["q1"],
         )
-        return SharingConfiguration.objects.create(team=self.team, user_interview_topic=topic, enabled=True)
+        return _make_shared_config(team=self.team, topic=topic, created_by=self.user)
 
     @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
     @mock_exporter_template
@@ -101,7 +134,7 @@ class TestSharedStartCall(APIBaseTest):
             agent_context="topic ctx",
             questions=["What were you comparing?"],
         )
-        return SharingConfiguration.objects.create(team=self.team, user_interview_topic=topic, enabled=True)
+        return _make_shared_config(team=self.team, topic=topic, created_by=self.user)
 
     def _url(self, token: str | None) -> str:
         return f"/api/user_interviews/share/{token}/start_call/"
@@ -170,7 +203,7 @@ class TestSharedVapiWebhook(APIBaseTest):
             topic="Alternatives and comparisons",
             questions=[],
         )
-        return SharingConfiguration.objects.create(team=self.team, user_interview_topic=topic, enabled=True)
+        return _make_shared_config(team=self.team, topic=topic, created_by=self.user)
 
     def _payload(
         self, token: str | None, *, call_id: str, respondent_key: str, transcript: str, name: str = "Robin"
@@ -215,7 +248,7 @@ class TestSharedVapiWebhook(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         interview = UserInterview.objects.get(team=self.team)
-        assert interview.topic_id == config.user_interview_topic_id
+        assert interview.topic_id == config.interviewee_context.topic_id
         assert interview.respondent_name == "Robin"
         # Provided distinct_id is stored in interviewee_identifier, not a dedicated column.
         assert interview.interviewee_identifier == "person-abc"
@@ -240,12 +273,12 @@ class TestSharedVapiWebhook(APIBaseTest):
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     def test_completed_response_supersedes_abandoned_partial_from_a_refresh(self) -> None:
         config = self._shared_config()
-        assert config.user_interview_topic is not None
+        topic = config.interviewee_context.topic
         # Simulate the abandoned partial an accidental refresh leaves behind for this respondent.
         abandoned = UserInterview.objects.create(
             team=self.team,
             created_by=self.user,
-            topic=config.user_interview_topic,
+            topic=topic,
             interviewee_identifier="Robin",
             respondent_key="resp-1",
             transcript="",

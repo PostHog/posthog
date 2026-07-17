@@ -49,16 +49,6 @@ class SharingConfiguration(models.Model):
         null=True,
         blank=True,
     )
-    # Topic-level (non-personalised) interview share: one token for a whole topic, where each
-    # visitor is a new anonymous respondent. Distinct from interviewee_context, which is the
-    # per-invitee personalised share.
-    user_interview_topic = models.ForeignKey(
-        "user_interviews.UserInterviewTopic",
-        related_name="sharing_configurations",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-    )
 
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
 
@@ -100,7 +90,6 @@ class SharingConfiguration(models.Model):
         recording: models.Model | None = None,
         notebook: models.Model | None = None,
         interviewee_context: models.Model | None = None,
-        user_interview_topic: models.Model | None = None,
     ) -> dict[str, Any]:
         return {
             "team_id": team_id,
@@ -109,7 +98,6 @@ class SharingConfiguration(models.Model):
             "recording": recording,
             "notebook": notebook,
             "interviewee_context": interviewee_context,
-            "user_interview_topic": user_interview_topic,
         }
 
     @classmethod
@@ -162,14 +150,7 @@ class SharingConfiguration(models.Model):
         # Resolve each parent model from its own FK instead of importing it. This keeps the module
         # free of product imports (``user_interviews`` only exposes its webhooks via tach's
         # ``[[interfaces]]``).
-        for field_name in (
-            "dashboard",
-            "insight",
-            "notebook",
-            "recording",
-            "interviewee_context",
-            "user_interview_topic",
-        ):
+        for field_name in ("dashboard", "insight", "notebook", "recording", "interviewee_context"):
             fk_value = getattr(self, f"{field_name}_id")
             if not fk_value:
                 continue
@@ -190,7 +171,6 @@ class SharingConfiguration(models.Model):
             recording=self.recording,
             notebook=self.notebook,
             interviewee_context=self.interviewee_context,
-            user_interview_topic=self.user_interview_topic,
         )
 
     def rotate_access_token(self) -> "SharingConfiguration":
@@ -230,7 +210,6 @@ class SharingConfiguration(models.Model):
                 recording=source.recording,
                 notebook=source.notebook,
                 interviewee_context=source.interviewee_context,
-                user_interview_topic=source.user_interview_topic,
                 enabled=source.enabled,
                 settings=source.settings,
                 password_required=source.password_required,
@@ -282,14 +261,7 @@ class SharingConfiguration(models.Model):
         if obj._meta.object_name == "Insight" and (self.dashboard or self.notebook):
             return cast(Insight, obj).id in self.get_connected_insight_ids()
 
-        for comparison in [
-            self.insight,
-            self.dashboard,
-            self.recording,
-            self.notebook,
-            self.interviewee_context,
-            self.user_interview_topic,
-        ]:
+        for comparison in [self.insight, self.dashboard, self.recording, self.notebook, self.interviewee_context]:
             if comparison and comparison == obj:
                 return True
 

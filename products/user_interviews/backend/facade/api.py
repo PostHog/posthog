@@ -22,11 +22,19 @@ from products.user_interviews.backend.classification import derive_auto_classifi
 from products.user_interviews.backend.facade.contracts import IntervieweeIdentity
 
 __all__ = [
+    "SHARED_INTERVIEWEE_IDENTIFIER",
     "IntervieweeIdentity",
     "derive_auto_classifications",
     "has_replied",
+    "is_shared_interviewee_context",
     "parse_interviewee_identifier",
 ]
+
+SHARED_INTERVIEWEE_IDENTIFIER = logic.SHARED_INTERVIEWEE_IDENTIFIER
+
+
+def is_shared_interviewee_context(interviewee_identifier: str) -> bool:
+    return logic.is_shared_interviewee_context(interviewee_identifier)
 
 
 def parse_interviewee_identifier(identifier: str) -> IntervieweeIdentity:

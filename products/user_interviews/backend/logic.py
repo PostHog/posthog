@@ -73,6 +73,19 @@ def valid_session_id(value: object) -> str:
         return ""
 
 
+# A shared (non-personalised) interview link is modelled as an IntervieweeContext carrying this
+# reserved identifier — the same machinery as a per-invitee link (and the test/dogfood link), but
+# the token belongs to the whole topic and every visitor is a new anonymous respondent. Using a
+# sentinel row (rather than a new field, or a new FK on the main-app SharingConfiguration) keeps this
+# experiment's blast radius entirely inside the user_interviews product.
+SHARED_INTERVIEWEE_IDENTIFIER = "__posthog_shared_link__"
+
+
+def is_shared_interviewee_context(interviewee_identifier: str) -> bool:
+    """Whether an IntervieweeContext identifier marks the topic's shared (anonymous) link."""
+    return interviewee_identifier == SHARED_INTERVIEWEE_IDENTIFIER
+
+
 def parse_interviewee_identifier(identifier: str) -> IntervieweeIdentity:
     """Split an interviewee identifier into a display name and (optional) email.
 

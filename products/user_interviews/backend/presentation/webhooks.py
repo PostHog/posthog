@@ -14,7 +14,7 @@ import hmac
 import json
 import string
 import hashlib
-from typing import Any, cast
+from typing import Any
 
 from django.conf import settings
 from django.db import transaction
@@ -41,7 +41,7 @@ from posthog.rate_limit import IPThrottle
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from ..facade.api import derive_auto_classifications
-from ..logic import valid_distinct_id, valid_session_id
+from ..logic import is_shared_interviewee_context, valid_distinct_id, valid_session_id
 from ..models import UserInterview, UserInterviewClassification, UserInterviewTopic
 
 logger = structlog.get_logger(__name__)
@@ -215,8 +215,6 @@ def _resolve_share(access_token: str) -> SharingConfiguration | None:
                 "interviewee_context",
                 "interviewee_context__topic",
                 "interviewee_context__topic__created_by",
-                "user_interview_topic",
-                "user_interview_topic__created_by",
             )
             .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
             .get(access_token=access_token, enabled=True)
@@ -357,9 +355,7 @@ def start_call(request: Request, access_token: str) -> Response:
         return Response({"error": "invalid request"}, status=status.HTTP_400_BAD_REQUEST)
 
     sharing_config = _resolve_share(access_token)
-    if sharing_config is None or (
-        sharing_config.interviewee_context is None and sharing_config.user_interview_topic is None
-    ):
+    if sharing_config is None or sharing_config.interviewee_context is None:
         logger.warning("user_interviews_start_call_unknown_access_token")
         return Response({"error": "unknown access_token"}, status=status.HTTP_404_NOT_FOUND)
     if _public_sharing_disabled_for_org(sharing_config):
@@ -372,27 +368,18 @@ def start_call(request: Request, access_token: str) -> Response:
         return Response({"error": "unknown access_token"}, status=status.HTTP_404_NOT_FOUND)
 
     ic = sharing_config.interviewee_context
-    if ic is not None:
-        topic = ic.topic
-        user_name, _ = _parse_identifier(ic.interviewee_identifier)
-        agent_context = _merge_agent_context(topic.agent_context or "", ic.agent_context or "")
-        metadata: dict[str, str] = {
-            "topic_id": str(topic.id),
-            "interviewee_identifier": ic.interviewee_identifier,
-            "sharing_access_token": access_token,
-        }
-    else:
-        topic = cast(UserInterviewTopic, sharing_config.user_interview_topic)
+    topic = ic.topic
+    if is_shared_interviewee_context(ic.interviewee_identifier):
         respondent_name = _clean_field(body.get("name"), _RESPONDENT_NAME_MAX_CHARS)
         respondent_key = _clean_field(body.get("respondent_key"), _RESPONDENT_KEY_MAX_CHARS)
         user_name = respondent_name or "there"
         agent_context = topic.agent_context or ""
         # A provided, valid distinct_id becomes the interviewee_identifier — same semantics as a
-        # personalised distinct-id interview — so there's no separate distinct_id column. Fall back
-        # to the self-reported name, then a shared marker.
+        # personalised distinct-id interview — so no extra field is needed. Fall back to the
+        # self-reported name, then a shared marker.
         distinct_id = valid_distinct_id(body.get("distinct_id"))
         interviewee_identifier = distinct_id or _shared_interviewee_identifier(respondent_name, respondent_key)
-        metadata = {
+        metadata: dict[str, str] = {
             "topic_id": str(topic.id),
             "interviewee_identifier": interviewee_identifier,
             "sharing_access_token": access_token,
@@ -403,6 +390,14 @@ def start_call(request: Request, access_token: str) -> Response:
             # $session_id, which associates the interview with the session recording). Validated
             # here at the trust boundary; invalid values are dropped, not rejected.
             "session_id": valid_session_id(body.get("session_id")),
+        }
+    else:
+        user_name, _ = _parse_identifier(ic.interviewee_identifier)
+        agent_context = _merge_agent_context(topic.agent_context or "", ic.agent_context or "")
+        metadata = {
+            "topic_id": str(topic.id),
+            "interviewee_identifier": ic.interviewee_identifier,
+            "sharing_access_token": access_token,
         }
 
     first_message_template = _resolve_first_message_template(sharing_config.team)
@@ -524,9 +519,7 @@ def vapi_webhook(request: Request) -> Response:
         call_status = message.get("status")
         if call_status == "in-progress" and access_token:
             sharing_config = _resolve_share(access_token)
-            if sharing_config is not None and (
-                sharing_config.interviewee_context is not None or sharing_config.user_interview_topic is not None
-            ):
+            if sharing_config is not None and sharing_config.interviewee_context is not None:
                 _capture_user_interview_event(
                     "user_interview_conversation_started",
                     sharing_config=sharing_config,
@@ -569,8 +562,7 @@ def vapi_webhook(request: Request) -> Response:
         return Response({"error": "unknown access_token"}, status=status.HTTP_404_NOT_FOUND)
 
     interviewee_context = sharing_config.interviewee_context
-    topic_share = sharing_config.user_interview_topic
-    if interviewee_context is None and topic_share is None:
+    if interviewee_context is None:
         logger.warning(
             "user_interviews_vapi_webhook_wrong_share_type",
             team_id=sharing_config.team_id,
@@ -595,15 +587,9 @@ def vapi_webhook(request: Request) -> Response:
     recording_url = (message.get("recording") or {}).get("url", "") or message.get("recordingUrl", "") or ""
     transcript = message.get("transcript", "") or ""
     classifications = derive_auto_classifications(transcript)
+    topic = interviewee_context.topic
 
-    if interviewee_context is not None:
-        topic = interviewee_context.topic
-        interviewee_identifier = interviewee_context.interviewee_identifier
-        interviewee_emails = [interviewee_identifier] if "@" in interviewee_identifier else []
-        respondent_name = respondent_key = ""
-        session_id = ""
-    else:
-        topic = cast(UserInterviewTopic, topic_share)
+    if is_shared_interviewee_context(interviewee_context.interviewee_identifier):
         respondent_name = _clean_field(merged_metadata.get("respondent_name"), _RESPONDENT_NAME_MAX_CHARS)
         respondent_key = _clean_field(merged_metadata.get("respondent_key"), _RESPONDENT_KEY_MAX_CHARS)
         # interviewee_identifier already carries a folded distinct_id when one was provided (set in
@@ -615,6 +601,11 @@ def vapi_webhook(request: Request) -> Response:
         # session_id isn't persisted — it rides on the lifecycle event below. Re-validated here
         # (defense in depth) so only a well-formed UUIDv7 reaches the event.
         session_id = valid_session_id(merged_metadata.get("session_id"))
+    else:
+        interviewee_identifier = interviewee_context.interviewee_identifier
+        interviewee_emails = [interviewee_identifier] if "@" in interviewee_identifier else []
+        respondent_name = respondent_key = ""
+        session_id = ""
 
     with transaction.atomic():
         interview = UserInterview.objects.create(
@@ -689,17 +680,10 @@ def _capture_user_interview_event(
     third-party interviewees themselves. The events report on the user_interviews feature, not
     the people being interviewed."""
     interviewee_context = sharing_config.interviewee_context
-    topic_share = sharing_config.user_interview_topic
-    if interviewee_context is not None:
-        topic_id = interviewee_context.topic_id
-        event_distinct_id = f"user_interview:{interviewee_context.id}"
-    elif topic_share is not None:
-        topic_id = topic_share.id
-        event_distinct_id = f"user_interview_topic:{topic_share.id}"
-    else:
+    if interviewee_context is None:
         return
     properties: dict[str, Any] = {
-        "topic_id": str(topic_id),
+        "topic_id": str(interviewee_context.topic_id),
         "team_id": sharing_config.team_id,
         "call_id": call_id,
     }
@@ -711,7 +695,7 @@ def _capture_user_interview_event(
         properties.update(extra_properties)
     try:
         posthoganalytics.capture(
-            distinct_id=event_distinct_id,
+            distinct_id=f"user_interview:{interviewee_context.id}",
             event=event,
             properties=properties,
             groups=groups(organization=sharing_config.team.organization, team=sharing_config.team),
