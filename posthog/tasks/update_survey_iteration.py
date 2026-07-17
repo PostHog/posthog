@@ -3,6 +3,8 @@ from typing import Any
 
 from django.utils import timezone
 
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
+
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
@@ -15,6 +17,7 @@ def _update_survey_iteration(survey: Survey) -> None:
     if _has_final_iteration_ended(survey):
         survey.end_date = timezone.now()
         survey.save(update_fields=["end_date"])
+        _log_survey_closed_by_schedule(survey)
         return
 
     current_iteration = _get_current_iteration(survey)
@@ -28,6 +31,30 @@ def _update_survey_iteration(survey: Survey) -> None:
         survey.current_iteration_start_date = survey.iteration_start_dates[survey.current_iteration - 1]
         survey.internal_targeting_flag = _get_targeting_flag(survey)
         survey.save(update_fields=["current_iteration", "current_iteration_start_date", "internal_targeting_flag_id"])
+
+
+def _log_survey_closed_by_schedule(survey: Survey) -> None:
+    # Record a system activity-log entry so the survey's history explains why it stopped.
+    # Without this, the scheduler's direct save() leaves no trace, and a user who removes
+    # the end date only ever sees their own removals logged — never the automatic close.
+    log_activity(
+        organization_id=survey.team.organization_id,
+        team_id=survey.team_id,
+        user=None,  # system action: renders as PostHog in the activity log
+        was_impersonated=False,
+        item_id=survey.id,
+        scope="Survey",
+        activity="updated",
+        detail=Detail(
+            name=survey.name,
+            changes=[Change(type="Survey", field="end_date", action="created", after=survey.end_date)],
+            trigger=Trigger(
+                job_type="update_survey_iteration",
+                job_id=str(survey.id),
+                payload={"reason": "recurring_schedule_completed"},
+            ),
+        ),
+    )
 
 
 def _has_final_iteration_ended(survey: Survey) -> bool:
