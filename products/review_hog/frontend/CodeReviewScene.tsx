@@ -526,7 +526,7 @@ function RecentReviewsSection(): JSX.Element | null {
         reviewsScope,
         hasUserChosenReviewsScope,
     } = useValues(reviewHogSettingsLogic)
-    const { setReviewsScope, showMoreReviews, showFewerReviews } = useActions(reviewHogSettingsLogic)
+    const { showMoreReviews, showFewerReviews } = useActions(reviewHogSettingsLogic)
     const everyone = reviewsScope === ReviewHogReviewsListScope.Everyone
     const loadedEmpty = recentReviews !== null && recentReviews.length === 0
 
