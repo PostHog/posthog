@@ -43,6 +43,8 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class AlgoliaSource(ResumableSource[AlgoliaSourceConfig, AlgoliaResumeConfig]):
+    api_docs_url = "https://www.algolia.com/doc/rest-api/search"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ALGOLIA

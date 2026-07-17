@@ -79,6 +79,7 @@ logger = logging.getLogger(__name__)
 TaskRunStatus = TaskRun.Status
 TaskRunEnvironment = TaskRun.Environment
 TaskOriginProduct = Task.OriginProduct
+TaskRuntime = Task.Runtime
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
 
@@ -113,6 +114,7 @@ __all__ = [
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
     "TaskOriginProduct",
+    "TaskRuntime",
     "TaskRunEnvironment",
     "TaskRunStatus",
     "append_task_run_log",
@@ -212,6 +214,7 @@ __all__ = [
     "task_ids_with_pr_url_subquery",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
+    "task_runtime",
     "task_visible",
     "update_sandbox_environment",
     "update_task",
@@ -403,6 +406,7 @@ def _task_detail_to_dto(
         title_manually_set=task.title_manually_set,
         description=task.description,
         origin_product=task.origin_product,
+        runtime=task.runtime,
         repository=task.repository,
         github_integration=task.github_integration_id,
         github_user_integration=task.github_user_integration_id,
@@ -2877,6 +2881,8 @@ def bootstrap_task_run(
     github_user_token = validated_data.get("github_user_token")
     initial_permission_mode = validated_data.get("initial_permission_mode")
     home_quick_action = validated_data.get("home_quick_action")
+    imported_mcp_servers = validated_data.get("imported_mcp_servers")
+    relayed_mcp_servers = validated_data.get("relayed_mcp_servers")
     if run_source == RunSource.SIGNAL_REPORT:
         pr_authorship_mode = PrAuthorshipMode.BOT
 
@@ -2975,6 +2981,17 @@ def bootstrap_task_run(
     )
     run = task.create_run(environment=environment, mode=mode, branch=branch, extra_state=extra_state)
 
+    if imported_mcp_servers or relayed_mcp_servers:
+        update_fields = ["updated_at"]
+        if imported_mcp_servers:
+            # Kept out of `state` (a plain JSONField) because header values carry credentials.
+            run.imported_mcp_servers = imported_mcp_servers
+            update_fields.append("imported_mcp_servers")
+        if relayed_mcp_servers:
+            run.relayed_mcp_servers = relayed_mcp_servers
+            update_fields.append("relayed_mcp_servers")
+        run.save(update_fields=update_fields)
+
     if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
         cache_github_user_token(str(run.id), github_user_token)
 
@@ -3026,6 +3043,8 @@ def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: i
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found"
+    if run.task.runtime == Task.Runtime.PI:
+        return "unsupported_runtime"
     if run.environment != TaskRun.Environment.CLOUD:
         return "not_cloud"
     if run.status not in _STARTABLE_TASK_RUN_STATUSES:
@@ -3105,6 +3124,8 @@ def resume_task_run_in_cloud(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found", None, None
+    if run.task.runtime == Task.Runtime.PI:
+        return "unsupported_runtime", None, None
 
     logger.info(
         "resume_in_cloud_called",
@@ -3275,6 +3296,15 @@ def get_conversation_task_dtos(task_ids: Sequence[str | UUID], team_id: int) -> 
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
     )
     return {task.id: _task_detail_to_dto(task, include_latest_run=False) for task in tasks}
+
+
+def task_runtime(task_id: str | UUID, team_id: int, user_id: int | None, *, for_control: bool = False) -> str | None:
+    return (
+        _visible_task_qs(team_id, user_id, for_control=for_control)
+        .filter(id=task_id)
+        .values_list("runtime", flat=True)
+        .first()
+    )
 
 
 def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_control: bool = False) -> bool:
@@ -4047,6 +4077,12 @@ def run_task(
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
+    if task.runtime == Task.Runtime.PI:
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="detail", detail="Pi tasks cannot be run through the ACP task workflow."
+            )
+        )
 
     mode = validated_data.get("mode", "background")
     branch = validated_data.get("branch")
@@ -4104,6 +4140,8 @@ def run_task(
     reasoning_effort = validated_data.get("reasoning_effort")
     github_user_token = validated_data.get("github_user_token")
     initial_permission_mode = validated_data.get("initial_permission_mode")
+    imported_mcp_servers = validated_data.get("imported_mcp_servers")
+    relayed_mcp_servers = validated_data.get("relayed_mcp_servers")
     if run_source == RunSource.SIGNAL_REPORT:
         pr_authorship_mode = PrAuthorshipMode.BOT
 
@@ -4279,6 +4317,17 @@ def run_task(
 
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
     task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+
+    if imported_mcp_servers or relayed_mcp_servers:
+        update_fields = ["updated_at"]
+        if imported_mcp_servers:
+            # Kept out of `state` (a plain JSONField) because header values carry credentials.
+            task_run.imported_mcp_servers = imported_mcp_servers
+            update_fields.append("imported_mcp_servers")
+        if relayed_mcp_servers:
+            task_run.relayed_mcp_servers = relayed_mcp_servers
+            update_fields.append("relayed_mcp_servers")
+        task_run.save(update_fields=update_fields)
 
     if pending_user_artifact_ids:
         _attach_staged_artifacts_to_run(

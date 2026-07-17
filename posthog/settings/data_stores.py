@@ -316,6 +316,10 @@ CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "pos
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
 CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
 CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "ai_events")
+# CI uses this to run the test suite against both schemas. Production reads use the instance settings.
+CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = TEST and get_from_env(
+    "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False, type_cast=str_to_bool
+)
 # query_log_archive's single data table lives on the OPS cluster; every cluster's
 # Distributed read/write tables route to it via this cluster name.
 CLICKHOUSE_OPS_CLUSTER: str = os.getenv("CLICKHOUSE_OPS_CLUSTER", "ops")
@@ -529,6 +533,15 @@ INTERNAL_API_SECRET = get_from_env(
 # Previous secrets still accepted for verification during zero-downtime rotation, newest first.
 # Receivers accept INTERNAL_API_SECRET plus these; senders always send INTERNAL_API_SECRET.
 INTERNAL_API_SECRET_FALLBACKS = get_list(os.getenv("INTERNAL_API_SECRET_FALLBACKS", ""))
+
+# Scoped JWT keys for the workflows timing-reschedule sweep (Django mints, the plugin server's
+# reschedule_parked route verifies) — a per-purpose secret so this caller never touches
+# INTERNAL_API_SECRET. Comma-separated, newest first: the first key signs, the plugin server
+# verifies against all. Empty outside dev/test, so the sweep fails closed until provisioned.
+# The dev/test value must match the plugin server's default (nodejs/src/cdp/config.ts).
+WORKFLOWS_RESCHEDULE_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOWS_RESCHEDULE_JWT_SECRET", "local-dev-workflows-reschedule-jwt" if DEBUG or TEST else "")
+)
 
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 

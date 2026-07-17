@@ -509,7 +509,9 @@ class AssistantQueryExecutor:
                     result = BoxPlotResultsFormatter(get_boxplot_results(response)).format()
                 else:
                     formatter_name = "TrendsResultsFormatter"
-                    result = TrendsResultsFormatter(query, response["results"]).format()
+                    result = TrendsResultsFormatter(
+                        query, response["results"], self._team, self._utc_now_datetime
+                    ).format()
             elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
                 formatter_name = "FunnelResultsFormatter"
                 formatter = FunnelResultsFormatter(query, response["results"], self._team, self._utc_now_datetime)
