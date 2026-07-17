@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from ...models.community_skills import CommunitySkill
 from ..community_skill_sync import sync_community_skills_from_github
 from ..skill_services import MAX_SKILL_BODY_BYTES
@@ -138,3 +140,54 @@ class TestCommunitySkillSync(APIBaseTest):
         result = sync_community_skills_from_github()
         self.assertEqual(result, {"synced": 0, "skipped": 1, "removed": 0})
         self.assertFalse(CommunitySkill.objects.filter(slug="huge-skill").exists())
+
+    @parameterized.expand(
+        [
+            ("overlong_name", {"name": "n" * 65}),
+            ("overlong_slug", {"slug": "s" * 65}),
+            ("overlong_file_path", {"files": [{"path": "p" * 501, "content": "x"}]}),
+            (
+                "duplicate_file_paths",
+                {"files": [{"path": "ref.md", "content": "a"}, {"path": "ref.md", "content": "b"}]},
+            ),
+        ]
+    )
+    @patch("products.skills.backend.api.community_skill_sync.requests.get")
+    def test_sync_isolates_constraint_violating_entry(self, _name, bad_fields, mock_get) -> None:
+        _create_community_skill(slug="stale-skill")
+        bad_entry = {"slug": "bad-skill", "name": "Bad skill", "description": "Bad", "body": "# Bad", **bad_fields}
+
+        mock_get.return_value.raise_for_status.return_value = None
+        mock_get.return_value.json.return_value = {
+            "skills": [
+                {"slug": "fresh-skill", "name": "Fresh skill", "description": "New one", "body": "# Fresh"},
+                bad_entry,
+            ],
+        }
+
+        # An entry that would overflow a column (DataError) or hit the unique file-path constraint
+        # (IntegrityError) must be skipped without aborting the loop or blocking reconciliation.
+        result = sync_community_skills_from_github()
+        self.assertEqual(result, {"synced": 1, "skipped": 1, "removed": 1})
+        self.assertTrue(CommunitySkill.objects.filter(slug="fresh-skill", deleted=False).exists())
+        self.assertFalse(CommunitySkill.objects.filter(slug=bad_entry["slug"]).exists())
+        self.assertTrue(CommunitySkill.objects.get(slug="stale-skill").deleted)
+
+    @patch("products.skills.backend.api.community_skill_sync.requests.get")
+    def test_sync_coerces_unknown_trust_tier_to_community(self, mock_get) -> None:
+        mock_get.return_value.raise_for_status.return_value = None
+        mock_get.return_value.json.return_value = {
+            "skills": [
+                {
+                    "slug": "shady-skill",
+                    "name": "Shady skill",
+                    "description": "Claims a bogus tier",
+                    "body": "# Shady",
+                    "trust_tier": "definitely-official",
+                }
+            ],
+        }
+
+        result = sync_community_skills_from_github()
+        self.assertEqual(result, {"synced": 1, "skipped": 0, "removed": 0})
+        self.assertEqual(CommunitySkill.objects.get(slug="shady-skill").trust_tier, "community")
