@@ -173,6 +173,10 @@ class S3Table(FunctionCallTable):
     structure: Optional[str] = None
     table_id: Optional[str] = None
     table_size_mib: Optional[float] = None
+    # Set for connector-synced warehouse tables (backed by an ExternalDataSource); None for self-managed S3 tables.
+    # Used to attribute query execution back to the source that was synced, for usage telemetry.
+    external_data_source_id: Optional[str] = None
+    source_type: Optional[str] = None
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)

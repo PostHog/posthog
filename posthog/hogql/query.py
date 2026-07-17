@@ -5,6 +5,7 @@ from typing import Any, ClassVar, Literal, Optional, Union, cast
 from opentelemetry import trace
 
 from posthog.schema import (
+    DataWarehouseSourceUsage,
     HogLanguage,
     HogQLFilters,
     HogQLMetadata,
@@ -30,6 +31,7 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
     RangeTable,
 )
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
+from posthog.hogql.database.warehouse_usage import WarehouseSourceUsage, extract_warehouse_sources
 from posthog.hogql.direct_connection import (
     INVALID_CONNECTION_ID_ERROR,
     get_direct_connection_source,
@@ -132,6 +134,7 @@ class HogQLQueryExecutor:
         self.has_more: Optional[bool] = None
         self.limit: Optional[int] = None
         self.offset: Optional[int] = None
+        self.used_data_warehouse_sources: list[WarehouseSourceUsage] = []
 
     @tracer.start_as_current_span("HogQLQueryExecutor._parse_query")
     def _parse_query(self):
@@ -425,6 +428,16 @@ class HogQLQueryExecutor:
 
         return None
 
+    def _detect_warehouse_sources(self) -> list[WarehouseSourceUsage]:
+        """Detect connector-synced data warehouse sources referenced by the (resolved) query and
+        store them for the query response. Never raises — telemetry must not break query execution."""
+        try:
+            sources = extract_warehouse_sources(self._get_select_query_type())
+        except Exception:
+            sources = []
+        self.used_data_warehouse_sources = sources
+        return sources
+
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_direct_sql_query")
     def _execute_direct_sql_query(self) -> None:
         assert self.direct_sql is not None
@@ -628,6 +641,7 @@ class HogQLQueryExecutor:
         with self.timings.measure("clickhouse_execute"):
             with self.timings.measure("extract_hogql_features"):
                 hogql_features = extract_hogql_features(self.select_query)
+            self._detect_warehouse_sources()
             tag_queries(
                 team_id=self.team.pk,
                 query_type=self.query_type,
@@ -716,6 +730,7 @@ class HogQLQueryExecutor:
 
                 if prepared_execution.engine == "direct_sql":
                     self._execute_direct_sql_query()
+                    self._detect_warehouse_sources()
                 elif self.clickhouse_sql is not None:
                     if self.clickhouse_sql == "":
                         self.results = []
@@ -754,6 +769,11 @@ class HogQLQueryExecutor:
             hasMore=self.has_more,
             limit=self.limit,
             offset=self.offset,
+            used_data_warehouse_sources=[
+                DataWarehouseSourceUsage(id=s.id, source_type=s.source_type, table_name=s.table_name)
+                for s in self.used_data_warehouse_sources
+            ]
+            or None,
         )
 
 

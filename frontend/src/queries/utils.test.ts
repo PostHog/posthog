@@ -11,10 +11,12 @@ import { AppContext, ChartDisplayType, FunnelVizType, TeamType } from '~/types'
 
 import {
     convertDataTableNodeToDataVisualizationNode,
+    dataWarehouseSourcesFromResponse,
     escapeDottedHogQLIdentifier,
     escapeHogQLString,
     escapePropertyAsHogQLIdentifier,
     hogql,
+    queryUsesDataWarehouse,
     queryVizRendersToCanvas,
     supportsBarValueStacking,
 } from './utils'
@@ -316,5 +318,59 @@ describe('queryVizRendersToCanvas', () => {
         { name: 'null query', query: null, expected: true },
     ])('returns $expected for $name', ({ query, expected }) => {
         expect(queryVizRendersToCanvas(query)).toBe(expected)
+    })
+})
+
+describe('queryUsesDataWarehouse', () => {
+    it('returns true for a trends query with a data warehouse series', () => {
+        expect(
+            queryUsesDataWarehouse({
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.DataWarehouseNode, id: 'my_table', table_name: 'stripe.charges' }],
+            } as any)
+        ).toBe(true)
+    })
+
+    it('unwraps InsightVizNode to inspect its source', () => {
+        expect(
+            queryUsesDataWarehouse({
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [{ kind: NodeKind.DataWarehouseNode, id: 'my_table', table_name: 'stripe.charges' }],
+                },
+            } as any)
+        ).toBe(true)
+    })
+
+    it('returns false for an events-only trends query', () => {
+        expect(
+            queryUsesDataWarehouse({
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+            } as any)
+        ).toBe(false)
+    })
+
+    it('returns false for null/undefined', () => {
+        expect(queryUsesDataWarehouse(null)).toBe(false)
+        expect(queryUsesDataWarehouse(undefined)).toBe(false)
+    })
+})
+
+describe('dataWarehouseSourcesFromResponse', () => {
+    it('extracts sources from a response that has them', () => {
+        expect(
+            dataWarehouseSourcesFromResponse({
+                results: [],
+                used_data_warehouse_sources: [{ id: 'src-1', source_type: 'Stripe', table_name: 'stripe.charges' }],
+            })
+        ).toEqual([{ id: 'src-1', source_type: 'Stripe', table_name: 'stripe.charges' }])
+    })
+
+    it('returns an empty array when the field is absent or the response is not an object', () => {
+        expect(dataWarehouseSourcesFromResponse({ results: [] })).toEqual([])
+        expect(dataWarehouseSourcesFromResponse(null)).toEqual([])
+        expect(dataWarehouseSourcesFromResponse(undefined)).toEqual([])
     })
 })

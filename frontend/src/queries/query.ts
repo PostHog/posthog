@@ -16,6 +16,7 @@ import {
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
 import {
+    dataWarehouseSourcesFromResponse,
     HogQLQueryString,
     isAsyncResponse,
     isDataTableNode,
@@ -23,6 +24,7 @@ import {
     isHogQLQuery,
     isInsightQueryNode,
     isPersonsNode,
+    queryUsesDataWarehouse,
 } from './utils'
 
 export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
@@ -264,11 +266,15 @@ export async function performQuery<N extends DataNode>(
                 logParams.precompute_stale = preComputeStale
             }
         }
+        const warehouseSources = dataWarehouseSourcesFromResponse(response)
         posthog.capture('query completed', {
             query: queryNode,
             queryId,
             duration: performance.now() - startTime,
             is_cached: response?.is_cached,
+            uses_data_warehouse_source: warehouseSources.length > 0 || queryUsesDataWarehouse(queryNode),
+            data_warehouse_source_ids: warehouseSources.map((s) => s.id),
+            data_warehouse_source_types: warehouseSources.map((s) => s.source_type).filter(Boolean),
             ...logParams,
         })
         return response
@@ -281,6 +287,7 @@ export async function performQuery<N extends DataNode>(
             duration: performance.now() - startTime,
             error_status: error?.status ?? null,
             error_code: error?.code ?? null,
+            uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
             ...logParams,
         })
         throw e

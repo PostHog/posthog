@@ -44,6 +44,7 @@ import {
     isNodeWithSource,
     isStickinessQuery,
     isTrendsQuery,
+    queryUsesDataWarehouse,
 } from '~/queries/utils'
 import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
@@ -301,6 +302,9 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
     const payload: Record<string, string | number | boolean | undefined> = {
         query_kind: query?.kind,
         query_source_kind: isNodeWithSource(query) ? query.source.kind : undefined,
+        // Whether this insight/query reads from a connector-synced data warehouse source (series-level
+        // detection). Raw SQL/HogQL warehouse usage is flagged from the query response in performQuery.
+        uses_data_warehouse_source: queryUsesDataWarehouse(query),
     }
 
     if (isInsightVizNode(query) || isInsightQueryNode(query)) {
@@ -2930,6 +2934,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 lastRefreshed: lastRefreshed?.toISOString(),
                 refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
                 dashboard: sanitizeDashboard(dashboard),
+                uses_data_warehouse_source: false,
+                data_warehouse_tiles_count: 0,
             }
 
             for (const item of dashboard.tiles || []) {
@@ -2942,6 +2948,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                         properties[key] += 1
                     }
                     properties.sample_items_count += item.insight.is_sample ? 1 : 0
+                    if (queryUsesDataWarehouse(item.insight.query)) {
+                        properties.uses_data_warehouse_source = true
+                        properties.data_warehouse_tiles_count += 1
+                    }
                 } else if (item.widget) {
                     if (!properties['widget_tiles_count']) {
                         properties['widget_tiles_count'] = 1
