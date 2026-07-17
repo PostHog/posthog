@@ -634,6 +634,17 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                             </>
                         ) : editingInsight ? (
                             <>
+                                {featureFlags[FEATURE_FLAGS.SQL_EDITOR_QUERY_HISTORY] && (
+                                    <LemonButton
+                                        onClick={() => openHistoryModal()}
+                                        icon={<IconBook />}
+                                        type="secondary"
+                                        size="small"
+                                        data-attr="sql-editor-insight-history-button"
+                                    >
+                                        History
+                                    </LemonButton>
+                                )}
                                 <LemonButton
                                     disabledReason={
                                         !isSourceQueryLastRun
