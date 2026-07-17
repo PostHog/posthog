@@ -40,7 +40,9 @@ class _FakeResponse:
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
-            raise requests.HTTPError(f"{self.status_code} Client Error: error for url: fake")
+            raise requests.HTTPError(
+                f"{self.status_code} Client Error: error for url: fake", response=requests.Response()
+            )
 
 
 class _FakeSession:
