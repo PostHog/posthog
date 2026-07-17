@@ -1716,19 +1716,14 @@ def test_bigquery_resources_exceeded_is_non_retryable():
     assert all(non_retryable_errors[key] is not None for key in matching)
 
 
-def test_bigquery_new_sources_default_to_v2():
-    # New sources (no pin) must be stamped with the current vendor API version, not the legacy label.
+def test_bigquery_source_declares_v2_as_default():
+    # The core of this PR: v2 is a supported version and the default for new sources, while the
+    # legacy label stays supported so existing pins keep resolving. Guards a revert of the default
+    # bump or an accidental drop of a supported label (base-class pin resolution itself is already
+    # covered by the registry-invariant suite).
     source = BigQuerySource()
+    assert source.supported_versions == ("v1", "v2")
     assert source.default_version == "v2"
-    assert source.resolve_api_version(None) == "v2"
-
-
-@pytest.mark.parametrize("version", ["v1", "v2"])
-def test_bigquery_supported_pin_is_honored(version):
-    # Existing pinned rows keep their version verbatim even after the default bump to v2.
-    source = BigQuerySource()
-    assert version in source.supported_versions
-    assert source.resolve_api_version(version) == version
 
 
 @pytest.mark.parametrize("pin,expected_segment", [("v1", "v2"), ("v2", "v2"), (None, "v2"), ("v99", "v2")])
