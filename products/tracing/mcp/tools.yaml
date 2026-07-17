@@ -103,6 +103,8 @@ tools:
             include:
                 - results
                 - compare
+                - has_more
+                - next_offset
     apm-spans-count:
         operation: tracing_spans_count_create
         enabled: true

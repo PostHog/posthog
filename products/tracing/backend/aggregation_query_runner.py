@@ -66,6 +66,13 @@ if TYPE_CHECKING:
 # tails anyway so the lower-ranked rows aren't visible.
 _ROW_LIMIT = 5000
 
+# Default row cap for the flat aggregation when a caller does not pass an explicit `limit`.
+# Kept small because this endpoint feeds agent/MCP callers, where the full 5000-row tail can
+# push a single response past a million tokens once name cardinality blows up. Rows are
+# ordered by total_duration_nano DESC, so the default still surfaces the heaviest operations;
+# callers that need the long tail opt into a higher `limit` (up to _ROW_LIMIT) or paginate.
+DEFAULT_AGGREGATION_ROW_LIMIT = 100
+
 
 class _SpanAggregationMixin:
     """Shared scaffolding for the two span aggregation runners.
@@ -246,11 +253,20 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
     query: TraceSpansAggregationQuery
     cached_response: CachedTraceSpansAggregationQueryResponse
 
-    def __init__(self, query: TraceSpansAggregationQuery, *args, **kwargs) -> None:
+    def __init__(
+        self,
+        query: TraceSpansAggregationQuery,
+        *args,
+        limit: int | None = None,
+        offset: int = 0,
+        **kwargs,
+    ) -> None:
         super().__init__(query, *args, **kwargs)
         self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
         self._extract_filters()
+        self._limit = _ROW_LIMIT if limit is None else max(1, min(limit, _ROW_LIMIT))
+        self._offset = max(0, offset)
 
     def _calculate(self) -> TraceSpansAggregationQueryResponse:
         current_rows, previous_rows = self._run_with_compare()
@@ -278,10 +294,12 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             GROUP BY service_name, name
             ORDER BY total_duration_nano DESC
             LIMIT {limit}
+            OFFSET {offset}
             """,
             placeholders={
                 "where": self._where_without_date_range(),
-                "limit": ast.Constant(value=_ROW_LIMIT),
+                "limit": ast.Constant(value=self._limit),
+                "offset": ast.Constant(value=self._offset),
                 **query_date_range.to_placeholders(),
             },
         )

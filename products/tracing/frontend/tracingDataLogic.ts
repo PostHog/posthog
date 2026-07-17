@@ -67,6 +67,9 @@ export interface VisibleSpanTimeRange {
 }
 
 const DEFAULT_PAGE_SIZE = 100
+// Matches the backend's hard cap (_ROW_LIMIT) for span aggregation. The Operations tab needs
+// the full set for client-side sort/filter, unlike the smaller default the endpoint serves agents.
+const OPERATIONS_AGGREGATION_LIMIT = 5000
 export const PREFETCH_SPANS = 20
 export const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 
@@ -993,6 +996,9 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                                 compare,
                                 compare_to: new Date(window.previousStartMs).toISOString(),
                             },
+                            // The Operations table sorts/filters the full result set client-side, so
+                            // request the endpoint's hard cap rather than its small default page.
+                            limit: OPERATIONS_AGGREGATION_LIMIT,
                         },
                         controller.signal
                     )
