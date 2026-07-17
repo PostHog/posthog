@@ -93,6 +93,7 @@ def _job_row(
     started: datetime,
     *,
     run_attempt: int,
+    duration_seconds: int = 60,
 ) -> dict[str, Any]:
     started_s = _ts(started)
     return {
@@ -110,7 +111,7 @@ def _job_row(
         "runner_group_name": "default",
         "created_at": started_s,
         "started_at": started_s,
-        "completed_at": _ts(started + timedelta(seconds=60)),
+        "completed_at": _ts(started + timedelta(seconds=duration_seconds)),
         "steps": "[]",
     }
 
@@ -271,8 +272,65 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert findings[0].source_type == SOURCE_TYPE_FLAKY_CHECK
         assert findings[0].extra["flaky_count"] == 1
         assert findings[0].extra["run_id"] == 1
-        assert findings[0].source_id.endswith(":2:flaky")
+        assert findings[0].source_id.endswith(":flaky")
         _assert_emittable(findings[0])
+
+    def test_flaky_check_emits_one_signal_per_job_per_week_not_per_rerun(self) -> None:
+        # The sweep re-reads a rolling window hourly. Keying a recurring flake per rerun turned 51
+        # flaky jobs into 905 signals against real PostHog/posthog data — one card per occurrence.
+        now = datetime.now(UTC).replace(tzinfo=None)
+        rows = [
+            _run_row(run_id, "CI", f"sha{run_id}", "success", now - timedelta(hours=run_id), 60, run_attempt=2)
+            for run_id in (1, 2, 3)
+        ]
+        jobs = []
+        for run_id in (1, 2, 3):
+            jobs.append(
+                _job_row(
+                    run_id * 10,
+                    run_id,
+                    "flaky-job",
+                    f"sha{run_id}",
+                    "failure",
+                    now - timedelta(hours=run_id),
+                    run_attempt=1,
+                )
+            )
+            jobs.append(
+                _job_row(
+                    run_id * 10 + 1,
+                    run_id,
+                    "flaky-job",
+                    f"sha{run_id}",
+                    "success",
+                    now - timedelta(hours=run_id),
+                    run_attempt=2,
+                )
+            )
+        findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=3)
+        assert len(findings) == 1
+        assert findings[0].extra["flaky_count"] == 3
+        # The most recent sighting is the worked example; the rest survive as the count.
+        assert findings[0].extra["run_id"] == 3
+        _assert_emittable(findings[0])
+
+    def test_flaky_check_ignores_required_check_aggregators(self) -> None:
+        # A `* Pass` gate fails only because a job it gates failed, so counting it emits a second
+        # signal for every real flake. Real aggregators settle in 3-5s; real jobs run 60s+.
+        now = datetime.now(UTC).replace(tzinfo=None)
+        rows = [_run_row(1, "CI", "shaG", "success", now - timedelta(hours=2), 60, run_attempt=2)]
+        jobs = [
+            _job_row(
+                200, 1, "Tests Pass", "shaG", "failure", now - timedelta(hours=3), run_attempt=1, duration_seconds=3
+            ),
+            _job_row(
+                201, 1, "Tests Pass", "shaG", "success", now - timedelta(hours=2), run_attempt=2, duration_seconds=3
+            ),
+            _job_row(202, 1, "real-test-job", "shaG", "failure", now - timedelta(hours=3), run_attempt=1),
+            _job_row(203, 1, "real-test-job", "shaG", "success", now - timedelta(hours=2), run_attempt=2),
+        ]
+        findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=1)
+        assert {f.extra["job_name"] for f in findings} == {"real-test-job"}
 
     def test_broken_default_branch_fires_only_on_failing_default_branch(self) -> None:
         now = datetime.now(UTC).replace(tzinfo=None)
@@ -313,6 +371,25 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert findings[0].extra["branch"] == "trunk"
         assert findings[0].source_id.endswith(":3:1:broken")
         _assert_emittable(findings[0])
+
+    def test_broken_default_branch_does_not_count_cancelled_runs_as_failures(self) -> None:
+        # A concurrency group cancelling superseded trunk runs is normal, not a red branch. Counting
+        # cancelled runs against the rate pins heavy-cancel workflows permanently under the floor,
+        # which made the guard a no-op and fired P1 on every transient red.
+        now = datetime.now(UTC).replace(tzinfo=None)
+        rows = [
+            _run_row(
+                index, "busy-ci", f"c{index}", "cancelled", now - timedelta(hours=index), 30, default_branch="main"
+            )
+            for index in range(1, 9)
+        ]
+        rows += [
+            _run_row(20, "busy-ci", "ok1", "success", now - timedelta(hours=10), 30, default_branch="main"),
+            _run_row(21, "busy-ci", "ok2", "success", now - timedelta(hours=11), 30, default_branch="main"),
+            # Latest completed run is a decisive failure, but 2 of 3 conclusive runs passed.
+            _run_row(22, "busy-ci", "bad", "failure", now - timedelta(minutes=30), 30, default_branch="main"),
+        ]
+        assert detect_broken_default_branch(self._curated_over_runs(rows), min_runs=2) == []
 
     def test_duration_regression_requires_absolute_and_relative_jump(self) -> None:
         now = datetime.now(UTC).replace(tzinfo=None)

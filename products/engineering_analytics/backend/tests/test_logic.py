@@ -391,15 +391,16 @@ class TestEndpointMapping(BaseTest):
         assert health.failing_workflow_names == [f"Low-volume failure {index:02d}" for index in range(20)]
 
     def test_workflow_health_maps_and_nulls_empty_window(self) -> None:
-        # Columns: owner, name, workflow, run_count, successful_run_count, success_rate, p50, p95,
-        # last_failure_at, completed_count, latest_failed, latest_conclusion, latest_run_id,
-        # latest_run_attempt, rerun_cycles.
+        # Columns: owner, name, workflow, run_count, successful_run_count, conclusive_run_count,
+        # success_rate, p50, p95, last_failure_at, completed_count, latest_failed, latest_conclusion,
+        # latest_run_id, latest_run_attempt, rerun_cycles.
         rows = [
             (
                 "PostHog",
                 "posthog",
                 "CI",
                 10,
+                9,
                 9,
                 0.9,
                 120.0,
@@ -415,7 +416,7 @@ class TestEndpointMapping(BaseTest):
             # No completed runs: success_rate is NULL and quantileIf returns NaN — both map to None,
             # latest_run_failed is None (the completed_count guard), and latest_run_conclusion is None too
             # despite argMaxIf's '' default.
-            ("PostHog", "posthog", "Deploy", 2, 0, None, float("nan"), float("nan"), None, 0, 0, "", 0, 0, 0),
+            ("PostHog", "posthog", "Deploy", 2, 0, 0, None, float("nan"), float("nan"), None, 0, 0, "", 0, 0, 0),
         ]
         # A -30d window buckets by day. Must land inside the window (relative to now). Columns:
         # owner, name, workflow, bucket_start, run_count, completed, successes, failures.

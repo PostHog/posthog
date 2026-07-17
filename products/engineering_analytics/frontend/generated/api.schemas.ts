@@ -959,6 +959,7 @@ export interface WorkflowHealthItemApi {
     run_count: number
     /** Completed successful runs used for duration percentiles. */
     successful_run_count: number
+    conclusive_run_count: number
     /**
      * Fraction of completed runs that succeeded (0-1). Null if no completed runs.
      * @nullable

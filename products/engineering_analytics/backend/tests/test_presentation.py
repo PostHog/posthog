@@ -79,6 +79,7 @@ def _workflow_health() -> contracts.WorkflowHealthItem:
         workflow_name="CI",
         run_count=10,
         successful_run_count=9,
+        conclusive_run_count=9,
         success_rate=0.9,
         p50_seconds=120.0,
         p95_seconds=600.0,

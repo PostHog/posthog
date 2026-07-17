@@ -4,7 +4,7 @@ They compose the ``logic/queries/`` read modules instead of authoring SQL, so de
 MCP read surface can never disagree (SPEC §7). Thresholds are overridable arguments.
 """
 
-from collections import Counter
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
 import structlog
@@ -52,42 +52,64 @@ def _job_key(row: FlakyJobRun) -> tuple[str, str, str, str]:
     return (row.repo_owner, row.repo_name, row.workflow_name, row.job_name)
 
 
+def _observation_week(now: datetime) -> str:
+    """The ISO date of the observation week's Monday.
+
+    A recurring condition is one signal per week, not one per sighting: the sweep re-reads a rolling
+    window every hour, so a per-sighting key would re-emit the same standing problem as a new signal
+    on every tick. Keying the week makes the key stable for as long as the condition persists, which
+    is what makes the emit dedupe do any work at all.
+    """
+    return (now.date() - timedelta(days=now.weekday())).isoformat()
+
+
 def detect_flaky_checks(
     curated: CuratedGitHubSource,
     *,
     window_days: int = FLAKY_WINDOW_DAYS,
     min_flaky_runs: int = FLAKY_MIN_RUNS,
 ) -> list[CISignalFinding]:
-    date_from = datetime.now(UTC) - timedelta(days=window_days)
+    now = datetime.now(UTC)
+    date_from = now - timedelta(days=window_days)
     observations = query_workflow_flakiness(curated=curated, date_from=date_from)
-    flap_counts = Counter(_job_key(row) for row in observations)
+    by_job: dict[tuple[str, str, str, str], list[FlakyJobRun]] = defaultdict(list)
+    for row in observations:
+        by_job[_job_key(row)].append(row)
+    observation_week = _observation_week(now)
 
     findings: list[CISignalFinding] = []
-    for row in observations:
-        flaky_count = flap_counts[_job_key(row)]
+    for (repo_owner, repo_name, workflow_name, job_name), rows in sorted(by_job.items()):
+        flaky_count = len(rows)
         if flaky_count < min_flaky_runs:
             continue
-        repo = f"{row.repo_owner}/{row.repo_name}"
+        repo = f"{repo_owner}/{repo_name}"
+        # The flaky thing is the job, not any one rerun of it. Carry the most recent sighting as the
+        # worked example and the rest as a count — a reader fixing this needs one reproduction plus
+        # how often it bites, not one card per occurrence.
+        latest = max(rows, key=lambda row: row.run_id)
         findings.append(
             CISignalFinding(
                 source_type=SOURCE_TYPE_FLAKY_CHECK,
-                source_id=f"{repo}:{row.run_id}:{row.job_name}:{row.passed_attempt}:flaky",
+                source_id=f"{repo}:{workflow_name}:{job_name}:{observation_week}:flaky",
                 description=(
-                    f"CI job '{row.job_name}' in workflow '{row.workflow_name}' was flaky on {repo}: run "
-                    f"{row.run_id} for commit {row.head_sha} failed on attempt {row.failed_attempt} and passed "
-                    f"on attempt {row.passed_attempt}. This job flaked on {flaky_count} run(s) in the last "
-                    f"{window_days}d."
+                    # First line is the report title when grouping splits this out (see
+                    # `signal.description.split("\\n")[0]` in signals' grouping), so it has to read
+                    # as a title on its own: no run ids, no counts.
+                    f"CI job '{job_name}' in workflow '{workflow_name}' is flaky on {repo}\n"
+                    f"It failed and then passed on a rerun of the same commit {flaky_count} time(s) in the "
+                    f"last {window_days}d. Most recent: run {latest.run_id} for commit {latest.head_sha} "
+                    f"failed on attempt {latest.failed_attempt} and passed on attempt {latest.passed_attempt}."
                 ),
                 weight=0.7,
                 extra=EngineeringAnalyticsCIFlakyCheckSignalExtra(
-                    repo_owner=row.repo_owner,
-                    repo_name=row.repo_name,
-                    workflow_name=row.workflow_name,
-                    job_name=row.job_name,
-                    run_id=row.run_id,
-                    head_sha=row.head_sha,
-                    failed_attempt=row.failed_attempt,
-                    passed_attempt=row.passed_attempt,
+                    repo_owner=repo_owner,
+                    repo_name=repo_name,
+                    workflow_name=workflow_name,
+                    job_name=job_name,
+                    run_id=latest.run_id,
+                    head_sha=latest.head_sha,
+                    failed_attempt=latest.failed_attempt,
+                    passed_attempt=latest.passed_attempt,
                     flaky_count=flaky_count,
                     window_days=window_days,
                 ).model_dump(mode="json"),
@@ -124,9 +146,15 @@ def detect_broken_default_branch(
             # Keep only repos whose default branch this actually is.
             if default_branches.get((item.repo.owner, item.repo.name)) != branch:
                 continue
-            if item.run_count < min_runs or item.success_rate is None or not item.latest_run_failed:
+            if item.conclusive_run_count < min_runs or not item.latest_run_failed:
                 continue
-            if item.success_rate > max_success_rate:
+            # Rate over runs that reached a verdict, not over completed runs: `success_rate`'s
+            # denominator counts cancelled and skipped, and a workflow whose concurrency group
+            # cancels superseded trunk runs sits permanently under any floor — making this guard a
+            # no-op and firing P1 on every transient red. Measured on PostHog/posthog: E2E 0.20,
+            # Dagster 0.13, Storybook 0.17 by `success_rate`, all healthy by conclusive rate.
+            conclusive_success_rate = item.successful_run_count / item.conclusive_run_count
+            if conclusive_success_rate > max_success_rate:
                 continue
             repo = f"{item.repo.owner}/{item.repo.name}"
             latest_conclusion = item.latest_run_conclusion or "failure"
@@ -137,10 +165,11 @@ def detect_broken_default_branch(
                         f"{repo}:{branch}:{item.workflow_name}:{item.latest_run_id}:{item.latest_run_attempt}:broken"
                     ),
                     description=(
-                        f"CI workflow '{item.workflow_name}' is failing on {branch} for {repo}: "
-                        f"{item.success_rate:.0%} success over the last {window_hours}h ({item.run_count} runs), "
-                        f"latest completed run '{latest_conclusion}'. The default branch is red, so every PR "
-                        f"branched from it inherits the failure."
+                        f"CI workflow '{item.workflow_name}' is failing on {branch} for {repo}\n"
+                        f"{conclusive_success_rate:.0%} success over the last {window_hours}h "
+                        f"({item.conclusive_run_count} runs that reached a verdict), latest completed run "
+                        f"'{latest_conclusion}'. The default branch is red, so every PR branched from it "
+                        f"inherits the failure."
                     ),
                     weight=0.85,
                     extra=EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra(
@@ -148,8 +177,8 @@ def detect_broken_default_branch(
                         repo_name=item.repo.name,
                         workflow_name=item.workflow_name,
                         branch=branch,
-                        success_rate=float(item.success_rate),
-                        run_count=int(item.run_count),
+                        conclusive_success_rate=conclusive_success_rate,
+                        conclusive_run_count=int(item.conclusive_run_count),
                         latest_conclusion=latest_conclusion,
                         window_hours=window_hours,
                     ).model_dump(mode="json"),
@@ -206,16 +235,14 @@ def detect_ci_duration_regressions(
             continue
         owner, repo_name, workflow_name = key
         repo = f"{owner}/{repo_name}"
-        # Week-keyed so hourly sweeps of a persisting regression dedupe to one signal per week;
-        # the emit dedupe is retention-bounded, so this assumes Temporal retention >= 7 days.
-        observation_week = (now.date() - timedelta(days=now.weekday())).isoformat()
         findings.append(
             CISignalFinding(
                 source_type=SOURCE_TYPE_DURATION_REGRESSION,
-                source_id=f"{repo}:{workflow_name}:{observation_week}:duration",
+                source_id=f"{repo}:{workflow_name}:{_observation_week(now)}:duration",
                 description=(
-                    f"CI workflow '{workflow_name}' got slower on {repo}: p95 run time rose {pct_increase:.0%} "
-                    f"({base.p95_seconds:.0f}s → {cur.p95_seconds:.0f}s) vs the prior {window_days}d. A slower "
+                    f"CI workflow '{workflow_name}' got slower on {repo}\n"
+                    f"p95 run time rose {pct_increase:.0%} "
+                    f"({base.p95_seconds:.0f}s to {cur.p95_seconds:.0f}s) vs the prior {window_days}d. A slower "
                     f"check stretches every PR's time-to-green."
                 ),
                 weight=0.6,
