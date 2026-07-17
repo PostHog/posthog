@@ -69,6 +69,11 @@ def log(message: str) -> None:
     print(message, file=sys.stderr)
 
 
+def printable(value: str) -> str:
+    """Escape terminal control sequences in untrusted text (e.g. ingested property names)."""
+    return "".join(ch if ch.isprintable() else ch.encode("unicode_escape").decode("ascii") for ch in str(value))
+
+
 def request_with_retries(
     session: requests.Session, method: str, url: str, max_retries: int = MAX_RETRIES, **kwargs: Any
 ) -> requests.Response:
@@ -366,7 +371,7 @@ def main() -> int:
         log("")
         log(f"Not found - nothing to prune ({len(not_found)}; already absent or never existed):")
         for name in not_found:
-            log(f"  {name}")
+            log(f"  {printable(name)}")
 
     if args.output:
         with open(args.output, "w") as f:
@@ -391,7 +396,9 @@ def main() -> int:
     log("")
     log("Sample of definitions that would be pruned:")
     for definition in preview:
-        log(f"  {definition['id']}  {definition['name']}  ({definition.get('property_type') or 'unknown type'})")
+        log(
+            f"  {definition['id']}  {printable(definition['name'])}  ({definition.get('property_type') or 'unknown type'})"
+        )
     if len(matched) > len(preview):
         log(f"  ... and {len(matched) - len(preview)} more (use --output to save the full list)")
 
@@ -431,7 +438,7 @@ def main() -> int:
             "session/key, or field-level access control on restricted properties."
         )
     for failure in failures[:20]:
-        log(f"  FAILED: {failure}")
+        log(f"  FAILED: {printable(failure)}")
     if len(failures) > 20:
         log(f"  ... and {len(failures) - 20} more failures")
     if failures:
@@ -443,7 +450,7 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except PruneError as err:
-        log(f"Error: {err}")
+        log(f"Error: {printable(str(err))}")
         sys.exit(1)
     except KeyboardInterrupt:
         log("\nInterrupted.")
