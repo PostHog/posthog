@@ -101,8 +101,10 @@ class LLMPromptFetchQuerySerializer(serializers.Serializer):
 class LLMPromptGetByNameQuerySerializer(LLMPromptFetchQuerySerializer):
     label = serializers.CharField(  # type: ignore[assignment]
         required=False,
+        max_length=PROMPT_LABEL_NAME_MAX_LENGTH,
         help_text=(
-            "Fetch the version this label currently points to, e.g. 'production'. Mutually exclusive with version."
+            "Fetch the version this label currently points to, e.g. 'production'. "
+            "Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version."
         ),
     )
     content = serializers.ChoiceField(

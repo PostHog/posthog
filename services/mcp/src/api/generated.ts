@@ -67688,8 +67688,9 @@ export namespace Schemas {
      */
     content?: EnvironmentsLlmPromptsNameRetrieveContent;
     /**
-     * Fetch the version this label currently points to, e.g. 'production'. Mutually exclusive with version.
+     * Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version.
      * @minLength 1
+     * @maxLength 128
      */
     label?: string;
     /**
@@ -75230,8 +75231,9 @@ export namespace Schemas {
      */
     content?: LlmPromptsNameRetrieveContent;
     /**
-     * Fetch the version this label currently points to, e.g. 'production'. Mutually exclusive with version.
+     * Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version.
      * @minLength 1
+     * @maxLength 128
      */
     label?: string;
     /**

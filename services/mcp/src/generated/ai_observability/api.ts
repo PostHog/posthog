@@ -1614,6 +1614,7 @@ export const LlmPromptsNameRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const llmPromptsNameRetrieveQueryContentDefault = `full`
+export const llmPromptsNameRetrieveQueryLabelMax = 128
 
 export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
     content: zod
@@ -1625,9 +1626,10 @@ export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
     label: zod
         .string()
         .min(1)
+        .max(llmPromptsNameRetrieveQueryLabelMax)
         .optional()
         .describe(
-            "Fetch the version this label currently points to, e.g. 'production'. Mutually exclusive with version."
+            "Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version."
         ),
     version: zod
         .number()
