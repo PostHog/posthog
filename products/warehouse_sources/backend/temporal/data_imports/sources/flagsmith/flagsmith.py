@@ -272,10 +272,13 @@ def validate_credentials(api_key: str, base_url: str | None, path: str = "/organ
         session = make_tracked_session(
             redact_values=(api_key,), allow_redirects=False, capture=False, retry=Retry(total=0)
         )
-        response = session.get(
-            f"{_api_base(normalize_base_url(base_url))}{path}", headers=_headers(api_key), timeout=10
-        )
-        return response.status_code
+        # stream=True and a context manager so we read only the status line/headers and never
+        # download the body: a hostile base_url could otherwise trickle an endless body and hold
+        # this inline API worker open well past the read timeout (which only bounds byte gaps).
+        with session.get(
+            f"{_api_base(normalize_base_url(base_url))}{path}", headers=_headers(api_key), timeout=10, stream=True
+        ) as response:
+            return response.status_code
     except Exception:
         return None
 

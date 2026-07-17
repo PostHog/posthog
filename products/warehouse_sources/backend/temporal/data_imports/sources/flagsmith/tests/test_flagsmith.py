@@ -56,6 +56,14 @@ def _resp(data: Any, status_code: int = 200) -> mock.MagicMock:
     return resp
 
 
+def _probe_resp(status_code: int = 200) -> mock.MagicMock:
+    # validate_credentials reads the status via `with session.get(..., stream=True) as response`.
+    resp = mock.MagicMock(status_code=status_code)
+    resp.__enter__.return_value = resp
+    resp.__exit__.return_value = False
+    return resp
+
+
 class TestUrlHelpers:
     @pytest.mark.parametrize(
         "base_url, expected",
@@ -111,12 +119,12 @@ class TestValidateCredentials:
     @pytest.mark.parametrize("status_code", [200, 401, 403, 500])
     @mock.patch(SESSION_PATH)
     def test_returns_status_code(self, mock_session, status_code):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
+        mock_session.return_value.get.return_value = _probe_resp(status_code)
         assert validate_credentials("key", None) == status_code
 
     @mock.patch(SESSION_PATH)
     def test_uses_api_key_prefix(self, mock_session):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        mock_session.return_value.get.return_value = _probe_resp(200)
         validate_credentials("org-key", None)
         call = mock_session.return_value.get.call_args
         assert call.kwargs["headers"]["Authorization"] == "Api-Key org-key"
@@ -124,9 +132,19 @@ class TestValidateCredentials:
 
     @mock.patch(SESSION_PATH)
     def test_uses_custom_base_url(self, mock_session):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        mock_session.return_value.get.return_value = _probe_resp(200)
         validate_credentials("org-key", "https://flagsmith.example.com", "/projects/")
         assert mock_session.return_value.get.call_args.args[0] == "https://flagsmith.example.com/api/v1/projects/"
+
+    @mock.patch(SESSION_PATH)
+    def test_streams_probe_without_downloading_body(self, mock_session):
+        # A hostile base_url must not be able to occupy the API worker with an endless body: the
+        # probe streams and returns the status without consuming the body.
+        resp = _probe_resp(200)
+        mock_session.return_value.get.return_value = resp
+        validate_credentials("key", None)
+        assert mock_session.return_value.get.call_args.kwargs["stream"] is True
+        resp.iter_content.assert_not_called()
 
     @mock.patch(SESSION_PATH)
     def test_returns_none_on_exception(self, mock_session):
