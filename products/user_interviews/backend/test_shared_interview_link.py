@@ -103,7 +103,7 @@ class TestSharedStartCall(APIBaseTest):
         )
         return SharingConfiguration.objects.create(team=self.team, user_interview_topic=topic, enabled=True)
 
-    def _url(self, token: str) -> str:
+    def _url(self, token: str | None) -> str:
         return f"/api/user_interviews/share/{token}/start_call/"
 
     _SESSION_ID_V7 = "018f0b7a-0000-7000-8000-000000000000"
@@ -170,7 +170,9 @@ class TestSharedVapiWebhook(APIBaseTest):
         )
         return SharingConfiguration.objects.create(team=self.team, user_interview_topic=topic, enabled=True)
 
-    def _payload(self, token: str, *, call_id: str, respondent_key: str, transcript: str, name: str = "Robin") -> dict:
+    def _payload(
+        self, token: str | None, *, call_id: str, respondent_key: str, transcript: str, name: str = "Robin"
+    ) -> dict:
         return {
             "message": {
                 "type": "end-of-call-report",
