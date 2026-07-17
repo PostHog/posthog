@@ -282,10 +282,8 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         # start and return timestamp arrays can be computed in one pass. Property aggregation has a known
         # legacy/variant discrepancy and stays on the UNION; a data-warehouse entity is a genuinely
         # different source and cannot collapse here.
-        # First-time modes also stay on the UNION: they drop the window bound to find each actor's
-        # first-ever start event, and a single scan then reads every column over all history, while
-        # the two arms confine the unbounded scan to the start entity's rows and keep the return arm
-        # window-bounded.
+        # First-time modes also stay on the UNION: their single scan is unbounded in time (first-ever
+        # anchor), so splitting confines the all-time read to the start entity's rows.
         return (
             not self.has_property_aggregation
             and not self.is_first_occurrence_matching_filters
@@ -503,8 +501,6 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         table_name = entity.table_name if entity_is_dwh else "events"
         assert table_name
-        # Arm-scoped filters instead of the OR of both entities: each arm pre-filters to its own
-        # entity's event names, and in first-time modes only the start arm scans all time.
         where_expr = (
             None
             if entity_is_dwh

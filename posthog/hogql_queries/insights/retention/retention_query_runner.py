@@ -250,17 +250,13 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         return global_event_filters
 
     def arm_event_filters(self, entity: RetentionEntity, query_kind: Literal["start", "return"]) -> list[ast.Expr]:
-        """
-        Event filters for one arm of a two-scan (UNION ALL) retention query, scoped to
-        that arm's entity instead of the OR of both entities.
-        """
+        """Filters for one arm of a two-scan retention query, scoped to that arm's entity only."""
         filters = self.events_where_clause(
             self.is_first_occurrence_matching_filters, self.is_first_ever_occurrence, entities=[entity]
         )
         if query_kind == "return" and (self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence):
-            # First-time modes drop the global window bound so the start arm can find the
-            # first-ever start event, but return events outside the window never enter any
-            # aggregate, so the return arm can always be bounded.
+            # First-time modes need the start arm unbounded to find the first-ever start event,
+            # but return events outside the window never enter any aggregate.
             filters.append(self.events_timestamp_filter())
         if self.group_type_index is not None:
             filters.append(self._group_actor_filter())
@@ -383,10 +379,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         is_first_ever_occurrence: bool = False,
         entities: list[RetentionEntity] | None = None,
     ):
-        """
-        Event filters to apply to both start and return events, or to just the given
-        entities when building a per-arm scan.
-        """
+        """Event filters for both start and return events, or just `entities` for a per-arm scan."""
         events_where = []
 
         if self.query.properties is not None and self.query.properties != []:

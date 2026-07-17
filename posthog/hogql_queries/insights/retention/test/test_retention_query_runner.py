@@ -8201,8 +8201,6 @@ class TestRetentionFirstTimeTwoLegScan(APIBaseTest):
         self.assertIn("did_action", return_constants)
         self.assertNotIn("signup", return_constants)
 
-        # The start arm must scan all time to find each actor's first occurrence;
-        # the return arm only ever aggregates within the window, so it stays bounded.
         self.assertFalse(self._where_has_timestamp_bound(start_arm))
         self.assertTrue(self._where_has_timestamp_bound(return_arm))
 
