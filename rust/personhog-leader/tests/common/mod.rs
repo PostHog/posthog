@@ -196,6 +196,8 @@ pub fn test_kafka_config() -> KafkaConfig {
         kafka_producer_message_max_bytes: None,
         kafka_producer_sticky_partitioning_linger_ms: None,
         kafka_producer_partitioner: None,
+        kafka_producer_acks: None,
+        kafka_producer_retries: None,
     }
 }
 
@@ -251,6 +253,8 @@ pub async fn create_local_kafka_producer() -> FutureProducer<KafkaContext> {
         kafka_producer_message_max_bytes: None,
         kafka_producer_sticky_partitioning_linger_ms: None,
         kafka_producer_partitioner: None,
+        kafka_producer_acks: None,
+        kafka_producer_retries: None,
     };
     create_kafka_producer(&config, handle)
         .await

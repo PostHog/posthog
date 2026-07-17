@@ -152,6 +152,7 @@ export function AgentsRoster(): JSX.Element {
         sessionAnalysisConfig,
         conversationsConfig,
         evalReportsConfig,
+        anomalyInvestigationConfig,
         githubIssuesConfig,
         linearIssuesConfig,
         zendeskTicketsConfig,
@@ -160,6 +161,7 @@ export function AgentsRoster(): JSX.Element {
         isSessionAnalysisToggling,
         isConversationsToggling,
         isEvalReportsToggling,
+        isAnomalyInvestigationToggling,
         isErrorTrackingToggling,
         isGithubIssuesToggling,
         isLinearIssuesToggling,
@@ -171,6 +173,7 @@ export function AgentsRoster(): JSX.Element {
         toggleConversations,
         toggleErrorTracking,
         toggleEvalReports,
+        toggleAnomalyInvestigation,
         initiateDataWarehouseSourceToggle,
     } = useActions(signalSourcesLogic)
 
@@ -212,6 +215,13 @@ export function AgentsRoster(): JSX.Element {
                         requiresSetup: false,
                         syncStatus: null,
                     }
+                case 'analytics':
+                    return {
+                        armed: !!anomalyInvestigationConfig?.enabled,
+                        loading: isAnomalyInvestigationToggling,
+                        requiresSetup: false,
+                        syncStatus: anomalyInvestigationConfig?.status,
+                    }
                 case 'github':
                     return dwState(githubIssuesConfig, isGithubIssuesToggling)
                 case 'linear':
@@ -231,6 +241,8 @@ export function AgentsRoster(): JSX.Element {
             isSessionAnalysisToggling,
             evalReportsConfig,
             isEvalReportsToggling,
+            anomalyInvestigationConfig,
+            isAnomalyInvestigationToggling,
             githubIssuesConfig,
             isGithubIssuesToggling,
             linearIssuesConfig,
@@ -257,6 +269,9 @@ export function AgentsRoster(): JSX.Element {
                 case 'llm_analytics':
                     toggleEvalReports()
                     return
+                case 'analytics':
+                    toggleAnomalyInvestigation()
+                    return
                 case 'github':
                 case 'linear':
                 case 'zendesk':
@@ -270,6 +285,7 @@ export function AgentsRoster(): JSX.Element {
             toggleConversations,
             toggleSessionAnalysis,
             toggleEvalReports,
+            toggleAnomalyInvestigation,
             initiateDataWarehouseSourceToggle,
         ]
     )
