@@ -24,9 +24,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.s
     CAMPFIRE_ENDPOINTS,
     ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 
-class _FakeResumableManager:
+class _FakeResumableManager(ResumableSourceManager[CampfireResumeConfig]):
     def __init__(self, state: CampfireResumeConfig | None = None) -> None:
         self._state = state
         self.saved: list[CampfireResumeConfig] = []
