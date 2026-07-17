@@ -215,7 +215,6 @@ class _BaseSource(ABC, Generic[ConfigType]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
-        api_version: str | None = None,
     ) -> list[SourceSchema]:
         """Return the list of schemas available for this source.
 
@@ -223,10 +222,12 @@ class _BaseSource(ABC, Generic[ConfigType]):
         of upstream schema discovery (e.g. paginated API listings). Sources
         without caches can ignore the flag.
 
-        ``api_version`` is a source instance's stored pin (``None`` resolves to
-        ``default_version`` via ``resolve_api_version``). Multi-version sources should
-        accept it so schema discovery reconciles against the pinned version rather than
-        always the default; single-version sources can ignore it.
+        Multi-version sources may widen this override with an optional
+        ``api_version`` parameter (a source instance's stored pin; ``None`` resolves
+        to ``default_version`` via ``resolve_api_version``) so schema discovery
+        reconciles against the pinned version rather than always the default. The
+        ``sync_new_schemas`` activity passes the pin only for sources with more than
+        one supported version; single-version sources keep this base signature.
         """
         raise NotImplementedError()
 
