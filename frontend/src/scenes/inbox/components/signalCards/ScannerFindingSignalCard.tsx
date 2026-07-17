@@ -10,6 +10,7 @@ import { RecordingPlayerType, useRecordingButton } from 'lib/components/ViewReco
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { colonDelimitedDuration, humanFriendlyDuration } from 'lib/utils/durations'
+import { identifierToHuman } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { getExportsContentRetrieveUrl } from '~/generated/core/api'
@@ -30,15 +31,6 @@ export function isScannerFindingExtra(
     return typeof extra.session_id === 'string' && typeof extra.problem_type === 'string' && 'confidence' in extra
 }
 
-/** "confusion" → "Confusion", "dead_click" → "Dead click". */
-function humanizeProblemType(problemType: string): string {
-    const spaced = problemType.replace(/[-_]/g, ' ').trim()
-    if (!spaced) {
-        return problemType
-    }
-    return spaced.charAt(0).toUpperCase() + spaced.slice(1)
-}
-
 /**
  * Findings carry `start_time`/`end_time` as second offsets from the recording start, and
  * `recording_start_time` as an absolute datetime. Combine them to get an instant the player can seek to.
@@ -57,7 +49,7 @@ export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Eleme
 
     const extra = signal.extra as Record<string, unknown> & ReplayVisionScannerFindingSignalExtraApi
 
-    const hasThumbnail = extra.exported_asset_id !== undefined && currentTeamId !== null && !thumbnailFailed
+    const hasThumbnail = currentTeamId !== null && !thumbnailFailed
     const thumbnailSrc = hasThumbnail
         ? getExportsContentRetrieveUrl(String(currentTeamId), extra.exported_asset_id)
         : undefined
@@ -80,7 +72,7 @@ export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Eleme
         hasRecording,
     })
 
-    const confidencePct = Number.isFinite(extra.confidence) ? Math.round(extra.confidence * 100) : null
+    const confidencePct = Math.round(extra.confidence * 100)
 
     const activeDuration =
         extra.recording_active_seconds != null ? humanFriendlyDuration(extra.recording_active_seconds) : undefined
@@ -96,13 +88,11 @@ export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Eleme
             rightSlot={
                 <div className="flex items-center gap-1 shrink-0">
                     <LemonTag type="caution" size="small">
-                        {humanizeProblemType(extra.problem_type)}
+                        {identifierToHuman(extra.problem_type)}
                     </LemonTag>
-                    {confidencePct !== null && (
-                        <LemonTag type="muted" size="small">
-                            {confidencePct}% confidence
-                        </LemonTag>
-                    )}
+                    <LemonTag type="muted" size="small">
+                        {confidencePct}% confidence
+                    </LemonTag>
                 </div>
             }
         >
