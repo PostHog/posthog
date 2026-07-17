@@ -20,6 +20,9 @@ from google.ads.googleads.v23.services.services.google_ads_field_service import 
     pagers as field_service_pagers,
 )
 from google.ads.googleads.v23.services.services.google_ads_service import GoogleAdsServiceClient, pagers
+from google.ads.googleads.v24.common import types as ga_common_v24
+from google.ads.googleads.v24.enums import types as ga_enums_v24
+from google.ads.googleads.v24.resources import types as ga_resources_v24
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
 from google.oauth2 import service_account
@@ -293,39 +296,36 @@ class GoogleAdsColumn(Column):
         return pa.field(self.name, arrow_type)
 
 
+# Per-version proto module sets used to resolve a search response's type URLs back to their Python
+# classes. A response's type URL carries the API version it was produced under, so we decode enums
+# and messages against the matching version's modules. Enum *data-type* constants used elsewhere
+# (`GoogleAdsColumn`) are stable across versions and keep using the v23 modules.
+_PROTO_MODULES_BY_VERSION: dict[str, dict[str, typing.Any]] = {
+    "v23": {"common": ga_common, "enums": ga_enums, "resources": ga_resources},
+    "v24": {"common": ga_common_v24, "enums": ga_enums_v24, "resources": ga_resources_v24},
+}
+
+
 def _resolve_protobuf_message_type_url(type_url: str) -> type:
-    """Traverse a protobuf message type URL to find it's Python type."""
+    """Traverse a protobuf message type URL to find it's Python type.
+
+    The version segment of the URL selects the matching SDK module set, so a response produced
+    under any supported API version resolves against that version's protos.
+    """
     match type_url.split("."):
-        case ["google", "ads", "googleads", "v23", "common", *rest] | [
+        case ["google", "ads", "googleads", version, category, *rest] | [
             "com",
             "google",
             "ads",
             "googleads",
-            "v23",
-            "common",
+            version,
+            category,
             *rest,
         ]:
-            return _traverse_attributes(ga_common, *rest)
-        case ["google", "ads", "googleads", "v23", "enums", *rest] | [
-            "com",
-            "google",
-            "ads",
-            "googleads",
-            "v23",
-            "enums",
-            *rest,
-        ]:
-            return _traverse_attributes(ga_enums, *rest)
-        case ["google", "ads", "googleads", "v23", "resources", *rest] | [
-            "com",
-            "google",
-            "ads",
-            "googleads",
-            "v23",
-            "resources",
-            *rest,
-        ]:
-            return _traverse_attributes(ga_resources, *rest)
+            module = _PROTO_MODULES_BY_VERSION.get(version, {}).get(category)
+            if module is not None:
+                return _traverse_attributes(module, *rest)
+            raise ValueError(f"Type url could not be found: '{type_url}'")
         case _:
             raise ValueError(f"Type url could not be found: '{type_url}'")
 
@@ -379,7 +379,7 @@ class GoogleAdsTable(Table[GoogleAdsColumn]):
 TableSchemas = dict[str, GoogleAdsTable]
 
 
-def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchemas:
+def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int, api_version: str) -> TableSchemas:
     """Obtain Google Ads schemas.
 
     This is a two step process:
@@ -389,7 +389,9 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
     Only selectable fields are, well, selected.
     """
     client = google_ads_client(config, team_id)
-    gaf_service = client.get_service("GoogleAdsFieldService", interceptors=tracked_interceptors(GOOGLE_ADS_HOST))
+    gaf_service = client.get_service(
+        "GoogleAdsFieldService", version=api_version, interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
+    )
     fields_query = _search_fields_with_transient_retry(
         gaf_service, "select name, data_type, is_repeated, type_url where selectable = true"
     )
@@ -457,6 +459,7 @@ def google_ads_source(
     resource_name: str,
     team_id: int,
     resumable_source_manager: ResumableSourceManager[GoogleAdsResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
@@ -473,7 +476,7 @@ def google_ads_source(
     """
 
     name = NamingConvention.normalize_identifier(resource_name)
-    table = get_schemas(config, team_id)[resource_name]
+    table = get_schemas(config, team_id, api_version)[resource_name]
 
     if table.requires_filter and not should_use_incremental_field:
         should_use_incremental_field = True
@@ -520,7 +523,7 @@ def google_ads_source(
 
         client = google_ads_client(config, team_id)
         service: GoogleAdsServiceClient = client.get_service(
-            "GoogleAdsService", version="v23", interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
+            "GoogleAdsService", version=api_version, interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
         )
         customer_id = clean_customer_id(config.customer_id)
 

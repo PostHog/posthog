@@ -58,7 +58,7 @@ dependencies = [
     "drf-extensions~=0.8.0",
     "drf-spectacular~=0.29.0",
     "geoip2==4.6.0",
-    "google-ads==29.2.0",
+    "google-ads==30.1.0",
     "google-cloud-bigquery==3.26",
     "google-cloud-bigquery-storage==2.32.0",
     "google-cloud-iam==2.21",

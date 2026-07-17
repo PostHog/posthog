@@ -56,8 +56,8 @@ GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS = 30 * 24 * 60 * 60
 class GoogleAdsSource(
     ResumableSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, GoogleAdsResumeConfig], OAuthMixin
 ):
-    supported_versions = ("v23",)
-    default_version = "v23"
+    supported_versions = ("v23", "v24")
+    default_version = "v24"
     api_docs_url = "https://developers.google.com/google-ads/api/docs/release-notes"
 
     @property
@@ -127,6 +127,7 @@ class GoogleAdsSource(
         google_ads_schemas = get_google_ads_schemas(
             config,
             team_id,
+            self.default_version,
         )
 
         ads_incremental_fields = get_google_ads_incremental_fields()
@@ -177,6 +178,7 @@ class GoogleAdsSource(
             resource_name=inputs.schema_name,
             team_id=inputs.team_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             incremental_field_type=inputs.incremental_field_type if inputs.should_use_incremental_field else None,
