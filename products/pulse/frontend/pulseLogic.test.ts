@@ -1,12 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { pulseLogic } from './pulseLogic'
+import { BRIEF_ALREADY_GENERATING_MESSAGE, pulseLogic } from './pulseLogic'
 
 const generatingBrief = {
     id: 'brief-1',
@@ -52,6 +54,8 @@ describe('pulseLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PULSE], { [FEATURE_FLAGS.PULSE]: true })
         logic = pulseLogic()
         logic.mount()
     })
@@ -70,19 +74,21 @@ describe('pulseLogic', () => {
                 isGenerating: true,
             })
 
-        // A poll tick that finds the brief in a terminal state must merge it in and stop the interval.
+        // A poll tick that finds the brief in a terminal state merges it in.
         await expectLogic(logic, () => {
             logic.actions.pollGeneratingBriefs()
         })
-            .toDispatchActions(['briefsRefreshed', 'stopPolling'])
+            .toDispatchActions(['briefsRefreshed'])
             .toMatchValues({ isGenerating: false })
         expect(logic.values.briefs[0].status).toEqual('ready')
         expect(logic.values.briefDetail?.sections).toHaveLength(1)
 
-        // With nothing generating, another tick must not fetch or refresh anything.
+        // The next tick finds nothing generating: it stops the interval without fetching.
         await expectLogic(logic, () => {
             logic.actions.pollGeneratingBriefs()
-        }).toNotHaveDispatchedActions(['briefsRefreshed'])
+        })
+            .toDispatchActions(['stopPolling'])
+            .toNotHaveDispatchedActions(['briefsRefreshed'])
     })
 
     it('surfaces the consent banner on an AI data processing 400 without starting polling', async () => {
@@ -90,7 +96,12 @@ describe('pulseLogic', () => {
             post: {
                 '/api/projects/:team_id/pulse/briefs/generate/': () => [
                     400,
-                    { detail: 'AI data processing must be approved for this organization to generate briefs.' },
+                    {
+                        type: 'validation_error',
+                        code: 'ai_consent_required',
+                        detail: 'AI data processing must be approved for this organization to generate briefs.',
+                        attr: null,
+                    },
                 ],
             },
         })
@@ -127,7 +138,7 @@ describe('pulseLogic', () => {
                 aiConsentRequired: false,
                 briefs: [],
             })
-        expect(infoSpy).toHaveBeenCalledWith('A brief is already being generated')
+        expect(infoSpy).toHaveBeenCalledWith(BRIEF_ALREADY_GENERATING_MESSAGE)
         await expectLogic(logic).toNotHaveDispatchedActions(['startPolling'])
         resumeKeaLoadersErrors()
     })
