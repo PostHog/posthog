@@ -291,8 +291,8 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     urgency_threshold = models.CharField(
         max_length=20,
         choices=UrgencyThreshold.choices,
-        default=UrgencyThreshold.SHOULD_FIX,
-        db_default=UrgencyThreshold.SHOULD_FIX.value,
+        default=UrgencyThreshold.CONSIDER,
+        db_default=UrgencyThreshold.CONSIDER.value,
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

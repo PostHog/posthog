@@ -438,7 +438,8 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
 - **`ReviewUserSettings`** (migration 0008; one row per team+user, `db_constraint=False` FKs):
   `review_inbox_prs` (default off; consumed by the Stage-6 inbox trigger since 2026-07-02),
   `review_labeled_prs` (default on), `urgency_threshold` (`consider`/`should_fix`/`must_fix`, default
-  `should_fix`, values mirror `IssuePriority`). GET/PATCH singleton at `review_hog/settings` — the
+  `consider` since 2026-07-16 — see the follow-up below; values mirror `IssuePriority`). GET/PATCH
+  singleton at `review_hog/settings` — the
   action method is `user_settings` because a method named `settings` shadows DRF's `APIView.settings`
   and breaks the whole view (found by test).
 - **Label gate:** `resolve_acting_user_activity` now returns the acting user's settings snapshot
@@ -451,8 +452,8 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
   from `BuildBodyInput.urgency_threshold` / `PublishInput.urgency_threshold` (dataclass defaults keep
   in-flight payloads deserializing) on the **workflow** path. "All issues" publishes `consider`
   findings inline too. The standalone `publish_review` command always uses `DEFAULT_URGENCY_THRESHOLD`
-  (should_fix) — see the adversarial-review follow-up below for why it doesn't take a per-user
-  threshold.
+  (`consider` since 2026-07-16) — see the adversarial-review follow-up below for why it doesn't take a
+  per-user threshold.
 - **Skill lists feed the drawer:** the three config list endpoints (+ PATCH responses) now include the
   skill `body`; "Edit skill ↗" links to `/skills/review-hog`.
 - **"Create your own …":** task kickoff mirroring Inbox "Make a scout" (`api.tasks.create` →
@@ -469,6 +470,20 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
   skip, the CLI-override bypass, and threshold threading into body+publish.
 - **Still deferred:** reset-to-canonical (needs the force-re-pull helper in `lazy_seed`); non-staff
   rollout. (The "Review all your Inbox PRs" behavior is **BUILT** — see Stage 6.)
+
+#### ✅ BUILT 2026-07-16 — default urgency threshold flipped to "All issues" (`consider`)
+
+The default `urgency_threshold` moved from `should_fix` to `consider`, so out of the box every
+validated finding reaches the pull request (consider-level findings survive validation too, so
+they're worth surfacing by default). Changed in one place each: the `ReviewUserSettings` field
+`default`/`db_default` and `DEFAULT_URGENCY_THRESHOLD` in `constants.py`; the temporal input
+dataclass defaults (`ResolveActingUserResult`/`BuildBodyInput`/`PublishInput`) follow so "defaults
+match the model's" stays true. Migration 0017 alters the column default and resets existing rows to
+`consider` (safe — no persisted rows yet; done for correctness). Slider copy moved the "default"
+annotation to "All issues" and the frontend fallbacks (`?? 'should_fix'`) now fall back to
+`consider`. The `should_fix`-threshold test fixtures were renamed `_DEFAULT_PUBLISHED` →
+`_SHOULD_FIX_PUBLISHED` (they exercise the publish gate at that threshold; they never meant "the
+product default").
 
 #### ✅ Follow-up 2026-07-02 — adversarial review (partial) caught a real regression; fixed 2, reverted 1 as overengineered
 
@@ -488,7 +503,7 @@ missing required argument`) — those call sites were never updated. Caught only
    adversarial reviewer ran the product's real `backend:test` script (`backend/tests` **+**
    `backend/reviewer/tests`); my own verification during the build had only run `backend/tests`,
    silently skipping the second directory the whole session. Fixed: all 8 call sites now pass a
-   `_DEFAULT_PUBLISHED = published_priorities_for(IssuePriority.SHOULD_FIX)` test constant (matching
+   `_SHOULD_FIX_PUBLISHED = published_priorities_for(IssuePriority.SHOULD_FIX)` test constant (matching
    prior implicit behavior), plus two comments that assumed the old "consider never publishes"
    absolute rule reworded to "below the default threshold." **Lesson: verify against a product's
    `package.json` `backend:test` script, not a hand-picked test path** — `backend/reviewer/tests/` is
@@ -2905,6 +2920,36 @@ file to prove a gap and another agent read it mid-experiment.
 **Still deferred (own steps):** validator selection in the ReviewHog skills **UI** (ships with the perspective UI —
 API/MCP only for now); a partial unique index if a hard DB single-active guarantee is ever wanted (app-level matches
 perspectives today).
+
+##### ✅ BUILT 2026-07-16 — per-user VISIBILITY of custom review skills (menus show canonicals + your own)
+
+Custom review skills were team-visible: all three config menus (perspectives / validators / blind-spots) listed every team `LLMSkill` with the prefix,
+so one user's custom appeared in — and was enableable by exact name from — every teammate's Code review tab, with the clutter compounding as customs multiply.
+Locked with the user (AskUserQuestion, 2026-07-16):
+
+- **Visibility rule:** a skill is visible to a user iff its name is canonical (`CANONICAL_*_SKILL_NAMES` — by name, so a team-edited canonical stays visible to everyone)
+  OR the **earliest live version's `created_by`** is that user.
+  This refines the 2026-06-29 "`created_by` is audit-only" lock: still audit-only for identity and editing (edits mint new versions stamped with the _editor_ and do NOT transfer visibility);
+  the first version's author now governs **menu visibility only**.
+  Earliest _live_ version rather than literally `version=1`: deleted rows are excluded, so an archived name later recreated by another user belongs to the new author
+  (deleted `(name, version)` pairs can duplicate — the unique constraints only cover `deleted=False`).
+- **Strict, no grandfathering** (decided while the feature had no external adopters): `partial_update` 404s on a non-visible skill exactly like a missing one
+  (a distinct error would leak that the name exists), closing the enable-any-team-skill-by-name backdoor. No data migration; the loaders backstop instead.
+- **Loader backstop:** `load_perspectives_for_run` warn-and-skips an enabled name outside the acting user's visible set
+  (same posture and hole-preserving `pass_number` semantics as the dead-skill skip), and `_load_single_active_skill` falls back to the canonical on a foreign selection —
+  so a pre-fix foreign-enabled row stops running rather than running invisibly, self-healing with no migration.
+- **Scope:** all three review menus. The team-level Skills page (`/skills`) intentionally keeps showing all team skills —
+  this is a clutter fix, not confidentiality: bodies stay team-readable there, and teammates can still edit each other's customs (accepted risk).
+  Signals scouts share the identical all-team-menu pattern; same future problem, deliberately out of scope here.
+- **Consequences:** a custom whose author's account is deleted (`created_by` → NULL on SET_NULL) is visible to no one and stops running
+  (its config rows CASCADE with the account); cleanup is archiving from the Skills page.
+  A skill authored through an agent session is stamped with that session's user.
+  "Adopt a teammate's skill" is now duplicate-under-a-new-name (v1 `created_by` = the duplicator), not enable-by-name.
+
+Implementation: `visible_skill_names(team_id, user_id, prefix, canonical_names)` in `skill_loader.py` (one `DISTINCT ON (name) ORDER BY name, version` query over live rows),
+used by all three config viewsets (`list` + `partial_update`) and both loader paths.
+Tests: per surface, a teammate's custom is hidden from `list` and 404s on PATCH; the perspective loader skips a foreign-enabled row keeping pass-number holes;
+the single-active loader falls back to canonical on a foreign selection; existing custom-skill fixtures now stamp `created_by`.
 
 The fact that keeps all of this safe: **the output schema is fixed; only the skill (logic) is editable.** Every
 perspective validates against `IssuesReview`/`Issue`, the validator against `IssueValidation`, chunking against

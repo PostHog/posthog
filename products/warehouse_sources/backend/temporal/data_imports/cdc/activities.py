@@ -1189,6 +1189,19 @@ class CDCExtractActivity:
         except Exception:
             schema_log.warning("failed_to_unpause_schema_schedule", schema_id=str(schema.id), exc_info=True)
 
+    def _pause_cdc_extraction_schedule(self) -> None:
+        """Pause the source's CDC extraction schedule after a non-retryable failure (best-effort)."""
+        assert self.source is not None
+        source_id = str(self.source.id)
+        try:
+            # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
+            from products.data_warehouse.backend.facade.api import pause_cdc_extraction_schedule
+
+            pause_cdc_extraction_schedule(source_id)
+            self.log.warning("cdc_extraction_schedule_paused_non_retryable", source_id=source_id)
+        except Exception:
+            self.log.warning("cdc_pause_schedule_failed", source_id=source_id, exc_info=True)
+
     def _handle_no_changes(self, truncated_tables: list[str]) -> None:
         """Early-return path: no DML events were read."""
         if truncated_tables:
@@ -1381,6 +1394,10 @@ class CDCExtractActivity:
         if marked_broken:
             assert self.source is not None
             mark_cdc_broken(self.source, info.category.value, friendly)
+        elif not info.retryable and self.source is not None:
+            # A non-retryable error re-fails every scheduled run, so pause the schedule instead of
+            # looping it. No cdc_broken marker: the slot is intact, so it stays Repair-CDC-ineligible.
+            self._pause_cdc_extraction_schedule()
         for schema in self.cdc_schemas:
             if not marked_broken:
                 schema.status = ExternalDataSchema.Status.FAILED

@@ -33,6 +33,9 @@ import type {
     EngineeringAnalyticsRepoRunActivityParams,
     EngineeringAnalyticsResolveBranchParams,
     EngineeringAnalyticsRunFailureLogsParams,
+    EngineeringAnalyticsTeamCiActivityParams,
+    EngineeringAnalyticsTeamCiHealthParams,
+    EngineeringAnalyticsTeamMergeTrendParams,
     EngineeringAnalyticsWorkflowHealthParams,
     EngineeringAnalyticsWorkflowJobsParams,
     EngineeringAnalyticsWorkflowRunActivityParams,
@@ -50,6 +53,9 @@ import type {
     QuarantineRequestResultApi,
     RepoOverviewApi,
     RunFailureLogsApi,
+    TeamCIActivityApi,
+    TeamCIHealthListApi,
+    TeamMergeTrendApi,
     WorkflowCostApi,
     WorkflowHealthItemApi,
     WorkflowJobAggregateApi,
@@ -682,6 +688,105 @@ export const engineeringAnalyticsSources = async (
     options?: RequestInit
 ): Promise<GitHubSourceApi[]> => {
     return apiMutator<GitHubSourceApi[]>(getEngineeringAnalyticsSourcesUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsTeamCiActivityUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsTeamCiActivityParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/team_ci_activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/team_ci_activity/`
+}
+
+/**
+ * One owning team's CI test activity: per-test current-vs-prior signal pairs (the before/after comparison) over the window and its equal-length prior twin. Signal = failed + error + pass-on-retry spans on the team's owned tests. All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a flake surfaces as a plain failure, which the distinct-PR count catches.
+ */
+export const engineeringAnalyticsTeamCiActivity = async (
+    projectId: string,
+    params: EngineeringAnalyticsTeamCiActivityParams,
+    options?: RequestInit
+): Promise<TeamCIActivityApi> => {
+    return apiMutator<TeamCIActivityApi>(getEngineeringAnalyticsTeamCiActivityUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsTeamCiHealthUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsTeamCiHealthParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/team_ci_health/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/team_ci_health/`
+}
+
+/**
+ * Per-owning-team rollup of the CI test surfaces each team owns: flaky-test count, failure and pass-on-retry span counts, each with an equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*\/product.yaml + CODEOWNERS); unstamped spans aggregate under the literal team 'unowned'. Teams are organizational owners of code surfaces, never authors. All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a flake surfaces as a plain failure, which the distinct-PR count catches.
+ */
+export const engineeringAnalyticsTeamCiHealth = async (
+    projectId: string,
+    params?: EngineeringAnalyticsTeamCiHealthParams,
+    options?: RequestInit
+): Promise<TeamCIHealthListApi> => {
+    return apiMutator<TeamCIHealthListApi>(getEngineeringAnalyticsTeamCiHealthUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsTeamMergeTrendUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsTeamMergeTrendParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/team_merge_trend/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/team_merge_trend/`
+}
+
+/**
+ * One team's daily time-to-merge trend: the median and average open→merge seconds over the PRs the team's members merged each day (PR author login → GitHub org team membership). Team-level aggregates only, never per-member figures or cross-team rankings. Timing is the coarse open→merge (draft + review time combined); bots are excluded. Requires the GitHub source's team_members snapshot; has_membership_data is false without it.
+ */
+export const engineeringAnalyticsTeamMergeTrend = async (
+    projectId: string,
+    params: EngineeringAnalyticsTeamMergeTrendParams,
+    options?: RequestInit
+): Promise<TeamMergeTrendApi> => {
+    return apiMutator<TeamMergeTrendApi>(getEngineeringAnalyticsTeamMergeTrendUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

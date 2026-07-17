@@ -40,6 +40,7 @@ SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
 
 @SourceRegistry.register
 class ChargifySource(ResumableSource[ChargifySourceConfig, ChargifyResumeConfig]):
+    api_docs_url = "https://developers.maxio.com/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
