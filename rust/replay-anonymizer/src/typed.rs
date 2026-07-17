@@ -4,16 +4,20 @@
 //! [`crate::anonymize_line`], then hands back a typed [`Event`] — envelope, FullSnapshot DOM tree,
 //! Mutation adds/removes/attributes/texts, interaction/input/scroll data — with every `cv`
 //! payload (whole-event blobs and per-field Mutation compression, gzip or zstd) transparently
-//! decompressed. Scrub-then-parse is one call by design: there is no way to obtain an unscrubbed
-//! AST from this module.
+//! decompressed. Scrub-then-parse is one call by design: this module never hands back an AST the
+//! scrub policy has not been applied to.
 //!
 //! This is additive and offline-only. Nothing on the scrubbing hot path
 //! ([`crate::anonymize_message`], [`crate::snapshot`], [`crate::bytewalk`]) references this
 //! module; without the `typed-parse` feature (the Node addon build) it is not even compiled.
 //!
-//! Payload shapes the renderer does not fold — canvas, stylesheet, plugin, custom, unknown types
-//! and sources — pass through as scrubbed generic JSON ([`EventData::Other`] /
-//! [`IncrementalData::Other`]) and are *not* cv-decompressed.
+//! Payload shapes the renderer does not fold land in [`EventData::Other`] /
+//! [`IncrementalData::Other`] as generic JSON, not cv-decompressed, in exactly the state the
+//! production scrub policy leaves them: canvas, stylesheet, plugin, and custom payloads are
+//! scrubbed by their routed scrubbers; event types and incremental sources the router has no rule
+//! for (DomContentLoaded, Load, unknown/future values) pass through **untouched**, the same
+//! pass-through the ingestion pipeline applies. "Scrubbed" here always means "production scrub
+//! policy applied", not "every field redacted".
 
 use std::collections::BTreeMap;
 

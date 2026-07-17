@@ -71,8 +71,13 @@ pub fn anonymize_message(allow: &AllowLists, json: &mut [u8]) -> Result<Option<S
 }
 
 /// Scrub one JSONL line: a bare rrweb event object or the PostHog `["window_id", event]` tuple.
-/// `Ok(Some(scrubbed))` = the line changed. `Ok(None)` = a recognized event that needed no
-/// scrubbing (identical to the input). `Err` = could not anonymize; fail closed, drop the line.
+/// `Ok(Some(scrubbed))` = the line changed. `Ok(None)` = a recognized event the scrub policy left
+/// unchanged (identical to the input). `Err` = could not anonymize; fail closed, drop the line.
+///
+/// "Unchanged" applies the production scrub policy, which deliberately passes some events through
+/// untouched — DomContentLoaded/Load, and types/sources the router has no rule for — exactly as the
+/// ingestion pipeline does (mirror data read offline was produced under this same policy). Callers
+/// wanting a stricter policy than production must layer it themselves.
 ///
 /// `line` is scratch — the in-place parse consumes it, so on `Ok(None)` keep a prior copy of the
 /// bytes, not this buffer. Tuple lines come back with the wrapper intact and the window id
