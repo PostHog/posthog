@@ -1,12 +1,14 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import {
     pulseBriefsGenerateCreate,
@@ -17,64 +19,24 @@ import {
     pulseBriefConfigsList,
     pulseBriefConfigsPartialUpdate,
 } from './generated/api'
-import type {
-    BriefConfigApi,
-    ProductBriefApi,
-    ProductBriefApiSectionsItem,
-    ProductBriefListApi,
-} from './generated/api.schemas'
+import type { BriefConfigApi, BriefSectionApi, ProductBriefApi, ProductBriefListApi } from './generated/api.schemas'
 import { ProductBriefStatusEnumApi } from './generated/api.schemas'
 import type { pulseLogicType } from './pulseLogicType'
 
-/** A `"type:ref"` evidence citation split into its parts, e.g. `insight:abc123`. */
-export interface BriefCitation {
-    type: string
-    ref: string
-}
-
-/** Narrowed shape of one generated brief section — the API ships sections as untyped dicts. */
-export interface BriefSection {
-    kind: string
-    title: string
-    markdown: string
-    citations: BriefCitation[]
-    confidence: number
-}
-
-function parseCitation(citation: string): BriefCitation {
-    const separatorIndex = citation.indexOf(':')
-    if (separatorIndex <= 0) {
-        return { type: '', ref: citation }
-    }
-    return { type: citation.slice(0, separatorIndex), ref: citation.slice(separatorIndex + 1) }
-}
-
-function parseSection(section: ProductBriefApiSectionsItem): BriefSection {
-    return {
-        kind: typeof section.kind === 'string' ? section.kind : '',
-        title: typeof section.title === 'string' ? section.title : '',
-        markdown: typeof section.markdown === 'string' ? section.markdown : '',
-        citations: Array.isArray(section.citations)
-            ? section.citations
-                  .filter((citation): citation is string => typeof citation === 'string')
-                  .map(parseCitation)
-            : [],
-        confidence: typeof section.confidence === 'number' ? section.confidence : 0,
-    }
-}
-
 export const BRIEF_POLL_INTERVAL_MS = 3000
 
-/** Stop polling and surface an error after this many consecutive rounds where every retrieve failed. */
+/** Mark a single brief as failed after this many consecutive rounds where its retrieve failed. */
 export const MAX_CONSECUTIVE_POLL_FAILURES = 5
 
-/** First page only — deliberate for alpha; load-more is a follow-up. */
+/** First page only — deliberate for alpha; load-more is a follow-up (surfaced in the UI, not hidden here). */
 const LIST_PAGE_SIZE = 100
 
 export const BRIEF_ALREADY_GENERATING_MESSAGE = 'A brief is already being generated'
 
-// Cross-boundary contract: must match the ValidationError code raised by the generate endpoint
-// in products/pulse/backend/api/brief.py — rename both sides together.
+/** Shown against a brief we stopped being able to reach while it was generating. */
+export const BRIEF_UNREACHABLE_MESSAGE = 'We lost contact while generating this brief. Reload the page to check on it.'
+
+// `code` is a cross-boundary contract with the generate endpoint in products/pulse/backend/api/brief.py.
 const AI_CONSENT_ERROR_CODE = 'ai_consent_required'
 
 function currentProjectId(): string {
@@ -99,15 +61,19 @@ const EMPTY_CONFIG_FORM: BriefConfigForm = { name: '', focus_prompt: '', dashboa
 
 export const pulseLogic = kea<pulseLogicType>([
     path(['products', 'pulse', 'frontend', 'pulseLogic']),
-    connect(() => ({ values: [featureFlagLogic, ['featureFlags']] })),
+    connect(() => ({
+        values: [featureFlagLogic, ['featureFlags'], organizationLogic, ['currentOrganization']],
+    })),
     actions({
         selectConfig: (configId: string | null) => ({ configId }),
         selectBrief: (briefId: string | null) => ({ briefId }),
         setAiConsentRequired: (aiConsentRequired: boolean) => ({ aiConsentRequired }),
+        setBriefsHasMore: (hasMore: boolean) => ({ hasMore }),
         startPolling: true,
         stopPolling: true,
         pollGeneratingBriefs: true,
         briefsRefreshed: (briefs: ProductBriefApi[]) => ({ briefs }),
+        markBriefFailed: (briefId: string) => ({ briefId }),
         openConfigModal: (config: BriefConfigApi | null) => ({ config }),
         closeConfigModal: true,
         configSaved: (config: BriefConfigApi, created: boolean) => ({ config, created }),
@@ -149,6 +115,7 @@ export const pulseLogic = kea<pulseLogicType>([
             {
                 loadBriefs: async (): Promise<ProductBriefListApi[]> => {
                     const response = await pulseBriefsList(currentProjectId(), { limit: LIST_PAGE_SIZE })
+                    actions.setBriefsHasMore(response.next != null)
                     return response.results
                 },
             },
@@ -199,6 +166,28 @@ export const pulseLogic = kea<pulseLogicType>([
                 generateBrief: () => false,
             },
         ],
+        briefsHasMore: [
+            false,
+            {
+                setBriefsHasMore: (_, { hasMore }) => hasMore,
+            },
+        ],
+        briefsLoadFailed: [
+            false,
+            {
+                loadBriefs: () => false,
+                loadBriefsSuccess: () => false,
+                loadBriefsFailure: () => true,
+            },
+        ],
+        briefDetailLoadFailed: [
+            false,
+            {
+                loadBriefDetail: () => false,
+                loadBriefDetailSuccess: () => false,
+                loadBriefDetailFailure: () => true,
+            },
+        ],
         configModalOpen: [
             false,
             {
@@ -243,6 +232,12 @@ export const pulseLogic = kea<pulseLogicType>([
                 })
                 return changed ? next : state
             },
+            markBriefFailed: (state, { briefId }) =>
+                state.map((brief) =>
+                    brief.id === briefId && isGeneratingBrief(brief)
+                        ? { ...brief, status: ProductBriefStatusEnumApi.Failed, error: BRIEF_UNREACHABLE_MESSAGE }
+                        : brief
+                ),
         },
         briefDetail: {
             generateBriefSuccess: (state, { generatedBrief }) => generatedBrief ?? state,
@@ -250,6 +245,10 @@ export const pulseLogic = kea<pulseLogicType>([
                 const updated = briefs.find((brief) => brief.id === state?.id)
                 return updated && updated.status !== state?.status ? updated : state
             },
+            markBriefFailed: (state, { briefId }) =>
+                state?.id === briefId && state.status === ProductBriefStatusEnumApi.Generating
+                    ? { ...state, status: ProductBriefStatusEnumApi.Failed, error: BRIEF_UNREACHABLE_MESSAGE }
+                    : state,
         },
     }),
     selectors({
@@ -265,13 +264,21 @@ export const pulseLogic = kea<pulseLogicType>([
             (visibleBriefs, generatedBriefLoading): boolean =>
                 generatedBriefLoading || visibleBriefs.some(isGeneratingBrief),
         ],
+        // Reuse the org-wide AI data-processing gate other AI features check, so the button is
+        // blocked up front instead of only reacting to the backend's ai_consent_required error.
+        dataProcessingAccepted: [
+            (s) => [s.currentOrganization],
+            (currentOrganization): boolean => !!currentOrganization?.is_ai_data_processing_approved,
+        ],
         briefDetailSections: [
             (s) => [s.briefDetail],
-            (briefDetail): BriefSection[] => (briefDetail?.sections ?? []).map(parseSection),
+            (briefDetail): readonly BriefSectionApi[] => briefDetail?.sections ?? [],
         ],
     }),
     listeners(({ actions, values, cache }) => ({
         loadBriefsSuccess: ({ briefs }) => {
+            // Auto-select only when nothing is selected yet — on mount, and after a config switch
+            // clears the selection. A brief chosen by the user is deliberately left in place.
             if (values.selectedBriefId === null && values.visibleBriefs.length > 0) {
                 actions.selectBrief(values.visibleBriefs[0].id)
             }
@@ -303,7 +310,10 @@ export const pulseLogic = kea<pulseLogicType>([
             }
         },
         startPolling: () => {
-            cache.pollFailureRounds = 0
+            // Preserve counts across restarts: a second generation (different config) re-fires
+            // startPolling while another brief is still polling — a fresh Map would wipe its
+            // accumulated failures and restart the give-up ceiling from zero.
+            cache.pollFailuresByBrief ??= new Map<string, number>()
             cache.disposables.add(() => {
                 const intervalId = setInterval(() => actions.pollGeneratingBriefs(), BRIEF_POLL_INTERVAL_MS)
                 return () => clearInterval(intervalId)
@@ -327,22 +337,27 @@ export const pulseLogic = kea<pulseLogicType>([
                 const results = await Promise.allSettled(
                     generating.map((brief) => pulseBriefsRetrieve(currentProjectId(), brief.id))
                 )
-                const refreshed = results
-                    .filter(
-                        (result): result is PromiseFulfilledResult<ProductBriefApi> => result.status === 'fulfilled'
-                    )
-                    .map((result) => result.value)
+                // Per-brief failure counting: one brief we can't reach must fail on its own, even while
+                // its siblings keep succeeding — a shared counter would reset and never trip.
+                const failures: Map<string, number> = cache.pollFailuresByBrief
+                const refreshed: ProductBriefApi[] = []
+                results.forEach((result, index) => {
+                    const briefId = generating[index].id
+                    if (result.status === 'fulfilled') {
+                        failures.delete(briefId)
+                        refreshed.push(result.value)
+                        return
+                    }
+                    const rounds = (failures.get(briefId) ?? 0) + 1
+                    failures.set(briefId, rounds)
+                    if (rounds >= MAX_CONSECUTIVE_POLL_FAILURES) {
+                        failures.delete(briefId)
+                        posthog.capture('pulse brief poll gave up', { brief_id: briefId })
+                        actions.markBriefFailed(briefId)
+                    }
+                })
                 if (refreshed.length > 0) {
-                    cache.pollFailureRounds = 0
                     actions.briefsRefreshed(refreshed)
-                    return
-                }
-                // Every retrieve failed — count rounds so a persistent outage becomes legible instead
-                // of an interval spinning forever behind a "Generating…" state.
-                cache.pollFailureRounds = (cache.pollFailureRounds ?? 0) + 1
-                if (cache.pollFailureRounds >= MAX_CONSECUTIVE_POLL_FAILURES) {
-                    actions.stopPolling()
-                    lemonToast.error('Checking brief status keeps failing — reload the page to retry')
                 }
             } finally {
                 cache.pollInFlight = false
@@ -356,6 +371,10 @@ export const pulseLogic = kea<pulseLogicType>([
             })
         },
         configSaved: ({ config, created }) => {
+            posthog.capture(created ? 'pulse config created' : 'pulse config updated', {
+                config_id: config.id,
+                name: config.name,
+            })
             lemonToast.success(created ? 'Brief config created' : 'Brief config updated')
             if (created) {
                 actions.selectConfig(config.id)
@@ -364,13 +383,15 @@ export const pulseLogic = kea<pulseLogicType>([
         submitConfigFormFailure: ({ error }) => {
             // Field-level validation failures already render inline — only toast API errors.
             if (error instanceof ApiError) {
+                posthog.captureException(error)
                 lemonToast.error(error.detail || 'Saving the brief config failed')
             }
         },
         deleteConfig: async ({ configId }) => {
             try {
                 await pulseBriefConfigsDestroy(currentProjectId(), configId)
-            } catch {
+            } catch (error) {
+                posthog.captureException(error)
                 actions.configDeleteFailed()
                 lemonToast.error('Deleting the brief config failed')
                 return
@@ -379,6 +400,7 @@ export const pulseLogic = kea<pulseLogicType>([
                 actions.selectConfig(null)
             }
             actions.configDeleted(configId)
+            posthog.capture('pulse config deleted', { config_id: configId })
             lemonToast.success('Brief config deleted')
         },
     })),

@@ -77,6 +77,8 @@ class TestPersistBriefOutput(BaseTest):
         brief = persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
         assert brief.status == ProductBrief.Status.READY
         assert len(brief.sections) == 1
+        # Section citations resolve to structured refs the client renders directly — no id parsing.
+        assert brief.sections[0]["citations"] == [_EVIDENCE]
         assert brief.sources_used == ["anchored_insights"]
         opportunity = self._opportunities().get()
         assert opportunity.baseline == {"pct_change": -30.0, "baseline_total": 700.0, "current_total": 490.0}
