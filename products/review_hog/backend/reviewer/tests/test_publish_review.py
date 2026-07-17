@@ -377,21 +377,21 @@ class TestFormatIssueComment:
         # Alt text is the raw enum value, so the priority still reads when the badge image can't load.
         assert f"![{alt}]" in body
 
-    def test_problem_and_fix_render_above_the_collapsed_sections(self) -> None:
-        # The redesign surfaces the problem + fix inline so a reader no longer expands to learn what the
-        # finding is; a regression that re-folds them into <details> would silently undo that.
+    def test_layout_is_title_then_badges_then_unchanged_collapsed_sections(self) -> None:
+        # The change only swapped the text meta for badges and dropped the line ref: title leads, badges
+        # tag it just beneath, and all four sections stay folded. Catches a badge/title reorder, a
+        # re-added `Priority | Lines` meta, or a section being surfaced inline instead of collapsed.
         finding = _finding()
         body = _format_issue_comment(finding, _verdict())
 
-        before_details = body[: body.index("<details>")]
-        assert finding.body in before_details
-        assert finding.suggestion in before_details
-
-    def test_title_leads_and_badges_tag_it_without_line_refs(self) -> None:
-        # The layout contract: the title leads, the badges tag it right below (not above), and the
-        # redundant line-ref block is gone — the comment is anchored inline and lines live in the prompt.
-        finding = _finding()
-        body = _format_issue_comment(finding, _verdict())
-
-        assert body.index(f"### {finding.title}") < body.index("![should_fix]")
-        assert "<sub>" not in body
+        assert body.index(f"### {finding.title}") < body.index("![should_fix]") < body.index("<details>")
+        for label in (
+            "Issue description",
+            "Suggested fix",
+            "Why we think it's a valid issue",
+            "Prompt to fix with AI (copy-paste)",
+        ):
+            assert f"<summary><strong>{label}</strong></summary>" in body
+        # Problem and fix stay inside <details>, not surfaced above the first one.
+        assert finding.body not in body[: body.index("<details>")]
+        assert "**Priority:**" not in body and "**Lines:**" not in body

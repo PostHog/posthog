@@ -208,10 +208,9 @@ def _finding_badge_line(priority: IssuePriority, category: str | None) -> str:
 def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdict) -> str:
     """Format a finding + its verdict as an inline comment body.
 
-    Leads with the title, tags it with colored severity/category badges, then surfaces the problem and
-    the fix inline, so a reader sees what the finding is without expanding anything; the validator's
-    argumentation and the copy-paste AI prompt stay folded behind `<details>`. Line refs are omitted —
-    the comment is anchored inline (GitHub shows the code) and the lines also live in the AI prompt.
+    Leads with the title, then a line of colored severity/category badges (replacing the old
+    `Priority | Category | Lines` text meta); the four collapsed sections below are unchanged. Line
+    refs are omitted from the top — the comment is anchored inline and the lines live in the AI prompt.
     """
     priority = effective_priority(finding.priority, verdict.adjusted_priority)
 
@@ -220,11 +219,21 @@ def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdic
         "",
         _finding_badge_line(priority, verdict.category),
         "",
+        "<details>",
+        "<summary><strong>Issue description</strong></summary>",
+        "<br>",
+        "",
         finding.body,
         "",
-        "**Suggested fix**",
+        "</details>",
+        "",
+        "<details>",
+        "<summary><strong>Suggested fix</strong></summary>",
+        "<br>",
         "",
         finding.suggestion,
+        "",
+        "</details>",
         "",
         "<details>",
         "<summary><strong>Why we think it's a valid issue</strong></summary>",
@@ -235,7 +244,7 @@ def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdic
         "</details>",
         "",
         "<details>",
-        "<summary>\U0001f916 <strong>Prompt to fix with AI (copy-paste)</strong></summary>",
+        "<summary><strong>Prompt to fix with AI (copy-paste)</strong></summary>",
         "<br>",
         "",
         "```",
