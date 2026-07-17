@@ -22,11 +22,6 @@ DISCOUNT_RESOURCE_NAME = "Discount"
 STRIPE_API_VERSION_ACACIA = "2024-09-30.acacia"
 STRIPE_API_VERSION_DAHLIA = "2026-06-24.dahlia"
 
-# Versions the canonical column hints (external_table_definitions) were built against. Newer
-# versions reshape some response fields, so they auto-infer their schema from the data instead of
-# applying these hints.
-HINT_COMPATIBLE_VERSIONS: frozenset[str] = frozenset({STRIPE_API_VERSION_ACACIA})
-
 # Maps PostHog resource name -> Stripe API object type (as it appears in webhook data.object.object)
 RESOURCE_TO_STRIPE_OBJECT_TYPE: dict[str, str] = {
     ACCOUNT_RESOURCE_NAME: "account",

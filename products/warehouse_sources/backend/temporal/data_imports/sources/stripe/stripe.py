@@ -39,7 +39,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME,
-    HINT_COMPATIBLE_VERSIONS,
     INVOICE_ITEM_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
     PAYOUT_RESOURCE_NAME,
@@ -625,12 +624,12 @@ def stripe_source(
     api_version: str,
     should_use_incremental_field: bool = False,
 ):
-    # Canonical column hints were built against specific API versions; newer versions reshape some
-    # fields, so only apply hints for hint-compatible versions and let others auto-infer the schema.
-    column_hints: dict[str, Any] | None = None
-    if api_version in HINT_COMPATIBLE_VERSIONS:
-        column_mapping = get_dlt_mapping_for_external_table(f"stripe_{endpoint.lower()}")
-        column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
+    # The canonical Stripe schema (`external_table_definitions`) drives both these write-side hints
+    # and — because `has_managed_hogql_schema=True` — the read-side HogQL fields, and neither is
+    # api_version-aware. Apply the same hints for every version so write and read stay consistent;
+    # per-version divergence would need the read schema versioned too, not just the write hints.
+    column_mapping = get_dlt_mapping_for_external_table(f"stripe_{endpoint.lower()}")
+    column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
 
     # Get the incremental field name for partition keys
     incremental_field_config = APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, [])

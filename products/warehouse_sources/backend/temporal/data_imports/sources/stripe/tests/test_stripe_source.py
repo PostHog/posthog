@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import stripe as stripe_lib
 from stripe import ListObject
 
+from products.warehouse_sources.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
     StripeAuthMethodConfig,
@@ -635,13 +636,11 @@ class TestStripeApiVersioning:
 
         assert mock_client.call_args.kwargs["stripe_version"] == api_version
 
-    @pytest.mark.parametrize(
-        "api_version,expect_hints",
-        [(STRIPE_API_VERSION_ACACIA, True), (STRIPE_API_VERSION_DAHLIA, False)],
-    )
-    def test_column_hints_gated_by_version(self, api_version, expect_hints):
-        # Canonical hints were built against acacia's response shapes; dahlia must auto-infer instead
-        # (column_hints=None) so a reshaped field isn't forced into the old type.
+    @pytest.mark.parametrize("api_version", [STRIPE_API_VERSION_ACACIA, STRIPE_API_VERSION_DAHLIA])
+    def test_column_hints_consistent_across_versions(self, api_version):
+        # The canonical schema drives both these write hints and the read-side HogQL fields, and the
+        # read path isn't version-aware. Every version must get the same hints, or a version whose
+        # write hints were dropped would be queried through a schema its physical columns don't match.
         manager = MagicMock(spec=WebhookSourceManager)
         manager.webhook_enabled = mock.AsyncMock(return_value=False)
 
@@ -657,7 +656,8 @@ class TestStripeApiVersioning:
             api_version=api_version,
         )
 
-        if expect_hints:
-            assert response.column_hints
-        else:
-            assert response.column_hints is None
+        expected = {
+            key: value.get("data_type") for key, value in get_dlt_mapping_for_external_table("stripe_customer").items()
+        }
+        assert response.column_hints == expected
+        assert response.column_hints
