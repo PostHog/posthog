@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "external_key": {
+            "description": "Optional idempotency / threading key. A repeat invoke with the same external_key resumes the existing session instead of starting a new one.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this agent application.",
+            "type": "string"
+        },
+        "message": {
+            "description": "The user message that starts the session. Required, non-empty.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "message"],
+    "type": "object"
+}
