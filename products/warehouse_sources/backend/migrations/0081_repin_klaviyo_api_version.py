@@ -23,7 +23,7 @@ def repin_klaviyo_api_version(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("warehouse_sources", "0078_alter_externaldatasource_source_type_and_more"),
+        ("warehouse_sources", "0080_externaldatasource_auto_sync_new_schemas_and_more"),
     ]
 
     operations = [

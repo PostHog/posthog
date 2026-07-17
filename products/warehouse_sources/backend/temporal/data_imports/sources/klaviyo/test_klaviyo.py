@@ -519,7 +519,7 @@ class TestApiVersionThreadsToRevisionHeader:
                     api_key="pk_test",
                     endpoint="events",
                     logger=MagicMock(),
-                    resumable_source_manager=_FakeResumableManager(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
                     api_version=api_version,
                 )
             )
