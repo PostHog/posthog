@@ -122,6 +122,17 @@ describe('scoutRunsWindow report channel', () => {
             const rollups = computeScoutRollups([makeRun({ emitted_report_ids: ['r-1'] })])
             expect(computeFleetSummary([], rollups).emitRate).toEqual(1)
         })
+
+        it('dedupes touched reports across scouts and channels', () => {
+            // The pulse line counts distinct reports the fleet touched. Summing per-scout sets instead
+            // would double-count a report authored by one scout and edited by another (r-1 below), and
+            // the header would advertise more reports than the findings page lists.
+            const rollups = computeScoutRollups([
+                makeRun({ skill_name: 'scout-a', emitted_report_ids: ['r-1'] }),
+                makeRun({ skill_name: 'scout-b', edited_report_ids: ['r-1', 'r-2'] }),
+            ])
+            expect(computeFleetSummary([], rollups).touchedReportCount).toEqual(2)
+        })
     })
 
     describe('reconcileById', () => {

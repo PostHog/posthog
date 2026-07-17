@@ -388,6 +388,9 @@ export interface FleetSummary {
     enabledCount: number
     runningCount: number
     emittedCount: number
+    /** Distinct reports the fleet touched via the report channel (authored or edited) in the window,
+     * deduped across runs, scouts, and channels — the report-side counterpart of `emittedCount`. */
+    touchedReportCount: number
     /** Completed / (completed + failed) over the window, or null when no finished runs. */
     successRate: number | null
     /** Share of runs in the window that produced output — a signal OR report-channel activity — or null
@@ -402,6 +405,7 @@ export function computeFleetSummary(configs: SignalScoutConfig[], rollups: Map<s
     let failedCount = 0
     let runCount = 0
     let emittedRunCount = 0
+    const touchedReportIds = new Set<string>()
     for (const rollup of rollups.values()) {
         if (rollup.runningRun) {
             runningCount += 1
@@ -410,6 +414,12 @@ export function computeFleetSummary(configs: SignalScoutConfig[], rollups: Map<s
         completedCount += rollup.completedCount
         failedCount += rollup.failedCount
         runCount += rollup.runCount
+        for (const reportId of rollup.authoredReportIds) {
+            touchedReportIds.add(reportId)
+        }
+        for (const reportId of rollup.editedReportIds) {
+            touchedReportIds.add(reportId)
+        }
         for (const run of rollup.runs) {
             // Output = a weak finding OR report-channel activity, consistent with `runMatchesFilter('emitted')`
             // so the fleet emit rate and the per-scout "Emitted" chip never disagree about the same runs.
@@ -424,6 +434,7 @@ export function computeFleetSummary(configs: SignalScoutConfig[], rollups: Map<s
         enabledCount: configs.filter((config) => config.enabled).length,
         runningCount,
         emittedCount,
+        touchedReportCount: touchedReportIds.size,
         successRate: finished > 0 ? completedCount / finished : null,
         emitRate: runCount > 0 ? emittedRunCount / runCount : null,
     }
