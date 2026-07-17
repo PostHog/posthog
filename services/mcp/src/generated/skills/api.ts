@@ -133,7 +133,23 @@ export const LlmSkillsNameRetrieveParams = /* @__PURE__ */ zod.object({
     skill_name: zod.string().regex(llmSkillsNameRetrievePathSkillNameRegExp),
 })
 
+export const llmSkillsNameRetrieveQueryBodyOffsetMin = 0
+
 export const LlmSkillsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    body_length: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe(
+            'Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.'
+        ),
+    body_offset: zod
+        .number()
+        .min(llmSkillsNameRetrieveQueryBodyOffsetMin)
+        .optional()
+        .describe(
+            'Zero-based character offset to start the returned body from. Use with body_length to page through a large body that a client would otherwise truncate. Compare the returned body length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).'
+        ),
     version: zod
         .number()
         .min(1)

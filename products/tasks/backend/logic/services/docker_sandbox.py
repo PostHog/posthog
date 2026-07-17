@@ -66,6 +66,7 @@ DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
 PI_IMAGE_NAME = "posthog-sandbox-pi"
 STREAMLIT_IMAGE_NAME = "posthog-sandbox-streamlit"
+SLIM_IMAGE_NAME = "posthog-sandbox-slim"
 
 # Stamped on the base image so a later run can tell whether it must rebuild: the sha of
 # the Dockerfile that produced it, and the @posthog/agent version baked into the npm layer.
@@ -204,6 +205,7 @@ class DockerSandbox(SandboxBase):
         dockerfile_path: str,
         build_args: dict[str, str] | None = None,
         *,
+        needs_skills: bool = True,
         labels: dict[str, str] | None = None,
         force: bool = False,
     ) -> None:
@@ -219,12 +221,13 @@ class DockerSandbox(SandboxBase):
 
         logger.info(f"Building {image_name} image (this may take a few minutes)...")
 
-        # Ensure the skills dist directory is populated so the Dockerfile's
-        # unconditional COPY picks up real content instead of an empty dir.
-        # In CI the directory is pre-populated by the release workflow; in
-        # local dev checkouts this triggers a cached build via
-        # hogli build:skills.
-        LocalSkillsCache().ensure_built()
+        if needs_skills:
+            # Ensure the skills dist directory is populated so the Dockerfile's
+            # unconditional COPY picks up real content instead of an empty dir.
+            # In CI the directory is pre-populated by the release workflow; in
+            # local dev checkouts this triggers a cached build via
+            # hogli build:skills.
+            LocalSkillsCache().ensure_built()
 
         with open(dockerfile_path, "rb") as dockerfile:
             dockerfile_sha = hashlib.sha256(dockerfile.read()).hexdigest()
@@ -298,6 +301,16 @@ class DockerSandbox(SandboxBase):
             )
             DockerSandbox._build_image_if_needed(NOTEBOOK_IMAGE_NAME, dockerfile_path)
             return NOTEBOOK_IMAGE_NAME
+
+        # Slim ships its own standalone image (git + node + uv, no agent server, no skills)
+        # for review/exec sandboxes like stamphog — it never builds on the base image and
+        # never needs the skills dist, unlike the default/notebook/PI builds below.
+        if template == SandboxTemplate.SLIM_BASE:
+            dockerfile_path = os.path.join(
+                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-slim"
+            )
+            DockerSandbox._build_image_if_needed(SLIM_IMAGE_NAME, dockerfile_path, needs_skills=False)
+            return SLIM_IMAGE_NAME
 
         # Streamlit ships its own standalone image (FROM python:3.11-slim with a `streamlit`
         # user + auth proxy), so it doesn't build on top of the base image like PI does.
@@ -713,12 +726,18 @@ class DockerSandbox(SandboxBase):
 
         return result
 
-    def clone_repository(self, repository: str, github_token: str | None = "", shallow: bool = True) -> ExecutionResult:
+    def clone_repository(
+        self,
+        repository: str,
+        github_token: str | None = "",
+        shallow: bool = True,
+        branch: str | None = None,
+    ) -> ExecutionResult:
         mount_map = parse_sandbox_repo_mount_map()
         if repository.lower() in mount_map:
             logger.info(f"Repository {repository} is bind-mounted from host, skipping clone")
             return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
-        return super().clone_repository(repository, github_token, shallow)
+        return super().clone_repository(repository, github_token, shallow, branch)
 
     def setup_repository(self, repository: str) -> ExecutionResult:
         """No-op: Repository setup is now handled by agent-server."""
@@ -774,6 +793,7 @@ class DockerSandbox(SandboxBase):
         reasoning_effort: str | None = None,
         initial_permission_mode: str | None = None,
         mcp_servers_arg: str = "",
+        relay_mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
@@ -814,7 +834,8 @@ class DockerSandbox(SandboxBase):
             f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{repo_ready_flag}"
+            f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
+            f"{domains_flag}{repo_ready_flag}"
         )
 
         # agentsh injects HTTP_PROXY pointing at a per-session egress proxy port; undici
@@ -863,6 +884,7 @@ class DockerSandbox(SandboxBase):
         reasoning_effort: str | None = None,
         initial_permission_mode: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
+        relayed_mcp_servers: list[str] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
@@ -901,6 +923,10 @@ class DockerSandbox(SandboxBase):
             mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
             mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
 
+        relay_mcp_servers_arg = ""
+        if relayed_mcp_servers:
+            relay_mcp_servers_arg = f" --relayMcpServers {shlex.quote(json.dumps(relayed_mcp_servers))}"
+
         if auto_publish and not self.agent_server_supports_auto_publish():
             logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")
             auto_publish = False
@@ -920,6 +946,7 @@ class DockerSandbox(SandboxBase):
             reasoning_effort,
             initial_permission_mode,
             mcp_servers_arg,
+            relay_mcp_servers_arg,
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
@@ -969,6 +996,7 @@ class DockerSandbox(SandboxBase):
                 reasoning_effort=reasoning_effort,
                 initial_permission_mode=initial_permission_mode,
                 mcp_servers_arg=mcp_servers_arg,
+                relay_mcp_servers_arg=relay_mcp_servers_arg,
                 allowed_domains=allowed_domains,
                 event_ingest_token=event_ingest_token,
                 event_ingest_url=event_ingest_url,

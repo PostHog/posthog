@@ -36,6 +36,9 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadRecordingMeta', // Gracefully handled in the recording player
     'loadSimilarIssues', // Gracefully handled in the similar issues list
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
+    'loadExistingSubscription', // Background eligibility check for the dashboard subscribe nudge
+    'loadFreeTierSubscriptionCount', // Background free-tier limit check for the dashboard subscribe nudge
+    'sendNudgeNotification', // Background delivery request for the dashboard subscribe nudge
 ]
 
 /*

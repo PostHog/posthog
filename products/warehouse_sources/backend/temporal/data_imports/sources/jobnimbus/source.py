@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class JobNimbusSource(ResumableSource[JobNimbusSourceConfig, JobNimbusResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://documenter.getpostman.com/view/3919598/S11PpG7g"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

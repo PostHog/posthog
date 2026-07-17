@@ -186,7 +186,7 @@ class ExperimentQueryRunner(QueryRunner):
         self.as_of = as_of if as_of is not None else (self.experiment.end_date or datetime.now(UTC))
         self.feature_flag = self.experiment.feature_flag
         self.feature_flag_key = self.feature_flag.key_without_tombstone()
-        self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
+        self.group_type_index = self.feature_flag.aggregation_group_type_index
         self.entity_key = get_entity_key(self.group_type_index)
 
         # Holdout is intentionally not appended: holdout users were never exposed to

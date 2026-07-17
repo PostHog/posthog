@@ -4001,6 +4001,72 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert "multi-tag-flag" not in keys
         assert {"app-flag", "untagged-flag"} <= keys
 
+    @parameterized.expand(
+        [
+            ("filtered", "?eligible_for_experiment=true", {"eligible-flag", "control-second-flag"}),
+            ("unfiltered", "", {"eligible-flag", "control-second-flag", "single-variant-flag"}),
+        ]
+    )
+    def test_list_eligible_for_experiment_filtering(self, _name, query, expected_keys):
+        for key, variants in [
+            (
+                "eligible-flag",
+                [
+                    {"key": "control", "name": "Control", "rollout_percentage": 50},
+                    {"key": "test", "name": "Test", "rollout_percentage": 50},
+                ],
+            ),
+            (
+                # Eligibility is variant count only; control need not be first.
+                "control-second-flag",
+                [
+                    {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    {"key": "control", "name": "Control", "rollout_percentage": 50},
+                ],
+            ),
+            ("single-variant-flag", [{"key": "control", "name": "Control", "rollout_percentage": 100}]),
+        ]:
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key=key,
+                filters={
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {"variants": variants},
+                },
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{query}")
+
+        assert response.status_code == 200
+        keys = {flag["key"] for flag in response.json()["results"]}
+        assert keys & {"eligible-flag", "control-second-flag", "single-variant-flag"} == expected_keys
+
+    @parameterized.expand(
+        [
+            ("with_contexts", "true", {"flag-with-contexts"}),
+            ("without_contexts", "false", {"flag-without-contexts"}),
+        ]
+    )
+    def test_list_has_evaluation_contexts_filtering(self, _name, param_value, expected_keys):
+        from products.feature_flags.backend.models.evaluation_context import (
+            EvaluationContext,
+            FeatureFlagEvaluationContext,
+        )
+
+        flag_with_contexts = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag-with-contexts")
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag-without-contexts")
+        evaluation_context = EvaluationContext.objects.create(name="app", team=self.team)
+        FeatureFlagEvaluationContext.objects.create(
+            feature_flag=flag_with_contexts, evaluation_context=evaluation_context
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?has_evaluation_contexts={param_value}")
+
+        assert response.status_code == 200
+        keys = {flag["key"] for flag in response.json()["results"]}
+        assert keys & {"flag-with-contexts", "flag-without-contexts"} == expected_keys
+
     def test_getting_flags_is_not_nplus1(self) -> None:
         self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -6089,42 +6155,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "multivariate": None,
             },
         )
-
-    def test_feature_flag_threshold(self):
-        feature_flag = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            data={
-                "name": "Beta feature",
-                "key": "beta-feature",
-                "filters": {
-                    "aggregation_group_type_index": 0,
-                    "groups": [{"rollout_percentage": 65}],
-                },
-                "rollback_conditions": [
-                    {
-                        "threshold": 5000,
-                        "threshold_metric": {
-                            "insight": "trends",
-                            "events": [{"order": 0, "id": "$pageview"}],
-                            "properties": [
-                                {
-                                    "key": "$geoip_country_name",
-                                    "type": "person",
-                                    "value": ["france"],
-                                    "operator": "exact",
-                                }
-                            ],
-                        },
-                        "operator": "lt",
-                        "threshold_type": "insight",
-                    }
-                ],
-                "auto-rollback": True,
-            },
-            format="json",
-        ).json()
-
-        self.assertEqual(len(feature_flag["rollback_conditions"]), 1)
 
     def test_get_flags_dont_return_survey_targeting_flags(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
@@ -13431,3 +13461,39 @@ class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
         data = response.json()
         self.assertIn(flag.key, data)
         self.assertEqual(data[flag.key]["evaluation"]["reason"], "condition_match")
+
+    @parameterized.expand(
+        [
+            ("repeated_params", {"flag_keys": ["wanted-active", "wanted-disabled"]}),
+            ("mcp_json_array_string", {"flag_keys": '["wanted-active", "wanted-disabled"]'}),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    def test_evaluation_reasons_scopes_to_flag_keys(self, _name, query_flag_keys, mock_get_flags):
+        # flag_keys must be forwarded to the flags service and also scope the disabled-flag
+        # rows appended afterwards, otherwise the response still lists every flag in the project.
+        # MCP clients JSON-stringify array query params into a single value, so that encoding
+        # must scope the response exactly like repeated query params do.
+        FeatureFlag.objects.create(team=self.team, key="wanted-disabled", active=False)
+        FeatureFlag.objects.create(team=self.team, key="other-disabled", active=False)
+        mock_get_flags.return_value = {
+            "flags": {
+                "wanted-active": {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                },
+            }
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons/",
+            {"distinct_id": "user-1", **query_flag_keys},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get_flags.call_args.kwargs["flag_keys"], ["wanted-active", "wanted-disabled"])
+        data = response.json()
+        self.assertIn("wanted-active", data)
+        self.assertIn("wanted-disabled", data)
+        self.assertNotIn("other-disabled", data)

@@ -29,6 +29,7 @@ import {
     buildAskerIdentity,
     BundleStore,
     categorize,
+    type IngressRoutingMode,
     createLogger,
     CredentialBroker,
     IdentityCredentialStore,
@@ -191,7 +192,11 @@ export interface WorkerDeps {
     identityCredentials?: IdentityCredentialStore
     identityLinks?: IdentityLinkStateStore
     identities?: IdentityStore
-    /** OAuth callback base; `/link/<provider>/callback` is appended. */
+    /** Ingress routing mode; mirrors the ingress `ROUTING_MODE`. Defaults to `path`. */
+    routingMode?: IngressRoutingMode
+    /** Domain suffix for domain mode (e.g. `.agents.us.posthog.com`); builds the per-agent OAuth link callback host. */
+    domainSuffix?: string
+    /** Flat ingress base URL for the OAuth link callback in `path` mode (dev). */
     linkRedirectBaseUrl?: string
     /**
      * Override the MCP transport factory. Defaults to
@@ -495,6 +500,9 @@ export class Worker {
                               http: this.deps.http,
                               secret: (name) => secrets[name],
                               posthogApiBaseUrl: this.deps.posthogApiBaseUrl,
+                              slug: application?.slug ?? '',
+                              routingMode: this.deps.routingMode,
+                              domainSuffix: this.deps.domainSuffix,
                               linkRedirectBaseUrl: this.deps.linkRedirectBaseUrl,
                               log: (level, msg, meta) => sLog[level](meta ?? {}, msg),
                           })
@@ -612,6 +620,9 @@ export class Worker {
                 identityCredentials: this.deps.identityCredentials,
                 identityLinks: this.deps.identityLinks,
                 identities: this.deps.identities,
+                applicationSlug: application?.slug,
+                routingMode: this.deps.routingMode,
+                domainSuffix: this.deps.domainSuffix,
                 linkRedirectBaseUrl: this.deps.linkRedirectBaseUrl,
                 mcpClients: openedMcpClients,
                 mcpFailures,
