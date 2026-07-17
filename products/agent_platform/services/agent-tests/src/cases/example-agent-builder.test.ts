@@ -224,21 +224,34 @@ describe('example: agent-builder bundle', () => {
                     params: { name: 'ask', arguments: { message: 'create another agent' } },
                 })
             expect(userMcpCall.body.error).toBeUndefined()
-            const mcpSession = JSON.parse(userMcpCall.body.result.content[0].text) as { session_id: string }
             await cluster.drain()
             expect(mcpTargets).toHaveLength(2)
 
-            await cluster.credentialBroker.clear(mcpSession.session_id)
-            const userMcpContinuation = await request(cluster.ingress)
+            const resumableMcpCall = await request(cluster.ingress)
                 .post('/agents/agent-builder-auth/mcp')
                 .set('authorization', `Bearer ${userBearer}`)
                 .send({
                     jsonrpc: '2.0',
                     id: 4,
                     method: 'tools/call',
+                    params: { name: 'ask', arguments: { message: 'start editing' } },
+                })
+            expect(resumableMcpCall.body.error).toBeUndefined()
+            const resumableMcpSession = JSON.parse(resumableMcpCall.body.result.content[0].text) as {
+                session_id: string
+            }
+            await cluster.queue.update(resumableMcpSession.session_id, { state: 'running' })
+            await cluster.credentialBroker.clear(resumableMcpSession.session_id)
+            const userMcpContinuation = await request(cluster.ingress)
+                .post('/agents/agent-builder-auth/mcp')
+                .set('authorization', `Bearer ${userBearer}`)
+                .send({
+                    jsonrpc: '2.0',
+                    id: 5,
+                    method: 'tools/call',
                     params: {
                         name: 'ask',
-                        arguments: { message: 'continue editing', session_id: mcpSession.session_id },
+                        arguments: { message: 'continue editing', session_id: resumableMcpSession.session_id },
                     },
                 })
             expect(userMcpContinuation.body.error).toBeUndefined()
