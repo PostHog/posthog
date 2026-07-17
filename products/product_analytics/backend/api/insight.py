@@ -355,6 +355,12 @@ def _dashboards_field_access_method(request: Request | None) -> str:
     return type(authenticator).__name__
 
 
+def _is_internal_serialization_context(context: dict) -> bool:
+    # Internal serialization (exports, subscriptions, my_last_viewed) has no requesting client to
+    # migrate, so it's exempt from both the opt-in gate and the deprecation-usage counter.
+    return context.get("request") is None
+
+
 def should_serve_deprecated_dashboards_field(context: dict) -> bool:
     """
     The insight `dashboards` field is deprecated in favor of `dashboard_tiles`, but computing it
@@ -362,10 +368,9 @@ def should_serve_deprecated_dashboards_field(context: dict) -> bool:
     so session-authenticated requests keep receiving it until the frontend migrates; every other
     caller must opt in with `?include_dashboards=true`.
     """
-    request = context.get("request")
-    if request is None:
-        # Internal serialization (exports, subscriptions) has no requesting client to migrate.
+    if _is_internal_serialization_context(context):
         return True
+    request = context["request"]
     is_session = _dashboards_field_access_method(request) in ("no_authenticator", "session")
     query_params = getattr(request, "query_params", None)
     opted_in = query_params is not None and str_to_bool(query_params.get(INCLUDE_DASHBOARDS_PARAM, "0"))
@@ -373,13 +378,10 @@ def should_serve_deprecated_dashboards_field(context: dict) -> bool:
 
 
 def _record_deprecated_dashboards_field_used(context: dict, usage: str) -> None:
-    request = context.get("request")
-    if request is None:
-        # Internal serialization (exports, subscriptions, my_last_viewed) has no requesting
-        # client to migrate, so it shouldn't count toward the token-caller removal signal.
+    if _is_internal_serialization_context(context):
         return
     DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER.labels(
-        usage=usage, access_method=_dashboards_field_access_method(request)
+        usage=usage, access_method=_dashboards_field_access_method(context["request"])
     ).inc()
 
 
