@@ -388,9 +388,11 @@ def _get_fan_out_rows(
     if resume is not None and resume.parent_key and resume.parent_key in parent_keys:
         idx = parent_keys.index(resume.parent_key)
         if resume.next_url:
-            # Mid-parent: pick up at the saved page within that parent.
+            # Mid-parent: pick up at the saved page within that parent. Re-pin onto the current base
+            # so a stale URL from a since-retargeted source can't send the current API key to the
+            # previously configured host.
             start_idx = idx
-            resume_url = resume.next_url
+            resume_url = _pinned_next_url(base, resume.next_url)
         else:
             # The saved parent finished (empty next_url marker); start at the next one.
             start_idx = idx + 1
@@ -435,7 +437,9 @@ def get_rows(
 
     if resume is not None and resume.next_url:
         logger.debug(f"Flagsmith: resuming endpoint={endpoint} from saved page")
-        start_url = resume.next_url
+        # Re-pin onto the current base: a stale resume URL from a since-retargeted source must not
+        # send the current API key to the previously configured host.
+        start_url = _pinned_next_url(base, resume.next_url) or _initial_url(base, config.path, config.params)
     else:
         start_url = _initial_url(base, config.path, config.params)
 

@@ -189,6 +189,18 @@ class TestGetRowsTopLevel:
         assert mock_session.return_value.get.call_args_list[0].args[0] == resume_url
 
     @mock.patch(SESSION_PATH)
+    def test_resume_url_repinned_to_configured_base(self, mock_session):
+        # A resume URL persisted before the source was retargeted must be re-pinned onto the current
+        # base, or the current API key would be replayed to the previously configured (attacker) host.
+        mock_session.return_value.get.return_value = _resp(_page([{"id": 9}], None))
+        stale = "https://old-host.example.com/api/v1/organisations/?page=5"
+        manager = _make_manager(FlagsmithResumeConfig(next_url=stale))
+
+        list(get_rows("key", None, "organisations", mock.MagicMock(), manager))
+
+        assert mock_session.return_value.get.call_args_list[0].args[0] == f"{API_BASE}/organisations/?page=5"
+
+    @mock.patch(SESSION_PATH)
     def test_empty_response_yields_nothing(self, mock_session):
         mock_session.return_value.get.return_value = _resp(_page([], None))
 
@@ -311,6 +323,23 @@ class TestGetRowsFanout:
             resume_url,
             f"{API_BASE}/projects/2/segments/?page_size=100",
         ]
+
+    @mock.patch(SESSION_PATH)
+    def test_fan_out_resume_url_repinned_to_configured_base(self, mock_session):
+        # Same host-pinning guarantee on the fan-out resume path: a stale mid-parent URL must be
+        # re-pinned to the current base rather than replayed to a since-changed host.
+        stale = "https://old-host.example.com/api/v1/projects/1/segments/?page=3&page_size=100"
+        mock_session.return_value.get.side_effect = [
+            _resp([{"id": 1}, {"id": 2}]),
+            _resp(_page([{"id": 150}], None)),
+            _resp(_page([{"id": 250}], None)),
+        ]
+        manager = _make_manager(FlagsmithResumeConfig(next_url=stale, parent_key="1"))
+
+        list(get_rows("key", None, "segments", mock.MagicMock(), manager))
+
+        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
+        assert urls[1] == f"{API_BASE}/projects/1/segments/?page=3&page_size=100"
 
     @mock.patch(SESSION_PATH)
     def test_no_parents_yields_nothing(self, mock_session):
