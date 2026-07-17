@@ -291,6 +291,7 @@ the row lists both.
 | koyeb                            | HTTP                        | requests                                                        | ✅                          |
 | kong_konnect                     | HTTP                        | requests                                                        | ✅                          |
 | kubecost                         | HTTP                        | requests                                                        | ✅                          |
+| lacework                         | HTTP                        | requests                                                        | ✅                          |
 | lago                             | HTTP                        | requests                                                        | ✅                          |
 | lambda_labs                      | HTTP                        | requests                                                        | ✅                          |
 | langfuse                         | HTTP                        | requests                                                        | ✅                          |
@@ -762,7 +763,6 @@ doesn't conflict with concurrent PRs.
 - knock
 - koyeb
 - kyve
-- lacework
 - lambda_labs
 - langsmith
 - leexi
