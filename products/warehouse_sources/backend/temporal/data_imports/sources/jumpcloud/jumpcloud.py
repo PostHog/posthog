@@ -69,10 +69,14 @@ def _get_headers(api_key: str, org_id: str | None = None) -> dict[str, str]:
     return headers
 
 
-def _make_session(api_key: str, org_id: str | None = None) -> requests.Session:
+def _make_session(api_key: str, org_id: str | None = None, capture: bool = True) -> requests.Session:
     # `redact_values` masks the API key in logged URLs and captured HTTP samples so a failed
     # or sampled request can never persist the raw JumpCloud credential in HTTP telemetry.
-    return make_tracked_session(headers=_get_headers(api_key, org_id), redact_values=(api_key,))
+    # `capture=False` is used for secret-bearing endpoints: HTTP sample capture writes the raw
+    # response body during `send()`, before row-level `redact_keys` runs, and the generic sampler
+    # doesn't recognize JumpCloud's camel-case secret fields (e.g. `config.idpPrivateKey`). Keeping
+    # those responses out of sample storage is the only place the SAML signing key can be stopped.
+    return make_tracked_session(headers=_get_headers(api_key, org_id), redact_values=(api_key,), capture=capture)
 
 
 def _console_base_url(region: str) -> str:
@@ -314,8 +318,10 @@ def validate_credentials(
     admin's role may simply lack access to this particular probe. A scoped probe
     (``schema_name`` set) treats 403 as a hard failure.
     """
-    session = _make_session(api_key, org_id)
     endpoint = JUMPCLOUD_ENDPOINTS.get(schema_name) if schema_name else None
+    # A scoped probe against a secret-bearing endpoint returns rows too, so keep its response out
+    # of HTTP sample capture as well.
+    session = _make_session(api_key, org_id, capture=not (endpoint is not None and endpoint.redact_keys))
 
     try:
         if endpoint is not None and endpoint.api == "insights":
@@ -371,8 +377,10 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = JUMPCLOUD_ENDPOINTS[endpoint]
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = _make_session(api_key, org_id)
+    # One session reused across every page so urllib3 keeps the connection alive. Endpoints that
+    # redact secret-bearing fields opt out of HTTP sample capture entirely, since capture records
+    # the raw body before those fields can be stripped.
+    session = _make_session(api_key, org_id, capture=not config.redact_keys)
 
     if config.api == "insights":
         pages = _get_event_rows(

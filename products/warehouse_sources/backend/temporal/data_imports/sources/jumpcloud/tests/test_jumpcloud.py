@@ -197,6 +197,37 @@ class TestRestRows:
             }
         ]
 
+    @parameterized.expand([("applications", False), ("users", True)])
+    def test_secret_bearing_endpoint_disables_http_sample_capture(
+        self, endpoint: str, expected_capture: bool
+    ) -> None:
+        # HTTP sample capture writes the raw response body before row-level `redact_keys` runs, so
+        # endpoints that redact secrets (applications' SAML key) must opt out of capture entirely.
+        capture_kwargs: list[Any] = []
+
+        def fake_make_session(**kwargs: Any) -> Any:
+            capture_kwargs.append(kwargs.get("capture"))
+            return MagicMock()
+
+        def fake_request(session: Any, method: str, url: str, logger: Any, json_body: Any = None) -> Any:
+            response = MagicMock()
+            response.json.return_value = {"results": []} if JUMPCLOUD_ENDPOINTS[endpoint].api == "v1" else []
+            return response
+
+        with (
+            patch.object(jumpcloud, "_request", fake_request),
+            patch.object(jumpcloud, "make_tracked_session", fake_make_session),
+        ):
+            list(
+                get_rows(
+                    api_key="key",
+                    endpoint=endpoint,
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+        assert capture_kwargs == [expected_capture]
+
     def test_v1_non_wrapped_payload_raises_value_error(self, monkeypatch: Any) -> None:
         def fake_request(session: Any, method: str, url: str, logger: Any, json_body: Any = None) -> Any:
             response = MagicMock()
