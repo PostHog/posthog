@@ -179,28 +179,36 @@ export function LoopReviewView({ data, onCreate, state }: LoopReviewViewProps): 
         { label: 'Notifications', value: describeNotifications(data.notifications) },
     ]
 
+    const creating = state?.loading ?? false
+    const createDisabled = creating || !onCreate
+    const create = (): void => {
+        void onCreate?.()
+    }
+
     return (
         <Card className="m-4">
             <CardContent className="flex flex-col gap-4 p-4">
-                <div className="flex flex-col gap-1">
-                    <h2 className="text-base font-semibold text-foreground">Review this loop</h2>
-                    <p className="text-sm text-muted-foreground">Check everything, then create it.</p>
-                </div>
-
-                <DescriptionList items={items} />
-
-                {state?.error ? <p className="text-sm text-destructive">{state.error}</p> : null}
-
-                <div className="flex justify-end">
+                <div className="flex items-center justify-between gap-4">
+                    <div className="flex flex-col gap-0.5">
+                        <h2 className="text-base font-semibold text-foreground">Review this loop</h2>
+                        <p className="text-sm text-muted-foreground">Check the details below, then create it.</p>
+                    </div>
                     <Button
-                        onClick={() => {
-                            void onCreate?.()
-                        }}
-                        disabled={state?.loading || !onCreate}
+                        className="shrink-0 bg-[#f9bd2b] font-semibold text-black hover:opacity-90"
+                        onClick={create}
+                        disabled={createDisabled}
                     >
-                        {state?.loading ? 'Creating...' : 'Create loop'}
+                        {creating ? 'Creating...' : 'Create loop'}
                     </Button>
                 </div>
+
+                {state?.error ? (
+                    <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-foreground">
+                        {state.error}
+                    </p>
+                ) : null}
+
+                <DescriptionList items={items} />
             </CardContent>
         </Card>
     )
