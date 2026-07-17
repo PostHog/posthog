@@ -287,9 +287,9 @@ export function ResultDetails({
                         type="secondary"
                         tooltip={
                             droppedMetricEventCount > 0
-                                ? `Watch recordings of people who were exposed to this variant. Excluded ${droppedMetricEventCount} ${
+                                ? `Watch recordings of people who were exposed to this variant. Excluded ${droppedMetricEventCount} server-side ${
                                       droppedMetricEventCount === 1 ? 'event' : 'events'
-                                  } captured without a session ID (server-side) — they can't match recordings.`
+                                  } captured without a session ID, which can't match recordings.`
                                 : 'Watch recordings of people who were exposed to this variant.'
                         }
                         disabled={safeFilters.length === 0}
