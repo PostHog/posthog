@@ -240,6 +240,8 @@ EVENTS_LAZY_JOIN_ALIASES = frozenset(
 
 def _group_type_name_aliases(context: HogQLContext) -> frozenset[str]:
     """Per-project group-type-name aliases on the events table (FieldTraversers to `group_N`)."""
+    if context.database is None:
+        return frozenset()
     try:
         events_table = context.database.get_table(["events"])
     except Exception:
