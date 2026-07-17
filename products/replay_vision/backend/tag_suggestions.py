@@ -210,6 +210,72 @@ Rules:
 - Output strictly matches the provided JSON schema."""
 
 
+def _assemble_grounding_evidence(
+    *,
+    team: Team,
+    prompt: str,
+    current_tags: list[str],
+    multi_label: bool,
+    allow_freeform_tags: bool,
+    scanner: ReplayScanner | None,
+    user_access_control: UserAccessControl | None,
+) -> str:
+    """Gather the emitted-tag, product-taxonomy, and sibling-vocabulary evidence and format it as briefing
+    text. Shared by the standalone suggest_tags endpoint and the classifier config proposer's grounding."""
+    freeform: list[tuple[str, int]] = []
+    reasoning_samples: list[str] = []
+    if scanner is not None:
+        try:
+            freeform, reasoning_samples = _observation_signal(scanner)
+        except Exception:
+            logger.warning(
+                "replay_vision.suggest_tags.observation_signal_failed", scanner_id=str(scanner.id), exc_info=True
+            )
+
+    events, screens = _product_taxonomy(team)
+    sibling_tags: list[str] = []
+    if user_access_control is not None:
+        sibling_tags = _sibling_vocabularies(team, scanner.id if scanner is not None else None, user_access_control)
+
+    return _build_user_content(
+        prompt=prompt,
+        current_tags=current_tags,
+        multi_label=multi_label,
+        allow_freeform_tags=allow_freeform_tags,
+        freeform=freeform,
+        reasoning_samples=reasoning_samples,
+        events=events,
+        screens=screens,
+        sibling_tags=sibling_tags,
+    )
+
+
+def grounding_briefing(scanner: ReplayScanner) -> str:
+    """The same emitted-tag + product-taxonomy + sibling-vocabulary evidence `suggest_classifier_tags` uses,
+    assembled for a scanner's own persisted config. Lets the classifier config proposer ground its prompt and
+    tag-vocabulary suggestions without a second copy of this evidence gathering.
+
+    Uses the scanner's creator as the acting user for the sibling-vocabulary RBAC check, mirroring the
+    creator-as-actor pattern the sweep activities use for other unattended scanner reads. Falls back to no
+    sibling evidence when the scanner has no creator (e.g. seeded outside the API).
+    """
+    config = scanner.scanner_config if isinstance(scanner.scanner_config, dict) else {}
+    user_access_control = None
+    if scanner.created_by is not None:
+        user_access_control = UserAccessControl(
+            user=scanner.created_by, team=scanner.team, organization_id=str(scanner.team.organization_id)
+        )
+    return _assemble_grounding_evidence(
+        team=scanner.team,
+        prompt=str(config.get("prompt", "")),
+        current_tags=list(config.get("tags", [])),
+        multi_label=bool(config.get("multi_label", True)),
+        allow_freeform_tags=bool(config.get("allow_freeform_tags", False)),
+        scanner=scanner,
+        user_access_control=user_access_control,
+    )
+
+
 def suggest_classifier_tags(
     *,
     team: Team,
@@ -222,29 +288,14 @@ def suggest_classifier_tags(
     user_access_control: UserAccessControl,
 ) -> list[TagSuggestion]:
     """Assemble grounding evidence and synthesize tag suggestions. Raises SuggestionError on model failure."""
-    freeform: list[tuple[str, int]] = []
-    reasoning_samples: list[str] = []
-    if scanner is not None:
-        try:
-            freeform, reasoning_samples = _observation_signal(scanner)
-        except Exception:
-            logger.warning(
-                "replay_vision.suggest_tags.observation_signal_failed", scanner_id=str(scanner.id), exc_info=True
-            )
-
-    events, screens = _product_taxonomy(team)
-    sibling_tags = _sibling_vocabularies(team, scanner.id if scanner is not None else None, user_access_control)
-
-    user_content = _build_user_content(
+    user_content = _assemble_grounding_evidence(
+        team=team,
         prompt=prompt,
         current_tags=current_tags,
         multi_label=multi_label,
         allow_freeform_tags=allow_freeform_tags,
-        freeform=freeform,
-        reasoning_samples=reasoning_samples,
-        events=events,
-        screens=screens,
-        sibling_tags=sibling_tags,
+        scanner=scanner,
+        user_access_control=user_access_control,
     )
     parsed = _generate(user_content=user_content, team_id=team.id, distinct_id=str(user.uuid))
     return _finalize(parsed, current_tags)
