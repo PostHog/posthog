@@ -47,6 +47,19 @@ export interface ExecInnerCallProperties {
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
 
+/**
+ * Session-scoped skill-usage markers backing the skills-first nudge. The first
+ * product `call` in a session that ran no `learn` load gets a one-time reminder
+ * appended to its result — interaction-time reinforcement of the SKILLS FIRST
+ * prompt section, which agents routinely rationalize their way past.
+ */
+export interface SkillsSessionState {
+    hasLearned(): Promise<boolean>
+    markLearned(): Promise<void>
+    /** Atomically claims the once-per-session nudge; false when already claimed. */
+    claimNudge(): Promise<boolean>
+}
+
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
     learnCatalog?: ExecLearnCatalog
@@ -57,6 +70,32 @@ export interface ExecToolOptions {
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
     isInlineExecUiHost?: boolean
+    /** Present only when skill distribution is enabled and the client has a session. */
+    skillsSession?: SkillsSessionState
+}
+
+const SKILLS_NUDGE_NOTE =
+    'Note: no skills were loaded this session. PostHog ships task skills covering thresholds, schemas, and query patterns — run `learn -s "<task keywords>"` before going further. This note appears once.'
+
+/** True when a `learn` input loads content (guides, skills, or files) rather than listing or searching. */
+function isLearnLoad(rest: string): boolean {
+    const first = rest.trim().split(/\s+/)[0]
+    return Boolean(first) && first !== 'skills' && first !== '-s' && first !== '-d'
+}
+
+/** Never lets a session-store hiccup break the actual tool result. */
+async function resolveSkillsNudge(session: SkillsSessionState | undefined): Promise<string | undefined> {
+    if (!session) {
+        return undefined
+    }
+    try {
+        if (await session.hasLearned()) {
+            return undefined
+        }
+        return (await session.claimNudge()) ? SKILLS_NUDGE_NOTE : undefined
+    } catch {
+        return undefined
+    }
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -260,7 +299,13 @@ export function createExecTool(
                     if (!learnCatalog) {
                         throw new Error('The learn command is not available for this client.')
                     }
-                    return learnCatalog.execute(rest)
+                    const learnResult = await learnCatalog.execute(rest)
+                    // Only loads count as "learned" — a search whose results are then
+                    // ignored is exactly the bypass the nudge exists to catch.
+                    if (options.skillsSession && isLearnLoad(rest)) {
+                        await options.skillsSession.markLearned().catch(() => undefined)
+                    }
+                    return learnResult
                 }
 
                 case 'tools': {
@@ -574,7 +619,8 @@ export function createExecTool(
                         output_tokens: estimateTokens(outputText),
                         input,
                     })
-                    return outputText
+                    const nudge = await resolveSkillsNudge(options.skillsSession)
+                    return nudge ? `${outputText}\n\n${nudge}` : outputText
                 }
 
                 default:

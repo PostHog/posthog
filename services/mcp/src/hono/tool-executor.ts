@@ -29,6 +29,7 @@ import { getEffectiveMCPClientContext } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
 import type { SkillCatalogService } from './skill-catalog-service'
+import { buildSkillsSessionState } from './skills-session'
 import type { ToolCatalog } from './tool-catalog'
 
 interface ResolvedTool {
@@ -413,7 +414,7 @@ export class ToolExecutor {
         const execTool = createExecTool(
             execTools,
             state.context,
-            this.instructionsBuilder.buildExecToolDescription(),
+            this.instructionsBuilder.buildExecToolDescription(state),
             commandReference,
             clientContext.mcpConsumer,
             trackInnerCall,
@@ -424,6 +425,9 @@ export class ToolExecutor {
                     state,
                     this.skillCatalogService?.getCatalog()
                 ),
+                skillsSession: this.instructionsBuilder.execSkillsEnabled(state)
+                    ? buildSkillsSessionState(state.reqCtx, state.requestContext.mcpSessionId)
+                    : undefined,
             }
         )
 

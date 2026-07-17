@@ -14,6 +14,7 @@ import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
 import CLI_EXAMPLES_CLAUDE from '@/templates/sections/cli-examples-claude.md'
 import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
+import CLI_LEARN_COMPACT from '@/templates/sections/cli-learn-compact.md'
 import CLI_LEARN from '@/templates/sections/cli-learn.md'
 import CLI_RENDERING from '@/templates/sections/cli-rendering.md'
 import CLI_SCHEMA_DRILLDOWN from '@/templates/sections/cli-schema-drilldown.md'
@@ -74,9 +75,14 @@ export class InstructionsFormatter {
         return this.compose([COMPACT_INSTRUCTIONS], ctx, { compact: true })
     }
 
-    /** Build the top-level description of the `posthog:exec` tool. */
-    buildExecToolDescription(): string {
-        return EXEC_TOOL_BLURB.trim()
+    /** Build the top-level description of the `posthog:exec` tool. Lives in the
+     *  uncapped top-level `description`, so the skills line costs no schema budget. */
+    buildExecToolDescription(opts: { skillsEnabled?: boolean } = {}): string {
+        const blurb = EXEC_TOOL_BLURB.trim()
+        if (!opts.skillsEnabled) {
+            return blurb
+        }
+        return `${blurb}\n\nThis server is the authoritative source of PostHog agent skills — discover and load them with the \`learn\` command before other work.`
     }
 
     /**
@@ -143,7 +149,10 @@ export class InstructionsFormatter {
         return this.compose(
             [
                 CLI_SYNTAX,
-                ...(skillsEnabled ? [CLI_LEARN] : []),
+                // Compact skills-first variant: this reference lives inside the
+                // schema-capped `command` description (see the budget test), so the
+                // content-routing paragraph is reserved for the uncapped full reference.
+                ...(skillsEnabled ? [CLI_LEARN_COMPACT] : []),
                 ...(learnSection ? [learnSection] : []),
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,

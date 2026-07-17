@@ -131,6 +131,87 @@ describe('exec tool', () => {
         })
     })
 
+    describe('skills-first nudge', () => {
+        const guideCatalog = (): ExecLearnCatalog =>
+            new ExecLearnCatalog(
+                [{ id: 'analytics', title: 'Analytics', description: 'Guidance.', content: 'Use the tools.' }],
+                { posthog: undefined }
+            )
+
+        function makeSkillsSession(): {
+            session: NonNullable<ExecToolOptions['skillsSession']>
+            state: { learnedAt?: number; nudgedAt?: number }
+        } {
+            const state: { learnedAt?: number; nudgedAt?: number } = {}
+            return {
+                state,
+                session: {
+                    hasLearned: async () => state.learnedAt !== undefined,
+                    markLearned: async () => {
+                        state.learnedAt = Date.now()
+                    },
+                    claimNudge: async () => {
+                        if (state.nudgedAt !== undefined) {
+                            return false
+                        }
+                        state.nudgedAt = Date.now()
+                        return true
+                    },
+                },
+            }
+        }
+
+        it('appends the note to the first un-learned call only', async () => {
+            const { session } = makeSkillsSession()
+            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: session })
+
+            const first = (await exec.handler(mockContext, { command: 'call mock-tool {}' })) as string
+            expect(first).toContain('no skills were loaded this session')
+
+            const second = (await exec.handler(mockContext, { command: 'call mock-tool {}' })) as string
+            expect(second).not.toContain('no skills were loaded this session')
+        })
+
+        it('suppresses the note once a learn load happened', async () => {
+            const { session } = makeSkillsSession()
+            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: session })
+
+            await exec.handler(mockContext, { command: 'learn analytics' })
+
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool {}' })) as string
+            expect(result).not.toContain('no skills were loaded this session')
+        })
+
+        it('does not count a bare search as learned', async () => {
+            const { session } = makeSkillsSession()
+            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: session })
+
+            await exec.handler(mockContext, { command: 'learn -s bot traffic' })
+
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool {}' })) as string
+            expect(result).toContain('no skills were loaded this session')
+        })
+
+        it('degrades to no note when the session store fails', async () => {
+            const failing: NonNullable<ExecToolOptions['skillsSession']> = {
+                hasLearned: async () => {
+                    throw new Error('redis down')
+                },
+                markLearned: async () => {
+                    throw new Error('redis down')
+                },
+                claimNudge: async () => {
+                    throw new Error('redis down')
+                },
+            }
+            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: failing })
+
+            await expect(exec.handler(mockContext, { command: 'learn analytics' })).resolves.toBe('Use the tools.')
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool {}' })) as string
+            expect(result).not.toContain('no skills were loaded this session')
+        })
+    })
+
     describe('call command', () => {
         it('returns TOON-formatted output by default', async () => {
             const exec = createExec()

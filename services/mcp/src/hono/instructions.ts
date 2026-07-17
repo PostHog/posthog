@@ -149,8 +149,13 @@ export class InstructionsBuilder {
         )
     }
 
-    buildExecToolDescription(): string {
-        return this.formatter.buildExecToolDescription()
+    buildExecToolDescription(state?: ResolvedState): string {
+        const skillsEnabled = state ? this.getExecLearnCapabilities(state).skillsEnabled : false
+        return this.formatter.buildExecToolDescription({ skillsEnabled })
+    }
+
+    execSkillsEnabled(state: ResolvedState): boolean {
+        return this.getExecLearnCapabilities(state).skillsEnabled
     }
 
     getGuidelines(): string {
