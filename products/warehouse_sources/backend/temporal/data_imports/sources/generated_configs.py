@@ -936,7 +936,12 @@ class CodacySourceConfig(config.Config):
 
 @config.config
 class CodecovSourceConfig(config.Config):
-    pass
+    owner_username: str
+    api_token: str
+    service: Literal["github", "gitlab", "bitbucket", "github_enterprise", "gitlab_enterprise", "bitbucket_server"] = (
+        config.value(default="github")
+    )
+    repositories: str | None = None
 
 
 @config.config
