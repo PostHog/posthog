@@ -55,23 +55,12 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models.filters.mixins.utils import cached_property
 
-from .logic import TIME_BUCKET_DATE_RANGE_WHERE, translate_span_filter, with_span_attribute_type_suffix
+# _ROW_LIMIT lives in logic.py so the presentation layer can reach it through the
+# facade-allowed `logic` module; imported here (and re-exported) for the sibling runners.
+from .logic import _ROW_LIMIT, TIME_BUCKET_DATE_RANGE_WHERE, translate_span_filter, with_span_attribute_type_suffix
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
-
-
-# Hard cap on number of rows returned per period. Keeps payloads bounded when name
-# cardinality blows up (e.g. untemplated URL paths). The flame graph collapses long
-# tails anyway so the lower-ranked rows aren't visible.
-_ROW_LIMIT = 5000
-
-# Default row cap for the flat aggregation when a caller does not pass an explicit `limit`.
-# Kept small because this endpoint feeds agent/MCP callers, where the full 5000-row tail can
-# push a single response past a million tokens once name cardinality blows up. Rows are
-# ordered by total_duration_nano DESC, so the default still surfaces the heaviest operations;
-# callers that need the long tail opt into a higher `limit` (up to _ROW_LIMIT) or paginate.
-DEFAULT_AGGREGATION_ROW_LIMIT = 100
 
 
 class _SpanAggregationMixin:

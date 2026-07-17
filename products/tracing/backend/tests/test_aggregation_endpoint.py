@@ -4,7 +4,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
-from products.tracing.backend.aggregation_query_runner import _ROW_LIMIT, DEFAULT_AGGREGATION_ROW_LIMIT
+from products.tracing.backend.logic import _ROW_LIMIT, DEFAULT_AGGREGATION_ROW_LIMIT
 from products.tracing.backend.tests.test_keyset_pagination import DATE_FROM, DATE_TO, _b64, _TraceSpansTestBase
 
 

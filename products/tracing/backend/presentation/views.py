@@ -42,7 +42,6 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from ..aggregation_query_runner import _ROW_LIMIT, DEFAULT_AGGREGATION_ROW_LIMIT
 from ..facade.api import (
     FACET_COLUMNS,
     annotate_self_time,
@@ -54,6 +53,8 @@ from ..facade.api import (
 )
 from ..has_spans_query_runner import team_has_spans
 from ..logic import (
+    _ROW_LIMIT,
+    DEFAULT_AGGREGATION_ROW_LIMIT,
     TraceSpansQueryRunner,
     run_aggregation_query,
     run_attribute_names_query,
