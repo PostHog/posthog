@@ -123,7 +123,9 @@ def get_rows(
     # `capture=False`: response rows carry free-text survey comments and internal notes the
     # name-based sample scrubbers can't recognise, so keep bodies out of HTTP sample storage
     # entirely. Requests are still metered and logged (status + url).
-    session = make_tracked_session(redact_values=(api_key,), capture=False)
+    # `allow_redirects=False`: never replay the `X-apikey` header to a redirect target, so an
+    # upstream 3xx (including an open redirect) can't leak the credential off the validated host.
+    session = make_tracked_session(redact_values=(api_key,), capture=False, allow_redirects=False)
     headers = _get_headers(api_key)
 
     since_time = 0
@@ -196,7 +198,9 @@ def validate_credentials(subdomain: str, api_key: str) -> tuple[bool, str | None
     try:
         # `capture=False`: the probe fetches a real response row, whose free-text fields must
         # stay out of HTTP sample storage just like the sync path's.
-        response = make_tracked_session(redact_values=(api_key,), capture=False).get(
+        # `allow_redirects=False`: keep the `X-apikey` header from being replayed to a redirect
+        # target, matching the sync path's credential boundary.
+        response = make_tracked_session(redact_values=(api_key,), capture=False, allow_redirects=False).get(
             build_responses_url(subdomain, page_number=1, since_time=0, page_size=1),
             headers=_get_headers(api_key),
             timeout=30,

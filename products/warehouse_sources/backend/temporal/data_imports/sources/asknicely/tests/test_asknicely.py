@@ -188,6 +188,28 @@ class TestAsknicely:
             next(rows)
             manager.save_state.assert_called_once_with(AskNicelyResumeConfig(page_number=2, since_time=0))
 
+    def test_sync_session_disables_redirects(self) -> None:
+        # The X-apikey header must never be replayed to a redirect target.
+        session = mock.MagicMock()
+        session.get.side_effect = [_page([])]
+        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session) as make_session:
+            list(
+                get_rows(
+                    subdomain="acme",
+                    api_key="key",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=_manager(),
+                )
+            )
+        assert make_session.call_args.kwargs["allow_redirects"] is False
+
+    def test_validate_credentials_session_disables_redirects(self) -> None:
+        session = mock.MagicMock()
+        session.get.return_value = mock.MagicMock(status_code=200)
+        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session) as make_session:
+            validate_credentials("acme", "key")
+        assert make_session.call_args.kwargs["allow_redirects"] is False
+
     def test_source_response_shape(self) -> None:
         response = asknicely_source(
             subdomain="acme",
