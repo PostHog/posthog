@@ -136,6 +136,8 @@ All streams sync via full refresh — Float's API exposes no server-side modifie
         return float_app_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Float endpoint is full refresh
         )
