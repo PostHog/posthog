@@ -27,11 +27,8 @@ use crate::store::{
     BehavioralKey, PersonRecordKey, ReadLane, Stage2Key, StagedBatch, StoreError, StoreHandle,
 };
 
-/// `affected_leaves` is the touched `(leaf, person)` set — callers with real transitions map them
-/// down; the seed path passes every leaf a tile touched (flipped or not) so a replay recomposes
-/// against a possibly-stale bit. `lane` is the read lane every recompute read runs on: `Event` for
-/// the fold/sweep/merge/cascade callers, `Maintenance` for the seed path so backfill recomposition
-/// never contends with live ingestion reads.
+/// `affected_leaves` is the touched `(leaf, person)` set; `lane` is the read lane every recompute
+/// read runs on (`Maintenance` on the seed path, so backfill never contends with live reads).
 pub async fn compose_stage2(
     partition_id: u16,
     handle: &StoreHandle,
@@ -41,6 +38,50 @@ pub async fn compose_stage2(
     last_updated: &str,
     lane: ReadLane,
 ) -> Result<Vec<CohortMembershipChange>, StoreError> {
+    let recompute = recompute_stage2(
+        partition_id,
+        handle,
+        filters,
+        affected_leaves,
+        event_ms,
+        last_updated,
+        lane,
+    )
+    .await?;
+    commit_stage2_writes(handle, &recompute.writes).await?;
+    recompute.record_metrics();
+    Ok(recompute.changes)
+}
+
+/// Uncommitted recompute result: the flips and their pending `cf_stage2` writes. Lets
+/// produce-before-state callers commit only after their produces ack, so a failed produce is
+/// re-derived on replay.
+pub(crate) struct Stage2Recompute {
+    pub changes: Vec<CohortMembershipChange>,
+    pub writes: Vec<(Stage2Key, Stage2State)>,
+    evaluated: u64,
+}
+
+impl Stage2Recompute {
+    /// Call only once the writes committed, so a failed commit's redelivery cannot double-count.
+    pub(crate) fn record_metrics(&self) {
+        counter!(STAGE2_COHORTS_EVALUATED).increment(self.evaluated);
+        for change in &self.changes {
+            counter!(STAGE2_TRANSITIONS, "kind" => change.status.as_str()).increment(1);
+        }
+    }
+}
+
+/// The read-only half of [`compose_stage2`].
+pub(crate) async fn recompute_stage2(
+    partition_id: u16,
+    handle: &StoreHandle,
+    filters: &TeamFilters,
+    affected_leaves: &[(LeafStateKey, Uuid)],
+    event_ms: i64,
+    last_updated: &str,
+    lane: ReadLane,
+) -> Result<Stage2Recompute, StoreError> {
     let mut affected: BTreeSet<(CohortId, Uuid)> = BTreeSet::new();
     for &(leaf_state_key, person_id) in affected_leaves {
         if let Some(cohorts) = filters.by_lsk_to_composable_cohorts.get(&leaf_state_key) {
@@ -49,12 +90,9 @@ pub async fn compose_stage2(
             }
         }
     }
-    if affected.is_empty() {
-        return Ok(Vec::new());
-    }
 
     let mut changes = Vec::new();
-    let mut pending: Vec<(Stage2Key, Stage2State)> = Vec::new();
+    let mut writes: Vec<(Stage2Key, Stage2State)> = Vec::new();
     let mut evaluated: u64 = 0;
 
     for (cohort_id, person_id) in affected {
@@ -78,7 +116,7 @@ pub async fn compose_stage2(
             run_id: None,
         });
         // Write `false` rather than deleting so absence means "never evaluated".
-        pending.push((
+        writes.push((
             diff.stage2_key,
             Stage2State {
                 in_cohort: diff.new_bit,
@@ -87,20 +125,26 @@ pub async fn compose_stage2(
         ));
     }
 
-    if !pending.is_empty() {
-        let mut staged = StagedBatch::default();
-        for (key, state) in &pending {
-            staged.put_stage2(key, &state.encode());
-        }
-        handle.commit(staged).await?;
-    }
+    Ok(Stage2Recompute {
+        changes,
+        writes,
+        evaluated,
+    })
+}
 
-    counter!(STAGE2_COHORTS_EVALUATED).increment(evaluated);
-    for change in &changes {
-        counter!(STAGE2_TRANSITIONS, "kind" => change.status.as_str()).increment(1);
+/// Commit recomputed `cf_stage2` bits.
+pub(crate) async fn commit_stage2_writes(
+    handle: &StoreHandle,
+    writes: &[(Stage2Key, Stage2State)],
+) -> Result<(), StoreError> {
+    if writes.is_empty() {
+        return Ok(());
     }
-
-    Ok(changes)
+    let mut staged = StagedBatch::default();
+    for (key, state) in writes {
+        staged.put_stage2(key, &state.encode());
+    }
+    handle.commit(staged).await
 }
 
 /// One cohort's recomputed membership for one person, diffed against the stored `cf_stage2` bit.

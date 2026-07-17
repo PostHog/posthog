@@ -65,16 +65,14 @@ const TEAM: i32 = 7;
 const NUM_PARTITIONS: i32 = COHORT_PARTITION_COUNT as i32;
 const COMMIT_INTERVAL: Duration = Duration::from_millis(250);
 const RECV_TIMEOUT: Duration = Duration::from_millis(200);
-/// Effectively never: each test drives the watermark through live folds only, so the idle probe
-/// cannot open a fence behind the assertion's back.
+/// Effectively never: the idle probe must not open a fence behind an assertion's back.
 const PROBE_NEVER: Duration = Duration::from_secs(3_600);
 
 fn bootstrap_servers() -> String {
     std::env::var("KAFKA_HOSTS").unwrap_or_else(|_| "localhost:9092".to_string())
 }
 
-/// One single-leaf behavioral cohort: `performed_event` on `$pageview` over 7 days, sharing the
-/// tile's condition hash.
+/// One single-leaf behavioral cohort sharing the tile's condition hash.
 fn seed_catalog() -> CatalogHandle {
     let leaf = json!({
         "type": "behavioral", "value": "performed_event", "key": "$pageview",
@@ -301,8 +299,7 @@ fn seed_group_committed(group: &str, topic: &str, partition: i32) -> Option<i64>
         })
 }
 
-/// A `$pageview`-mismatched warm-up event: it folds (advancing the partition's live watermark)
-/// without flipping any cohort.
+/// A name-mismatched warm-up event: folds (advancing the watermark) without flipping anything.
 fn warm_envelope(person: Uuid, source_offset: i64) -> Vec<u8> {
     serde_json::to_vec(&json!({
         "team_id": TEAM,
@@ -631,10 +628,8 @@ async fn spawn_instance(
     Instance { dispatcher, tasks }
 }
 
-/// A tile produced with the seeder's keying lands on its owning worker via the 5-topic
-/// co-assignment, applies behind an already-open fence, emits an `origin: seed`-tagged membership
-/// change, and the seed group's committed offsets reach the produced high-water mark — the
-/// run-completion precondition.
+/// A tile lands on its owning worker via the 5-topic co-assignment, applies behind an open
+/// fence, emits a tagged change, and the seed group's commits reach the produced high-water mark.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
 async fn seed_tile_applies_on_the_owning_worker_and_commits_to_the_hwm() {
@@ -669,8 +664,7 @@ async fn seed_tile_applies_on_the_owning_worker_and_commits_to_the_hwm() {
         .await;
 
         let alice = Uuid::from_u128(0xA11CE);
-        // Open alice's partition's fence: one folded live event establishes the watermark well
-        // past the tile's hour-old scan point + 2 s margin.
+        // One folded live event opens the fence for the hour-old scan point.
         let producer = murmur2_producer();
         produce_warm_event(&producer, &topics.events, alice, 0).await;
 
@@ -697,8 +691,8 @@ async fn seed_tile_applies_on_the_owning_worker_and_commits_to_the_hwm() {
         assert_eq!(change.status, MembershipStatus::Entered);
         assert_eq!(change.origin, Some(ChangeOrigin::Seed));
         assert_eq!(change.run_id, Some(RunId(Uuid::from_u128(0xBF))));
-        // The shadow topic is keyed by bare person id, not the "{team}:{person}" state key, so it
-        // does not co-partition with the owning worker; only the keying itself is assertable here.
+        // The shadow topic is person-id keyed, so it does not co-partition with the owning
+        // worker; only the keying is assertable.
         assert_eq!(
             partition as u32,
             partition_for(&alice.to_string(), COHORT_PARTITION_COUNT),
@@ -720,8 +714,7 @@ async fn seed_tile_applies_on_the_owning_worker_and_commits_to_the_hwm() {
     .await;
 }
 
-/// The apply fence end-to-end: a tile scanned "now" stays fenced (uncommitted, unapplied) until
-/// live consumption on its partition flows past `s_chunk + margin`; then the held tile applies.
+/// A tile scanned "now" stays fenced until live consumption flows past `s_chunk + margin`.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
 async fn fence_holds_a_fresh_tile_until_live_consumption_passes_its_scan_point() {
@@ -763,8 +756,7 @@ async fn fence_holds_a_fresh_tile_until_live_consumption_passes_its_scan_point()
         let s_chunk = chrono::Utc::now().timestamp_millis();
         produce_tile(&seed_sink, tile(alice, s_chunk)).await;
 
-        // Held: no live watermark at all on alice's partition (fail-closed), so nothing applies
-        // and nothing commits.
+        // No watermark at all: fail-closed, nothing applies, nothing commits.
         tokio::time::sleep(Duration::from_secs(3)).await;
         assert_eq!(
             topic_message_count(&topics.shadow),
@@ -787,8 +779,7 @@ async fn fence_holds_a_fresh_tile_until_live_consumption_passes_its_scan_point()
             "a watermark below s_chunk + margin keeps the fence closed",
         );
 
-        // Once wall-clock passes s_chunk + margin, a *newer* live fold opens the fence and the
-        // held tile applies on the review cycle.
+        // Past s_chunk + margin, a newer live fold opens the fence for the held tile.
         tokio::time::sleep(Duration::from_millis(fence_margin_ms as u64 + 1_500)).await;
         produce_warm_event(&producer, &topics.events, alice, 1).await;
         wait_for(

@@ -14,9 +14,8 @@ pub enum ShuffleMessage {
     Event {
         event: Box<CohortStreamEvent>,
         cse_offset: i64,
-        /// Broker timestamp (CreateTime) of the consumed message — the live-watermark input the
-        /// seed fence reads. `None` when the broker reports no timestamp; never advances the
-        /// watermark.
+        /// Broker timestamp of the consumed message — the seed fence's watermark input. `None`
+        /// never advances the watermark.
         broker_ts_ms: Option<i64>,
     },
     /// A time-driven eviction tick with the cutoff `due_before_ms`. Serialized on the same channel
@@ -52,16 +51,15 @@ pub enum ShuffleMessage {
         marker_cutoff_ms: i64,
         tombstone_cutoff_ms: i64,
     },
-    /// A backfill day-tile (or its consume-side skip) from `cohort_stream_seed_events`, paired with
-    /// its topic offset. Marked on the seed tracker, never the events tracker — its
-    /// [`event_offset`](Self::event_offset) is `None` so seed offsets can never contaminate the
-    /// events tracker's ceiling. Boxed so the tile doesn't inflate every `ShuffleMessage`.
+    /// A backfill day-tile (or its consume-side skip), paired with its topic offset. Marked on
+    /// the seed tracker, never the events tracker. Boxed so the tile doesn't inflate every
+    /// `ShuffleMessage`.
     Seed { work: Box<SeedWork>, offset: i64 },
 }
 
 impl ShuffleMessage {
-    /// The offset an [`Event`](Self::Event) carries; `None` for every other variant — including
-    /// [`Seed`](Self::Seed), whose offset belongs to the seed tracker.
+    /// The offset an [`Event`](Self::Event) carries; `None` for every other variant, including
+    /// [`Seed`](Self::Seed) (its offset belongs to the seed tracker).
     pub fn event_offset(&self) -> Option<i64> {
         match self {
             ShuffleMessage::Event { cse_offset, .. } => Some(*cse_offset),
@@ -89,8 +87,8 @@ impl ShuffleMessage {
         }
     }
 
-    /// Whether this message reserves a slot in the partition's intake budget. Events and seeds are
-    /// the volume-bearing inputs; maintenance/control messages must always flow.
+    /// Whether this message reserves an intake-budget slot; maintenance/control messages must
+    /// always flow.
     pub fn counts_toward_intake(&self) -> bool {
         match self {
             ShuffleMessage::Event { .. } | ShuffleMessage::Seed { .. } => true,

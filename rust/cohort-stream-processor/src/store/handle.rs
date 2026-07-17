@@ -288,9 +288,8 @@ impl StoreHandle {
         .await
     }
 
-    /// Point-read one person's `cf_person_records` value as raw bytes. Lane-parameterized: the
-    /// stage-2 compose reads it on the caller's lane (Event on the fold path, Maintenance on the
-    /// seed path); decoding lives with the caller.
+    /// Point-read one person's `cf_person_records` value as raw bytes; decoding lives with the
+    /// caller.
     pub async fn get_person_record(
         &self,
         key: &PersonRecordKey,
@@ -317,8 +316,7 @@ impl StoreHandle {
         .await
     }
 
-    /// Point-read one `cf_stage2` value. Lane-parameterized: stage-2 compose passes its caller's
-    /// lane (Event on the fold path, Maintenance on the seed path).
+    /// Point-read one `cf_stage2` value.
     pub async fn get_stage2(
         &self,
         key: &Stage2Key,
@@ -329,8 +327,7 @@ impl StoreHandle {
             .await
     }
 
-    /// Batch-read `cf_stage2` values, preserving input order. Lane-parameterized like
-    /// [`get_stage2`](Self::get_stage2).
+    /// Batch-read `cf_stage2` values, preserving input order.
     pub async fn multi_get_stage2(
         &self,
         keys: Vec<Stage2Key>,
@@ -342,8 +339,7 @@ impl StoreHandle {
         .await
     }
 
-    /// Point-read one redirect tombstone. Lane-parameterized: the event path's redirect hop reads
-    /// on `Event`, the seed path's preflight on `Maintenance`.
+    /// Point-read one redirect tombstone.
     pub async fn get_tombstone(
         &self,
         key: &TombstoneKey,

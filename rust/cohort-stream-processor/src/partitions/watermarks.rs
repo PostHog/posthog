@@ -1,20 +1,16 @@
 //! Per-partition live-consumption watermarks — the seed apply-fence's input.
 //!
-//! The watermark is the running max of broker timestamps the partition worker has **folded**
-//! (state committed + produce acked + offset marked), advanced only post-mark so consumed-but-
-//! unfolded events sitting in channels or the backpressure holdover can never open the fence early.
-//! An idle partition with no live traffic advances via the seed consumer's idle probe instead.
-//! Absent entries read as "no watermark" — fail-closed, so a fresh pod post-rebalance holds every
-//! tile until its own folds (or the probe) establish one.
+//! The running max of broker timestamps the partition worker has **folded**, advanced only
+//! post-mark so unfolded events can never open the fence early; idle partitions advance via the
+//! seed consumer's probe. Absent entries are fail-closed.
 
 use dashmap::DashMap;
 
-/// A live watermark instant (epoch ms): broker CreateTime ≈ shuffler produce wall-clock ≈ arrival.
+/// A live watermark instant (epoch ms, broker CreateTime ≈ arrival).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WatermarkMs(pub i64);
 
-/// Monotonic per-partition watermark map. Cheap to construct; threaded unconditionally so the
-/// event path can observe regardless of the seed gate.
+/// Monotonic per-partition watermark map.
 #[derive(Debug, Default)]
 pub struct LiveWatermarks {
     partitions: DashMap<i32, i64>,
@@ -25,19 +21,18 @@ impl LiveWatermarks {
         Self::default()
     }
 
-    /// Fold-frontier advance: called by the worker only after fold + produce + mark. Running max —
-    /// broker CreateTime is not per-partition monotonic across shuffler replicas.
+    /// Fold-frontier advance; running max because broker CreateTime is not per-partition
+    /// monotonic across shuffler replicas.
     pub fn observe(&self, partition: i32, broker_ts_ms: i64) {
         self.advance(partition, broker_ts_ms);
     }
 
-    /// Idle advance: the probe verified everything retained on the live partition is folded, so
-    /// "now" is a valid arrival bound.
+    /// Idle advance: everything retained is folded, so "now" is a valid arrival bound.
     pub fn advance_idle(&self, partition: i32, now_ms: i64) {
         self.advance(partition, now_ms);
     }
 
-    /// The partition's watermark; `None` = never observed — fail-closed for the fence.
+    /// `None` = never observed (fail-closed for the fence).
     pub fn get(&self, partition: i32) -> Option<WatermarkMs> {
         self.partitions
             .get(&partition)

@@ -373,11 +373,9 @@ impl EventDispatcher {
         counter!(COHORT_STREAM_CASCADES_SKIPPED_NOT_OWNED).increment(stats.not_owned_skipped);
     }
 
-    /// Non-blocking seed dispatch: `try_send` each partition's sub-batch and raise the **seed**
-    /// tracker's dispatch ceiling only for what lands. Seeds carry no `event_offset`, so the ceiling
-    /// is computed here from each sub-batch's own max seed offset — never by the router. Returns the
-    /// un-dispatched seeds per partition for the caller to hold and pause (fence and backpressure
-    /// share that holdover).
+    /// Non-blocking seed dispatch, raising the **seed** tracker's ceiling only for what lands
+    /// (seeds carry no `event_offset`, so the router can't). Returns the un-dispatched seeds for
+    /// the caller to hold and pause.
     pub fn dispatch_seeds(&self, batch: Vec<ConsumedSeed>) -> HashMap<i32, Vec<ConsumedSeed>> {
         if self.draining.load(Ordering::SeqCst) {
             if !batch.is_empty() {
@@ -410,8 +408,7 @@ impl EventDispatcher {
         let mut route_errors = 0u64;
         for (partition, outcome) in self.router.try_route_batch(messages) {
             match outcome {
-                // A sub-batch lands whole or not at all, so the pre-computed per-partition max is
-                // exactly the delivered ceiling.
+                // A sub-batch lands whole or not at all, so the pre-computed max is the ceiling.
                 SendOutcome::Sent { .. } => {
                     if let Some(&max_offset) = max_offsets.get(&partition) {
                         self.merge
@@ -593,10 +590,8 @@ impl EventDispatcher {
     }
 
     pub fn assign_partition(&self, partition: i32) {
-        // Every tenure starts fail-closed for the seed fence: an idle-probe advance racing a
-        // revoke can re-create a watermark entry after the revoke's forget, and trusting it here
-        // would open the fence before this tenure's replayed events fold. Forget before ownership
-        // flips so a concurrent probe's owned-set re-check can't slip an advance in between.
+        // Forget before ownership flips: every tenure starts fail-closed for the seed fence, and
+        // a concurrent idle-probe advance can't slip in between.
         self.merge.live_watermarks.forget_partition(partition);
         self.owned.insert(partition);
         counter!(PARTITIONS_ASSIGNED_TOTAL).increment(1);
@@ -645,8 +640,7 @@ impl EventDispatcher {
         self.merge.transfer_tracker.forget_partition(partition);
         self.merge.cascade_tracker.forget_partition(partition);
         self.merge.seed_tracker.forget_partition(partition);
-        // Fail-closed on re-acquire: the next tenure re-derives its live watermark from its own
-        // folds rather than trusting a stale one.
+        // Fail-closed on re-acquire: the next tenure re-derives its own watermark.
         self.merge.live_watermarks.forget_partition(partition);
 
         // Reset per-partition gauges. Held-offset gauges in particular are alerted on a sustained
@@ -655,7 +649,6 @@ impl EventDispatcher {
         gauge!(MERGE_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
         gauge!(CASCADE_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
         gauge!(SEED_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
-        // Watermark age is alerted on; a revoked partition must not leave a frozen snapshot.
         gauge!(LIVE_WATERMARK_AGE_MS, "partition" => partition.to_string()).set(0.0);
 
         let Some(partition_id) = partition_to_store_id(partition) else {
@@ -874,8 +867,7 @@ impl EventDispatcher {
         self.tracker.as_ref()
     }
 
-    /// The events-topic tracker, for the seed consumer's idle probe (its folded frontier is the
-    /// watermark's "everything retained has been folded" check).
+    /// The events-topic tracker, for the seed consumer's idle probe.
     pub(crate) fn events_tracker(&self) -> &Arc<OffsetTracker> {
         &self.tracker
     }
@@ -2107,9 +2099,7 @@ mod tests {
         assert_eq!(tracker.partition_count(), 1);
     }
 
-    /// The assign-side half of the probe-vs-revoke fix: even if a stale watermark entry leaked in
-    /// (an idle-probe advance racing the revoke's forget), re-acquiring the partition clears it,
-    /// so every tenure starts with the seed fence fail-closed.
+    /// Re-acquiring a partition clears any stale watermark, so every tenure starts fail-closed.
     #[tokio::test]
     async fn assign_partition_resets_the_live_watermark_so_a_new_tenure_is_fail_closed() {
         let (_dir, store) = temp_store();
@@ -2216,8 +2206,8 @@ mod tests {
         ]);
         assert!(full.is_empty(), "both owned seeds landed");
 
-        // Seeds carry no event offset, so the router reported `max_offset: None`; the dispatcher
-        // must have raised the SEED ceiling itself — a mark within it commits.
+        // Seeds carry no event offset, so the dispatcher must have raised the seed ceiling
+        // itself.
         let seed_tracker = &dispatcher.merge_deps().seed_tracker;
         assert_eq!(
             seed_tracker.mark_processed(0, 6),
@@ -2230,7 +2220,6 @@ mod tests {
             "the ceiling is exactly the dispatched max + 1",
         );
 
-        // The events tracker never sees a seed offset.
         assert_eq!(
             dispatcher.tracker().mark_processed(0, 1),
             MarkOutcome::CappedAheadOfDispatch,

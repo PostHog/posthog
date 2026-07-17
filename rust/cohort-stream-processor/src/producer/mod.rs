@@ -36,9 +36,8 @@ pub use seed::{CaptureSeedTileSink, KafkaSeedTileSink, NoopSeedTileSink, SeedTil
 
 /// One per-cohort membership change on `cohort_membership_changed_shadow`.
 ///
-/// `origin`/`run_id` are additive and absent on the live path (`skip_serializing_if`), so live
-/// emissions stay byte-identical to the pre-field contract; the topic's consumer (the parity
-/// drain's tolerant JSON decode) ignores unknown keys.
+/// `origin`/`run_id` are additive and absent on the live path, so live emissions stay
+/// byte-identical to the pre-field contract.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CohortMembershipChange {
     pub team_id: i32,
@@ -55,9 +54,8 @@ pub struct CohortMembershipChange {
     pub run_id: Option<RunId>,
 }
 
-/// Non-live provenance of a membership change, for downstream batching/deprioritization.
-/// Additive by the same `skip_serializing_if` reasoning as the fields themselves, so new origins
-/// (e.g. a reconcile snapshot) land with their producers.
+/// Non-live provenance of a membership change; new origins (e.g. a reconcile snapshot) land
+/// additively with their producers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChangeOrigin {

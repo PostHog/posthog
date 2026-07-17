@@ -117,10 +117,8 @@ fn read_tombstone(
     }
 }
 
-/// Async twin of [`resolve`] over the [`StoreHandle`] facade: identical tombstone walk,
-/// [`Resolution`] semantics, and [`MAX_TOMBSTONE_HOPS`] cap, but each hop reads on the caller's
-/// `lane` through the blocking pool (`Event` for the event-path worker, `Maintenance` for the seed
-/// path). Drain/apply call the sync [`resolve`] inside their `run_section` closures.
+/// Async twin of [`resolve`] over the [`StoreHandle`] facade; each hop reads on the caller's
+/// `lane`. Drain/apply call the sync [`resolve`] inside their `run_section` closures.
 pub async fn resolve_offloaded(
     handle: &StoreHandle,
     partition_id: u16,
@@ -171,7 +169,7 @@ pub async fn resolve_offloaded(
     })
 }
 
-/// Read and decode one tombstone on `lane`, or `None` when absent or corrupt.
+/// Read and decode one tombstone, or `None` when absent or corrupt.
 async fn read_tombstone_offloaded(
     handle: &StoreHandle,
     partition_id: u16,

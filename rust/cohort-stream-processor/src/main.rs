@@ -230,7 +230,7 @@ async fn async_main(config: Config) -> Result<()> {
         partition_count: config.cohort_partition_count,
         seed_tile_sink,
         seed_tracker: Arc::new(OffsetTracker::new()),
-        // Constructed unconditionally (cheap): the event path observes regardless of the seed gate.
+        // Unconditional (cheap): the event path observes regardless of the seed gate.
         live_watermarks: Arc::new(LiveWatermarks::new()),
     });
 
@@ -273,8 +273,7 @@ async fn async_main(config: Config) -> Result<()> {
     stream_consumer
         .subscribe(&[config.cohort_stream_events_topic.as_str()])
         .context("subscribing to cohort_stream_events")?;
-    // Shared: the events consume loop plus the seed consumer's idle probe (watermark and
-    // group-committed reads through the events group's own client).
+    // Shared with the seed consumer's idle probe.
     let stream_consumer = Arc::new(stream_consumer);
 
     let merges_follower_consumer: Arc<StreamConsumer> = Arc::new(
@@ -300,7 +299,7 @@ async fn async_main(config: Config) -> Result<()> {
     } else {
         None
     };
-    // Likewise gated: a gate-off deploy is safe without the seed topic existing at all.
+    // Gated: a gate-off deploy is safe without the seed topic existing at all.
     let seed_follower_consumer: Option<Arc<StreamConsumer>> = if config.cohort_seed_consumer_enabled
     {
         Some(Arc::new(
@@ -359,8 +358,7 @@ async fn async_main(config: Config) -> Result<()> {
             cascade_partitions,
         );
     }
-    // A tile for (team, person) must land on the partition owning that person's state slice, so the
-    // seed topic joins the same co-assignment discipline. Runs only when gated on.
+    // A tile must land on the partition owning its person's state slice.
     if let Some(seed_consumer) = &seed_follower_consumer {
         let seed_partitions =
             fetch_partition_count(seed_consumer, &config.cohort_stream_seed_events_topic)?;
@@ -392,8 +390,8 @@ async fn async_main(config: Config) -> Result<()> {
                 manifest,
             );
         }
-        // On a disaster restore, state rolls back to the snapshot: the seed group's offsets
-        // must roll back with it, or tiles applied between checkpoint and crash never replay.
+        // State rolls back to the snapshot, so the seed offsets must roll back with it or the
+        // in-between tiles never replay.
         if let Some(seed_consumer) = &seed_follower_consumer {
             commit_follower_offsets_from_manifest(
                 seed_consumer,

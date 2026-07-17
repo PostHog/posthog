@@ -16,9 +16,8 @@ pub trait PartitionPauser: Send + Sync {
     fn resume(&self, partitions: &[i32]);
 }
 
-/// Production [`PartitionPauser`]: drives `pause`/`resume` on a `StreamConsumer`. Generic over the
-/// consumer context so both the events group consumer and the seed follower (default context, whose
-/// toppars arrive via `incremental_assign`) share it.
+/// Production [`PartitionPauser`]: drives `pause`/`resume` on a `StreamConsumer`. Generic over
+/// the consumer context so the events consumer and the seed follower share it.
 pub struct ConsumerPauser<C: ConsumerContext + 'static = CohortConsumerContext> {
     consumer: Arc<StreamConsumer<C>>,
     topic: String,

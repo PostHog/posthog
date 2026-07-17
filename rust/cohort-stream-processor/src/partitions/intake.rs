@@ -1,12 +1,9 @@
-//! App-side intake backpressure: a per-partition ceiling on **events and seed tiles** resident in a
-//! worker's channel. The mpsc slots bound sub-batches; this bounds the volume-bearing messages
-//! inside them. Over the cap, new messages are refused (→ held → paused), never buffered.
+//! App-side intake backpressure: a per-partition ceiling on events and seed tiles resident in a
+//! worker's channel. Over the cap, new messages are refused (→ held → paused), never buffered.
 //!
-//! The counter cannot drift: [`PartitionIntake::try_admit`] reserves a batch's counted messages
-//! (only the consume loops admit), [`MeteredReceiver`] releases them on the next `recv` and on
-//! `Drop`, and the router releases eagerly when an admitted batch fails to enter the channel. Both
-//! sides share [`ShuffleMessage::counts_toward_intake`], so maintenance ticks reserve and release 0
-//! and the two sides can never disagree on what counts.
+//! The counter cannot drift: [`PartitionIntake::try_admit`] reserves, [`MeteredReceiver`] releases
+//! on the next `recv` and on `Drop`, and the router releases eagerly on a failed send. Both sides
+//! share [`ShuffleMessage::counts_toward_intake`], so they can never disagree on what counts.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -17,7 +14,7 @@ use tokio::sync::mpsc;
 use super::shuffle_message::ShuffleMessage;
 use crate::observability::metrics::PARTITION_INTAKE_EVENTS;
 
-/// Intake-counted messages in a batch (events and seed tiles). Maintenance ticks count 0.
+/// Intake-counted messages in a batch; maintenance ticks count 0.
 pub fn count_intake(batch: &[ShuffleMessage]) -> usize {
     batch
         .iter()

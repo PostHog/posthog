@@ -222,23 +222,21 @@ pub struct Config {
     #[envconfig(from = "COHORT_SEED_CONSUMER_ENABLED", default = "false")]
     pub cohort_seed_consumer_enabled: bool,
 
-    /// The backfill seed-tile topic, keyed `"{team_id}:{person_id}"` — must be co-partitioned with
-    /// `cohort_stream_events`.
+    /// The backfill seed-tile topic; must be co-partitioned with `cohort_stream_events`.
     #[envconfig(default = "cohort_stream_seed_events")]
     pub cohort_stream_seed_events_topic: String,
 
-    /// Group for the seed follower — separate so backfill lag *age* is observable on its own (the
-    /// depth is a work queue by design, never a health signal).
+    /// Group for the seed follower — separate so backfill lag age is observable on its own.
     #[envconfig(default = "cohort-stream-seeds")]
     pub kafka_seed_consumer_group: String,
 
-    /// Apply-fence safety margin (ms) added to each tile's `s_chunk` before the live watermark may
-    /// admit it: covers shuffler inter-replica clock skew, lag spread, and producer linger.
+    /// Apply-fence margin (ms) over `s_chunk`: covers shuffler clock skew, lag spread, and
+    /// producer linger.
     #[envconfig(from = "COHORT_SEED_FENCE_MARGIN_MS", default = "600000")]
     pub cohort_seed_fence_margin_ms: i64,
 
-    /// How often the seed consumer probes idle live partitions (folded frontier == high watermark)
-    /// to advance their watermarks, so a quiet partition's fence can still open.
+    /// How often the seed consumer probes idle live partitions so a quiet partition's fence can
+    /// still open.
     #[envconfig(
         from = "COHORT_SEED_WATERMARK_IDLE_PROBE_INTERVAL_MS",
         default = "30000"
@@ -670,8 +668,8 @@ impl Config {
             );
         }
 
-        // Not a refusal — dev runs seed E2E with durability off — but a run must never stamp
-        // readiness in this mode: a crash after commit loses applied tiles that never replay.
+        // Not a refusal (dev runs with durability off), but a crash then loses applied tiles
+        // that never replay.
         if self.cohort_seed_consumer_enabled && !self.durable_restore_enabled {
             warn!(
                 "COHORT_SEED_CONSUMER_ENABLED without DURABLE_RESTORE_ENABLED: a committed seed \

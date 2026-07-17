@@ -169,8 +169,8 @@ async fn run_worker(
         let mut buffer = OutputBuffer::new();
         let mut re_keys: Vec<CohortStreamEvent> = Vec::new();
         let mut max_offset: Option<i64> = None;
-        // Highest broker timestamp folded this batch; observed into the live watermarks only after
-        // the final mark, so a held batch never advances the seed fence.
+        // Observed into the live watermarks only post-mark, so a held batch never advances the
+        // seed fence.
         let mut max_broker_ts: Option<i64> = None;
         // Set when a pre-arm flush fails: holds the whole batch's offset so Kafka replays it.
         let mut held = false;
@@ -427,8 +427,8 @@ async fn run_worker(
                 );
             }
         }
-        // Watermark advances at fold time, strictly post-mark: a consume-time watermark would
-        // reopen the double-count branch the fence deletes (events sitting unfolded in channels).
+        // Strictly post-mark: a consume-time watermark would reopen the double-count branch the
+        // fence deletes.
         if let Some(broker_ts_ms) = max_broker_ts {
             merge
                 .live_watermarks
@@ -968,7 +968,7 @@ fn reschedule_team(
     }
 }
 
-/// The `(leaf, person)` pairs [`compose_stage2`] recomputes for, from real transitions.
+/// The `(leaf, person)` pairs [`compose_stage2`] recomputes for.
 pub fn affected_leaves(transitions: &[LeafTransition]) -> Vec<(LeafStateKey, Uuid)> {
     transitions
         .iter()

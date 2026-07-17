@@ -1,15 +1,11 @@
 //! The `cohort_stream_seed_events` follower consumer — the backfill day-tile input.
 //!
-//! A dedicated follower (the 5th, mirroring the cascade template): it never `subscribe()`s — the
-//! events group's rebalance mirrors partition ownership onto it — and it enforces the **apply
-//! fence** at admission: a tile is dispatched only once the owning partition's
-//! live watermark clears `s_chunk + margin`. Fence-closed and channel-full tiles share one
-//! per-partition holdover + pause mechanism; an un-dispatched tile was never `mark_dispatched`ed,
-//! so its offset can never commit — commit safety falls out of the dispatch ceiling.
-//!
-//! Consume-side skips (unknown kind, newer schema, undecodable payload) ride the worker channel as
-//! [`SeedWork::Skip`] so their offsets mark strictly **in order** with earlier tiles; a
-//! dispatcher-side mark would commit past unfolded work. Skips never close the fence.
+//! Assignment arrives via the events group's rebalance mirror. The apply fence is enforced at
+//! admission: a tile dispatches only once its partition's live watermark clears
+//! `s_chunk + margin`; fence-closed and channel-full tiles share one holdover + pause mechanism,
+//! and an un-dispatched tile was never `mark_dispatched`ed, so its offset cannot commit.
+//! Consume-side skips ride the worker channel so their offsets mark in order; they never close
+//! the fence.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -42,17 +38,15 @@ const RECV_ERROR_BACKOFF: Duration = Duration::from_millis(500);
 /// Timeout for the idle probe's blocking watermark/committed fetches.
 const PROBE_FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Why a consumed seed payload is skipped rather than applied. Every skip rides the worker channel
-/// so its offset marks in order; run-completion checks require these counters to stay flat.
+/// Why a consumed seed payload is skipped rather than applied.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SeedSkipReason {
     /// A kind this consumer does not handle (e.g. a `reconcile` control tile).
     UnknownKind,
-    /// A known kind at a newer schema version. The skip commits and never replays, so a rollout
-    /// must upgrade this consumer before any seeder emits a new schema version.
+    /// A newer schema version. The skip commits and never replays, so this consumer must be
+    /// upgraded before any seeder emits a new schema.
     UnsupportedSchema,
-    /// Empty or undecodable payload: deterministic bytes that would fail identically on every
-    /// redelivery, so halting would wedge the partition forever.
+    /// Empty or undecodable payload: deterministic bytes, so halting would wedge the partition.
     DecodeError,
 }
 
@@ -89,8 +83,7 @@ impl ConsumedSeed {
         }
     }
 
-    /// Inverse of [`into_message`](Self::into_message) for the router's returned holdover. `None`
-    /// for a non-seed message — unreachable for batches this consumer built.
+    /// Inverse of [`into_message`](Self::into_message); `None` for a non-seed message.
     pub(crate) fn from_message(partition: i32, message: ShuffleMessage) -> Option<Self> {
         match message {
             ShuffleMessage::Seed { work, offset } => Some(Self {
@@ -102,7 +95,7 @@ impl ConsumedSeed {
         }
     }
 
-    /// The tile's fence input; `None` for skips, which never close the fence.
+    /// The fence input; `None` for skips.
     fn s_chunk_ms(&self) -> Option<SChunkMs> {
         match &self.work {
             SeedWork::Tile(tile) => Some(tile.s_chunk_ms()),
@@ -115,16 +108,13 @@ impl ConsumedSeed {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FenceDecision {
     Open,
-    /// `deficit_ms` = how far the live watermark trails `s_chunk + margin`; `None` when no
-    /// watermark has been observed at all (fail-closed).
+    /// How far the watermark trails `s_chunk + margin`; `None` = no watermark at all.
     Closed {
         deficit_ms: Option<i64>,
     },
 }
 
-/// Whether a tile scanned at `s_chunk` may apply under the partition's live `watermark`. Open only
-/// when the watermark **exceeds** `s_chunk + margin`; absent watermark is closed (fail-closed on a
-/// fresh pod post-rebalance).
+/// Open only when the watermark exceeds `s_chunk + margin`; an absent watermark is fail-closed.
 pub(crate) fn fence_decision(
     watermark: Option<WatermarkMs>,
     s_chunk: SChunkMs,
@@ -143,18 +133,18 @@ pub(crate) fn fence_decision(
     }
 }
 
-/// The outcome of pushing a consumed batch through the fence, preserving per-partition FIFO.
+/// A consumed batch split at the fence, preserving per-partition FIFO.
 #[derive(Debug, Default)]
 pub(crate) struct FenceSplit {
     pub admitted: Vec<ConsumedSeed>,
     pub held: HashMap<i32, Vec<ConsumedSeed>>,
-    /// Deficit of each partition whose fence closed during this split, for the deficit gauge.
+    /// Deficit per partition whose fence closed in this split.
     pub deficits: HashMap<i32, Option<i64>>,
 }
 
-/// Admit each partition's open prefix; from the first fence-closed tile, hold everything for that
-/// partition — skips included — so nothing leapfrogs a held offset. A partition in `already_held`
-/// queues entirely behind its existing holdover. Skips never close the fence themselves.
+/// Admit each partition's open prefix; from the first fence-closed tile hold everything for that
+/// partition (skips included) so nothing leapfrogs a held offset. `already_held` partitions queue
+/// entirely behind their holdover.
 pub(crate) fn split_at_fence(
     seeds: Vec<ConsumedSeed>,
     already_held: &HashSet<i32>,
@@ -185,11 +175,10 @@ pub(crate) fn split_at_fence(
     split
 }
 
-/// Per-partition holdover of fence-closed or backpressured seeds — the seed consumer's
-/// instantiation of the shared holdover.
+/// Holdover of fence-closed or backpressured seeds.
 type SeedHoldover = PartitionHoldover<ConsumedSeed>;
 
-/// The whole holdover flattened in per-partition FIFO order, ready for a fence re-check.
+/// The holdover flattened in per-partition FIFO order.
 fn drain_held(holdover: &mut SeedHoldover) -> Vec<ConsumedSeed> {
     holdover
         .take_held()
@@ -198,9 +187,8 @@ fn drain_held(holdover: &mut SeedHoldover) -> Vec<ConsumedSeed> {
         .collect()
 }
 
-/// The seed-topic follower consume loop. Assignment arrives via the events group's rebalance
-/// mirror; commits go through the dedicated seed tracker + `fsync_then_commit`, so a committed
-/// seed offset is a durably-applied tile — what run-completion detection relies on.
+/// The seed-topic follower consume loop. Commits go through the seed tracker +
+/// `fsync_then_commit`, so a committed offset is a durably-applied tile.
 pub struct SeedFollowerConsumer {
     consumer: Arc<StreamConsumer>,
     topic: String,
@@ -253,9 +241,8 @@ impl SeedFollowerConsumer {
         let _guard = self.handle.process_scope();
         info!(topic = %self.topic, "seed follower consume loop starting");
 
-        // Pause/resume off-loop, exactly like the events consumer: librdkafka's calls are
-        // synchronous FFI and must never delay the heartbeat. Pause works on the follower's
-        // incrementally-assigned toppars.
+        // Pause/resume off-loop: librdkafka's calls are synchronous FFI and must never delay
+        // the heartbeat.
         let (pause_tx, pause_rx) = tokio::sync::mpsc::unbounded_channel::<HashSet<i32>>();
         let pauser_task = tokio::spawn(run_pauser_loop(self.pauser.clone(), pause_rx));
 
@@ -317,9 +304,8 @@ impl SeedFollowerConsumer {
         info!(topic = %self.topic, "seed follower consume loop stopped");
     }
 
-    /// One steady-state cycle (the review tick): prune revoked holdover, re-check the fence on held
-    /// seeds and redispatch them **before** fresh ones, fence-split and dispatch the polled batch,
-    /// then reconcile the paused target and gauges. Every step is non-blocking.
+    /// One non-blocking cycle: prune revoked holdover, re-fence and redispatch held seeds before
+    /// fresh ones, dispatch the polled batch, reconcile the paused target and gauges.
     async fn cycle(
         &self,
         outcome: SeedConsumeOutcome,
@@ -340,9 +326,8 @@ impl SeedFollowerConsumer {
         let watermarks = self.dispatcher.merge_deps().live_watermarks.clone();
         let watermark_of = |partition: i32| watermarks.get(partition);
 
-        // Held-before-fresh: a redelivered fence re-check admits the open prefix; the admitted
-        // part's channel-full remainder re-absorbs *before* the still-fenced suffix so per-partition
-        // FIFO holds.
+        // Held before fresh; the channel-full remainder re-absorbs before the still-fenced
+        // suffix so per-partition FIFO holds.
         let refence = split_at_fence(
             drain_held(holdover),
             &HashSet::new(),
@@ -353,7 +338,7 @@ impl SeedFollowerConsumer {
         holdover.absorb(still_full);
         holdover.absorb(refence.held);
 
-        // Fresh seeds queue behind any partition still held rather than leapfrogging older offsets.
+        // Fresh seeds queue behind held partitions rather than leapfrogging older offsets.
         let fresh = split_at_fence(
             outcome.seeds,
             &holdover.held_partitions(),
@@ -381,7 +366,7 @@ impl SeedFollowerConsumer {
         let target = holdover.held_partitions();
         if !target.is_empty() || !prev_paused_target.is_empty() {
             for partition in prev_paused_target.difference(&target) {
-                // A drained partition's fence is open again: zero its deficit so the gauge clears.
+                // Zero the deficit for drained partitions so the gauge clears.
                 gauge!(SEED_FENCE_DEFICIT_MS, "partition" => partition.to_string()).set(0.0);
             }
             if pause_tx.send(target.clone()).is_err() {
@@ -438,8 +423,8 @@ impl SeedFollowerConsumer {
     }
 }
 
-/// Decode one payload into ordered work. Every non-tile outcome is a channel-riding skip, never a
-/// drop: its offset must mark in order (see the module doc).
+/// Decode one payload; every non-tile outcome is a channel-riding skip so its offset marks in
+/// order.
 fn decode_payload(payload: Option<&[u8]>, partition: i32, offset: i64) -> SeedWork {
     let Some(payload) = payload else {
         debug!(
@@ -477,13 +462,9 @@ struct SeedConsumeOutcome {
     transport_error: bool,
 }
 
-/// Advance idle partitions' watermarks: when the events tracker's folded frontier (or, before any
-/// fold this tenure, the events group's committed offset) has reached the live partition's high
-/// watermark, everything retained is folded and "now" is a valid arrival bound.
-///
-/// Accepted residual: this trusts that the shuffler is live — a silent shuffler stall longer
-/// than the margin during an active run with idle partitions opens the fence early, surfaced via
-/// the watermark-age gauge + shuffler-lag alerting.
+/// Advance idle partitions' watermarks: once everything retained is folded, "now" is a valid
+/// arrival bound. Accepted residual: a silent shuffler stall longer than the margin opens the
+/// fence early, surfaced via the watermark-age gauge + shuffler-lag alerting.
 async fn run_idle_probe_loop(
     events_consumer: Arc<StreamConsumer<CohortConsumerContext>>,
     events_topic: String,
@@ -493,7 +474,7 @@ async fn run_idle_probe_loop(
 ) {
     let mut ticker = tokio::time::interval(interval);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    // The first tick fires immediately; skip it so the probe never races boot recovery.
+    // Skip the immediate first tick so the probe never races boot recovery.
     ticker.tick().await;
     loop {
         tokio::select! {
@@ -510,9 +491,8 @@ async fn run_idle_probe_loop(
                 let probe = tokio::task::spawn_blocking(move || {
                     probe_idle_partitions(consumer.as_ref(), &topic, &owned, &folded)
                 });
-                // The blocking fetch can spend up to ~5 s per partition against an unresponsive
-                // broker; racing it against shutdown keeps the graceful window (the detached
-                // blocking task drains on its own timeouts).
+                // Race against shutdown: the blocking fetch can spend ~5 s per partition against
+                // an unresponsive broker.
                 let probed = tokio::select! {
                     biased;
                     _ = handle.shutdown_recv() => break,
@@ -535,13 +515,10 @@ async fn run_idle_probe_loop(
     }
 }
 
-/// Advance watermarks for probed-idle partitions, re-checking ownership **at advance time**: the
-/// probe's ownership snapshot is stale by up to the blocking fetch, and a partition revoked
-/// mid-probe was `forget_partition`ed (fail-closed). Advancing it anyway would re-create the entry
-/// and hand a later tenure a stale watermark that opens the fence before its replayed live events
-/// fold — a silent double-count. The assign path independently forgets the watermark
-/// ([`EventDispatcher::assign_partition`]), so even an advance that races a revoke-then-reassign
-/// cannot outlive the next tenure's start.
+/// Advance probed-idle watermarks, re-checking ownership at advance time: the probe's snapshot is
+/// stale by up to the blocking fetch, and re-creating an entry a mid-probe revoke forgot would
+/// open the fence for a later tenure before its replayed events fold. The assign path forgets
+/// independently, covering the residual race.
 fn advance_probed_idle(
     watermarks: &crate::partitions::watermarks::LiveWatermarks,
     owned_now: &HashSet<i32>,
@@ -555,10 +532,9 @@ fn advance_probed_idle(
     }
 }
 
-/// Blocking half of the idle probe: fetch each owned partition's events-topic high watermark and
-/// compare it to the folded frontier. Partitions with no frontier yet (boot edge) fall back to the
-/// events group's broker-committed offset; an empty partition (`high == low`) with neither is idle
-/// trivially. Errors skip the partition — the fence stays closed, never opens early.
+/// Blocking half of the idle probe: compare each owned partition's high watermark to the folded
+/// frontier, falling back to the events group's committed offset before any fold this tenure.
+/// Errors skip the partition (fence stays closed).
 fn probe_idle_partitions<C: rdkafka::consumer::ConsumerContext + 'static>(
     consumer: &StreamConsumer<C>,
     topic: &str,
@@ -613,10 +589,9 @@ fn probe_idle_partitions<C: rdkafka::consumer::ConsumerContext + 'static>(
     idle
 }
 
-/// Whether every retained live message is behind the folded frontier (`frontier` is a
-/// next-to-consume offset, `high` the partition's high watermark). No frontier at all is idle only
-/// for a partition with nothing retained (`high == low`) — anything else stays fenced. This sits on
-/// the fence's fail-open direction: a wrong `true` opens the fence over unfolded live events.
+/// Whether every retained live message is behind the folded frontier (a next-to-consume offset).
+/// No frontier is idle only with nothing retained. A wrong `true` opens the fence over unfolded
+/// live events.
 fn frontier_is_caught_up(frontier: Option<i64>, low: i64, high: i64) -> bool {
     match frontier {
         Some(next) => next >= high,
@@ -846,8 +821,8 @@ mod tests {
         assert!(ConsumedSeed::from_message(9, not_seed).is_none());
     }
 
-    /// The idle classification sits on the fence's fail-open direction: a wrong `true` declares a
-    /// partition with unfolded live events idle and jumps its watermark to "now".
+    /// A wrong `true` declares a partition with unfolded live events idle — the fence's
+    /// fail-open direction.
     #[test]
     fn frontier_is_caught_up_table() {
         let cases = [
@@ -892,10 +867,7 @@ mod tests {
         }
     }
 
-    /// The probe-vs-revoke interleaving: the probe's ownership snapshot went stale during its
-    /// blocking fetch, a revoke `forget_partition`ed the watermark (fail-closed), and the
-    /// advance-time re-check must not re-create it — a stale entry would open the fence for the
-    /// next tenure before its replayed events fold.
+    /// A revoke mid-probe forgot the watermark; the advance-time re-check must not re-create it.
     #[test]
     fn probe_advance_never_recreates_a_watermark_revoked_mid_probe() {
         let watermarks = LiveWatermarks::new();

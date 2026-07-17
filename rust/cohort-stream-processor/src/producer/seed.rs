@@ -1,6 +1,5 @@
-//! Re-key producer for `cohort_stream_seed_events`: a tile whose person was merged cross-partition
-//! is re-produced to the survivor's partition, keyed exactly as the seeder keys it
-//! (`"{team_id}:{person_id}"`, murmur2) so the co-partitioning invariant holds.
+//! Re-key producer for `cohort_stream_seed_events`: cross-partition-merged tiles are re-produced
+//! to the survivor's partition, keyed exactly as the seeder keys them.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -47,8 +46,7 @@ impl SeedTileSink for KafkaSeedTileSink {
     }
 }
 
-/// Inert sink for gate-off deploys: the seed path never runs, so a produce is a coding error made
-/// loud rather than a silent drop.
+/// Inert sink for gate-off deploys: a produce is a coding error made loud, not a silent drop.
 pub struct NoopSeedTileSink;
 
 #[async_trait]

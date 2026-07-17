@@ -431,11 +431,9 @@ pub const STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL: &str = "stage2_orphan_gc_unde
 /// `popped == evicted + dropped`.
 pub const SWEEP_KEYS_DROPPED_TOTAL: &str = "sweep_keys_dropped_total";
 
-/// `cohort_stream_seed_events` payloads consumed and successfully decoded — tiles and ordered
-/// skips both (counter).
+/// Seed payloads consumed and decoded — tiles and ordered skips both (counter).
 pub const COHORT_STREAM_SEEDS_CONSUMED: &str = "cohort_stream_seeds_consumed_total";
-/// Seed payloads that were empty or failed to decode (counter). Each also rides the worker channel
-/// as an ordered skip so its offset commits in order.
+/// Seed payloads that were empty or failed to decode (counter).
 pub const COHORT_STREAM_SEED_DESERIALIZE_ERRORS: &str =
     "cohort_stream_seed_deserialize_errors_total";
 /// Decoded seed payloads accumulated per consume → dispatch cycle (histogram).
@@ -443,34 +441,29 @@ pub const COHORT_STREAM_SEEDS_CONSUME_BATCH_SIZE: &str = "cohort_stream_seeds_co
 /// Seed messages dropped because the partition is no longer owned or shutdown is draining (counter).
 pub const COHORT_STREAM_SEEDS_SKIPPED_NOT_OWNED: &str =
     "cohort_stream_seeds_skipped_not_owned_total";
-/// Tiles whose max-merge advanced at least one leaf's state, labelled by `variant` (counter).
+/// Tile applies that advanced a leaf's state, labelled by `variant` (counter).
 pub const SEED_TILES_APPLIED_TOTAL: &str = "cohort_seed_tiles_applied_total";
-/// Tiles whose max-merge left every leaf's state byte-identical — the duplicate/out-of-order
-/// idempotency path, labelled by `variant` (counter).
+/// Tile applies that left the leaf byte-identical (the idempotency path), labelled by `variant`
+/// (counter).
 pub const SEED_TILES_UNCHANGED_TOTAL: &str = "cohort_seed_tiles_unchanged_total";
-/// Tile leaf-applies dropped without a write, labelled by `reason` (counter). Run readiness is
-/// gated on the deltas of this and [`SEED_TILES_SKIPPED_TOTAL`] over the run window.
+/// Tile leaf-applies dropped without a write, labelled by `reason` (counter).
 pub const SEED_TILES_DROPPED_TOTAL: &str = "cohort_seed_tiles_dropped_total";
-/// Consume-side skips marked in order (unknown kind, newer schema, undecodable payload), labelled
-/// by `reason` (counter).
+/// Consume-side skips marked in order, labelled by `reason` (counter).
 pub const SEED_TILES_SKIPPED_TOTAL: &str = "cohort_seed_tiles_skipped_total";
-/// Tiles re-produced to a merge survivor's partition, counted after the produce ack (counter).
+/// Tiles re-produced to a merge survivor's partition, counted post-ack (counter).
 pub const SEED_REKEYED_TOTAL: &str = "cohort_seed_rekeyed_total";
-/// Tile re-key produces that failed; the seed offset is held for redelivery (counter).
+/// Failed tile re-key produces; the seed offset is held (counter).
 pub const SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str = "cohort_seed_rekey_produce_failure_total";
-/// Tile redirects that exhausted `redirect_hops` and were applied inline at the best-known target
-/// (counter). Non-zero means a corrupt tombstone cycle.
+/// Hop-capped tile redirects applied inline (counter). Non-zero means a corrupt tombstone cycle.
 pub const SEED_REKEY_HOP_CAPPED_TOTAL: &str = "cohort_seed_rekey_hop_capped_total";
-/// The seed commit floor pinned by a sticky offset hold, labelled by `partition` (gauge). Alert on
-/// a sustained non-zero level — same fail-stop semantics as [`MERGE_HELD_OFFSET_GAUGE`].
+/// The seed commit floor pinned by a sticky offset hold, labelled by `partition` (gauge).
+/// **Alert on a sustained non-zero level.**
 pub const SEED_HELD_OFFSET_GAUGE: &str = "seed_held_offset";
-/// Seed partitions currently held (fence-closed or backpressured) — the paused target size (gauge).
+/// Seed partitions currently held, fence-closed or backpressured (gauge).
 pub const SEED_FENCED_PARTITIONS: &str = "cohort_seed_fenced_partitions";
-/// How far the live watermark trails `s_chunk + margin` for a fence-closed partition, labelled by
-/// `partition` (gauge, ms). `0` once the fence opens.
+/// How far the watermark trails `s_chunk + margin` per fenced partition (gauge, ms).
 pub const SEED_FENCE_DEFICIT_MS: &str = "cohort_seed_fence_deficit_ms";
-/// Age of each owned partition's live watermark, labelled by `partition` (gauge, ms). The design's
-/// accepted residual (a silent shuffler stall during an active run) alerts on this.
+/// Age of each owned partition's live watermark, labelled by `partition` (gauge, ms).
 pub const LIVE_WATERMARK_AGE_MS: &str = "cohort_live_watermark_age_ms";
 
 /// Install the global Prometheus recorder. Call once at startup.

@@ -1,13 +1,7 @@
-//! Per-partition holdover of un-dispatched messages for a consume loop, kept broker-free so its
-//! transitions are unit-testable in isolation.
-//!
-//! A partition holds a non-empty entry in [`pending`](PartitionHoldover::pending) **iff** its
-//! messages could not be dispatched, so [`held_partitions`](PartitionHoldover::held_partitions)
-//! (`pending.keys()`) is exactly the paused target. Applying and re-asserting that target on the
-//! consumer is owned by the pauser task (`run_pauser_loop`), not this struct.
-//!
-//! Two loops instantiate it: the events consumer ([`Backpressure`], holding `ShuffleMessage`s on a
-//! full channel) and the seed consumer (holding `ConsumedSeed`s on a closed fence or full channel).
+//! Per-partition holdover of un-dispatched messages, kept broker-free so its transitions are
+//! unit-testable. A partition has an entry **iff** its messages could not be dispatched, so
+//! `pending.keys()` is exactly the paused target; the pauser task owns applying it. Instantiated
+//! by the events consumer ([`Backpressure`]) and the seed consumer.
 
 use std::collections::{HashMap, HashSet};
 

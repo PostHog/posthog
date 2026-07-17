@@ -2395,9 +2395,8 @@ fn utc_today() -> i32 {
     day_idx_in_tz(chrono::Utc::now().timestamp_millis(), UTC)
 }
 
-/// The seed arm runs behind the same order barrier as the other inline arms: buffered event-path
-/// changes flush (and ack) before the tile's own emission, and each input marks its own tracker.
-/// The live watermark advances only after the batch's final mark.
+/// Buffered event-path changes flush before the tile's own emission, each input marks its own
+/// tracker, and the watermark advances only after the batch's final mark.
 #[tokio::test]
 async fn seed_arm_flushes_buffered_event_changes_first_and_marks_both_trackers() {
     let (_dir, store) = temp_store();
@@ -2468,8 +2467,7 @@ async fn seed_arm_flushes_buffered_event_changes_first_and_marks_both_trackers()
     );
 }
 
-/// A failed seed emission holds only the seed tracker; a later live event in the same batch still
-/// folds, produces, and advances the events tracker — the two commit streams never couple.
+/// A failed seed emission holds only the seed tracker; the events tracker is unaffected.
 #[tokio::test]
 async fn seed_produce_failure_holds_the_seed_tracker_but_not_the_events_tracker() {
     let (_dir, store) = temp_store();
@@ -2528,8 +2526,7 @@ async fn seed_produce_failure_holds_the_seed_tracker_but_not_the_events_tracker(
     assert_eq!(changes[0].person_id, alice.to_string());
 }
 
-/// A held batch (failed live produce) must not advance the watermark — a consume-time or
-/// pre-mark advance would reopen the fence's double-count branch. The successful redelivery does.
+/// A held batch must not advance the watermark; the successful redelivery does.
 #[tokio::test]
 async fn watermark_advances_only_after_a_successful_mark() {
     let (_dir, store) = temp_store();

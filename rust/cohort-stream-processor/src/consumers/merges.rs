@@ -339,8 +339,7 @@ struct FollowerOutcome<T> {
     transport_error: bool,
 }
 
-/// A tracker's committable offsets restricted to the partitions this pod currently owns — the
-/// commit shape every follower loop shares.
+/// A tracker's committable offsets restricted to the partitions this pod currently owns.
 pub(crate) fn owned_committable_offsets(
     tracker: &OffsetTracker,
     dispatcher: &EventDispatcher,
