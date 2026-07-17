@@ -311,6 +311,12 @@ def _clean_field(value: Any, max_chars: int) -> str:
     return str(value).strip()[:max_chars] if value else ""
 
 
+def _shared_interviewee_identifier(respondent_name: str, respondent_key: str) -> str:
+    """Display/attribution string for a shared-link respondent. Prefer the self-reported name;
+    fall back to the respondent_key so rows stay distinguishable, then a bare marker."""
+    return respondent_name or (f"shared:{respondent_key}" if respondent_key else "shared")
+
+
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -380,9 +386,7 @@ def start_call(request: Request, access_token: str) -> Response:
         respondent_key = _clean_field(body.get("respondent_key"), _RESPONDENT_KEY_MAX_CHARS)
         user_name = respondent_name or "there"
         agent_context = topic.agent_context or ""
-        # interviewee_identifier is the display/attribution string for the resulting response. Prefer
-        # the self-reported name; fall back to the respondent_key so rows stay distinguishable.
-        interviewee_identifier = respondent_name or (f"shared:{respondent_key}" if respondent_key else "shared")
+        interviewee_identifier = _shared_interviewee_identifier(respondent_name, respondent_key)
         metadata = {
             "topic_id": str(topic.id),
             "interviewee_identifier": interviewee_identifier,
@@ -595,9 +599,9 @@ def vapi_webhook(request: Request) -> Response:
         respondent_key = _clean_field(merged_metadata.get("respondent_key"), _RESPONDENT_KEY_MAX_CHARS)
         distinct_id = _clean_field(merged_metadata.get("distinct_id"), _LINKAGE_ID_MAX_CHARS)
         session_id = _clean_field(merged_metadata.get("session_id"), _LINKAGE_ID_MAX_CHARS)
-        interviewee_identifier = _clean_field(merged_metadata.get("interviewee_identifier"), _LINKAGE_ID_MAX_CHARS) or (
-            f"shared:{respondent_key}" if respondent_key else "shared"
-        )
+        interviewee_identifier = _clean_field(
+            merged_metadata.get("interviewee_identifier"), _LINKAGE_ID_MAX_CHARS
+        ) or _shared_interviewee_identifier(respondent_name, respondent_key)
         interviewee_emails = []
 
     with transaction.atomic():

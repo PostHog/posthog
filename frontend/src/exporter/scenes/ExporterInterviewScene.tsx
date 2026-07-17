@@ -7,6 +7,8 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { Logo } from 'lib/brand'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
+import { uuid } from 'lib/utils/dom'
+import { fromParams } from 'lib/utils/url'
 
 import { InterviewExportPayload } from '../types'
 
@@ -27,18 +29,16 @@ interface StartCallBody {
 // localStorage is unavailable (private mode, blocked storage).
 function getOrCreateRespondentKey(accessToken: string): string {
     const storageKey = `ph-interview-respondent:${accessToken}`
-    const newKey = (): string =>
-        typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)
     try {
         const existing = window.localStorage.getItem(storageKey)
         if (existing) {
             return existing
         }
-        const created = newKey()
+        const created = uuid()
         window.localStorage.setItem(storageKey, created)
         return created
     } catch {
-        return newKey()
+        return uuid()
     }
 }
 
@@ -46,8 +46,8 @@ function getOrCreateRespondentKey(accessToken: string): string {
 // so responses can be tied back to the person/session that triggered the interview. Untrusted.
 function readLinkageFromUrl(): { distinct_id: string; session_id: string } {
     try {
-        const params = new URLSearchParams(window.location.search)
-        return { distinct_id: params.get('distinct_id') ?? '', session_id: params.get('session_id') ?? '' }
+        const params = fromParams()
+        return { distinct_id: params.distinct_id ?? '', session_id: params.session_id ?? '' }
     } catch {
         return { distinct_id: '', session_id: '' }
     }

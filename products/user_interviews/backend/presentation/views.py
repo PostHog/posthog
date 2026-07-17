@@ -715,6 +715,22 @@ class SharedInterviewLinkSerializer(serializers.Serializer):
     )
 
 
+def _get_or_create_active_share(*, team: Team, **resource: Any) -> SharingConfiguration:
+    """Get the active (enabled, unexpired) SharingConfiguration for a user-interviews resource,
+    creating one if none exists. `resource` is the single FK kwarg identifying what's shared —
+    `interviewee_context=` for a personalised link or `user_interview_topic=` for a shared link.
+    Callers own the surrounding transaction/locking."""
+    sharing_config = (
+        SharingConfiguration.objects.filter(team=team, enabled=True, **resource)
+        .filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now()))
+        .order_by("-created_at")
+        .first()
+    )
+    if sharing_config is None:
+        sharing_config = SharingConfiguration.objects.create(team=team, enabled=True, **resource)
+    return sharing_config
+
+
 def _ensure_shared_link_for_topic(*, topic: UserInterviewTopic, team: Team) -> SharingConfiguration:
     """Get-or-create the single enabled topic-level (non-personalised) SharingConfiguration for a
     topic. Unlike the per-invitee links, this token is not tied to any IntervieweeContext — every
@@ -724,19 +740,7 @@ def _ensure_shared_link_for_topic(*, topic: UserInterviewTopic, team: Team) -> S
     """
     with transaction.atomic():
         UserInterviewTopic.objects.select_for_update().get(pk=topic.pk)
-        sharing_config = (
-            SharingConfiguration.objects.filter(team=team, user_interview_topic=topic, enabled=True)
-            .filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now()))
-            .order_by("-created_at")
-            .first()
-        )
-        if sharing_config is None:
-            sharing_config = SharingConfiguration.objects.create(
-                team=team,
-                user_interview_topic=topic,
-                enabled=True,
-            )
-    return sharing_config
+        return _get_or_create_active_share(team=team, user_interview_topic=topic)
 
 
 def _dogfood_identifier(caller: User) -> str:
@@ -772,18 +776,7 @@ def _ensure_dogfood_context(
                 "created_by": caller,
             },
         )
-        sharing_config = (
-            SharingConfiguration.objects.filter(team=team, interviewee_context=ic, enabled=True)
-            .filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now()))
-            .order_by("-created_at")
-            .first()
-        )
-        if sharing_config is None:
-            sharing_config = SharingConfiguration.objects.create(
-                team=team,
-                interviewee_context=ic,
-                enabled=True,
-            )
+        sharing_config = _get_or_create_active_share(team=team, interviewee_context=ic)
     return ic, sharing_config
 
 
@@ -816,18 +809,7 @@ def _materialize_links_for_topic(*, topic: UserInterviewTopic, team: Any, create
             defaults={"agent_context": "", "created_by": created_by},
         )
 
-        sharing_config = (
-            SharingConfiguration.objects.filter(team=team, interviewee_context=ic, enabled=True)
-            .filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now()))
-            .order_by("-created_at")
-            .first()
-        )
-        if sharing_config is None:
-            sharing_config = SharingConfiguration.objects.create(
-                team=team,
-                interviewee_context=ic,
-                enabled=True,
-            )
+        sharing_config = _get_or_create_active_share(team=team, interviewee_context=ic)
 
         user_name, email = _parse_identifier(identifier)
         results.append(
