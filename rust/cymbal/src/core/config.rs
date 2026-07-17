@@ -14,8 +14,13 @@ pub struct ResolverConfig {
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub database_url: String,
 
-    // Rust services connect directly to postgres, not via pgbouncer, so we keep this low
-    #[envconfig(default = "4")]
+    // Rust services connect directly to postgres, not via pgbouncer, so we keep this low.
+    // It still has to be large enough to serve the admitted request concurrency: the
+    // processing pipeline acquires connections across several stages (team lookup,
+    // grouping, issue linking), so a pool far smaller than the in-flight request ceiling
+    // makes acquires queue past the 10s timeout and surface as pool-timeout 500s. Keep this
+    // in step with `process_max_in_flight_requests` in the processing config.
+    #[envconfig(default = "10")]
     pub max_pg_connections: u32,
 
     // cymbal makes HTTP get requests to auto-resolve sourcemaps - and follows redirects. To protect against SSRF, we only allow requests to public URLs by default

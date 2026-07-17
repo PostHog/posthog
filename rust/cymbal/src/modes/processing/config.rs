@@ -80,7 +80,14 @@ pub struct ProcessingConfig {
 
     // Maximum number of in-flight /process requests accepted by the API.
     // Requests above this limit are rejected with 429 to apply backpressure.
-    #[envconfig(default = "128")]
+    //
+    // Keep this sized against `ResolverConfig::max_pg_connections`: each admitted request's
+    // pipeline needs Postgres connections for team lookup, grouping, and issue linking, so
+    // admitting far more requests than the pool can serve makes connection acquires queue
+    // past the 10s pool timeout and fail as 500s — which, on the error-tracking ingestion
+    // path, get captured straight back into error tracking. A fast 429 (retryable
+    // backpressure) is the intended overload signal, not a pool-timeout 500.
+    #[envconfig(default = "20")]
     pub process_max_in_flight_requests: usize,
 
     #[envconfig(default = "60000")]
