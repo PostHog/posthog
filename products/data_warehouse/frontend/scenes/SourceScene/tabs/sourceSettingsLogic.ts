@@ -367,6 +367,7 @@ function reportBulkResult(verb: string, total: number, failed: number, skipped: 
 export interface sourceSettingsLogicValues {
     availableSources: Record<string, SourceConfig> | null // availableSourcesLogic
     canLoadMoreJobs: boolean
+    bulkEnableLoading: boolean
     cdcStatus: CdcStatus | null
     cdcStatusError: string | null
     cdcStatusLoading: boolean
@@ -423,6 +424,9 @@ export interface sourceSettingsLogicActions {
     }
     bulkEnable: (schemas: ExternalDataSourceSchema[]) => {
         schemas: ExternalDataSourceSchema[]
+    }
+    setBulkEnableLoading: (loading: boolean) => {
+        loading: boolean
     }
     bulkResync: (schemas: ExternalDataSourceSchema[]) => {
         schemas: ExternalDataSourceSchema[]
@@ -682,6 +686,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         cancelSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         deleteTable: (schema: ExternalDataSourceSchema) => ({ schema }),
         bulkEnable: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
+        setBulkEnableLoading: (loading: boolean) => ({ loading }),
         bulkDisable: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
         bulkSetFrequency: (schemas: ExternalDataSourceSchema[], frequency: DataWarehouseSyncInterval) => ({
             schemas,
@@ -875,6 +880,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             {
                 setRefreshingSchemas: (_, { refreshing }) => refreshing,
                 refreshSchemas: () => true,
+            },
+        ],
+        bulkEnableLoading: [
+            false as boolean,
+            {
+                bulkEnable: () => true,
+                setBulkEnableLoading: (_, { loading }) => loading,
             },
         ],
         pollPauseCount: [
@@ -1438,6 +1450,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 const payloads = buildBulkEnablePayloads(schemas)
                 if (payloads.length === 0) {
                     lemonToast.info('All selected schemas are already enabled')
+                    actions.setBulkEnableLoading(false)
                     return
                 }
                 const defaultsCount = payloads.filter((payload) => payload.apply_sync_defaults).length
@@ -1462,6 +1475,8 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     // Partial failures stay committed server-side; reload to show what did apply.
                     actions.loadSource()
                     lemonToast.error(e?.message || "Can't enable schemas at this time")
+                } finally {
+                    actions.setBulkEnableLoading(false)
                 }
             },
             bulkDisable: ({ schemas }) => {

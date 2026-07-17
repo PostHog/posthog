@@ -646,6 +646,7 @@ function SchemaBulkActions({
 }): JSX.Element {
     const { bulkEnable, bulkDisable, bulkSetFrequency, bulkSyncNow, bulkResync, bulkDeleteData } =
         useActions(sourceSettingsLogic)
+    const { bulkEnableLoading } = useValues(sourceSettingsLogic)
 
     // Wrap every action so the selection clears once it's been kicked off.
     const run = (action: () => void): void => {
@@ -704,7 +705,7 @@ function SchemaBulkActions({
 
     return (
         <>
-            <LemonButton type="secondary" size="small" onClick={onEnable}>
+            <LemonButton type="secondary" size="small" onClick={onEnable} loading={bulkEnableLoading}>
                 Enable
             </LemonButton>
             <LemonButton type="secondary" size="small" onClick={onDisable}>
