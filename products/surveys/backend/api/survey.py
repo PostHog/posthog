@@ -3473,6 +3473,38 @@ def get_surveys_response(team: Team):
     }
 
 
+def _survey_page_site_url() -> str:
+    """
+    Origin for the hosted survey page's static assets. Assets must load from the app
+    origin even when the page is served through a reverse-proxy domain, which doesn't
+    serve Django staticfiles. A localhost SITE_URL (the unset default) would emit asset
+    URLs no external browser can reach, so fall back to host-relative paths — those at
+    least keep direct app-origin access working.
+    """
+    hostname = urlparse(settings.SITE_URL).hostname
+    if hostname in (None, "localhost", "127.0.0.1", "::1"):
+        return ""
+    return settings.SITE_URL
+
+
+def _survey_error_response(
+    request: HttpRequest,
+    *,
+    error_title: str,
+    error_message: str,
+    status: int,
+    appearance: dict[str, Any] | None = None,
+) -> HttpResponse:
+    context: dict[str, Any] = {
+        "error_title": error_title,
+        "error_message": error_message,
+        "site_url": _survey_page_site_url(),
+    }
+    if appearance is not None:
+        context["appearance"] = appearance
+    return render(request, "surveys/error.html", context, status=status)
+
+
 @csrf_exempt
 @axes_dispatch
 def public_survey_page(request, survey_id: str):
@@ -3485,14 +3517,10 @@ def public_survey_page(request, survey_id: str):
     # Input validation
     if not UUIDT.is_valid_uuid(survey_id):
         logger.warning("survey_page_invalid_id", survey_id=survey_id)
-        return render(
+        return _survey_error_response(
             request,
-            "surveys/error.html",
-            {
-                "error_title": "Invalid request",
-                "error_message": "The requested survey is not available.",
-                "site_url": settings.SITE_URL,
-            },
+            error_title="Invalid request",
+            error_message="The requested survey is not available.",
             status=400,
         )
 
@@ -3503,27 +3531,19 @@ def public_survey_page(request, survey_id: str):
     except Survey.DoesNotExist:
         logger.info("survey_page_not_found", survey_id=survey_id)
         # Use generic error message to prevent survey ID enumeration
-        return render(
+        return _survey_error_response(
             request,
-            "surveys/error.html",
-            {
-                "error_title": "Survey not available",
-                "error_message": "The requested survey is not available.",
-                "site_url": settings.SITE_URL,
-            },
+            error_title="Survey not available",
+            error_message="The requested survey is not available.",
             status=404,
         )
     except Exception as e:
         logger.exception("survey_page_db_error", error=str(e), survey_id=survey_id)
         capture_exception(e)
-        return render(
+        return _survey_error_response(
             request,
-            "surveys/error.html",
-            {
-                "error_title": "Service unavailable",
-                "error_message": "The service is temporarily unavailable. Please try again later.",
-                "site_url": settings.SITE_URL,
-            },
+            error_title="Service unavailable",
+            error_message="The service is temporarily unavailable. Please try again later.",
             status=503,
         )
 
@@ -3540,16 +3560,13 @@ def public_survey_page(request, survey_id: str):
             survey_type=survey.type,
         )
         # Pass appearance so the error page still shows the customer's brand.
-        return render(
+        # Use 404 instead of 403 to prevent information leakage.
+        return _survey_error_response(
             request,
-            "surveys/error.html",
-            {
-                "error_title": "Feels quiet in here",
-                "error_message": "This survey isn't taking responses right now. It might be closed, expired, or not live yet.",
-                "appearance": survey.appearance or {},
-                "site_url": settings.SITE_URL,
-            },
-            status=404,  # Use 404 instead of 403 to prevent information leakage
+            error_title="Feels quiet in here",
+            error_message="This survey isn't taking responses right now. It might be closed, expired, or not live yet.",
+            status=404,
+            appearance=survey.appearance or {},
         )
 
     # Build project config
@@ -3568,9 +3585,7 @@ def public_survey_page(request, survey_id: str):
         "survey_id": survey_id,
         "survey_data": survey_data,
         "project_config": project_config,
-        # Static assets must load from the app origin even when the page is served
-        # through a reverse-proxy domain, which doesn't serve Django staticfiles.
-        "site_url": settings.SITE_URL,
+        "site_url": _survey_page_site_url(),
         "display_language": get_hosted_survey_display_language(request),
         "debug": settings.DEBUG,
         "embed_mode": request.GET.get("embed") == "true",
