@@ -96,6 +96,31 @@ def pending_batch_predicate(status_alias: str) -> str:
     return f"({status_alias}.batch_id IS NULL OR {status_alias}.job_state IN ('waiting', 'waiting_retry', 'executing'))"
 
 
+def sync_type_scope_sql(
+    *,
+    sync_types: list[str] | None = None,
+    exclude_sync_types: list[str] | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Optional AND-clause partitioning claim/sweep work by ``sourcebatch.sync_type``.
+
+    Lets a consumer fleet own a subset of the queue (e.g. a CDC-only deployment) while a
+    sibling fleet runs with the complement. The clause may only ever scope *which rows a
+    fleet claims or sweeps* — never the run/failed/schema-busy gates, which must keep
+    seeing every class so cross-class runs of one (team_id, schema_id) still serialize
+    (a CDC schema's initial snapshot enqueues ``full_refresh`` batches).
+    """
+    if sync_types and exclude_sync_types:
+        raise ValueError("sync_types and exclude_sync_types are mutually exclusive")
+    if sync_types:
+        return "AND b.sync_type = ANY(%(claim_sync_types)s)", {"claim_sync_types": list(sync_types)}
+    if exclude_sync_types:
+        return (
+            "AND b.sync_type != ALL(%(claim_exclude_sync_types)s)",
+            {"claim_exclude_sync_types": list(exclude_sync_types)},
+        )
+    return "", {}
+
+
 def build_status_dual_write_sql(*, with_batch_created_at: bool) -> str:
     """Single-statement status INSERT + denormalized-state UPDATE (atomic under autocommit).
 
@@ -174,13 +199,18 @@ FAIL_RUN_SCOPED_SQL = _bulk_fail_dual_write_sql(
 )
 
 
-def _state_claim_candidates_sql() -> str:
+def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
     """Claimable-batch candidates read from the denormalized state columns.
 
     The claimable scan and every NOT EXISTS gate are answered by the partial
     indexes (sb_claimable_idx, sb_run_gate_idx, sb_schema_busy_idx), so the
     work tracks the claimable set instead of everything retained. 'pending'
     means no status row yet; 'waiting' is deliberately not claimable.
+
+    ``sync_type_scope`` (from :func:`sync_type_scope_sql`) narrows only the outer
+    candidate set to this fleet's classes. It must never be applied inside the
+    NOT EXISTS gates below: they have to see other fleets' batches so one
+    schema's runs stay mutually exclusive across fleets.
     """
     return f"""
         SELECT
@@ -194,6 +224,7 @@ def _state_claim_candidates_sql() -> str:
         FROM {BATCH_TABLE} b
         WHERE
             b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            {sync_type_scope}
             AND (
                 b.latest_state = 'pending'
                 OR (
@@ -474,6 +505,8 @@ class BatchQueue:
         limit: int = 50,
         retry_backoff_base_seconds: int = 0,
         lease_ttl_seconds: int = LEASE_TTL_SECONDS,
+        sync_types: list[str] | None = None,
+        exclude_sync_types: list[str] | None = None,
     ) -> list[PendingBatch]:
         """Fetch unprocessed batches whose (team_id, schema_id) group lease is claimable by ``owner_token``.
 
@@ -526,8 +559,15 @@ class BatchQueue:
         dead weight and fleet concurrency collapses to roughly one window's worth.
         Own-leased groups stay in the window so a pod can keep draining a group it
         already holds.
+
+        ``sync_types`` / ``exclude_sync_types`` partition the queue between consumer
+        fleets (see :func:`sync_type_scope_sql`); leases are shared state, so fleets
+        with overlapping scopes still never process one group concurrently.
         """
-        candidates_sql = _state_claim_candidates_sql()
+        sync_type_scope, scope_params = sync_type_scope_sql(
+            sync_types=sync_types, exclude_sync_types=exclude_sync_types
+        )
+        candidates_sql = _state_claim_candidates_sql(sync_type_scope)
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
@@ -573,7 +613,13 @@ class BatchQueue:
                 JOIN claimed USING (team_id, schema_id)
                 ORDER BY c.created_at ASC, c.batch_index ASC
                 """,
-                {"limit": limit, "backoff": retry_backoff_base_seconds, "owner": owner_token, "ttl": lease_ttl_seconds},
+                {
+                    "limit": limit,
+                    "backoff": retry_backoff_base_seconds,
+                    "owner": owner_token,
+                    "ttl": lease_ttl_seconds,
+                    **scope_params,
+                },
             )
             rows = await cur.fetchall()
         return [PendingBatch(**row) for row in rows]
@@ -691,6 +737,8 @@ class BatchQueue:
         conn: psycopg.AsyncConnection[Any],
         *,
         grace_seconds: int = 0,
+        sync_types: list[str] | None = None,
+        exclude_sync_types: list[str] | None = None,
     ) -> list[PendingBatch]:
         """Find batches stuck in 'executing' whose group lease is absent or expired (previous pod gone).
 
@@ -703,9 +751,17 @@ class BatchQueue:
 
         ``grace_seconds`` requires the 'executing' status row to be older than
         this threshold before the batch is considered orphaned.
+
+        ``sync_types`` / ``exclude_sync_types`` keep a fleet's sweep on its own
+        classes: each fleet judges staleness against its own grace, so a
+        short-grace fleet must never re-queue a batch a long-grace fleet still
+        considers mid-write.
         """
+        sync_type_scope, scope_params = sync_type_scope_sql(
+            sync_types=sync_types, exclude_sync_types=exclude_sync_types
+        )
         async with conn.cursor(row_factory=dict_row) as cur:
-            await cur.execute(_stale_executing_sql(), {"grace": grace_seconds})
+            await cur.execute(_stale_executing_sql(sync_type_scope), {"grace": grace_seconds, **scope_params})
             rows = await cur.fetchall()
 
         return [PendingBatch(**row) for row in rows]

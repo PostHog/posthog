@@ -27765,6 +27765,15 @@ export namespace Schemas {
       readonly access_method: AccessMethodEnum;
       /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
+      /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
+      auto_sync_new_schemas?: boolean;
+      /**
+         * Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.
+         * @maxItems 100
+         * @nullable
+         * @items.maxLength 250
+         */
+      auto_sync_schema_patterns?: string[] | null;
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
@@ -44305,6 +44314,15 @@ export namespace Schemas {
       readonly access_method?: AccessMethodEnum;
       /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
+      /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
+      auto_sync_new_schemas?: boolean;
+      /**
+         * Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.
+         * @maxItems 100
+         * @nullable
+         * @items.maxLength 250
+         */
+      auto_sync_schema_patterns?: string[] | null;
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
