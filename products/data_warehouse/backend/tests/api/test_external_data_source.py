@@ -109,6 +109,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
     ENDPOINTS as STRIPE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import TikTokAdsAPIError
 
 
 def _configure_source_mock_versioning(mock_get_source) -> None:
@@ -11520,6 +11521,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
     )
     _REDDIT_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source"
     _LINKEDIN_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source"
+    _TIKTOK_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source"
     _SNAPCHAT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.source"
     _META_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source"
 
@@ -11610,6 +11612,91 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         # raises NotImplementedError — it must surface as a 400, not an unhandled 500.
         response = self.client.get(self._url("Salesforce", 1))
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def _tiktok_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="tiktok-ads",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="tiktok_test",
+            created_by=self.user,
+        )
+
+    def test_tiktok_auth_error_returns_actionable_400(self):
+        integration = self._tiktok_integration()
+        error = TikTokAdsAPIError("TikTok advertiser/get failed (40105): invalid", api_code=40105)
+        with patch(f"{self._TIKTOK_ADS_MODULE}.list_advertisers", side_effect=error):
+            response = self.client.get(self._url("TikTokAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "reconnect" in str(response.json()).lower()
+
+    @parameterized.expand([(40016,), (40100,), (40101,), (40102,), (50000,), (51001,), (60001,)])
+    def test_tiktok_transient_error_returns_actionable_400_not_a_reconnect_prompt(self, api_code: int):
+        # 40100 ("requests made too frequently") used to be classified as an auth error, telling a
+        # throttled team to reconnect a perfectly healthy integration. None of these are credential
+        # problems, and none are our bug — they must not page us, nor prompt a pointless re-OAuth.
+        integration = self._tiktok_integration()
+        error = TikTokAdsAPIError(f"TikTok advertiser/get failed ({api_code}): busy", api_code=api_code)
+        with patch(f"{self._TIKTOK_ADS_MODULE}.list_advertisers", side_effect=error):
+            response = self.client.get(self._url("TikTokAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        body = str(response.json()).lower()
+        assert "rate-limiting" in body
+        assert "reconnect" not in body
+
+    def test_tiktok_non_auth_api_error_is_not_swallowed(self):
+        integration = self._tiktok_integration()
+        error = TikTokAdsAPIError("TikTok advertiser/get failed (40002): bad request", api_code=40002)
+        with patch(f"{self._TIKTOK_ADS_MODULE}.list_advertisers", side_effect=error):
+            response = self.client.get(self._url("TikTokAds", integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
+
+    def test_tiktok_missing_access_token_returns_actionable_400(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="tiktok-ads",
+            config={},
+            sensitive_config={},
+            integration_id="tiktok_no_token",
+            created_by=self.user,
+        )
+        response = self.client.get(self._url("TikTokAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "access token" in str(response.json()).lower()
+
+    def test_tiktok_ads_maps_advertisers_to_accounts(self):
+        integration = self._tiktok_integration()
+        advertisers = [
+            {"advertiser_id": "7554133187111469074", "advertiser_name": "Posthog0925"},
+            {"advertiser_id": "7554135782433308688", "advertiser_name": "Posthog Inc"},
+        ]
+        with patch(f"{self._TIKTOK_ADS_MODULE}.list_advertisers", return_value=advertisers):
+            response = self.client.get(self._url("TikTokAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "7554133187111469074",
+                "display_name": "Posthog0925",
+                "is_primary": False,
+                "badges": [],
+                "group": None,
+                "secondary_text": None,
+            },
+            {
+                "value": "7554135782433308688",
+                "display_name": "Posthog Inc",
+                "is_primary": False,
+                "badges": [],
+                "group": None,
+                "secondary_text": None,
+            },
+        ]
 
     def _snapchat_integration(self) -> Integration:
         return Integration.objects.create(
