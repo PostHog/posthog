@@ -55473,6 +55473,10 @@ export namespace Schemas {
 
     /**
      * One typed attachment carried by a sandbox message.
+     *
+     * DEPRECATED PATH — do not extend. This structured `attached_context` (and its server-side wrap in
+     * `context_wrapper.py`) exists only for the legacy Max conversations bridge and is removed with it;
+     * the live path wraps context client-side (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`).
      */
     export interface SandboxAttachedContextItem {
       /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.
