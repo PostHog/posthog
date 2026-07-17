@@ -2,7 +2,7 @@ import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 
 import { InsightShortId } from '~/types'
 
-import { AlertEditorSection } from 'products/alerts/frontend/components/AlertEditorModal'
+import { AlertEditorSection } from 'products/alerts/frontend/components/AlertEditor'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { AlertType } from 'products/alerts/frontend/types'
 import { AlertDestinationSelector } from 'products/alerts/frontend/views/AlertDestinationSelector'

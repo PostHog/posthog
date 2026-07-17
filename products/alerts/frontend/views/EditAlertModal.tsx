@@ -20,12 +20,8 @@ import { AlertCalculationInterval, AlertState } from '~/queries/schema/schema-ge
 import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import {
-    AlertEditorFormDetails,
-    AlertEditorModal,
-    AlertEditorModalLayout,
-    AlertEditorSection,
-} from 'products/alerts/frontend/components/AlertEditorModal'
+import { AlertEditorFormDetails, AlertEditorSection } from 'products/alerts/frontend/components/AlertEditor'
+import { AlertEditorModal, AlertEditorModalLayout } from 'products/alerts/frontend/components/AlertEditorModal'
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/editAlertModal/AlertAdvancedOptionsSection'
 import { AlertDefinitionSection } from 'products/alerts/frontend/components/editAlertModal/AlertDefinitionSection'
 import { AlertIntervalRow } from 'products/alerts/frontend/components/editAlertModal/AlertIntervalRow'
