@@ -29,6 +29,9 @@ export { attachedContextLogic } from '../logics/attachedContextLogic'
 export { useAttachedContext } from '../hooks/useAttachedContext'
 export type { UseAttachedContextOptions } from '../hooks/useAttachedContext'
 export { attachedContextItemKey } from '../types/contextTypes'
+// The standing "act via tool calls" instruction the sidebar surfaces attach while the user watches a
+// run — the prompt-side half of `useMcpToolApplyBack` (hidden from chips, deduped once per task).
+export { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../utils/posthogContextBlock'
 
 // --- User-picked context (the composer's @-affordance, headless half) ---
 // `contextPickerLogic` owns explicit user picks and registers them as the `user-picker` provider;

@@ -1,6 +1,26 @@
 import type { AttachedContextItem } from '../types/contextTypes'
 
 /**
+ * Standing instruction attached by the sidebar (foreground) surfaces — the ones where
+ * `useMcpToolApplyBack` consumers can react to the run's tool calls. Tells the agent that tool calls
+ * are how it acts on the app the user has open, so it calls tools instead of writing results as text.
+ * Hidden from the composer's context chips; the static value means the task-scoped dedupe sends it
+ * once per task resume chain.
+ */
+export const AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'instructions',
+    hidden: true,
+    value:
+        'You are running alongside the PostHog app the user has open, and your PostHog MCP tool calls are how you act on it. ' +
+        'When you complete a relevant tool call, its result is applied directly to what the user is looking at – for example, ' +
+        'an open insight or SQL editor picks up the query from a completed query tool call. Be proactive about calling tools: ' +
+        'when the user asks you to create or change something, achieve it with the matching tool call rather than only ' +
+        'describing the result or writing it out as text. For example, if the user asks you to write SQL, call the ' +
+        'execute-sql tool to write the query and verify it runs – the executed query lands in their open editor; never just ' +
+        'print the SQL in your reply.',
+}
+
+/**
  * Renders attached context as a `<posthog_context>` block. The open/close tags MUST stay
  * byte-compatible with the backend template (`products/posthog_ai/backend/context_wrapper.py`) —
  * `runStreamLogic.unwrapUserMessageContent` strips on the tags, not the body, so both producers

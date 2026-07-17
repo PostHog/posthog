@@ -12,6 +12,8 @@ export interface AttachedContextItem {
     label?: string
     /** Free-text payload (used when there's no keyed resource, e.g. type 'text'). */
     value?: string
+    /** Rendered into `<posthog_context>` as usual but never shown as a composer chip (so not dismissable either). */
+    hidden?: boolean
 }
 
 /** Stable dedupe key for an attached context item: `${type}:${key ?? value}`. */
