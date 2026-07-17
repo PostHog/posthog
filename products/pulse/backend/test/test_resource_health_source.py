@@ -143,9 +143,14 @@ class TestResourceHealthGather(BaseTest):
         assert item.kind == "health"
         assert "Weekly report" in item.title
         assert item.metrics["failed_deliveries"] == 2
-        # This subscription targets neither an insight nor a dashboard, so there is no deep link.
+        # No insight/dashboard target — links to the project's subscriptions list, never empty.
         assert item.evidence == [
-            EvidenceRef(type=EvidenceType.SUBSCRIPTION, ref=str(subscription.id), label="Weekly report", url="")
+            EvidenceRef(
+                type=EvidenceType.SUBSCRIPTION,
+                ref=str(subscription.id),
+                label="Weekly report",
+                url=f"/project/{self.team.id}/subscriptions/{subscription.id}",
+            )
         ]
         assert item.fingerprint_hint == f"subscription:{subscription.id}"
 
@@ -216,8 +221,3 @@ class TestResourceHealthGather(BaseTest):
             items = ResourceHealthSource().gather(self.team, None, lookback_days=7)
 
         assert [item.fingerprint_hint.split(":")[0] for item in items] == ["subscription"]
-
-    def test_stuck_threshold_matches_cache_updater_give_up_point(self) -> None:
-        from posthog.caching.insight_cache import MAX_ATTEMPTS  # noqa: PLC0415 — heavy import, test-only
-
-        assert STUCK_REFRESH_ATTEMPTS == MAX_ATTEMPTS

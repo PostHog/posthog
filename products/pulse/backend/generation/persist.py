@@ -92,12 +92,8 @@ _LinkTarget = Insight | Dashboard | Annotation | Experiment | AlertConfiguration
 
 
 def _resolve_link_fks(team_id: int, evidence: list[EvidenceRef]) -> dict[tuple[EvidenceType, str], _LinkTarget]:
-    """Batch-resolve cited refs to the model instances the ResourceLink FKs point at, per team.
-
-    Keyed by EvidenceRef.key. Insights are looked up by short_id; alerts by UUID id; dashboards/
-    annotations/experiments/subscriptions by integer id. Events have no model. A ref that resolves
-    to nothing is still linked (cached columns only) — the resource may have been deleted since.
-    """
+    """Batch-resolve cited refs, keyed by EvidenceRef.key, to the model instances the ResourceLink
+    FKs point at. A ref that resolves to nothing is still linked (cached columns only)."""
     by_type: dict[EvidenceType, set[str]] = {}
     for ref in evidence:
         by_type.setdefault(ref.type, set()).add(ref.ref)
@@ -122,6 +118,9 @@ def _resolve_link_fks(team_id: int, evidence: list[EvidenceRef]) -> dict[tuple[E
         if not refs:
             continue
         numeric_ids = [int(r) for r in refs if r.isdigit()]
+        if non_numeric := refs - {str(i) for i in numeric_ids}:
+            # These models have integer PKs; a non-numeric ref can't resolve (its link stays FK-less).
+            logger.warning("pulse_persist_non_numeric_ref", evidence_type=evidence_type, refs=sorted(non_numeric))
         for obj in model.objects.filter(team_id=team_id, id__in=numeric_ids):
             resolved[(evidence_type, str(obj.id))] = obj
     return resolved

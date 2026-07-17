@@ -7,10 +7,10 @@ from django.utils import timezone
 from posthog.models.team import Team
 
 from products.annotations.backend.models import Annotation
+from products.pulse.backend.config import MAX_ANNOTATIONS
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, SourceItemKind
 
-MAX_ANNOTATIONS = 20
 TITLE_MAX_CHARS = 100
 DESCRIPTION_MAX_CHARS = 500
 
@@ -41,9 +41,11 @@ class AnnotationsSource:
         items: list[SourceItem] = []
         for annotation in annotations:
             # Untrusted free text is sanitized once at the prompt-render boundary (_render_items).
-            # The queryset excludes null/empty content, so this is a non-empty str at runtime.
+            # The queryset excludes null/empty content, but guard at runtime too (a concurrent update
+            # could null it between query and iteration; `assert` would be stripped under `python -O`).
             content = annotation.content
-            assert content is not None
+            if content is None:
+                continue
             items.append(
                 SourceItem(
                     source=self.name,
