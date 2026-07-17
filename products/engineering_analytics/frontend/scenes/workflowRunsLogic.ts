@@ -285,6 +285,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                 loadJobAggregates: async (): Promise<WorkflowJobAggregateApi[]> =>
                     await engineeringAnalyticsJobAggregates(projectId(), {
                         workflow_name: props.workflowName,
+                        repo: `${props.repoOwner}/${props.repoName}`,
                         date_from: values.dateFrom ?? undefined,
                         date_to: values.dateTo ?? undefined,
                         branch: values.appliedBranch || undefined,
@@ -307,6 +308,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                         run_id: runId,
                         run_attempt: runAttempt ?? undefined,
                         source_id: props.sourceId ?? undefined,
+                        repo: `${props.repoOwner}/${props.repoName}`,
                     })
                     return { ...values.runJobs, [jobCacheKey(runId, runAttempt)]: jobs }
                 },

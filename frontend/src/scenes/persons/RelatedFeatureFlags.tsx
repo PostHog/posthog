@@ -6,6 +6,7 @@ import { LemonInput, LemonSelect, LemonSnack, LemonTable, LemonTag, Tooltip } fr
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { urls } from 'scenes/urls'
 
 import { FeatureFlagReleaseType } from '~/types'
@@ -143,8 +144,8 @@ const options = [
 
 export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Props): JSX.Element {
     const relatedFlagsLogic = relatedFeatureFlagsLogic({ distinctId, groupTypeIndex, groups })
-    const { filteredMappedFlags, isLoading, searchTerm, filters } = useValues(relatedFlagsLogic)
-    const { setSearchTerm, setFilters } = useActions(relatedFlagsLogic)
+    const { filteredMappedFlags, isLoading, searchTerm, filters, loadError } = useValues(relatedFlagsLogic)
+    const { setSearchTerm, setFilters, loadRelatedFeatureFlags } = useActions(relatedFlagsLogic)
 
     return (
         <>
@@ -236,6 +237,15 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
                 loading={isLoading}
                 dataSource={filteredMappedFlags}
                 pagination={{ pageSize: 100 }}
+                emptyState={
+                    loadError && !isLoading ? (
+                        <InsightErrorState
+                            title="Failed to load this person's feature flags"
+                            excludeDetail
+                            onRetry={() => loadRelatedFeatureFlags()}
+                        />
+                    ) : undefined
+                }
             />
         </>
     )

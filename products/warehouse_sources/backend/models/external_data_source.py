@@ -74,6 +74,13 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # Lets a synced (warehouse) source also be live-queryable via direct connection; ignored for pure direct sources.
     # Off by default — a user opts a synced source in explicitly before it becomes live-queryable.
     direct_query_enabled = models.BooleanField(default=False)
+    # Auto-enable syncing for schemas discovered after source creation (both the scheduled
+    # discovery pass and manual "Pull new schemas"). Off by default — per-source opt-in.
+    auto_sync_new_schemas = models.BooleanField(default=False)
+    # Optional list of fnmatch-style globs (e.g. ["raw_*"]) restricting which newly discovered
+    # schema names auto-sync; matched case-insensitively against both the qualified and bare
+    # table name. Null/empty means every new schema qualifies.
+    auto_sync_schema_patterns = models.JSONField(null=True, blank=True)
 
     # DEPRECATED: Check inside `revenue_analytics_config` instead
     revenue_analytics_enabled = models.BooleanField(default=False, blank=True, null=True)
