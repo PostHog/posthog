@@ -2494,7 +2494,8 @@ class LobSourceConfig(config.Config):
 
 @config.config
 class LogzIOSourceConfig(config.Config):
-    pass
+    api_token: str
+    region: Literal["us", "eu", "uk", "ca", "au", "wa"] = config.value(default="us")
 
 
 @config.config
