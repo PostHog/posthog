@@ -7,12 +7,8 @@ from unittest.mock import MagicMock, patch
 
 from products.billing_alerts.backend.logic.evaluator import evaluate_billing_alert
 from products.billing_alerts.backend.logic.notifications import evaluate_and_dispatch_billing_alert
-from products.billing_alerts.backend.logic.state_machine import event_should_dispatch
-from products.billing_alerts.backend.models import (
-    MAX_FAILURES_BEFORE_BROKEN,
-    BillingAlertConfiguration,
-    BillingAlertEvent,
-)
+from products.billing_alerts.backend.logic.state_machine import MAX_CONSECUTIVE_FAILURES, event_should_dispatch
+from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
 
 NOW = datetime(2026, 6, 23, 12, 0, tzinfo=UTC)
 
@@ -181,9 +177,7 @@ class TestBillingAlertEvaluator(BaseTest):
 
     def test_billing_service_error_uses_latest_failure_count(self) -> None:
         alert = self._alert()
-        BillingAlertConfiguration.objects.filter(pk=alert.pk).update(
-            consecutive_failures=MAX_FAILURES_BEFORE_BROKEN - 1
-        )
+        BillingAlertConfiguration.objects.filter(pk=alert.pk).update(consecutive_failures=MAX_CONSECUTIVE_FAILURES - 1)
 
         event = evaluate_and_record_billing_alert(
             alert,
@@ -198,7 +192,7 @@ class TestBillingAlertEvaluator(BaseTest):
 
         assert event.kind == BillingAlertEvent.Kind.BROKEN_CONFIG
         assert event_should_dispatch(event) is True
-        assert alert.consecutive_failures == MAX_FAILURES_BEFORE_BROKEN
+        assert alert.consecutive_failures == MAX_CONSECUTIVE_FAILURES
         assert alert.state == BillingAlertConfiguration.State.BROKEN
         assert alert.enabled is False
 
