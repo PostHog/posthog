@@ -1,7 +1,8 @@
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Preference order (lowercased) for auto-selecting an incremental field. Columns that
 # advance on every write (`updated_at`) catch late-arriving updates that creation-only
@@ -106,4 +107,68 @@ def build_default_schemas(source_schemas: list[SourceSchema]) -> list[dict]:
         if source_schema.detected_primary_keys:
             entry["primary_key_columns"] = source_schema.detected_primary_keys
         schemas.append(entry)
+    return schemas
+
+
+def incremental_field(
+    field: str,
+    field_type: IncrementalFieldType = IncrementalFieldType.DateTime,
+    label: str | None = None,
+) -> IncrementalField:
+    """Build an ``IncrementalField`` for a settings.py endpoint catalog.
+
+    Replaces the hand-written 4-key dict (``label``/``type``/``field``/``field_type``) that most
+    sources repeat per endpoint, where ``type`` and ``field_type`` are almost always the same value
+    and ``label`` defaults to the field name — a frequent copy-paste bug source.
+    """
+    return {"label": label or field, "type": field_type, "field": field, "field_type": field_type}
+
+
+def build_endpoint_schemas(
+    endpoints: Iterable[str],
+    incremental_fields: Mapping[str, list[IncrementalField]],
+    names: list[str] | None = None,
+    *,
+    append_only: Collection[str] = (),
+    merge_only: Collection[str] = (),
+    descriptions: Mapping[str, str] | None = None,
+    should_sync_default: Mapping[str, bool] | None = None,
+    supports_webhooks: Collection[str] = (),
+) -> list[SourceSchema]:
+    """Build the ``SourceSchema`` list for a static endpoint-catalog source's ``get_schemas``.
+
+    Collapses the near-universal ``for endpoint in ENDPOINTS: SourceSchema(...)`` loop plus the
+    identical ``names`` filter tail. An endpoint with incremental fields defaults to
+    ``supports_incremental=True`` and ``supports_append=True`` (the dominant pattern). Overrides:
+
+    - ``append_only``: endpoints that support append but not incremental merge.
+    - ``merge_only``: endpoints that support incremental merge but not append.
+    - ``descriptions`` / ``should_sync_default`` / ``supports_webhooks``: per-endpoint metadata.
+
+    ``names`` (the schema-picker filter) keeps only the requested endpoints when set.
+    """
+    descriptions = descriptions or {}
+    should_sync_default = should_sync_default or {}
+    schemas = []
+    for name in endpoints:
+        fields = incremental_fields.get(name)
+        # Match the hand-written loop's `.get(name) is not None`: a mapping entry (even an
+        # explicit `[]`) counts as incremental, a missing one doesn't.
+        has_incremental = fields is not None
+        schemas.append(
+            SourceSchema(
+                name=name,
+                supports_incremental=has_incremental and name not in append_only,
+                supports_append=has_incremental and name not in merge_only,
+                incremental_fields=fields or [],
+                description=descriptions.get(name),
+                should_sync_default=should_sync_default.get(name, True),
+                supports_webhooks=name in supports_webhooks,
+            )
+        )
+
+    if names is not None:
+        names_set = set(names)
+        schemas = [s for s in schemas if s.name in names_set]
+
     return schemas

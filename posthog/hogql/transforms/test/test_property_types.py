@@ -538,6 +538,27 @@ class TestPropertyTypes(BaseTest):
         )
         assert printed == self._events_schema_snapshot()
 
+    def test_property_type_override_beats_detected_type(self):
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            type=PropertyDefinition.Type.EVENT,
+            name="ts_like_id",
+            defaults={"property_type": "DateTime"},
+        )
+
+        def _print(overrides: dict[str, str] | None) -> str:
+            query, _ = prepare_and_print_ast(
+                parse_select("select properties.ts_like_id from events"),
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True, property_type_overrides=overrides),
+                "clickhouse",
+            )
+            return pretty_print_in_tests(query, self.team.pk)
+
+        assert "parseDateTime64BestEffortOrNull" in _print(None)
+        overridden = _print({"ts_like_id": "String"})
+        assert "parseDateTime64BestEffortOrNull" not in overridden, overridden
+        assert "toDateTime" not in overridden, overridden
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_property_types_person_raw(self):
         printed = self._print_select(

@@ -917,6 +917,8 @@ jobs:
               run: python .github/scripts/check-version-specifiers.py
             - name: Check IDOR model coverage
               run: python .github/scripts/check-idor-model-coverage.py
+            - name: Check DWH presentation layer stays source-agnostic
+              run: python .github/scripts/check-dwh-source-agnostic.py
             - name: Check operator parity
               run: python .github/scripts/check-operator-parity.py
             - name: Check module boundaries (tach)

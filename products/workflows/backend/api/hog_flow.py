@@ -98,6 +98,12 @@ from products.workflows.backend.services.batch_audience import (
     use_workflows_batch_audience_query,
 )
 from products.workflows.backend.services.revisions import use_workflows_revisions
+from products.workflows.backend.services.timing_reschedule import (
+    get_all_timing_action_ids,
+    get_timing_reschedule_action_ids,
+    use_workflows_timing_reschedule,
+)
+from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
@@ -1638,6 +1644,8 @@ class HogFlowViewSet(
                     )
                 serializer.save()
 
+        if not route_to_draft:
+            self._maybe_reschedule_timing_edits(before_update, serializer.instance)
         log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, previous=before_update)
         self._emit_resource_edited(serializer.instance)
 
@@ -1746,10 +1754,43 @@ class HogFlowViewSet(
                 # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
                 serializer.save()
 
+        if not route_to_draft:
+            self._maybe_reschedule_timing_edits(before_update, locked)
         log_activity_from_viewset(self, locked, name=locked.name, previous=before_update)
         self._emit_resource_edited(locked)
 
         return Response(self.get_serializer(locked).data)
+
+    def _maybe_reschedule_timing_edits(self, before: Optional[HogFlow], after: HogFlow) -> None:
+        """Kick off a reschedule sweep of parked runs when a go-live config change could move
+        their wake times earlier (issue #66380): shortened delays and moved wait windows.
+
+        Called wherever the LIVE config changes - a direct save (the builder path, where save
+        is go-live), the graph endpoint, or publish - and never for draft writes, which don't
+        touch what runs execute. Deliberately called AFTER the writing transaction commits:
+        the feature-flag check can hit the network, and must not extend the select_for_update
+        row-lock hold. on_commit outside an atomic block runs the enqueue immediately, and in
+        tests (where an outer transaction wraps the request) it defers to that commit.
+        """
+        if not before or after.status != HogFlow.State.ACTIVE:
+            return
+        if before.status != HogFlow.State.ACTIVE:
+            # Re-enable: runs parked during the prior active period survive a disable (cancelled
+            # lazily, at wake, only while the flow is inactive), and timing edits made while
+            # inactive never swept - so converge every timing step rather than diffing against a
+            # baseline that may predate any number of unswept edits.
+            action_ids = get_all_timing_action_ids(after.actions)
+        else:
+            action_ids = get_timing_reschedule_action_ids(before.actions, after.actions)
+        if not action_ids:
+            return
+        if not use_workflows_timing_reschedule(self.team):
+            return
+        team_id = self.team_id
+        hog_flow_id = str(after.id)
+        transaction.on_commit(
+            lambda: reschedule_hog_flow_timing.delay(team_id=team_id, hog_flow_id=hog_flow_id, action_ids=action_ids)
+        )
 
     def _get_in_flight_run_count(self, hog_flow: HogFlow) -> Optional[int]:
         # Best-effort: publish must not fail because the counting service is unreachable — the count
@@ -1820,6 +1861,7 @@ class HogFlowViewSet(
             locked.draft_updated_at = None
             locked.save(update_fields=["draft", "draft_updated_at"])
 
+        self._maybe_reschedule_timing_edits(before_update, locked)
         log_activity_from_viewset(self, locked, name=locked.name, previous=before_update)
         self._emit_resource_edited(locked)
 

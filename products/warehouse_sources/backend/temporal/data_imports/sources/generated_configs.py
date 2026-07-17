@@ -45,6 +45,14 @@ class BigQueryUseCustomRegionConfig(config.Config):
 
 
 @config.config
+class BitbucketAuthMethodConfig(config.Config):
+    selection: Literal["api_token", "access_token"] = "api_token"
+    email: str | None = None
+    api_token: str | None = None
+    access_token: str | None = None
+
+
+@config.config
 class ElasticsearchAuthMethodConfig(config.Config):
     selection: Literal["basic", "api_key"] = "basic"
     username: str | None = None
@@ -107,6 +115,14 @@ class StripeAuthMethodConfig(config.Config):
     stripe_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
     selection: Literal["api_key", "oauth"] = "api_key"
     stripe_secret_key: str | None = None
+
+
+@config.config
+class TailscaleAuthMethodConfig(config.Config):
+    selection: Literal["oauth_client", "api_key"] = "oauth_client"
+    client_id: str | None = None
+    client_secret: str | None = None
+    api_key: str | None = None
 
 
 @config.config
@@ -359,7 +375,8 @@ class AppsFlyerSourceConfig(config.Config):
 
 @config.config
 class AppsignalSourceConfig(config.Config):
-    pass
+    api_token: str
+    app_id: str
 
 
 @config.config
@@ -540,7 +557,8 @@ class BingAdsSourceConfig(config.Config):
 
 @config.config
 class BitbucketSourceConfig(config.Config):
-    pass
+    workspace: str
+    auth_method: BitbucketAuthMethodConfig
 
 
 @config.config
@@ -936,7 +954,12 @@ class CodacySourceConfig(config.Config):
 
 @config.config
 class CodecovSourceConfig(config.Config):
-    pass
+    owner_username: str
+    api_token: str
+    service: Literal["github", "gitlab", "bitbucket", "github_enterprise", "gitlab_enterprise", "bitbucket_server"] = (
+        config.value(default="github")
+    )
+    repositories: str | None = None
 
 
 @config.config
@@ -1141,7 +1164,8 @@ class DatadogSourceConfig(config.Config):
 
 @config.config
 class DatahubSourceConfig(config.Config):
-    pass
+    instance_url: str
+    api_token: str
 
 
 @config.config
@@ -1267,7 +1291,7 @@ class DolibarrSourceConfig(config.Config):
 
 @config.config
 class DopplerSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2164,7 +2188,7 @@ class JamfProSourceConfig(config.Config):
 
 @config.config
 class JellyfishSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2470,7 +2494,8 @@ class LobSourceConfig(config.Config):
 
 @config.config
 class LogzIOSourceConfig(config.Config):
-    pass
+    api_token: str
+    region: Literal["us", "eu", "uk", "ca", "au", "wa"] = config.value(default="us")
 
 
 @config.config
@@ -2728,7 +2753,8 @@ class MonoSourceConfig(config.Config):
 
 @config.config
 class MonteCarloSourceConfig(config.Config):
-    pass
+    api_key_id: str
+    api_key_secret: str
 
 
 @config.config
@@ -3359,7 +3385,8 @@ class PromptingCompanySourceConfig(config.Config):
 
 @config.config
 class PulumiCloudSourceConfig(config.Config):
-    pass
+    access_token: str
+    organization: str
 
 
 @config.config
@@ -3422,7 +3449,7 @@ class RKICovidSourceConfig(config.Config):
 
 @config.config
 class RailwaySourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -3729,7 +3756,9 @@ class SecodaSourceConfig(config.Config):
 
 @config.config
 class SecureframeSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
+    region: Literal["us", "uk"] = config.value(default="us")
 
 
 @config.config
@@ -3979,7 +4008,8 @@ class SonarCloudSourceConfig(config.Config):
 
 @config.config
 class SonarqubeSourceConfig(config.Config):
-    pass
+    host: str
+    token: str
 
 
 @config.config
@@ -4010,7 +4040,9 @@ class SplitIoSourceConfig(config.Config):
 
 @config.config
 class SplunkObservabilityCloudSourceConfig(config.Config):
-    pass
+    realm: str
+    access_token: str
+    signalflow_program: str | None = None
 
 
 @config.config
@@ -4181,7 +4213,8 @@ class TaboolaSourceConfig(config.Config):
 
 @config.config
 class TailscaleSourceConfig(config.Config):
-    pass
+    auth_method: TailscaleAuthMethodConfig
+    tailnet: str | None = None
 
 
 @config.config
@@ -4501,7 +4534,9 @@ class VellumSourceConfig(config.Config):
 
 @config.config
 class VeracodeSourceConfig(config.Config):
-    pass
+    api_id: str
+    api_secret: str
+    region: Literal["com", "eu", "us"] = config.value(default="com")
 
 
 @config.config
