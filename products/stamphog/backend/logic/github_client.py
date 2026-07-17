@@ -1,7 +1,8 @@
 """Dedicated GitHub App client for Stamphog.
 
 Stamphog runs as its own GitHub App (separate identity from PostHog's product-integration App), so it
-mints its own installation tokens from ``STAMPHOG_GITHUB_APP_ID`` / ``STAMPHOG_GITHUB_APP_PRIVATE_KEY``.
+mints its own installation tokens from ``STAMPHOG_GITHUB_APP_CLIENT_ID`` (or ``STAMPHOG_GITHUB_APP_ID``
+as a fallback) / ``STAMPHOG_GITHUB_APP_PRIVATE_KEY``.
 Every outbound call goes through the shared egress transport (:func:`posthog.egress.github.transport.github_request`),
 which gates on the installation's shared budget and records telemetry by construction. That transport is
 token-agnostic and stateless, so a second App identity needs no change to the egress layer — this client
@@ -139,15 +140,19 @@ def _build_app_jwt() -> str:
     """Build a short-lived App JWT (RS256) for minting installation tokens.
 
     ``iat`` is backdated 60s to tolerate clock skew against GitHub; ``exp`` stays inside GitHub's
-    10-minute maximum. The App id is the issuer.
+    10-minute maximum. The client id is the issuer — the same form the core GitHub integration
+    signs with (see ``posthog.models.github_integration_base``).
     """
-    app_id = settings.STAMPHOG_GITHUB_APP_ID
-    if not app_id:
-        raise StamphogGitHubError("STAMPHOG_GITHUB_APP_ID is not configured")
+    # Client id is the preferred issuer (matches the core GitHub integration); the app id fallback
+    # covers workers whose chart predates the client id env. Drop the fallback once every worker
+    # deploy ships STAMPHOG_GITHUB_APP_CLIENT_ID.
+    issuer = settings.STAMPHOG_GITHUB_APP_CLIENT_ID or settings.STAMPHOG_GITHUB_APP_ID
+    if not issuer:
+        raise StamphogGitHubError("Neither STAMPHOG_GITHUB_APP_CLIENT_ID nor STAMPHOG_GITHUB_APP_ID is configured")
     now = int(time.time())
     try:
         return jwt.encode(
-            {"iat": now - 60, "exp": now + 540, "iss": str(app_id)},
+            {"iat": now - 60, "exp": now + 540, "iss": str(issuer)},
             _app_private_key(),
             algorithm="RS256",
         )

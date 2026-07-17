@@ -182,7 +182,7 @@ def stamphog_chain() -> Iterator[StamphogChain]:
     with ExitStack() as stack:
         stack.enter_context(
             override_settings(
-                STAMPHOG_GITHUB_WEBHOOK_SECRET=WEBHOOK_SECRET,
+                STAMPHOG_GITHUB_APP_WEBHOOK_SECRET=WEBHOOK_SECRET,
                 STAMPHOG_GITHUB_APP_ID="123456",
                 STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key(),
             )

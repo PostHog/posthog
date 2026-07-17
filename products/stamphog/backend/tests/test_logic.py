@@ -5,11 +5,12 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
 
+import jwt
 from parameterized import parameterized
 
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary
 from products.stamphog.backend.logic.digest_config import load_repo_digest_config
-from products.stamphog.backend.logic.github_client import StamphogGitHubClient, StamphogGitHubError
+from products.stamphog.backend.logic.github_client import StamphogGitHubClient, StamphogGitHubError, _build_app_jwt
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation, parse_reviewer_output
 from products.stamphog.backend.logic.slack_digest import _build_blocks, _build_fallback_text
 from products.stamphog.backend.models import StamphogRepoConfig
@@ -255,6 +256,35 @@ class GetPrReviewThreadsTests(SimpleTestCase):
         # A PR whose threads never stop paginating must raise rather than review a truncated list.
         with pytest.raises(StamphogGitHubError):
             self._fetch(self._threads_page([], has_next=True))
+
+
+class BuildAppJwtIssuerTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("client_id_preferred_over_app_id", "acme-client", "999", "acme-client"),
+            ("app_id_fallback_when_client_id_unset", "", "999", "999"),
+        ]
+    )
+    def test_issuer_prefers_client_id_falling_back_to_app_id(
+        self, _name: str, client_id: str, app_id: str, expected_issuer: str
+    ) -> None:
+        with override_settings(
+            STAMPHOG_GITHUB_APP_CLIENT_ID=client_id,
+            STAMPHOG_GITHUB_APP_ID=app_id,
+            STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key(),
+        ):
+            token = _build_app_jwt()
+        claims = jwt.decode(token, options={"verify_signature": False})
+        assert claims["iss"] == expected_issuer
+
+    def test_raises_when_neither_client_id_nor_app_id_is_configured(self) -> None:
+        with override_settings(
+            STAMPHOG_GITHUB_APP_CLIENT_ID="",
+            STAMPHOG_GITHUB_APP_ID="",
+            STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key(),
+        ):
+            with pytest.raises(StamphogGitHubError):
+                _build_app_jwt()
 
 
 class TemporalRegistryTests(SimpleTestCase):
