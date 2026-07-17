@@ -65,14 +65,18 @@ describe('example: agent-builder bundle', () => {
         expect(files['agent.md'].length).toBeGreaterThan(500)
     })
 
-    it('authors via ONE PostHog MCP authed by the posthog identity provider', async () => {
-        const { spec } = await loadBundle()
+    it('authors through one direct-tools PostHog MCP authed by the posthog identity provider', async () => {
+        const { spec, files } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         expect(parsed.mcps).toHaveLength(1)
         expect(parsed.mcps[0].id).toBe('posthog')
         expect(parsed.mcps[0].auth?.provider).toBe('posthog')
+        expect(parsed.mcps[0].headers?.['x-posthog-mcp-mode']).toBe('tools')
         // The curated allow-list keeps the surface to authoring + data tools.
         expect(parsed.mcps[0].tools?.length ?? 0).toBeGreaterThan(20)
+        expect(files['agent.md']).toContain('top-level `posthog__<name>` tools')
+        expect(files['agent.md']).toContain('There is no `posthog__call_tool`')
+        expect(files['agent.md']).not.toContain('pass them to `call_tool`')
     })
 
     it('keeps only its own runtime natives (memory + web-search) — no native agent-applications tools', async () => {
