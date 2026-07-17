@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
@@ -253,21 +254,31 @@ export function TrendsPieChart({
         )
     }
 
+    // A bottom legend (exports/shared images) hugs the bottom of the chart box. If the box fills a
+    // tall card the round pie centers in it, stranding the legend far below the pie and up against
+    // the total. Bound the box to a square around the pie so the legend sits right under it, and
+    // center the whole group. In-app (right legend) the chart keeps filling the column.
+    const legendAtBottom = !!legendConfig.show && legendConfig.position === 'bottom'
+
+    const pie = (
+        <PieChart<TrendsSeriesMeta>
+            series={series}
+            theme={theme}
+            config={pieConfig}
+            tooltip={renderTooltip}
+            onSliceClick={canHandleClick ? onSliceClick : undefined}
+            valueFormatter={valueFormatter}
+            dataAttr="trend-pie-graph"
+            onError={handleChartError}
+        />
+    )
+
     return (
         // `flex-1 min-h-0` (not `h-full`) so the chart fills the flex column even when the
         // parent only sets `min-height`/`flex` — a percentage height would collapse to 0,
         // leaving `PieChart` with `outerRadius <= 0` and no slices. Mirrors the bar/line charts.
-        <div className="flex flex-col w-full flex-1 min-h-0">
-            <PieChart<TrendsSeriesMeta>
-                series={series}
-                theme={theme}
-                config={pieConfig}
-                tooltip={renderTooltip}
-                onSliceClick={canHandleClick ? onSliceClick : undefined}
-                valueFormatter={valueFormatter}
-                dataAttr="trend-pie-graph"
-                onError={handleChartError}
-            />
+        <div className={clsx('flex flex-col w-full flex-1 min-h-0', legendAtBottom && 'justify-center')}>
+            {legendAtBottom ? <div className="flex flex-col w-full min-h-0 max-h-full aspect-square">{pie}</div> : pie}
             {showAggregation && (
                 <div className="text-7xl text-center font-bold m-0">
                     {formatAggregationAxisValue(trendsFilter, total, baseCurrency)}
