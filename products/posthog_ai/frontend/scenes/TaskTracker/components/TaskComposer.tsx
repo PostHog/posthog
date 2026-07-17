@@ -12,9 +12,12 @@ import {
     Welcome,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
+import { cycleMode } from 'products/posthog_ai/frontend/utils/composerModes'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
+import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
+import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
@@ -56,6 +59,9 @@ export function TaskComposer(): JSX.Element {
                             value={newTaskData.repositoryConfig}
                             onChange={(config) => setNewTaskData({ repositoryConfig: config })}
                         />
+                        <ComposerModeShortcut
+                            onCycle={() => setNewTaskData({ permissionMode: cycleMode(newTaskData.permissionMode) })}
+                        />
                         <Composer.Root
                             value={draft.value}
                             onChange={draft.onChange}
@@ -69,9 +75,17 @@ export function TaskComposer(): JSX.Element {
                                 </Composer.Header>
                                 <Composer.Field>
                                     <Composer.Placeholder>Describe the task in detail…</Composer.Placeholder>
-                                    <Composer.Textarea autoFocus data-attr="task-composer-input" />
+                                    <Composer.Textarea
+                                        submitShortcut="cmd-enter"
+                                        autoFocus
+                                        data-attr="task-composer-input"
+                                    />
                                 </Composer.Field>
-                                <Composer.Footer>
+                                <Composer.Footer className="flex items-center gap-1 pl-2">
+                                    <ComposerModePicker
+                                        selectedMode={newTaskData.permissionMode}
+                                        onModeChange={(permissionMode) => setNewTaskData({ permissionMode })}
+                                    />
                                     <ComposerModelEffortPickers
                                         selectedModel={newTaskData.model}
                                         selectedEffort={newTaskData.reasoningEffort}
