@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldSelectConfig
+from posthog.schema import SourceFieldInputConfig, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PaddleSourceConfig
@@ -59,6 +59,7 @@ class TestPaddleSourceConfigCompat:
         webhook_fields = PaddleSource().get_source_config.webhookFields
         assert webhook_fields is not None
         secret_field = next(f for f in webhook_fields if f.name == "signing_secret")
+        assert isinstance(secret_field, SourceFieldInputConfig)
         assert secret_field.secret is True
 
 

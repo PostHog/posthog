@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from datetime import datetime
 
 import pytest
@@ -262,7 +263,9 @@ def test_paddle_source_pulls_from_api_when_webhook_disabled(mock_get_mapping, mo
         webhook_source_manager=webhook_manager,
     )
 
-    tables = list(response.items())
+    items = response.items()
+    assert isinstance(items, Iterable)
+    tables = list(items)
 
     webhook_manager.get_items.assert_not_called()
     assert len(tables) == 1
