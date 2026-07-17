@@ -40,10 +40,6 @@ class TestOtelLogMirror(SimpleTestCase):
         return [item.log_record for item in exporter.get_finished_logs()]
 
     def test_mirrors_event_and_allowlisted_attributes(self) -> None:
-        # The core contract: `event` becomes the body, allowlisted scalars become stringified
-        # attributes, the logger name rides along, and the resource is pinned to the service so the
-        # Logs read filter (service.name = replay-vision) finds it. A payload-derived field like
-        # response_preview must be dropped (guards the cross-tenant content-exposure fix).
         records = self._run(
             {
                 "event": "scanner_call_failed",
@@ -63,8 +59,6 @@ class TestOtelLogMirror(SimpleTestCase):
         assert record.resource.attributes["service.name"] == "replay-vision"
 
     def test_ignores_loggers_outside_the_prefix(self) -> None:
-        # The mirror runs for every log line in the worker. A record from a framework logger outside
-        # the product namespace must not be shipped (over-shipping unrelated logs to the shared project).
         records = self._run({"event": "shutting down", "logger": "temporalio.worker"})
         assert records == []
 
@@ -78,14 +72,12 @@ class TestOtelLogMirror(SimpleTestCase):
         ]
     )
     def test_severity_mapping(self, level_name: str, number: SeverityNumber, text: str) -> None:
-        # The Logs UI filters and sorts on severity. A broken level map degrades triage silently.
         records = self._run({"event": "x", "logger": f"{_PREFIX}.x", "level": level_name}, method_name=level_name)
         assert records[0].severity_text == text
         assert records[0].severity_number == number
 
     def test_drops_non_scalar_attributes(self) -> None:
-        # OTEL attributes accept scalars only. An allowlisted key whose value is a Mapping/list must be
-        # dropped, not crash or serialize garbage.
+        # OTEL attributes are scalars only; an allowlisted key with a Mapping/list value is dropped.
         records = self._run(
             {"event": "x", "logger": f"{_PREFIX}.x", "team_id": {"nested": 1}, "observation_id": "obs_1"}
         )
@@ -93,8 +85,6 @@ class TestOtelLogMirror(SimpleTestCase):
         assert "team_id" not in records[0].attributes
 
     def test_restricted_mode_ships_exception_type_not_traceback(self) -> None:
-        # Fail-closed: an exception contributes only its class name, never the message or traceback,
-        # which can embed customer data derived from a session.
         try:
             raise ValueError("customer data in message")
         except ValueError:
@@ -107,8 +97,6 @@ class TestOtelLogMirror(SimpleTestCase):
         assert all("customer data" not in str(value) for value in records[0].attributes.values())
 
     def test_mirror_is_fail_soft(self) -> None:
-        # A telemetry throw must never propagate out of the processor: it would break the log call and
-        # the activity it rode in on. The event dict must still flow to the next processor unchanged.
         provider = mock.MagicMock()
         provider.get_logger.side_effect = RuntimeError("exporter down")
         event_dict = {"event": "x", "logger": f"{_PREFIX}.x"}
@@ -122,17 +110,13 @@ class TestOtelLogMirror(SimpleTestCase):
         [("both_empty", "", ""), ("endpoint_only", "http://c/i/v1/logs", ""), ("token_only", "", "phc_x")]
     )
     def test_noop_when_unconfigured(self, _name: str, endpoint: str, token: str) -> None:
-        # A half- or un-configured lane must never build a provider (an unauthenticated export would
-        # 401 and drop records) and the processor must be a no-op.
         with override_settings(OTLP_LOGS_INGEST_ENDPOINT=endpoint, OTLP_LOGS_INGEST_TOKEN=token):
             mirror = otel_log_mirror_processor("replay-vision", logger_prefix=_PREFIX, attribute_allowlist=_ALLOWLIST)
             mirror(None, "info", {"event": "x", "logger": f"{_PREFIX}.x"})
         assert otel_logs._providers.get("replay-vision") is None
 
     def test_production_exporter_bypasses_egress_proxy(self) -> None:
-        # The endpoint+token path builds the real OTLP exporter, whose requests.Session must have
-        # trust_env=False: capture-logs is an in-cluster private ClusterIP and the worker's HTTP_PROXY
-        # Smokescreen egress proxy denies private-range hosts (407), silently dropping every batch.
+        # trust_env=False, else the worker's Smokescreen proxy 407s the in-cluster ClusterIP.
         endpoint = "http://capture-logs.posthog.svc.cluster.local:4318/i/v1/logs"
         with override_settings(OTLP_LOGS_INGEST_ENDPOINT=endpoint, OTLP_LOGS_INGEST_TOKEN="phc_x"):
             with mock.patch("opentelemetry.exporter.otlp.proto.http._log_exporter.OTLPLogExporter") as mock_otlp:

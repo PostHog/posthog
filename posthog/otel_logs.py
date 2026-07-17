@@ -1,11 +1,9 @@
 """OTLP log push into the PostHog Logs product (the logs counterpart of `posthog/otel_metrics.py`).
 
-`otel_log_mirror_processor(...)` returns a structlog processor that mirrors matching records into the
-Logs product over OTLP. It is a structlog processor rather than a stdlib `logging.Handler` because the
-Temporal workers configure structlog with a non-stdlib logger factory that bypasses stdlib logging, so
-a handler attached to a stdlib logger never sees their records. A no-op unless OTLP_LOGS_INGEST_ENDPOINT
-and OTLP_LOGS_INGEST_TOKEN are set. Providers are lazy and per-process (fork-safe) and keyed by service
-name, which becomes the `service.name` the Logs read side filters on.
+`otel_log_mirror_processor(...)` is a structlog processor, not a stdlib `logging.Handler`: the Temporal
+workers log through a non-stdlib structlog factory that a stdlib handler never sees. A no-op unless
+OTLP_LOGS_INGEST_ENDPOINT and OTLP_LOGS_INGEST_TOKEN are set. Providers are lazy, per-process
+(fork-safe), and keyed by service name, which becomes the `service.name` the Logs read side filters on.
 """
 
 import os
@@ -21,7 +19,6 @@ if TYPE_CHECKING:
     import structlog
     from opentelemetry._logs import SeverityNumber
     from opentelemetry.sdk._logs import LoggerProvider
-    from opentelemetry.sdk.resources import Resource
 
 _lock = threading.Lock()
 _providers: "dict[str, LoggerProvider | None]" = {}
@@ -29,7 +26,6 @@ _providers_pid: int | None = None
 
 _severity_by_levelno: "dict[int, tuple[str, SeverityNumber]] | None" = None
 
-# `add_log_level` writes the lowercase level name (and structlog's method name matches) to a levelno.
 _LEVELNO_BY_LEVEL_NAME = {
     "debug": logging.DEBUG,
     "info": logging.INFO,
@@ -93,8 +89,7 @@ def _severity(levelno: int) -> "tuple[str, SeverityNumber]":
 
 
 def _scalar_attributes(event_dict: "structlog.types.EventDict", allowlist: frozenset[str]) -> dict[str, str]:
-    """The logger name plus the stringified allowlisted scalar fields. Fail-closed: only allowlisted
-    keys ship, so payload-derived fields (previews, prompts) stay in the process."""
+    """Logger name plus stringified allowlisted scalars. Fail-closed: non-allowlisted keys never ship."""
     attributes: dict[str, str] = {}
     name = event_dict.get("logger")
     if name:
@@ -127,19 +122,23 @@ def otel_log_mirror_processor(
     logger_prefix: str,
     attribute_allowlist: "set[str] | frozenset[str]",
 ) -> "structlog.types.Processor":
-    """Return a structlog processor that mirrors matching records into the Logs product over OTLP.
-
-    Only records whose logger name starts with `logger_prefix` are mirrored, under
-    `service.name = service_name`. Fail-soft and a no-op until OTLP_LOGS_INGEST_* are configured. It is
-    always fail-closed: only `attribute_allowlist` keys ship, and an exception contributes just its
-    type. Insert it before the terminal renderer, while the event dict is still structured and the
-    message is under `event`.
+    """Structlog processor that mirrors records under `logger_prefix` into Logs over OTLP as
+    `service.name`. Fail-soft, a no-op until OTLP_LOGS_INGEST_* are set, always fail-closed (only
+    `attribute_allowlist` keys ship). Insert before the terminal renderer, message still under `event`.
     """
     allowlist = frozenset(attribute_allowlist)
-    resource: list[Resource | None] = [None]
-    # Warm the provider now (worker startup, outside the Temporal workflow sandbox) so the
-    # BatchLogRecordProcessor background thread is never spawned lazily during a workflow task.
+    # Warm the provider at startup so the exporter's thread isn't spawned inside the workflow sandbox.
     _ensure_provider(service_name)
+
+    # Resolve SDK types and the pinned resource once at startup (this factory runs after django.setup),
+    # keeping them off the per-log path. Without a pinned resource the record would default to the pod's
+    # OTEL_SERVICE_NAME and the Logs service.name filter would miss it.
+    from opentelemetry.sdk._logs import LogRecord  # noqa: PLC0415
+    from opentelemetry.sdk.resources import Resource  # noqa: PLC0415
+    from opentelemetry.trace import TraceFlags  # noqa: PLC0415
+
+    resource = Resource.create({"service.name": service_name})
+    trace_flags = TraceFlags(TraceFlags.DEFAULT)
 
     def mirror(
         logger: "structlog.types.WrappedLogger",
@@ -155,34 +154,24 @@ def otel_log_mirror_processor(
             if provider is None:
                 return event_dict
 
-            from opentelemetry.sdk._logs import LogRecord  # noqa: PLC0415
-            from opentelemetry.sdk.resources import Resource  # noqa: PLC0415
-            from opentelemetry.trace import TraceFlags  # noqa: PLC0415
-
-            if resource[0] is None:
-                # Pin the resource: a record built without it defaults to the pod's OTEL_SERVICE_NAME,
-                # so the Logs filter on service.name would miss these records.
-                resource[0] = Resource.create({"service.name": service_name})
-
             level_name = event_dict.get("level") or method_name
             severity_text, severity_number = _severity(_LEVELNO_BY_LEVEL_NAME.get(level_name, logging.INFO))
             attributes = _scalar_attributes(event_dict, allowlist)
             attributes.update(_exception_type(event_dict))
             timestamp = time.time_ns()
-            # These logs carry no trace context. Set the invalid (zero) trace/span ids explicitly:
-            # the OTLP proto encoder serializes them as bytes and crashes on the default None.
+            # Zero trace/span ids: the OTLP encoder serializes them as bytes and crashes on the default None.
             provider.get_logger(service_name, version="1").emit(
                 LogRecord(
                     timestamp=timestamp,
                     observed_timestamp=timestamp,
                     trace_id=0,
                     span_id=0,
-                    trace_flags=TraceFlags(TraceFlags.DEFAULT),
+                    trace_flags=trace_flags,
                     severity_text=severity_text,
                     severity_number=severity_number,
                     body=str(event_dict.get("event", "")),
                     attributes=attributes,
-                    resource=resource[0],
+                    resource=resource,
                 )
             )
         except Exception:

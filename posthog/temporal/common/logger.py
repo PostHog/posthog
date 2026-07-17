@@ -523,9 +523,8 @@ def configure_logger(
         raise_on_producer_error: Raise any producer startup errors when `True`,
             otherwise only log them. Set to `False` as in production environments, we
             prefer only logging as most products can survive without logs.
-        otel_log_mirror: Optionally, a processor that mirrors records to the Logs product
-            over OTLP. Inserted before the terminal renderer so it sees the structured
-            event dict. Used to dogfood a product's pipeline logs into Logs.
+        otel_log_mirror: Optionally, a processor inserted before the renderer to mirror
+            records to the Logs product over OTLP.
     """
     base_processors: list[structlog.types.Processor] = [
         structlog.stdlib.add_log_level,
@@ -544,8 +543,7 @@ def configure_logger(
         ),
     ]
 
-    # Insert before the branch-specific renderers so the mirror sees the structured event dict
-    # (message still under `event`, raw `exc_info`) identically in both the prod and tty/test chains.
+    # Before the renderers, so the mirror sees the structured event dict (message still under `event`).
     if otel_log_mirror is not None:
         base_processors.append(otel_log_mirror)
 

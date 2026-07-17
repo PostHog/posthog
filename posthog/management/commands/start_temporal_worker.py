@@ -700,7 +700,6 @@ class Command(BaseCommand):
 
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
-            # Dogfood the Replay Vision pipeline's logs into the Logs product (a no-op elsewhere).
             otel_log_mirror = build_vision_log_mirror() if task_queue == settings.REPLAY_VISION_TASK_QUEUE else None
             configure_logger(loop=loop, otel_log_mirror=otel_log_mirror)
 
