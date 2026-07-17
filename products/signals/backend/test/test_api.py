@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pydantic
 import temporalio.exceptions
-from temporalio.common import WorkflowIDReusePolicy
 
 from products.signals.backend.contracts import SignalRemediation
 from products.signals.backend.facade.api import (
@@ -182,61 +181,6 @@ class TestEmitSignalValidation:
 
         assert client.start_workflow.await_count == 2
 
-    async def test_emit_signal_uses_a_deterministic_idempotency_key(self, team_stub):
-        client = AsyncMock()
-        client.start_workflow.side_effect = [
-            temporalio.exceptions.WorkflowAlreadyStartedError("already started", "buffer-signals-1"),
-            temporalio.exceptions.WorkflowAlreadyStartedError("already emitted", "signal-emitter-1"),
-        ]
-
-        with (
-            patch("products.signals.backend.facade.api.async_connect", return_value=client),
-            patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
-        ):
-            await emit_signal(
-                team=team_stub,
-                source_product="github",
-                source_type="issue",
-                source_id="posthog/posthog#42",
-                description="A valid signal",
-                extra=GITHUB_ISSUE_EXTRA,
-                idempotency_key="posthog/posthog#42",
-            )
-
-        emitter_call = client.start_workflow.call_args_list[1]
-        # The key is namespaced per (source_product, source_type) so kinds can't dedupe each other.
-        assert emitter_call.kwargs["id"] == SignalEmitterWorkflow.workflow_id_for(
-            team_stub.id, "github:issue:posthog/posthog#42"
-        )
-        # FAILED_ONLY dedupes a succeeded/running emission but lets a transiently-failed one retry.
-        assert emitter_call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
-
-    async def test_emit_signal_empty_idempotency_key_does_not_dedupe(self, team_stub):
-        client = AsyncMock()
-        client.start_workflow.side_effect = [
-            temporalio.exceptions.WorkflowAlreadyStartedError("already started", "buffer-signals-1"),
-            AsyncMock(),
-        ]
-
-        with (
-            patch("products.signals.backend.facade.api.async_connect", return_value=client),
-            patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
-        ):
-            await emit_signal(
-                team=team_stub,
-                source_product="github",
-                source_type="issue",
-                source_id="posthog/posthog#42",
-                description="A valid signal",
-                extra=GITHUB_ISSUE_EXTRA,
-                idempotency_key="",
-            )
-
-        # An empty key is treated as "no key": no dedup, so a blank-derived key can't collapse
-        # distinct observations onto one deterministic workflow id.
-        emitter_call = client.start_workflow.call_args_list[1]
-        assert emitter_call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
-
 
 @pytest.mark.asyncio
 class TestEmitSignalAnalytics:
@@ -278,41 +222,11 @@ class TestEmitSignalAnalytics:
             "source_id": "posthog/posthog#42",
         }
         assert events["signal_emission_started"].kwargs["properties"] == expected_properties
-        # A fresh emit closes the funnel with a non-deduplicated signal_emitted.
-        assert events["signal_emitted"].kwargs["properties"] == {**expected_properties, "deduplicated": False}
+        assert events["signal_emitted"].kwargs["properties"] == expected_properties
         for call in events.values():
             assert call.kwargs["distinct_id"] == str(team_stub.uuid)
             assert "labels" not in call.kwargs["properties"]
             assert "project" in call.kwargs["groups"]
-
-    async def test_idempotent_dedupe_still_emits_flagged_deduplicated(self, team_stub):
-        # Buffer already running, and the emitter workflow is deduped by its idempotency key.
-        client = AsyncMock()
-        client.start_workflow.side_effect = [
-            temporalio.exceptions.WorkflowAlreadyStartedError("already started", "buffer-signals-1"),
-            temporalio.exceptions.WorkflowAlreadyStartedError("already emitted", "signal-emitter-1"),
-        ]
-
-        with (
-            patch("products.signals.backend.facade.api.async_connect", return_value=client),
-            patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
-            patch("products.signals.backend.facade.api.posthoganalytics.capture") as capture,
-        ):
-            await emit_signal(
-                team=team_stub,
-                source_product="github",
-                source_type="issue",
-                source_id="posthog/posthog#42",
-                description="A valid signal",
-                extra=GITHUB_ISSUE_EXTRA,
-                idempotency_key="posthog/posthog#42",
-            )
-
-        # A dedupe is a success, not a dispatch failure: signal_emitted still fires (flagged
-        # deduplicated) so every started marker has a matching terminal event.
-        events = {call.kwargs["event"]: call for call in capture.call_args_list}
-        assert list(events) == ["signal_emission_started", "signal_emitted"]
-        assert events["signal_emitted"].kwargs["properties"]["deduplicated"] is True
 
 
 class TestTelemetryPropsFromExtra:

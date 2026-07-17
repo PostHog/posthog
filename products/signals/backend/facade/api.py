@@ -8,7 +8,6 @@ import pydantic
 import structlog
 import temporalio
 import posthoganalytics
-from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.event_usage import groups
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
@@ -315,7 +314,6 @@ async def emit_signal(
     weight: float = 0.5,
     extra: dict | None = None,
     remediation: SignalRemediation | None = None,
-    idempotency_key: str | None = None,
 ) -> None:
     """
     Emit a signal for grouping and potential report generation, fire-and-forget.
@@ -341,10 +339,6 @@ async def emit_signal(
             (`human` + `agent` combined). When set, the signal is treated as actionable: the guidance
             is surfaced to the research agent as authoritative direction, which it follows instead of
             investigating from scratch. Not required by any existing source.
-        idempotency_key: Stable key for one immutable observation, scoped per (source_product,
-            source_type). Repeated calls with the same key within Temporal retention enqueue it
-            once (including activity retries), but a first run that failed or timed out before
-            reaching the buffer is retried on the next call. An empty string means no dedup.
 
     Example:
         await emit_signal(
@@ -450,40 +444,16 @@ async def emit_signal(
 
     # Fire-and-forget: the emitter workflow will submit the signal to the buffer
     # via update, blocking if the buffer is full (backpressure).
-    # An empty key means "no dedup" — normalize it to None so distinct observations can't collapse
-    # onto one workflow id via a truthy `"<product>:<type>:"` prefix.
-    idempotency_key = idempotency_key or None
-    # Dedupe an already-succeeded (or still-running) emission, but let a transiently-failed first run
-    # be retried: FAILED_ONLY only rejects id reuse when the prior run closed successfully, so a
-    # failed or timed-out emitter doesn't permanently drop the observation.
-    id_reuse_policy = (
-        WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
-        if idempotency_key is not None
-        else WorkflowIDReusePolicy.ALLOW_DUPLICATE
+    await client.start_workflow(
+        SignalEmitterWorkflow.run,
+        SignalEmitterInput(team_id=team.id, signal=signal_input),
+        id=SignalEmitterWorkflow.workflow_id_for(team.id),
+        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+        run_timeout=timedelta(minutes=10),
     )
-    # Namespace the key per signal kind so two emitters reusing a natural key can't dedupe each other.
-    dedupe_key = f"{source_product}:{source_type}:{idempotency_key}" if idempotency_key is not None else None
-    try:
-        await client.start_workflow(
-            SignalEmitterWorkflow.run,
-            SignalEmitterInput(team_id=team.id, signal=signal_input),
-            id=SignalEmitterWorkflow.workflow_id_for(team.id, dedupe_key),
-            id_reuse_policy=id_reuse_policy,
-            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-            run_timeout=timedelta(minutes=10),
-        )
-        deduplicated = False
-    except temporalio.exceptions.WorkflowAlreadyStartedError:
-        if idempotency_key is None:
-            raise
-        # Idempotent re-emit: an earlier call already queued this observation, so it is emitted, not
-        # failed. Fall through to the same signal_emitted event (flagged deduplicated) rather than
-        # returning early — that keeps the started->emitted gap a clean signal of dispatch failures.
-        deduplicated = True
 
-    # Fire the analytics event only once the signal is definitively queued (freshly above, or by an
-    # earlier idempotent call) so Temporal/connection failures don't inflate the "signals emitted"
-    # metric — a genuine failure re-raises above and never reaches here.
+    # Fire the analytics event only after the signal is definitively queued so
+    # Temporal/connection failures don't inflate the "signals emitted" metric.
     try:
         posthoganalytics.capture(
             event="signal_emitted",
@@ -493,7 +463,6 @@ async def emit_signal(
                 "source_product": source_product,
                 "source_type": source_type,
                 "source_id": source_id,
-                "deduplicated": deduplicated,
             },
             groups=groups(organization, team),
         )
