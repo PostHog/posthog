@@ -52,6 +52,14 @@ MAX_PAGES = 100_000
 # and hold an import worker for the activity's lifetime. Bound the fan-out; far above any
 # legitimate org's project count.
 MAX_FAN_OUT_PROJECTS = 10_000
+# The project-count cap alone doesn't bound worker occupancy: a hostile host can return
+# MAX_FAN_OUT_PROJECTS in-org projects and then drain each membership response's full
+# MAX_RESPONSE_SECONDS deadline, so 10,000 * 300s is ~34 days of work — far past this
+# resumable activity's week-long start_to_close_timeout. Bound the whole fan-out by wall-clock
+# too and abort once the budget is spent, keeping occupancy well under the activity timeout no
+# matter how slowly the host answers. Generous for any legitimate org (thousands of fast
+# per-project reads finish in minutes).
+MAX_FAN_OUT_SECONDS = 6 * 60 * 60
 # Cap how much of an error response body reaches the logs — the host is untrusted.
 ERROR_BODY_LOG_LIMIT = 500
 
@@ -76,6 +84,10 @@ class InfisicalResponseTooLargeError(Exception):
 
 
 class InfisicalAuthError(Exception):
+    pass
+
+
+class InfisicalFanOutBudgetExceededError(Exception):
     pass
 
 
@@ -566,7 +578,20 @@ def _get_project_fan_out_rows(
         )
         projects = projects[:MAX_FAN_OUT_PROJECTS]
 
+    # The count cap bounds how many projects we fan out over, but not how long each one takes:
+    # a hostile host can drain every membership response's full deadline. Bound total wall-clock
+    # across the loop (retries included) and abort rather than truncate, so a slow host can't
+    # hold the worker for the activity's lifetime. Checked before each request; the in-flight
+    # request may overrun by at most one response deadline, which is already bounded elsewhere.
+    fan_out_deadline = time.monotonic() + MAX_FAN_OUT_SECONDS
+
     for project in projects:
+        if time.monotonic() > fan_out_deadline:
+            raise InfisicalFanOutBudgetExceededError(
+                f"Infisical project fan-out for {config.name} exceeded its {MAX_FAN_OUT_SECONDS}s "
+                f"budget before finishing all {len(projects)} projects; aborting the sync"
+            )
+
         project_id = project.get("id")
         if not project_id:
             continue

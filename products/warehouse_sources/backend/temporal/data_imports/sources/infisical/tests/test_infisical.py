@@ -15,9 +15,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.infisical 
 from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.infisical import (
     INVALID_CREDENTIALS_ERROR,
     InfisicalAuthError,
+    InfisicalFanOutBudgetExceededError,
     InfisicalResponseTooLargeError,
     InfisicalResumeConfig,
     _format_incremental_value,
+    _get_project_fan_out_rows,
     _parse_retry_after,
     _retry_wait,
     get_rows,
@@ -274,6 +276,30 @@ class TestProjectMembershipsFanOut:
         # Only the first 2 of the 3 projects are fetched (1 project list + 2 membership calls).
         membership_paths = [p for p in (urlparse(u).path for u in _get_urls(session)) if "memberships" in p]
         assert membership_paths == ["/api/v1/projects/p0/memberships", "/api/v1/projects/p1/memberships"]
+
+    def test_fan_out_aborts_when_time_budget_exhausted(self):
+        # The project-count cap doesn't bound how long each membership response takes: a hostile
+        # host can stay under the cap yet drain every response's full deadline, holding the worker
+        # for weeks. The wall-clock fan-out budget must abort the sync — not truncate — once spent.
+        config = INFISICAL_ENDPOINTS["project_memberships"]
+        client = mock.MagicMock()
+        projects = _response(json_data={"projects": [{"id": f"p{i}", "orgId": "org-123"} for i in range(5)]})
+        membership = _response(json_data={"memberships": [{"id": "m", "projectId": "p"}]})
+        client.get.side_effect = [projects, *([membership] * 5)]
+
+        # A clock that jumps one per-response deadline on every check, so a two-response budget is
+        # spent after the first couple of projects — simulating each response draining its deadline.
+        clock = itertools.count(0, infisical_module.MAX_RESPONSE_SECONDS)
+        with (
+            mock.patch.object(infisical_module, "MAX_FAN_OUT_SECONDS", infisical_module.MAX_RESPONSE_SECONDS * 2),
+            mock.patch.object(infisical_module.time, "monotonic", lambda: next(clock)),
+            pytest.raises(InfisicalFanOutBudgetExceededError),
+        ):
+            list(_get_project_fan_out_rows(client, config, "org-123", mock.MagicMock()))
+
+        # Aborted mid-fan-out: not every project was fetched.
+        membership_calls = [c for c in client.get.call_args_list if "memberships" in c.args[0]]
+        assert 0 < len(membership_calls) < 5
 
 
 class TestOrgScoping:
