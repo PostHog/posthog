@@ -161,7 +161,7 @@ export const getLoopsListUrl = (projectId: string, params?: LoopsListParams) => 
 }
 
 /**
- * List loops visible to the caller: personal loops they own, plus every team loop.
+ * List loops visible to the caller: personal loops they own, plus every team loop. The response also carries `max_loops_per_team` and `total_loop_count` so a client can show remaining capacity and disable creation at the cap without hardcoding the limit.
  * @summary List loops
  */
 export const loopsList = async (

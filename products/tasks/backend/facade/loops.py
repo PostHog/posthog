@@ -66,8 +66,10 @@ MAX_LOOP_REPOSITORIES = 1
 # LOOP_RATE_CAP_PER_DAY times, so these two caps together bound a team's total schedule count
 # (MAX_LOOPS_PER_TEAM * MAX_TRIGGERS_PER_LOOP) and daily run volume. Keep them generous enough
 # for real use but low enough that a runaway script or leaked credential can't overwhelm the
-# scheduler. Raising them is a deliberate, per-request-to-support decision.
-MAX_LOOPS_PER_TEAM = 100
+# scheduler. Raising them is a deliberate, per-request-to-support decision. This is the single
+# source of truth for the cap: the list endpoint returns it so the frontend gates creation
+# against this number rather than hardcoding its own, keeping the two from drifting.
+MAX_LOOPS_PER_TEAM = 30
 MAX_TRIGGERS_PER_LOOP = 25
 
 DEFAULT_LOOP_RUN_PAGE_SIZE = 50
@@ -554,6 +556,14 @@ def desktop_canvas_exists(team_id: int, canvas_id: str) -> bool:
 # --- CRUD ---
 
 
+def count_team_loops(team_id: int) -> int:
+    """Authoritative count of a project's user-facing loops, measured against `MAX_LOOPS_PER_TEAM`.
+    Excludes deleted loops and `internal=True` loops (backend-created loops don't consume the
+    user-facing quota). This is the number the create path checks and the list endpoint reports,
+    so the frontend can show remaining capacity without duplicating the counting rule."""
+    return Loop.objects.for_team(team_id, canonical=True).filter(deleted=False, internal=False).count()
+
+
 def list_loops(team_id: int, user: User | None) -> list[LoopDTO]:
     user_id = getattr(user, "id", None)
     loops = (
@@ -607,13 +617,13 @@ def list_internal_loops(team_id: int, *, origin_product: str | None = None) -> l
 
 
 def delete_internal_loop(loop_id: str | UUID, team_id: int) -> bool:
-    """Soft-delete an internal loop and pause its schedules. Returns False if not found."""
+    """Soft-delete an internal loop and delete its Temporal Schedules. Returns False if not found."""
     loop = Loop.objects.for_team(team_id, canonical=True).filter(deleted=False, internal=True, pk=loop_id).first()
     if loop is None:
         return False
     loop.deleted = True
     loop.save(update_fields=["deleted", "updated_at"])
-    loop_service.pause_loop_schedules(loop)
+    loop_service.delete_loop_schedules(loop)
     return True
 
 
@@ -665,8 +675,7 @@ def create_loop(team_id: int, user: User | None, validated_data: dict) -> LoopDT
         )
 
     # internal=False: backend-created internal loops must not consume the user-facing quota.
-    existing_loops = Loop.objects.for_team(team_id, canonical=True).filter(deleted=False, internal=False).count()
-    if existing_loops >= MAX_LOOPS_PER_TEAM:
+    if count_team_loops(team_id) >= MAX_LOOPS_PER_TEAM:
         raise LoopLimitError(
             code="max_loops_per_team",
             limit=MAX_LOOPS_PER_TEAM,
@@ -789,7 +798,7 @@ def soft_delete_loop(loop_id: str | UUID, team_id: int, user: User | None) -> bo
 
     loop.deleted = True
     loop.save(update_fields=["deleted", "updated_at"])
-    loop_service.pause_loop_schedules(loop)
+    loop_service.delete_loop_schedules(loop)
     return True
 
 
@@ -1029,6 +1038,7 @@ __all__ = [
     "LoopTriggerType",
     "LoopVisibility",
     "active_mcp_installation_ids",
+    "count_team_loops",
     "create_loop",
     "delete_internal_loop",
     "desktop_canvas_exists",

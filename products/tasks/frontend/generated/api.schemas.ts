@@ -165,6 +165,10 @@ export interface PaginatedLoopDTOListApi {
     /** @nullable */
     previous?: string | null
     results: LoopDTOApi[]
+    /** Hard cap on non-deleted loops per project. Creating a loop beyond this returns a 429 with `error: loop_safety_limit`. Authoritative — read this rather than assuming a value. */
+    max_loops_per_team?: number
+    /** Current number of non-deleted, user-facing loops in this project, counted against `max_loops_per_team`. At or above the cap, creation is blocked. */
+    total_loop_count?: number
 }
 
 /**

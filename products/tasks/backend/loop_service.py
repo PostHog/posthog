@@ -115,6 +115,16 @@ def sync_loop_trigger_schedule(trigger: LoopTrigger) -> None:
     if trigger.type != LoopTrigger.TriggerType.SCHEDULE:
         return
 
+    if trigger.completed_at is not None:
+        # A spent one-time trigger is terminal. Whatever path re-syncs it (reconciliation, a later
+        # loop edit that resets it to `pending`), make sure no live Schedule lingers and never
+        # create a new one. This single guard is why no path can resurrect a one-time schedule.
+        delete_loop_trigger_schedule(trigger)
+        LoopTrigger.objects.for_team(trigger.team_id, canonical=True).filter(id=trigger.id).update(
+            schedule_sync_status=LoopTrigger.ScheduleSyncStatus.SYNCED
+        )
+        return
+
     try:
         temporal = sync_connect()
         schedule = build_loop_trigger_schedule(trigger)
@@ -151,6 +161,21 @@ def delete_loop_trigger_schedule(trigger: LoopTrigger) -> None:
         logger.exception("loop_trigger_schedule_delete_failed", extra={"loop_trigger_id": str(trigger.id)})
 
 
+def complete_one_time_trigger(trigger: LoopTrigger) -> None:
+    """Finalize a one-time (`run_at`) trigger after its single fire.
+
+    Temporal never garbage-collects a schedule whose `remaining_actions` reached 0, so the spent
+    Schedule lingers and keeps a dead row registered unless we delete it. Stamping `completed_at`
+    makes the terminal state explicit, so the trigger never reads as active and the sync guard in
+    `sync_loop_trigger_schedule` refuses to re-arm it. Idempotent: only the first call stamps the
+    timestamp, and the Temporal delete is a no-op when the Schedule is already gone.
+    """
+    delete_loop_trigger_schedule(trigger)
+    LoopTrigger.objects.for_team(trigger.team_id, canonical=True).filter(
+        id=trigger.id, completed_at__isnull=True
+    ).update(completed_at=django_timezone.now(), schedule_sync_status=LoopTrigger.ScheduleSyncStatus.SYNCED)
+
+
 def pause_loop_schedules(loop: Loop) -> None:
     """Pause every schedule-backed trigger's Temporal Schedule for a loop.
 
@@ -175,6 +200,33 @@ def pause_loop_schedules(loop: Loop) -> None:
                 pause_schedule(temporal, trigger.schedule_id, note="Loop paused")
         except Exception:
             logger.exception("loop_schedule_pause_failed", extra={"loop_trigger_id": str(trigger.id)})
+
+
+def delete_loop_schedules(loop: Loop) -> None:
+    """Delete every schedule-backed trigger's Temporal Schedule for a loop.
+
+    Used when a loop is deleted, where the loop is gone for good, unlike `pause_loop_schedules`,
+    which is reversible on re-enable. A soft-delete that only paused would leave the Schedule
+    registered in Temporal forever. Best-effort per trigger.
+    """
+    triggers = list(
+        LoopTrigger.objects.for_team(loop.team_id, canonical=True).filter(
+            loop=loop, type=LoopTrigger.TriggerType.SCHEDULE
+        )
+    )
+    if not triggers:
+        return
+    try:
+        temporal = sync_connect()
+    except Exception:
+        logger.exception("loop_schedule_delete_failed", extra={"loop_id": str(loop.id)})
+        return
+    for trigger in triggers:
+        try:
+            if schedule_exists(temporal, trigger.schedule_id):
+                delete_schedule(temporal, trigger.schedule_id)
+        except Exception:
+            logger.exception("loop_schedule_delete_failed", extra={"loop_trigger_id": str(trigger.id)})
 
 
 def signal_loop_run_cancelled(workflow_id: str) -> None:

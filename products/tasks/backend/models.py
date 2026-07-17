@@ -1196,6 +1196,9 @@ class LoopTrigger(TeamScopedRootMixin):
     event_types = ArrayField(models.CharField(max_length=32), null=True, blank=True)
     schedule_sync_status = models.CharField(max_length=16, choices=ScheduleSyncStatus, null=True, blank=True)
     last_fired_at = models.DateTimeField(null=True, blank=True)
+    # Set once a one-time (`run_at`) trigger has fired its single occurrence. Terminal: its spent
+    # Temporal Schedule is torn down and no sync path re-arms it. See loop_service.complete_one_time_trigger.
+    completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -34,7 +34,11 @@ def reconcile_loop_trigger_schedules() -> int:
     """
     triggers = list(
         LoopTrigger.objects.unscoped()
-        .filter(type=LoopTrigger.TriggerType.SCHEDULE, schedule_sync_status__in=_UNSYNCED_STATUSES)
+        .filter(
+            type=LoopTrigger.TriggerType.SCHEDULE,
+            schedule_sync_status__in=_UNSYNCED_STATUSES,
+            completed_at__isnull=True,
+        )
         .select_related("loop")
         .order_by("updated_at")[:_RECONCILE_BATCH_SIZE]
     )

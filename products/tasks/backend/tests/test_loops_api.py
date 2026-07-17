@@ -52,6 +52,9 @@ class LoopsAPITestCase(TestCase):
         self.mock_resume_loop_schedules = self._start_patch(
             "products.tasks.backend.facade.loops.loop_service.resume_loop_schedules"
         )
+        self.mock_delete_loop_schedules = self._start_patch(
+            "products.tasks.backend.facade.loops.loop_service.delete_loop_schedules"
+        )
 
     def _start_patch(self, target: str):
         patcher = patch(target)
@@ -122,7 +125,10 @@ class LoopCRUDAPITest(LoopsAPITestCase):
 
         deleted = self.owner_client.delete(self._loop_url(loop_id))
         self.assertEqual(deleted.status_code, status.HTTP_204_NO_CONTENT)
-        self.mock_pause_loop_schedules.assert_called_once()
+        # Deleting a loop must delete its Temporal Schedules, not merely pause them, or the spent
+        # schedules leak in Temporal forever.
+        self.mock_delete_loop_schedules.assert_called_once()
+        self.mock_pause_loop_schedules.assert_not_called()
         self.assertTrue(Loop.objects.unscoped().get(id=loop_id).deleted)
 
         self.assertEqual(self.owner_client.get(self._loop_url(loop_id)).status_code, status.HTTP_404_NOT_FOUND)
@@ -169,6 +175,18 @@ class LoopSafetyLimitAPITest(LoopsAPITestCase):
         self.assertEqual(body["code"], "max_loops_per_team")
         self.assertEqual(body["limit"], 2)
         self.assertEqual(Loop.objects.unscoped().filter(team=self.team, deleted=False).count(), 2)
+
+    def test_list_reports_the_cap_and_authoritative_team_wide_usage(self):
+        # The owner sees only their own personal loop, but the cap counts every non-deleted loop in
+        # the project — including the peer's personal loop the owner can't see. The frontend gates
+        # creation against this authoritative total, so it must not be the caller's visible count.
+        self._create_loop(self.owner_client)
+        self._create_loop(self.peer_client)
+
+        body = self.owner_client.get(self._loops_url()).json()
+        self.assertEqual(len(body["results"]), 1)
+        self.assertEqual(body["max_loops_per_team"], loops_facade.MAX_LOOPS_PER_TEAM)
+        self.assertEqual(body["total_loop_count"], 2)
 
     def test_soft_deleted_loops_do_not_count_toward_cap(self):
         with patch("products.tasks.backend.facade.loops.MAX_LOOPS_PER_TEAM", 1):

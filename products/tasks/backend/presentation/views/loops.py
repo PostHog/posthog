@@ -49,6 +49,28 @@ class LoopsPagination(LimitOffsetPagination):
     default_limit = 50
     max_limit = 100
 
+    def get_paginated_response_schema(self, schema):
+        # The list runtime augments the page with the per-project loop cap and usage (see
+        # LoopViewSet.list); declare them here so the generated OpenAPI/MCP types match. Kept on
+        # the paginator, next to the envelope it documents, so drf-spectacular doesn't double-wrap
+        # a hand-rolled envelope serializer.
+        paginated = super().get_paginated_response_schema(schema)
+        paginated["properties"]["max_loops_per_team"] = {
+            "type": "integer",
+            "description": (
+                "Hard cap on non-deleted loops per project. Creating a loop beyond this returns a 429 "
+                "with `error: loop_safety_limit`. Authoritative — read this rather than assuming a value."
+            ),
+        }
+        paginated["properties"]["total_loop_count"] = {
+            "type": "integer",
+            "description": (
+                "Current number of non-deleted, user-facing loops in this project, counted against "
+                "`max_loops_per_team`. At or above the cap, creation is blocked."
+            ),
+        }
+        return paginated
+
 
 class LoopTriggerBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     scope = "loop_trigger_burst"
@@ -150,15 +172,35 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         summary="List loops",
-        description="List loops visible to the caller: personal loops they own, plus every team loop.",
+        description=(
+            "List loops visible to the caller: personal loops they own, plus every team loop. The "
+            "response also carries `max_loops_per_team` and `total_loop_count` so a client can show "
+            "remaining capacity and disable creation at the cap without hardcoding the limit."
+        ),
         responses={200: LoopSerializer(many=True)},
     )
     def list(self, request, **kwargs):
         loops = loops_facade.list_loops(self.team_id, request.user)
         page = self.paginate_queryset(loops)
+        # Cap + usage travel with the list so the frontend gates creation against the backend's
+        # authoritative number (see MAX_LOOPS_PER_TEAM) instead of drifting from its own copy.
+        limits = {
+            "max_loops_per_team": loops_facade.MAX_LOOPS_PER_TEAM,
+            "total_loop_count": loops_facade.count_team_loops(self.team_id),
+        }
         if page is not None:
-            return self.get_paginated_response(LoopSerializer(page, many=True).data)
-        return Response(LoopSerializer(loops, many=True).data)
+            response = self.get_paginated_response(LoopSerializer(page, many=True).data)
+            response.data.update(limits)
+            return response
+        return Response(
+            {
+                "count": len(loops),
+                "next": None,
+                "previous": None,
+                "results": LoopSerializer(loops, many=True).data,
+                **limits,
+            }
+        )
 
     @extend_schema(
         summary="Get a loop", responses={200: LoopSerializer, 404: OpenApiResponse(description="Loop not found")}
