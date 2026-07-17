@@ -1,11 +1,13 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest import mock
 
 from parameterized import parameterized
+from requests import Response
+from requests.structures import CaseInsensitiveDict
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.pretix import pretix as px
 from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.pretix import (
@@ -13,44 +15,90 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.pre
     INVALID_ORGANIZER_ERROR,
     PretixHostNotAllowedError,
     PretixResumeConfig,
-    PretixRetryableError,
-    _fetch_page_impl,
     _format_modified_since,
-    _parse_retry_after,
     _quote_organizer,
-    get_rows,
     normalize_base_url,
     pretix_source,
     validate_credentials,
 )
 
-LOGGER = mock.MagicMock()
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# tenacity sleeps between the client's own retries — patch it so retry tests don't actually wait.
+SLEEP_PATCH = "tenacity.nap.time.sleep"
 
 
-def _no_resume_manager() -> mock.MagicMock:
+def _envelope(items: list[dict[str, Any]], next_url: Optional[str]) -> Response:
+    body = {"count": len(items), "next": next_url, "previous": None, "results": items}
+    return _json_response(body)
+
+
+def _json_response(body: Any, status_code: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
+def _status_response(status_code: int, headers: Optional[dict[str, str]] = None) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = b"{}"
+    if headers:
+        resp.headers = CaseInsensitiveDict(headers)
+    return resp
+
+
+def _make_manager(resume_state: PretixResumeConfig | None = None) -> mock.MagicMock:
     manager = mock.MagicMock()
-    manager.can_resume.return_value = False
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
     return manager
 
 
-def _response(
-    status_code: int = 200,
-    json_data: Any = None,
-    headers: dict[str, str] | None = None,
-    is_redirect: bool = False,
-) -> mock.MagicMock:
-    response = mock.MagicMock()
-    response.status_code = status_code
-    response.headers = headers or {}
-    response.is_redirect = is_redirect
-    response.is_permanent_redirect = False
-    response.ok = status_code < 400
-    response.json.return_value = json_data
-    return response
+def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[str], list[dict[str, Any]]]:
+    """Wire a mock session and capture each request's URL and params AT SEND TIME.
+
+    ``request.url``/``request.params`` are mutated in place across pages (the paginator rewrites the
+    URL to the next-page link), so snapshot a copy when each request is prepared. ``prepared.url`` must
+    be the real string so the client's ``allowed_hosts`` check can parse a host from it.
+    """
+    session.headers = {}
+    url_snapshots: list[str] = []
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        url_snapshots.append(request.url)
+        param_snapshots.append(dict(request.params or {}))
+        prepared = mock.MagicMock()
+        prepared.url = request.url
+        return prepared
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return url_snapshots, param_snapshots
 
 
-def _page(items: list[dict[str, Any]], next_url: Optional[str]) -> dict[str, Any]:
-    return {"count": len(items), "next": next_url, "previous": None, "results": items}
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _pages(source_response):
+    """Yield pages (not flattened) so a test can drive pagination one page at a time."""
+    yield from source_response.items()
+
+
+def _source(endpoint: str, manager: mock.MagicMock | None = None, base_url: str | None = None, **kwargs: Any):
+    return pretix_source(
+        api_token="tok",
+        organizer="acme",
+        base_url=base_url,
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager or _make_manager(),
+        **kwargs,
+    )
 
 
 class TestNormalizeBaseUrl:
@@ -101,98 +149,41 @@ class TestQuoteOrganizer:
             _quote_organizer(raw)
 
 
-class TestFetchPage:
-    # `_fetch_page_impl` is the undecorated fetch, so failures don't sleep through tenacity retries.
-
-    def test_returns_items_and_next_url(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(json_data=_page([{"id": 1}], "https://pretix.eu/api/v1/x/?page=2"))
-
-        items, next_url = _fetch_page_impl(session, "https://pretix.eu/api/v1/x/", LOGGER)
-
-        assert items == [{"id": 1}]
-        assert next_url == "https://pretix.eu/api/v1/x/?page=2"
-
-    def test_null_next_terminates(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(json_data=_page([{"id": 1}], None))
-
-        _, next_url = _fetch_page_impl(session, "https://pretix.eu/api/v1/x/", LOGGER)
-
-        assert next_url is None
-
-    def test_429_raises_retryable_with_retry_after(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(status_code=429, headers={"Retry-After": "7"})
-
-        with pytest.raises(PretixRetryableError) as exc_info:
-            _fetch_page_impl(session, "https://pretix.eu/api/v1/x/", LOGGER)
-
-        assert exc_info.value.retry_after == 7.0
-
-    def test_5xx_raises_retryable(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(status_code=503)
-
-        with pytest.raises(PretixRetryableError):
-            _fetch_page_impl(session, "https://pretix.eu/api/v1/x/", LOGGER)
-
-    def test_redirect_is_rejected(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(status_code=302, is_redirect=True)
-
-        with pytest.raises(PretixHostNotAllowedError):
-            _fetch_page_impl(session, "https://pretix.eu/api/v1/x/", LOGGER)
-
-    def test_unexpected_payload_raises_retryable(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(json_data=[{"id": 1}])
-
-        with pytest.raises(PretixRetryableError):
-            _fetch_page_impl(session, "https://pretix.eu/api/v1/x/", LOGGER)
-
-    @parameterized.expand(
-        [
-            ({"Retry-After": "7"}, 7.0),
-            ({"Retry-After": "999"}, 60.0),
-            ({"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}, None),
-            ({}, None),
-        ]
-    )
-    def test_parse_retry_after(self, headers: dict[str, str], expected: float | None) -> None:
-        assert _parse_retry_after(_response(status_code=429, headers=headers)) == expected
-
-
 @mock.patch.object(px, "_is_host_safe", return_value=(True, None))
-@mock.patch.object(px, "make_tracked_session", return_value=mock.MagicMock())
-class TestGetRowsOrganizerScope:
-    @mock.patch.object(px, "_fetch_page")
-    def test_orders_incremental_url_has_filter_and_stable_ordering(
-        self, mock_fetch: mock.MagicMock, _session: mock.MagicMock, _host: mock.MagicMock
-    ) -> None:
-        mock_fetch.return_value = ([{"code": "A1", "event": "conf"}], None)
+class TestOrganizerScopePagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_next_link_and_terminates_on_null(self, MockSession, _host) -> None:
+        session = MockSession.return_value
+        page2 = "https://pretix.eu/api/v1/organizers/acme/orders/?page=2"
+        urls, _params = _wire(
+            session,
+            [_envelope([{"code": "A1"}], page2), _envelope([{"code": "A2"}], None)],
+        )
 
-        list(
-            get_rows(
-                api_token="tok",
-                organizer="acme",
-                base_url=None,
-                endpoint="orders",
-                team_id=1,
-                logger=LOGGER,
-                resumable_source_manager=_no_resume_manager(),
+        rows = _rows(_source("orders"))
+
+        assert [r["code"] for r in rows] == ["A1", "A2"]
+        # The self-contained next link is followed verbatim; a null next ends pagination.
+        assert urls[0].endswith("/organizers/acme/orders/")
+        assert urls[1] == page2
+        assert session.send.call_count == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_orders_incremental_url_has_filter_and_stable_ordering(self, MockSession, _host) -> None:
+        session = MockSession.return_value
+        _urls, params = _wire(session, [_envelope([{"code": "A1", "event": "conf"}], None)])
+
+        _rows(
+            _source(
+                "orders",
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
                 incremental_field="last_modified",
             )
         )
 
-        url = mock_fetch.call_args[0][1]
-        parsed = urlparse(url)
-        assert parsed.path == "/api/v1/organizers/acme/orders/"
-        query = parse_qs(parsed.query)
-        assert query["modified_since"] == ["2026-01-01T00:00:00Z"]
-        assert query["ordering"] == ["last_modified"]
+        assert params[0]["modified_since"] == "2026-01-01T00:00:00Z"
+        assert params[0]["ordering"] == "last_modified"
 
     @parameterized.expand(
         [
@@ -202,237 +193,188 @@ class TestGetRowsOrganizerScope:
             (True, "datetime"),
         ]
     )
-    @mock.patch.object(px, "_fetch_page")
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_no_modified_since_when_not_applicable(
-        self,
-        should_use: bool,
-        incremental_field: str,
-        mock_fetch: mock.MagicMock,
-        _session: mock.MagicMock,
-        _host: mock.MagicMock,
+        self, should_use: bool, incremental_field: str, MockSession, _host
     ) -> None:
-        mock_fetch.return_value = ([], None)
+        session = MockSession.return_value
+        _urls, params = _wire(session, [_envelope([], None)])
 
-        list(
-            get_rows(
-                api_token="tok",
-                organizer="acme",
-                base_url=None,
-                endpoint="orders",
-                team_id=1,
-                logger=LOGGER,
-                resumable_source_manager=_no_resume_manager(),
+        _rows(
+            _source(
+                "orders",
                 should_use_incremental_field=should_use,
                 db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
                 incremental_field=incremental_field,
             )
         )
 
-        url = mock_fetch.call_args[0][1]
-        assert "modified_since" not in url
+        assert "modified_since" not in params[0]
+        # `ordering` is always requested for orders regardless of the incremental filter.
+        assert params[0]["ordering"] == "last_modified"
 
-    @mock.patch.object(px, "_fetch_page")
-    def test_state_saved_only_after_page_is_yielded(
-        self, mock_fetch: mock.MagicMock, _session: mock.MagicMock, _host: mock.MagicMock
-    ) -> None:
-        next_url = "https://pretix.eu/api/v1/organizers/acme/orders/?page=2"
-        mock_fetch.side_effect = [
-            ([{"code": "A1"}], next_url),
-            ([{"code": "A2"}], None),
-        ]
-        manager = _no_resume_manager()
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_state_saved_only_after_page_is_yielded(self, MockSession, _host) -> None:
+        session = MockSession.return_value
+        page2 = "https://pretix.eu/api/v1/organizers/acme/orders/?page=2"
+        _wire(session, [_envelope([{"code": "A1"}], page2), _envelope([{"code": "A2"}], None)])
+        manager = _make_manager()
 
-        rows = get_rows(
-            api_token="tok",
-            organizer="acme",
-            base_url=None,
-            endpoint="orders",
-            team_id=1,
-            logger=LOGGER,
-            resumable_source_manager=manager,
-        )
+        rows = iter(_pages(_source("orders", manager)))
 
         assert next(rows) == [{"code": "A1"}]
         # A crash here must re-fetch page 1 (nothing persisted yet), not skip it.
         manager.save_state.assert_not_called()
 
         assert next(rows) == [{"code": "A2"}]
-        manager.save_state.assert_called_once_with(PretixResumeConfig(next_url=next_url))
+        # After page 1 is yielded the checkpoint points at page 2 (the verbatim next link).
+        manager.save_state.assert_called_once_with(PretixResumeConfig(next_url=page2))
 
-    @mock.patch.object(px, "_fetch_page")
-    def test_off_origin_next_url_is_rejected_before_yield(
-        self, mock_fetch: mock.MagicMock, _session: mock.MagicMock, _host: mock.MagicMock
-    ) -> None:
-        # The session sends the API token on every request, so a malicious server handing out an
-        # off-origin `next` link must not be followed — or persisted for a later resume.
-        mock_fetch.return_value = ([{"code": "A1"}], "https://evil.example.com/steal?page=2")
-        manager = _no_resume_manager()
-
-        with pytest.raises(PretixHostNotAllowedError):
-            list(
-                get_rows(
-                    api_token="tok",
-                    organizer="acme",
-                    base_url=None,
-                    endpoint="orders",
-                    team_id=1,
-                    logger=LOGGER,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert mock_fetch.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch.object(px, "_fetch_page")
-    def test_off_origin_resume_url_is_rejected_before_fetch(
-        self, mock_fetch: mock.MagicMock, _session: mock.MagicMock, _host: mock.MagicMock
-    ) -> None:
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = PretixResumeConfig(next_url="https://evil.example.com/steal?page=5")
-
-        with pytest.raises(PretixHostNotAllowedError):
-            list(
-                get_rows(
-                    api_token="tok",
-                    organizer="acme",
-                    base_url=None,
-                    endpoint="orders",
-                    team_id=1,
-                    logger=LOGGER,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        mock_fetch.assert_not_called()
-
-    @mock.patch.object(px, "_fetch_page")
-    def test_resumes_from_saved_next_url(
-        self, mock_fetch: mock.MagicMock, _session: mock.MagicMock, _host: mock.MagicMock
-    ) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_next_url(self, MockSession, _host) -> None:
+        session = MockSession.return_value
         saved_url = "https://pretix.eu/api/v1/organizers/acme/orders/?page=5"
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = PretixResumeConfig(next_url=saved_url)
-        mock_fetch.return_value = ([{"code": "A9"}], None)
+        urls, _params = _wire(session, [_envelope([{"code": "A9"}], None)])
 
-        list(
-            get_rows(
-                api_token="tok",
-                organizer="acme",
-                base_url=None,
-                endpoint="orders",
-                team_id=1,
-                logger=LOGGER,
-                resumable_source_manager=manager,
-            )
-        )
+        _rows(_source("orders", _make_manager(PretixResumeConfig(next_url=saved_url))))
 
-        assert mock_fetch.call_args[0][1] == saved_url
+        assert urls[0] == saved_url
 
-    def test_unsafe_host_raises_before_any_request(
-        self, session_factory: mock.MagicMock, mock_host: mock.MagicMock
-    ) -> None:
-        mock_host.return_value = (False, HOST_NOT_ALLOWED_ERROR)
+    @mock.patch(SLEEP_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retries_then_succeeds_on_429(self, MockSession, _sleep, _host) -> None:
+        session = MockSession.return_value
+        _wire(session, [_status_response(429, {"Retry-After": "1"}), _envelope([{"code": "A1"}], None)])
 
-        with pytest.raises(PretixHostNotAllowedError):
-            list(
-                get_rows(
-                    api_token="tok",
-                    organizer="acme",
-                    base_url="https://internal.example.com",
-                    endpoint="orders",
-                    team_id=1,
-                    logger=LOGGER,
-                    resumable_source_manager=_no_resume_manager(),
-                )
-            )
+        rows = _rows(_source("orders"))
 
-        session_factory.return_value.get.assert_not_called()
+        assert [r["code"] for r in rows] == ["A1"]
+        assert session.send.call_count == 2
 
-    def test_http_base_url_raises(self, session_factory: mock.MagicMock, _host: mock.MagicMock) -> None:
-        with pytest.raises(PretixHostNotAllowedError):
-            list(
-                get_rows(
-                    api_token="tok",
-                    organizer="acme",
-                    base_url="http://tickets.example.com",
-                    endpoint="orders",
-                    team_id=1,
-                    logger=LOGGER,
-                    resumable_source_manager=_no_resume_manager(),
-                )
-            )
+    @mock.patch(SLEEP_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unexpected_payload_shape_is_retried(self, MockSession, _sleep, _host) -> None:
+        session = MockSession.return_value
+        # A 200 whose body isn't the `{results: [...]}` envelope is treated as transient and reissued,
+        # not failed loud or ingested as a garbage row.
+        _wire(session, [_json_response([{"code": "A1"}]), _envelope([{"code": "A2"}], None)])
 
-        session_factory.return_value.get.assert_not_called()
+        rows = _rows(_source("orders"))
+
+        assert [r["code"] for r in rows] == ["A2"]
+        assert session.send.call_count == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_redirect_is_rejected(self, MockSession, _host) -> None:
+        session = MockSession.return_value
+        _wire(session, [_status_response(302, {"Location": "https://pretix.eu/login"})])
+
+        # A 3xx is not followed (allow_redirects=False) — it must not be silently parsed as data.
+        with pytest.raises(ValueError, match="[Rr]edirect"):
+            _rows(_source("orders"))
 
 
 @mock.patch.object(px, "_is_host_safe", return_value=(True, None))
-@mock.patch.object(px, "make_tracked_session", return_value=mock.MagicMock())
-class TestGetRowsEventFanOut:
-    @mock.patch.object(px, "_fetch_page")
-    def test_fans_out_per_event_and_stamps_event_slug(
-        self, mock_fetch: mock.MagicMock, _session: mock.MagicMock, _host: mock.MagicMock
-    ) -> None:
-        def router(_session: Any, url: str, _logger: Any) -> tuple[list[dict[str, Any]], Optional[str]]:
-            path = urlparse(url).path
-            if path == "/api/v1/organizers/acme/events/":
-                return [{"slug": "conf-a"}, {"slug": "conf-b"}], None
-            if path == "/api/v1/organizers/acme/events/conf-a/items/":
-                return [{"id": 1}], None
-            if path == "/api/v1/organizers/acme/events/conf-b/items/":
-                return [{"id": 1}, {"id": 2}], None
-            raise AssertionError(f"unexpected url {url}")
+class TestHostPinning:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_off_host_next_url_is_not_fetched(self, MockSession, _host) -> None:
+        session = MockSession.return_value
+        # A malicious server handing out an off-host `next` link must never be fetched — the
+        # Authorization header would otherwise be sent to an attacker-controlled origin.
+        _wire(session, [_envelope([{"code": "A1"}], "https://evil.example.com/steal?page=2")])
 
-        mock_fetch.side_effect = router
-        manager = _no_resume_manager()
+        with pytest.raises(ValueError, match="disallowed host"):
+            _rows(_source("orders"))
 
-        pages = list(
-            get_rows(
+        # Only the first (on-host) page was ever sent.
+        assert session.send.call_count == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_off_host_resume_url_is_rejected_before_any_request(self, MockSession, _host) -> None:
+        session = MockSession.return_value
+        _wire(session, [])
+        manager = _make_manager(PretixResumeConfig(next_url="https://evil.example.com/steal?page=5"))
+
+        with pytest.raises(ValueError, match="disallowed host"):
+            _rows(_source("orders", manager))
+
+        session.send.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unsafe_host_raises_before_building_the_source(self, MockSession, mock_host) -> None:
+        mock_host.return_value = (False, HOST_NOT_ALLOWED_ERROR)
+
+        with pytest.raises(PretixHostNotAllowedError):
+            _source("orders", base_url="https://internal.example.com")
+
+        MockSession.return_value.send.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_http_base_url_raises_before_building_the_source(self, MockSession, _host) -> None:
+        with pytest.raises(PretixHostNotAllowedError):
+            pretix_source(
                 api_token="tok",
                 organizer="acme",
-                base_url=None,
-                endpoint="items",
+                base_url="http://tickets.example.com",
+                endpoint="orders",
                 team_id=1,
-                logger=LOGGER,
-                resumable_source_manager=manager,
+                job_id="j",
+                resumable_source_manager=_make_manager(),
             )
+
+        MockSession.return_value.send.assert_not_called()
+
+
+@mock.patch.object(px, "_is_host_safe", return_value=(True, None))
+class TestEventFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_per_event_and_stamps_event_slug(self, MockSession, _host) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _envelope([{"slug": "conf-a"}, {"slug": "conf-b"}], None),  # events discovery
+                _envelope([{"id": 1}], None),  # conf-a items
+                _envelope([{"id": 1}, {"id": 2}], None),  # conf-b items
+            ],
+        )
+        manager = _make_manager()
+
+        rows = _rows(_source("items", manager))
+
+        # The composite primary key (event_slug, id) stays unique even though both events reuse id=1.
+        assert [(r["event_slug"], r["id"]) for r in rows] == [("conf-a", 1), ("conf-b", 1), ("conf-b", 2)]
+        # The single-hop fan-out is resumable — a per-event checkpoint is persisted.
+        assert manager.save_state.called
+        assert manager.save_state.call_args.args[0].fanout_state is not None
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_event_slug_is_url_quoted_in_child_path(self, MockSession, _host) -> None:
+        session = MockSession.return_value
+        urls, _params = _wire(
+            session,
+            [_envelope([{"slug": "a/b"}], None), _envelope([], None)],
         )
 
-        rows = [row for page in pages for row in page]
-        # The composite primary key (event_slug, id) must stay unique even though both events reuse id=1.
-        assert [(row["event_slug"], row["id"]) for row in rows] == [("conf-a", 1), ("conf-b", 1), ("conf-b", 2)]
-        # Fan-out endpoints restart from the first event on resume; no partial state may be persisted.
-        manager.save_state.assert_not_called()
+        rows = _rows(_source("items", _make_manager()))
 
-    @mock.patch.object(px, "_fetch_page")
-    def test_event_slug_is_url_quoted_in_child_path(
-        self, mock_fetch: mock.MagicMock, _session: mock.MagicMock, _host: mock.MagicMock
-    ) -> None:
-        seen_urls: list[str] = []
+        # The slug is percent-encoded in the child URL so it can't inject an extra path segment...
+        assert any("/events/a%2Fb/items/" in url for url in urls)
+        # ...while the raw slug is stamped into rows unchanged (there are no rows here, so just the URL).
+        assert rows == []
 
-        def router(_session: Any, url: str, _logger: Any) -> tuple[list[dict[str, Any]], Optional[str]]:
-            seen_urls.append(url)
-            if urlparse(url).path == "/api/v1/organizers/acme/events/":
-                return [{"slug": "a/b"}], None
-            return [], None
-
-        mock_fetch.side_effect = router
-
-        list(
-            get_rows(
-                api_token="tok",
-                organizer="acme",
-                base_url=None,
-                endpoint="items",
-                team_id=1,
-                logger=LOGGER,
-                resumable_source_manager=_no_resume_manager(),
-            )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_ordering_param_sent_for_sortable_child_endpoint(self, MockSession, _host) -> None:
+        session = MockSession.return_value
+        _urls, params = _wire(
+            session,
+            [_envelope([{"slug": "conf-a"}], None), _envelope([{"id": 1}], None)],
         )
 
-        assert any("/events/a%2Fb/items/" in url for url in seen_urls)
+        _rows(_source("items", _make_manager()))
+
+        # `items` requests an explicit stable `ordering=id`; the child (leaf) request carries it.
+        assert params[-1].get("ordering") == "id"
 
 
 @mock.patch.object(px, "_is_host_safe", return_value=(True, None))
@@ -442,20 +384,16 @@ class TestValidateCredentials:
             (200, True, None),
             (401, False, "Invalid pretix API token"),
             (403, False, "does not have access to this organizer"),
+            (302, False, HOST_NOT_ALLOWED_ERROR),
             (500, False, "HTTP 500"),
         ]
     )
     @mock.patch.object(px, "make_tracked_session")
     def test_status_mapping(
-        self,
-        status_code: int,
-        expected_valid: bool,
-        message_fragment: str | None,
-        session_factory: mock.MagicMock,
-        _host: mock.MagicMock,
+        self, status_code: int, expected_valid: bool, message_fragment: str | None, session_factory, _host
     ) -> None:
         session = mock.MagicMock()
-        session.get.return_value = _response(status_code=status_code)
+        session.get.return_value = mock.MagicMock(status_code=status_code)
         session_factory.return_value = session
 
         is_valid, message = validate_credentials("tok", "acme", None, team_id=1)
@@ -467,18 +405,7 @@ class TestValidateCredentials:
             assert message is not None and message_fragment in message
 
     @mock.patch.object(px, "make_tracked_session")
-    def test_redirect_is_rejected(self, session_factory: mock.MagicMock, _host: mock.MagicMock) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(status_code=302, is_redirect=True)
-        session_factory.return_value = session
-
-        is_valid, message = validate_credentials("tok", "acme", None, team_id=1)
-
-        assert is_valid is False
-        assert message == HOST_NOT_ALLOWED_ERROR
-
-    @mock.patch.object(px, "make_tracked_session")
-    def test_connection_error_returns_message(self, session_factory: mock.MagicMock, _host: mock.MagicMock) -> None:
+    def test_connection_error_returns_message(self, session_factory, _host) -> None:
         session = mock.MagicMock()
         session.get.side_effect = Exception("network down")
         session_factory.return_value = session
@@ -489,9 +416,7 @@ class TestValidateCredentials:
         assert message is not None and "Could not connect to pretix" in message
 
     @mock.patch.object(px, "make_tracked_session")
-    def test_invalid_organizer_rejected_without_request(
-        self, session_factory: mock.MagicMock, _host: mock.MagicMock
-    ) -> None:
+    def test_invalid_organizer_rejected_without_request(self, session_factory, _host) -> None:
         is_valid, message = validate_credentials("tok", "  ", None, team_id=1)
 
         assert is_valid is False
@@ -499,9 +424,7 @@ class TestValidateCredentials:
         session_factory.assert_not_called()
 
     @mock.patch.object(px, "make_tracked_session")
-    def test_http_base_url_rejected_without_request(
-        self, session_factory: mock.MagicMock, _host: mock.MagicMock
-    ) -> None:
+    def test_http_base_url_rejected_without_request(self, session_factory, _host) -> None:
         is_valid, message = validate_credentials("tok", "acme", "http://tickets.example.com", team_id=1)
 
         assert is_valid is False
@@ -510,19 +433,9 @@ class TestValidateCredentials:
 
 
 class TestPretixSourceResponse:
-    def _source(self, endpoint: str):
-        return pretix_source(
-            api_token="tok",
-            organizer="acme",
-            base_url=None,
-            endpoint=endpoint,
-            team_id=1,
-            logger=LOGGER,
-            resumable_source_manager=mock.MagicMock(),
-        )
-
+    # No host patch needed — `is_cloud()` is False in tests, so `_check_host` short-circuits to safe.
     def test_orders_partitioned_on_stable_creation_datetime(self) -> None:
-        response = self._source("orders")
+        response = _source("orders")
 
         assert response.name == "orders"
         assert response.primary_keys == ["event", "code"]
@@ -542,7 +455,7 @@ class TestPretixSourceResponse:
         ]
     )
     def test_primary_keys_per_endpoint(self, endpoint: str, primary_keys: list[str]) -> None:
-        response = self._source(endpoint)
+        response = _source(endpoint)
 
         assert response.primary_keys == primary_keys
         assert response.partition_mode is None
