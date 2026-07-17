@@ -298,12 +298,19 @@ class TestUpdateExternalJobStatus:
         assert schema.status == ExternalDataSchema.Status.COMPLETED
         assert schema.latest_error is None
 
-    def test_cdc_broken_schema_status_is_not_overwritten(self):
-        # A loader finishing an in-flight batch after `mark_cdc_broken` must not repaint
-        # the schema healthy while the slot is gone — the job completes, the schema stays
-        # FAILED with the broken-state message until repair/disable clears the marker.
+    @pytest.mark.parametrize(
+        "halting_marker",
+        [
+            {"cdc_broken": {"reason": "slot_missing", "at": "2026-06-29T10:40:00+00:00"}},
+            {"cdc_extraction_paused": {"reason": "auth_failed", "at": "2026-06-29T10:40:00+00:00"}},
+        ],
+    )
+    def test_cdc_halted_schema_status_is_not_overwritten(self, halting_marker):
+        # A loader finishing an in-flight batch after `mark_cdc_broken` (or after a non-retryable
+        # error paused extraction) must not repaint the schema healthy while syncing is stopped —
+        # the job completes, the schema stays FAILED until the marker is cleared.
         team, _source, schema, job = _create_org_team_source_schema_job()
-        schema.sync_type_config = {"cdc_broken": {"reason": "slot_missing", "at": "2026-06-29T10:40:00+00:00"}}
+        schema.sync_type_config = halting_marker
         schema.status = ExternalDataSchema.Status.FAILED
         schema.latest_error = "The replication slot no longer exists on the source database."
         schema.save()

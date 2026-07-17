@@ -80,6 +80,42 @@ def test_persists_broken_state_on_source_and_schemas(team):
     assert mock_capture.call_args.kwargs["event"] == "cdc marked broken"
 
 
+@pytest.mark.parametrize(
+    "second_reason,expects_new_evidence",
+    [
+        ("critical_lag_self_managed", False),  # sweeper re-marking an ongoing condition
+        ("slot_missing", True),  # a different breakage is new evidence
+    ],
+)
+def test_re_marking_reports_once_per_reason(team, second_reason, expects_new_evidence):
+    # The sweeper calls mark_cdc_broken on every sweep while the condition persists; only a
+    # schema newly entering a broken state may add digest evidence, or an unrepaired source
+    # would re-email the team daily and pile a synthetic failed run per sweep onto the Syncs tab.
+    source = _source(team)
+    schema = _cdc_schema(team, source)
+
+    with _mocked_boundaries() as (_pause, mock_digest, _notify, _capture):
+        mark_cdc_broken(source, "critical_lag_self_managed", "lag too high", pause=False)
+        mark_cdc_broken(source, second_reason, "still broken", pause=False)
+
+    expected_evidence_rounds = 2 if expects_new_evidence else 1
+    assert ExternalDataJob.objects.filter(schema=schema).count() == expected_evidence_rounds
+    assert mock_digest.call_count == expected_evidence_rounds
+
+
+def test_visibility_jobs_can_be_disabled_for_in_run_callers(team):
+    # The extraction activity records its own FAILED rows; a second set from mark_cdc_broken
+    # would render every incident as two identical failed runs.
+    source = _source(team)
+    schema = _cdc_schema(team, source)
+
+    with _mocked_boundaries() as (_pause, mock_digest, _notify, _capture):
+        mark_cdc_broken(source, "slot_missing", "slot gone", create_visibility_jobs=False)
+
+    assert not ExternalDataJob.objects.filter(schema=schema).exists()
+    mock_digest.assert_called_once()
+
+
 @pytest.mark.parametrize("pause", [True, False])
 def test_pause_flag_controls_schedule_pause(team, pause):
     source = _source(team)

@@ -12,8 +12,8 @@ from products.data_warehouse.backend.logic.external_data_source.notifications im
 
 logger = structlog.get_logger(__name__)
 
-# Digest tasks scheduled, by trigger: "inline" (a sync just failed, from jobs.py)
-# vs "catchup" (the daily sweep below). increase(...{trigger="catchup"}[1d]) is the
+# Digest tasks scheduled, by trigger: "inline" (a sync just failed, from jobs.py),
+# "cdc" (a CDC failure path), or "catchup" (the daily sweep below). increase(...{trigger="catchup"}[1d]) is the
 # catch-up fan-out — how many teams the daily sweep re-notifies. The inline count is
 # the burst denominator: comparing it to delivered emails shows how hard the 15-min
 # countdown + campaign-key dedup are collapsing bursts.

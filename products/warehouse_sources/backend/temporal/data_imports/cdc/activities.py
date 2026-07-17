@@ -1390,7 +1390,9 @@ class CDCExtractActivity:
         )
         if marked_broken:
             assert self.source is not None
-            mark_cdc_broken(self.source, info.category.value, friendly)
+            # This run records its own FAILED job rows below; a second set from mark_cdc_broken
+            # would show every incident as two identical failed runs.
+            mark_cdc_broken(self.source, info.category.value, friendly, create_visibility_jobs=False)
         elif not info.retryable and self.source is not None:
             # A non-retryable error re-fails every scheduled run, so pause the schedule instead of
             # looping it. No cdc_broken marker: the slot is intact, so it stays Repair-CDC-ineligible.
@@ -1419,10 +1421,10 @@ class CDCExtractActivity:
             )
         terminal = not info.retryable or activity.info().attempt >= CDC_MAX_EXTRACTION_ATTEMPTS
         # A failure before the first micro-flush creates no ExternalDataJob, so the Syncs tab stays
-        # empty while the schema reads FAILED. Backfill a terminal FAILED row per schema so the run
-        # is visible — but only once retries are exhausted or the error is non-retryable, otherwise
-        # every transient retry would leave a stray failed row.
-        if not self.created_jobs and terminal:
+        # empty while the schema reads FAILED. Backfill a terminal FAILED row per job-less schema so
+        # the run is visible — but only once retries are exhausted or the error is non-retryable,
+        # otherwise every transient retry would leave a stray failed row.
+        if terminal:
             try:
                 self._create_failure_visibility_jobs(friendly)
             except Exception:
@@ -1460,14 +1462,18 @@ class CDCExtractActivity:
             self.log.warning("cdc_non_retryable_capture_failed", exc_info=True)
 
     def _create_failure_visibility_jobs(self, friendly_error: str) -> None:
-        """Create one terminal FAILED ExternalDataJob per CDC schema for a run that produced none.
+        """Create one terminal FAILED ExternalDataJob per job-less CDC schema for this run.
 
         Mirrors the running-job creation in _get_or_create_tracker (workflow ids, V3, snapshot) so
         the Syncs tab renders these the same way as a job that failed after it started writing.
+        Schemas whose job already exists this run (failed by _fail_created_jobs) are skipped.
         """
         now = dt.datetime.now(tz=dt.UTC)
         activity_info = activity.info()
+        schema_ids_with_jobs = {job.schema_id for job in self.created_jobs}
         for schema in self.cdc_schemas:
+            if schema.id in schema_ids_with_jobs:
+                continue
             ExternalDataJob.objects.create(
                 team_id=self.inputs.team_id,
                 pipeline_id=self.inputs.source_id,
@@ -1501,7 +1507,10 @@ class CDCExtractActivity:
         the failure digest. Returns whether the repaint happened.
         """
         try:
-            schema.refresh_from_db(fields=["sync_type_config"])
+            # The heartbeat records liveness (this run happened), independent of health — and its
+            # locked merge refreshes the in-memory config, so the marker checks below see the
+            # sweeper's latest state.
+            self._record_run_heartbeat(schema, now)
         except ExternalDataSchema.DoesNotExist:
             return False
         config = schema.sync_type_config or {}
@@ -1515,7 +1524,6 @@ class CDCExtractActivity:
         schema.latest_error = None
         schema.last_synced_at = now
         schema.save(update_fields=["status", "latest_error", "last_synced_at", "updated_at"])
-        self._record_run_heartbeat(schema, now)
         return True
 
     def _finalize_success(self) -> None:

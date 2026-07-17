@@ -43,6 +43,7 @@ def mark_cdc_broken(
     message: str,
     *,
     pause: bool = True,
+    create_visibility_jobs: bool = True,
     **extra: typing.Any,
 ) -> None:
     """Move a CDC source into the broken state.
@@ -51,7 +52,9 @@ def mark_cdc_broken(
     friendly, credential-safe copy shown to the user. ``pause`` controls whether the extraction
     schedule is paused — left on for PostHog-managed breakage (the slot is gone, retrying is futile)
     and turned off for self-managed critical lag, whose customer-owned slot may still recover.
-    ``extra`` keys (e.g. ``lag_mb``) are merged into the persisted ``cdc_broken`` marker.
+    ``create_visibility_jobs`` is turned off by callers inside a run (the extraction activity),
+    which already record their own FAILED job rows. ``extra`` keys (e.g. ``lag_mb``) are merged
+    into the persisted ``cdc_broken`` marker.
     """
     log = logger.bind(source_id=str(source.id), team_id=source.team_id, reason=reason)
 
@@ -66,6 +69,15 @@ def mark_cdc_broken(
             should_sync=True,
         ).exclude(deleted=True)
     )
+    # The sweeper re-marks an unrepaired source on every sweep while the condition persists.
+    # Report once: only schemas newly entering this broken state produce failure-digest
+    # evidence, otherwise an ongoing condition would re-email the team daily and pile a
+    # synthetic FAILED run per sweep onto the Syncs tab.
+    newly_broken = [
+        schema
+        for schema in cdc_schemas
+        if ((schema.sync_type_config or {}).get("cdc_broken") or {}).get("reason") != reason
+    ]
     for schema in cdc_schemas:
         # Locked merge so a concurrent API PATCH of sync_type_config can't clobber the marker.
         update_sync_type_config_keys(
@@ -84,13 +96,15 @@ def mark_cdc_broken(
     # Breakage often originates outside a run (the lag sweeper), so no FAILED job row exists.
     # The failure digest email needs one: its schema query requires a failed job newer than the
     # last notification, and the daily catch-up selects teams by recent failed jobs.
-    _create_failure_visibility_jobs(source, cdc_schemas, message, log)
-    _schedule_failure_digest(source, log)
+    if newly_broken:
+        if create_visibility_jobs:
+            _create_failure_visibility_jobs(source, newly_broken, message, log)
+        _schedule_failure_digest(source, log)
 
     _notify(source, message, log)
     _capture(source, reason, paused=pause, log=log)
 
-    log.warning("cdc_marked_broken", schemas=len(cdc_schemas), paused=pause)
+    log.warning("cdc_marked_broken", schemas=len(cdc_schemas), newly_broken=len(newly_broken), paused=pause)
 
 
 def _create_failure_visibility_jobs(

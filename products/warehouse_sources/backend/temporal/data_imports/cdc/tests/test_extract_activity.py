@@ -1939,6 +1939,9 @@ class TestErrorClassification:
             mock_mark_broken.assert_called_once()
             assert mock_mark_broken.call_args.args[0] is source
             assert mock_mark_broken.call_args.args[1] == expected_reason
+            # This run backfills its own FAILED rows; mark_cdc_broken adding a second set would
+            # show every incident as two identical failed runs.
+            assert mock_mark_broken.call_args.kwargs["create_visibility_jobs"] is False
             mock_pause.assert_not_called()
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.mark_cdc_broken")
