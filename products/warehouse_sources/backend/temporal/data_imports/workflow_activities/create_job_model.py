@@ -181,7 +181,13 @@ def create_external_data_job_model_activity(
             delete_external_data_schedule(str(inputs.schema_id))
             raise Exception("Source or schema no longer exists - deleted temporal schedule")
 
-        schema = ExternalDataSchema.objects.get(team_id=inputs.team_id, id=inputs.schema_id)
+        # Prefetch team and source: schema.save() fires the activity_logging signal, whose handler
+        # dereferences schema.source and schema.team.organization_id. Without select_related each is a
+        # lazy query inside the signal handler, and if the activity is cancelled mid-query the resulting
+        # error surfaces as noise. We also read schema.source below, so this is a win regardless.
+        schema = ExternalDataSchema.objects.select_related("team", "source").get(
+            team_id=inputs.team_id, id=inputs.schema_id
+        )
         schema.status = ExternalDataSchema.Status.RUNNING
         schema.save()
 

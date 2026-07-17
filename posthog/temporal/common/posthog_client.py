@@ -21,6 +21,27 @@ from posthog.temporal.common.logger import get_write_only_logger
 logger = get_write_only_logger()
 
 
+def _is_cancellation(exc: BaseException) -> bool:
+    """Whether the exception is a Temporal/asyncio cancellation, directly or wrapped in its
+    __cause__/__context__ chain.
+
+    Sync activities deliver cancellation by asynchronously raising CancelledError into the worker
+    thread. If that lands mid-DB-query — e.g. a lazy FK dereference inside an activity_logging signal
+    handler — the driver/ORM can re-raise it as a different exception (a Django OperationalError, an
+    InterfaceError) that merely *carries* the CancelledError in its chain. temporalio's own
+    is_cancelled_exception only inspects the top-level type, so those wrapped variants slip past it.
+    Walking the chain catches them; a cancellation anywhere in it means the activity is being torn
+    down and Temporal will retry, so it's expected control flow, not a defect."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        if temporalio.exceptions.is_cancelled_exception(current):
+            return True
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return False
+
+
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
     """Tag the active span (the Temporal RunActivity/RunWorkflow span, when OTel tracing is
     enabled on the worker) with team_id read from the activity/workflow input.
@@ -70,7 +91,7 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # egress-budget backpressure (a deliberate "defer and retry later" signal that our
             # rate limiter already records via record_outbound_decision) are expected control flow,
             # not defects — re-raise without reporting them to error tracking.
-            if temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, EgressBudgetExhausted):
+            if _is_cancellation(e) or isinstance(e, EgressBudgetExhausted):
                 raise
             activity_info = activity.info()
             capture_kwargs = {
@@ -104,7 +125,7 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
         except Exception as e:
             if isinstance(e, temporalio.exceptions.ActivityError):
                 raise  # Already captured at the activity level
-            if temporalio.exceptions.is_cancelled_exception(e):
+            if _is_cancellation(e):
                 raise  # Expected cancellation (worker drain, timeout, cancel), not a defect
             try:
                 workflow_info = workflow.info()
