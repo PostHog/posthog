@@ -303,6 +303,12 @@ window — never approximate it with a flat `countIf`. A FROM-subquery is the si
   ORDER BY first_time_users DESC
   LIMIT 50
 
+The reference below is the shared HogQL function/expression/aggregation catalog — use it ONLY to check
+function names, signatures, and available operations. Ignore any window/date handling it shows: several
+examples filter with `now()`, `now() - INTERVAL …`, or `dateDiff(…, now())`, which are FORBIDDEN here.
+The window-filter rules above always win — filter with `{{date_range}}` / `{{compare_date_range}}`, never
+`now()` or literal dates.
+
 # Expressions guide
 
 {{{hogql_expressions_docs}}}
