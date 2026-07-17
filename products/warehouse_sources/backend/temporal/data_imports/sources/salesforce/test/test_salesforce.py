@@ -341,7 +341,9 @@ class TestSalesforceApiVersionDispatch:
     def test_get_resource_path_uses_api_version(self, _name: str, api_version: str, expected_path: str) -> None:
         resource = get_resource("Account", should_use_incremental_field=False, api_version=api_version)
 
-        assert resource["endpoint"]["path"] == expected_path
+        endpoint = resource["endpoint"]
+        assert isinstance(endpoint, dict)
+        assert endpoint["path"] == expected_path
 
     @parameterized.expand([("v61.0",), ("v67.0",)])
     @mock.patch(
