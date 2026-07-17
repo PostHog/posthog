@@ -35,6 +35,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DelightedSource(ResumableSource[DelightedSourceConfig, DelightedResumeConfig]):
+    # Delighted ships a single API version (v1) and the vendor is sunsetting the entire service on
+    # 2026-06-30 — there is no successor version to migrate to. We deliberately do NOT add v1 to
+    # `deprecated_versions`: it is the sole/default version, so deprecating it would fail the registry
+    # invariant (`default_version not in deprecated`) and render a nonsensical "migrate to v1" banner
+    # (v1 is its own migration target). When the vendor retires the API the endpoints return 410 Gone,
+    # which `get_non_retryable_errors` maps to a permanent failure that disables the source.
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://app.delighted.com/docs/api"
