@@ -825,6 +825,35 @@ def update_sync_type_config_keys(
         return config
 
 
+def mark_initial_sync_complete(schema_id: str | uuid.UUID, team_id: int) -> None:
+    """Mark a schema's first successful sync complete. Shared by the V2 pipelines and the V3 loader.
+
+    On the False→True transition, a CDC schema still in snapshot mode moves to
+    ``cdc_mode="streaming"`` in the same row lock. Callers must only invoke this once the
+    run's data has durably landed in the destination table — the streaming flip is what lets
+    the CDC workflow start enqueuing (and flushing deferred) WAL merge runs, and merges
+    against a half-loaded snapshot corrupt the table. Locked for the same reason as
+    ``update_sync_type_config_keys``: the CDC extract activity appends ``cdc_deferred_runs``
+    to ``sync_type_config`` concurrently, and an unlocked read-modify-write here could
+    clobber a deferred run.
+    """
+    with transaction.atomic():
+        schema = ExternalDataSchema.objects.select_for_update().exclude(deleted=True).get(id=schema_id, team_id=team_id)
+        if schema.initial_sync_complete:
+            return
+
+        schema.initial_sync_complete = True
+        update_fields = ["initial_sync_complete", "updated_at"]
+
+        if schema.is_cdc and schema.cdc_mode == "snapshot":
+            config = schema.sync_type_config or {}
+            config["cdc_mode"] = "streaming"
+            schema.sync_type_config = config
+            update_fields.append("sync_type_config")
+
+        schema.save(update_fields=update_fields)
+
+
 def get_all_schemas_for_source_id(source_id: str, team_id: int):
     return list(ExternalDataSchema.objects.exclude(deleted=True).filter(team_id=team_id, source_id=source_id).all())
 
