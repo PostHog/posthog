@@ -1,4 +1,5 @@
 import copy
+import math
 import logging
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
@@ -42,6 +43,27 @@ DEFAULT_RETRY_ATTEMPTS = 5
 # without one, so a stalled — or customer-controlled — upstream could tie up an import worker
 # indefinitely. A read timeout on an idempotent GET is retried by the adapter's DEFAULT_RETRY.
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 60.0
+
+
+def _is_positive_finite(value: Any) -> bool:
+    # `bool` is an `int` subclass — a stray `True`/`False` must not read as a timeout.
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
+
+
+def resolve_request_timeout(value: Any) -> float | tuple[float, float]:
+    """Coerce a declarative/client-supplied timeout to a bounded value.
+
+    Custom-source manifests feed `client.request_timeout` straight through, so a missing,
+    `null`, or malformed value must fall back to the default bound rather than disabling it
+    — `timeout=None` restores requests' infinite wait, letting an unresponsive host hold a
+    shared import worker indefinitely. Accepts a positive finite number of seconds or a
+    `(connect, read)` pair of positive finite numbers; anything else becomes the default.
+    """
+    if _is_positive_finite(value):
+        return float(value)
+    if isinstance(value, (tuple, list)) and len(value) == 2 and all(_is_positive_finite(v) for v in value):
+        return (float(value[0]), float(value[1]))
+    return DEFAULT_REQUEST_TIMEOUT_SECONDS
 
 
 def _parse_retry_after(response: Response) -> Optional[float]:
@@ -118,8 +140,9 @@ class RESTClient:
         self.auth = auth
         self.paginator = paginator
         self._max_retry_attempts = max_retry_attempts
-        # `None` disables the bound (only for callers that manage their own timeout on the
-        # passed-in session, e.g. the inline preview). A `(connect, read)` tuple splits it.
+        # `None` disables the bound — reserved for trusted in-process callers that manage
+        # their own timeout on the passed-in session. Declarative/manifest config is coerced
+        # to a bounded value first (see `resolve_request_timeout`). A tuple is `(connect, read)`.
         self._request_timeout = request_timeout
         # Default to the tracked session so every source built on top of
         # `RESTClient` participates in HTTP logging, metrics, and sample

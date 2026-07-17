@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from requests import Response
 from requests.exceptions import ChunkedEncodingError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_api_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.exceptions import (
     IgnoreResponseException,
@@ -17,11 +18,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    DEFAULT_REQUEST_TIMEOUT_SECONDS,
     MAX_RETRY_AFTER_SECONDS,
     RESTClient,
     RESTClientRetryableError,
     _parse_retry_after,
+    resolve_request_timeout,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import RESTAPIConfig
 
 
 def _make_response(json_body: Any, status_code: int = 200) -> Response:
@@ -527,3 +531,56 @@ class TestRESTClient:
         response.headers["X-Sentry-Rate-Limit-Reset"] = str(int(now.timestamp()) - 5)
 
         assert _parse_retry_after(response) is None
+
+
+class TestRequestTimeout:
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            (None, DEFAULT_REQUEST_TIMEOUT_SECONDS),  # null/missing manifest value must not disable the bound
+            (30, 30.0),
+            (30.5, 30.5),
+            ((5, 10), (5.0, 10.0)),
+            ([5, 10], (5.0, 10.0)),
+            (0, DEFAULT_REQUEST_TIMEOUT_SECONDS),
+            (-1, DEFAULT_REQUEST_TIMEOUT_SECONDS),
+            (float("inf"), DEFAULT_REQUEST_TIMEOUT_SECONDS),
+            (float("nan"), DEFAULT_REQUEST_TIMEOUT_SECONDS),
+            (True, DEFAULT_REQUEST_TIMEOUT_SECONDS),  # bool is an int subclass but is not a timeout
+            ("60", DEFAULT_REQUEST_TIMEOUT_SECONDS),
+            ((5,), DEFAULT_REQUEST_TIMEOUT_SECONDS),  # wrong-length tuple
+            ((5, 0), DEFAULT_REQUEST_TIMEOUT_SECONDS),  # tuple with a non-positive member
+            ((5, "x"), DEFAULT_REQUEST_TIMEOUT_SECONDS),  # tuple with a non-numeric member
+        ],
+    )
+    def test_resolve_request_timeout(self, value: Any, expected: Any) -> None:
+        assert resolve_request_timeout(value) == expected
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.RESTClient")
+    def test_manifest_cannot_disable_request_timeout(self, MockClient: MagicMock) -> None:
+        # A client-authored manifest that sets request_timeout to null must still land on the
+        # bounded default — never None, which would restore requests' infinite wait.
+        config = cast(
+            RESTAPIConfig,
+            {
+                "client": {"base_url": "https://api.example.com", "request_timeout": None},
+                "resource_defaults": None,
+                "resources": [{"name": "items", "endpoint": {"path": "/items", "data_selector": "data"}}],
+            },
+        )
+
+        rest_api_resource(config, team_id=1, job_id="j", db_incremental_field_last_value=None)
+
+        assert MockClient.call_args.kwargs["request_timeout"] == DEFAULT_REQUEST_TIMEOUT_SECONDS
+
+    def test_send_request_passes_configured_timeout(self) -> None:
+        # The configured timeout must reach session.send — otherwise the bound is silently dropped.
+        session = MagicMock()
+        session.headers = {}
+        session.prepare_request.return_value = MagicMock()
+        session.send.return_value = _make_response({"data": []})
+
+        client = RESTClient(base_url="https://api.example.com", session=session, request_timeout=42.0)
+        list(client.paginate(path="/items", data_selector="data", paginator=SinglePagePaginator()))
+
+        assert session.send.call_args.kwargs["timeout"] == 42.0

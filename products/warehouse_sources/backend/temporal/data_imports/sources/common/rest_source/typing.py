@@ -171,8 +171,9 @@ class ClientConfig(TypedDict, total=False):
     # the inline preview sets 1 so a rate-limited endpoint errors instead of sleeping.
     max_retries: int
     # Per-request timeout (seconds, or a `(connect, read)` tuple) passed to `session.send`.
-    # Left unset, RESTClient applies its bounded default; `None` disables the bound for
-    # callers that manage their own timeout on the passed-in session.
+    # Manifests are client-authored, so this is coerced through `resolve_request_timeout`:
+    # a missing, `null`, or malformed value falls back to the bounded default — it can never
+    # disable the timeout.
     request_timeout: Optional[float | tuple[float, float]]
 
 
