@@ -9,10 +9,17 @@
 #
 # Each line is `<count>\t<token>\t<relpath>`. Migrate a family to a capability
 # mixin (see .../sources/common/capabilities.py), then regenerate to shrink.
-1	ExternalDataSourceType.MYSQL	products/data_warehouse/backend/presentation/views/external_data_source.py
+1	is_direct_postgres	products/data_warehouse/backend/presentation/views/external_data_source.py
+2	ExternalDataSourceType.MYSQL	products/data_warehouse/backend/presentation/views/external_data_source.py
 2	ExternalDataSourceType.POSTGRES	products/data_warehouse/backend/presentation/views/external_data_schema.py
-2	ExternalDataSourceType.REDSHIFT	products/data_warehouse/backend/presentation/views/external_data_source.py
-2	ExternalDataSourceType.SNOWFLAKE	products/data_warehouse/backend/presentation/views/external_data_source.py
+3	ExternalDataSourceType.REDSHIFT	products/data_warehouse/backend/presentation/views/external_data_source.py
+3	ExternalDataSourceType.SNOWFLAKE	products/data_warehouse/backend/presentation/views/external_data_source.py
+3	is_direct_mysql	products/data_warehouse/backend/presentation/views/external_data_source.py
+3	is_direct_postgres	products/data_warehouse/backend/presentation/views/external_data_schema.py
+3	is_direct_redshift	products/data_warehouse/backend/presentation/views/external_data_schema.py
+3	is_direct_redshift	products/data_warehouse/backend/presentation/views/external_data_source.py
+3	is_direct_snowflake	products/data_warehouse/backend/presentation/views/external_data_schema.py
+3	is_direct_snowflake	products/data_warehouse/backend/presentation/views/external_data_source.py
 4	ExternalDataSourceType.GITHUB	products/data_warehouse/backend/presentation/views/external_data_source.py
-5	ExternalDataSourceType.POSTGRES	products/data_warehouse/backend/presentation/views/external_data_source.py
 6	ExternalDataSourceType.CUSTOM	products/data_warehouse/backend/presentation/views/external_data_source.py
+6	ExternalDataSourceType.POSTGRES	products/data_warehouse/backend/presentation/views/external_data_source.py

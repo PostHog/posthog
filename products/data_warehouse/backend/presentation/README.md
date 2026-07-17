@@ -48,7 +48,7 @@ source / adapter returns. Source capabilities never import `data_warehouse` type
 (`source_agnostic_baseline.txt`). A new reference fails CI; migrating a family lets you shrink
 the baseline:
 
-```bash
+```
 python .github/scripts/check-dwh-source-agnostic.py --regenerate-baseline
 ```
 
