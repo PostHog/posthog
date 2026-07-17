@@ -468,12 +468,12 @@ class TestMarkInitialSyncComplete(BaseTest):
         real_select_for_update = ExternalDataSchema.objects.select_for_update
         attempts = 0
 
-        def flaky_select_for_update(*args: object, **kwargs: object):
+        def flaky_select_for_update():
             nonlocal attempts
             attempts += 1
             if attempts == 1:
                 raise OperationalError("server closed the connection unexpectedly")
-            return real_select_for_update(*args, **kwargs)
+            return real_select_for_update()
 
         with patch.object(ExternalDataSchema.objects, "select_for_update", side_effect=flaky_select_for_update):
             mark_initial_sync_complete(schema.id, self.team.pk)
