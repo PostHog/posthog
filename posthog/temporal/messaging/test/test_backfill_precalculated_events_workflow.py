@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import MagicMock, Mock, patch
 
 import temporalio.exceptions
+from confluent_kafka import KafkaException
 from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
@@ -61,6 +62,25 @@ class TestFlushKafkaBatchAsync:
 
         assert result == 2
         mock_thread.assert_called_once_with(kafka_producer.flush)
+
+    @pytest.mark.asyncio
+    async def test_raises_when_a_message_failed_to_deliver(self):
+        # A failed delivery must surface as an error, not a silently-inflated success
+        # count: the caller relies on this raising to retry the batch instead of treating
+        # an undelivered row as corrected.
+        kafka_producer = Mock()
+        delivered = Mock()
+        failed = Mock()
+        failed.get.side_effect = KafkaException("broker not available")
+
+        with patch(
+            "posthog.temporal.messaging.backfill_precalculated_events_workflow.asyncio.to_thread"
+        ) as mock_thread:
+            mock_thread.return_value = None
+            with pytest.raises(RuntimeError, match="1/2 messages"):
+                await flush_kafka_batch_async(
+                    kafka_results=[delivered, failed], kafka_producer=kafka_producer, team_id=1, logger=Mock()
+                )
 
 
 class TestEvaluateEventCombinedFiltersSync:

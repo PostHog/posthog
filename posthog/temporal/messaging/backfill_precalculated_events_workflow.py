@@ -54,21 +54,39 @@ async def flush_kafka_batch_async(
     team_id: int,
     logger: structlog.BoundLogger,
 ) -> int:
-    """Flush Kafka messages asynchronously and return count of successful messages."""
+    """Flush Kafka messages asynchronously, raising if any failed to deliver.
+
+    flush() blocks until every outstanding delivery callback has fired, so checking
+    each result afterwards is non-blocking. Raising lets the Temporal retry policy
+    redrive the whole batch instead of silently treating undelivered rows as corrected.
+    """
     if not kafka_results:
         return 0
 
-    successful_count = len(kafka_results)
     flush_start_time = time.monotonic()
     await asyncio.to_thread(kafka_producer.flush)
     flush_duration = time.monotonic() - flush_start_time
 
+    errors = []
+    for result in kafka_results:
+        try:
+            result.get(timeout=0)
+        except Exception as e:
+            errors.append(str(e))
+
+    successful_count = len(kafka_results) - len(errors)
+
     logger.info(
-        f"Flushed batch in {flush_duration:.3f}s: {successful_count} messages",
+        f"Flushed batch in {flush_duration:.3f}s: {successful_count}/{len(kafka_results)} messages",
         team_id=team_id,
         successful_messages=successful_count,
         flush_duration_seconds=flush_duration,
     )
+
+    if errors:
+        raise RuntimeError(
+            f"Kafka delivery failed for {len(errors)}/{len(kafka_results)} messages for team {team_id}: {errors[0]}"
+        )
 
     return successful_count
 
