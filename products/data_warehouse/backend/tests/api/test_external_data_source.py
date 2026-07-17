@@ -1,4 +1,5 @@
 import json
+import time
 import uuid
 import typing as t
 from datetime import date, timedelta
@@ -35,7 +36,7 @@ from posthog.schema import (
 )
 
 from posthog.models import OrganizationMembership, Team
-from posthog.models.integration import Integration
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
 from posthog.models.project import Project
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -75,12 +76,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     PreviewResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsApiError
+from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
+    MetaAdsRateLimitError,
+    MetaAdsTokenRefreshError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     PostgresDiscoveredSchema,
     SSLRequiredError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.reddit_ads import RedditAdsApiError
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -11425,7 +11431,9 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
     _BING_LIST_ACCOUNTS = (
         "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.BingAdsClient.list_accounts"
     )
+    _REDDIT_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source"
     _LINKEDIN_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source"
+    _META_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source"
 
     def setUp(self):
         super().setUp()
@@ -11470,6 +11478,16 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
             created_by=self.user,
         )
 
+    def _meta_ads_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="meta-ads",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="meta_ads_test",
+            created_by=self.user,
+        )
+
     @staticmethod
     def _http_error(status_code: int) -> requests.HTTPError:
         response = requests.Response()
@@ -11504,6 +11522,191 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         # raises NotImplementedError — it must surface as a 400, not an unhandled 500.
         response = self.client.get(self._url("Salesforce", 1))
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def _reddit_integration(self, **kwargs) -> Integration:
+        return Integration.objects.create(
+            **{
+                "team": self.team,
+                "kind": "reddit-ads",
+                "config": {},
+                "sensitive_config": {"access_token": "token", "refresh_token": "refresh"},
+                "integration_id": "reddit_test",
+                "created_by": self.user,
+                **kwargs,
+            }
+        )
+
+    def test_reddit_ads_groups_ad_accounts_under_their_business(self):
+        integration = self._reddit_integration()
+        ad_accounts = {
+            "biz-1": [{"id": "a2_one", "name": "Acme Ads", "suspension_reason": None}],
+            "biz-2": [{"id": "a2_two", "name": "Blocked Ads", "suspension_reason": "PAYMENT_FAILURE"}],
+        }
+        with (
+            patch(f"{self._REDDIT_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(
+                f"{self._REDDIT_ADS_MODULE}.list_businesses",
+                return_value=[{"id": "biz-1", "name": "Acme"}, {"id": "biz-2", "name": "Globex"}],
+            ),
+            patch(
+                f"{self._REDDIT_ADS_MODULE}.list_business_ad_accounts",
+                side_effect=lambda _token, business_id: ad_accounts[business_id],
+            ),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("RedditAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "a2_one",
+                "display_name": "Acme Ads",
+                "is_primary": False,
+                "badges": [],
+                "group": "Acme",
+                "secondary_text": "a2_one",
+            },
+            {
+                "value": "a2_two",
+                "display_name": "Blocked Ads",
+                "is_primary": False,
+                "badges": ["Suspended"],
+                "group": "Globex",
+                "secondary_text": "a2_two",
+            },
+        ]
+
+    @parameterized.expand([(429,), (503,)])
+    def test_reddit_rate_limit_and_upstream_error_return_actionable_400(self, status_code: int):
+        # The session retries these and returns the final response, so they reach us as an API error
+        # rather than a raised transport exception — they must not become a 500.
+        integration = self._reddit_integration()
+        with (
+            patch(f"{self._REDDIT_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(
+                f"{self._REDDIT_ADS_MODULE}.list_businesses",
+                side_effect=RedditAdsApiError(f"Reddit Ads API error ({status_code}): slow down", status_code),
+            ),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("RedditAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "try again" in str(response.json()).lower()
+
+    def test_reddit_non_auth_api_error_is_not_swallowed(self):
+        integration = self._reddit_integration()
+        with (
+            patch(f"{self._REDDIT_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(
+                f"{self._REDDIT_ADS_MODULE}.list_businesses",
+                side_effect=RedditAdsApiError("Reddit Ads API error (400): bad", 400),
+            ),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("RedditAds", integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
+
+    def test_reddit_retries_refresh_for_integration_carrying_a_past_refresh_failure(self):
+        # `errors` persists on the row, so a previously failed (possibly transient) refresh must not
+        # permanently brick the picker: we still attempt the refresh, and a successful one clears it.
+        integration = self._reddit_integration(
+            errors=ERROR_TOKEN_REFRESH_FAILED,
+            config={"expires_in": 3600, "refreshed_at": time.time() - 7200},
+        )
+
+        def _succeed(oauth_integration: OauthIntegration) -> None:
+            oauth_integration.integration.errors = ""
+            oauth_integration.integration.sensitive_config["access_token"] = "refreshed-token"
+
+        with (
+            patch.object(OauthIntegration, "refresh_access_token", autospec=True, side_effect=_succeed) as mock_refresh,
+            patch(f"{self._REDDIT_ADS_MODULE}.list_businesses", return_value=[{"id": "biz-1", "name": "Acme"}]),
+            patch(
+                f"{self._REDDIT_ADS_MODULE}.list_business_ad_accounts",
+                return_value=[{"id": "a2_one", "name": "Acme Ads"}],
+            ) as mock_list_accounts,
+        ):
+            response = self.client.get(self._url("RedditAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert mock_refresh.call_count == 1
+        # The refreshed token is the one used to list, not the stale one.
+        assert mock_list_accounts.call_args.args[0] == "refreshed-token"
+        assert [account["value"] for account in response.json()["accounts"]] == ["a2_one"]
+
+    def test_meta_ads_maps_ad_accounts_to_accounts(self):
+        integration = self._meta_ads_integration()
+        listed = [
+            {"account_id": "1234567890", "name": "Acme Ads", "account_status": 1},
+            {"account_id": "9876543210", "name": "Old Ads", "account_status": 101},
+        ]
+        with (
+            patch(f"{self._META_ADS_MODULE}.get_integration_by_id"),
+            patch(f"{self._META_ADS_MODULE}.list_ad_accounts", return_value=listed),
+        ):
+            response = self.client.get(self._url("MetaAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "1234567890",
+                "display_name": "Acme Ads",
+                "is_primary": False,
+                "badges": ["Active"],
+                "group": None,
+                "secondary_text": None,
+            },
+            {
+                "value": "9876543210",
+                "display_name": "Old Ads",
+                "is_primary": False,
+                "badges": ["Closed"],
+                "group": None,
+                "secondary_text": None,
+            },
+        ]
+
+    def test_meta_ads_token_refresh_error_returns_actionable_400(self):
+        # Meta refusing to refresh the stored token is a customer-side state (revoked access), so it
+        # must reach the user as an actionable 400 rather than an unhandled 500.
+        integration = self._meta_ads_integration()
+        error = MetaAdsTokenRefreshError(
+            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
+        )
+        with patch(f"{self._META_ADS_MODULE}.get_integration_by_id", side_effect=error):
+            response = self.client.get(self._url("MetaAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "re-authorize" in str(response.json()).lower()
+
+    def test_meta_ads_rate_limit_returns_actionable_400(self):
+        # Meta throttling us is not a bug — it must not page us as a 500. The user just retries.
+        integration = self._meta_ads_integration()
+        with (
+            patch(f"{self._META_ADS_MODULE}.get_integration_by_id"),
+            patch(
+                f"{self._META_ADS_MODULE}.list_ad_accounts",
+                side_effect=MetaAdsRateLimitError("Meta is rate limiting requests for this connection."),
+            ),
+        ):
+            response = self.client.get(self._url("MetaAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "rate limiting" in str(response.json()).lower()
+
+    def test_meta_ads_unexpected_error_is_not_swallowed(self):
+        # Only the classified branches become a 400 — anything else is a genuine bug and must keep
+        # surfacing as a 500 instead of being reported to the user as bad input.
+        integration = self._meta_ads_integration()
+        with (
+            patch(f"{self._META_ADS_MODULE}.get_integration_by_id"),
+            patch(f"{self._META_ADS_MODULE}.list_ad_accounts", side_effect=RuntimeError("boom")),
+        ):
+            response = self.client.get(self._url("MetaAds", integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
 
     def test_gsc_success_maps_sites_to_accounts(self):
         integration = self._gsc_integration()
