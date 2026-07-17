@@ -1,7 +1,8 @@
 from collections.abc import Callable
 from datetime import timedelta
 
-from django.db.models import Count, Max
+from django.db.models import Count, IntegerField, Max, Value
+from django.db.models.functions import Coalesce, Greatest
 from django.utils import timezone
 
 import structlog
@@ -14,7 +15,6 @@ from posthog.schema_enums import AlertState
 from products.alerts.backend.models import AlertConfiguration
 from products.exports.backend.models.subscription import SubscriptionDelivery
 from products.product_analytics.backend.models.insight import Insight
-from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 from products.pulse.backend.config import MAX_ITEMS_PER_DETECTOR, STUCK_REFRESH_ATTEMPTS
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, SourceItemKind
@@ -168,23 +168,36 @@ class ResourceHealthSource:
             Insight.objects.filter(team=team, deleted=False)
         )
         rows = (
-            InsightCachingState.objects.filter(
-                team=team,
-                refresh_attempt__gte=STUCK_REFRESH_ATTEMPTS,
-                insight_id__in=viewable_insights.values("id"),
+            viewable_insights.annotate(
+                dashboard_last_successful_refresh=Max("dashboard_tiles__last_refresh"),
+                refresh_attempts=Greatest(
+                    Coalesce("refresh_attempt", Value(0)),
+                    Coalesce(Max("dashboard_tiles__refresh_attempt"), Value(0)),
+                    output_field=IntegerField(),
+                ),
             )
-            .values("insight__short_id", "insight__name", "insight__derived_name")
-            # Alias must not reuse the model field name "last_refresh" (annotate redefinition).
-            .annotate(refresh_attempts=Max("refresh_attempt"), last_successful_refresh=Max("last_refresh"))
+            .filter(refresh_attempts__gte=STUCK_REFRESH_ATTEMPTS)
+            .values(
+                "short_id",
+                "name",
+                "derived_name",
+                "last_refresh",
+                "dashboard_last_successful_refresh",
+                "refresh_attempts",
+            )
             .order_by("-refresh_attempts")[:MAX_ITEMS_PER_DETECTOR]
         )
         items: list[SourceItem] = []
         for row in rows:
-            short_id = row["insight__short_id"]
-            label = row["insight__name"] or row["insight__derived_name"] or short_id
+            short_id = row["short_id"]
+            label = row["name"] or row["derived_name"] or short_id
             metrics: dict[str, float | int | str] = {"refresh_attempts": row["refresh_attempts"]}
-            if row["last_successful_refresh"]:
-                metrics["last_successful_refresh"] = row["last_successful_refresh"].isoformat()
+            last_successful_refresh = max(
+                (timestamp for timestamp in (row["last_refresh"], row["dashboard_last_successful_refresh"]) if timestamp),
+                default=None,
+            )
+            if last_successful_refresh:
+                metrics["last_successful_refresh"] = last_successful_refresh.isoformat()
             items.append(
                 self._health_item(
                     title=f"Insight '{label}' is failing to refresh",

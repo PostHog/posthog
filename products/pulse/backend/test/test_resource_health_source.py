@@ -19,7 +19,6 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.product_analytics.backend.models.insight import Insight
-from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem
 from products.pulse.backend.sources.resource_health import STUCK_REFRESH_ATTEMPTS, ResourceHealthSource
 
@@ -81,22 +80,17 @@ class TestResourceHealthGather(BaseTest):
         SubscriptionDelivery.objects.filter(id=delivery.id).update(created_at=timezone.now() - timedelta(days=days_ago))
         return delivery
 
-    def _caching_state(
+    def _set_refresh_state(
         self, insight: Insight, refresh_attempt: int, dashboard_tile: DashboardTile | None = None
-    ) -> InsightCachingState:
-        # Insight/tile creation auto-creates a caching state via signals, so update-or-create
-        state, _ = InsightCachingState.objects.update_or_create(
-            team=self.team,
-            insight=insight,
-            dashboard_tile=dashboard_tile,
-            defaults={"refresh_attempt": refresh_attempt, "cache_key": f"cache_{uuid.uuid4()}"},
-        )
-        return state
+    ) -> None:
+        resource = dashboard_tile or insight
+        resource.refresh_attempt = refresh_attempt
+        resource.save(update_fields=["refresh_attempt"])
 
     def test_healthy_team_yields_no_items(self) -> None:
         self._alert(state=AlertState.NOT_FIRING)
         self._delivery(self._subscription(), status=SubscriptionDelivery.Status.COMPLETED)
-        self._caching_state(self._insight(), refresh_attempt=0)
+        self._set_refresh_state(self._insight(), refresh_attempt=0)
 
         assert self._gather() == []
 
@@ -187,8 +181,8 @@ class TestResourceHealthGather(BaseTest):
         insight = self._insight()
         dashboard = Dashboard.objects.create(team=self.team, name="Main")
         tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
-        self._caching_state(insight, refresh_attempt=STUCK_REFRESH_ATTEMPTS)
-        self._caching_state(insight, refresh_attempt=STUCK_REFRESH_ATTEMPTS + 1, dashboard_tile=tile)
+        self._set_refresh_state(insight, refresh_attempt=STUCK_REFRESH_ATTEMPTS)
+        self._set_refresh_state(insight, refresh_attempt=STUCK_REFRESH_ATTEMPTS + 1, dashboard_tile=tile)
 
         items = self._gather()
 
@@ -207,7 +201,7 @@ class TestResourceHealthGather(BaseTest):
         assert item.fingerprint_hint == f"insight:{insight.short_id}"
 
     def test_below_threshold_refresh_attempts_ignored(self) -> None:
-        self._caching_state(self._insight(), refresh_attempt=STUCK_REFRESH_ATTEMPTS - 1)
+        self._set_refresh_state(self._insight(), refresh_attempt=STUCK_REFRESH_ATTEMPTS - 1)
 
         assert self._gather() == []
 
@@ -222,8 +216,8 @@ class TestResourceHealthGather(BaseTest):
         AccessControl.objects.create(resource="insight", resource_id=restricted.id, team=self.team, access_level="none")
         self._alert(insight=restricted, name="Restricted alert")
         visible_alert = self._alert(insight=visible, name="Visible alert")
-        self._caching_state(restricted, refresh_attempt=STUCK_REFRESH_ATTEMPTS)
-        self._caching_state(visible, refresh_attempt=STUCK_REFRESH_ATTEMPTS)
+        self._set_refresh_state(restricted, refresh_attempt=STUCK_REFRESH_ATTEMPTS)
+        self._set_refresh_state(visible, refresh_attempt=STUCK_REFRESH_ATTEMPTS)
 
         items = self._gather(user=viewer)
 
