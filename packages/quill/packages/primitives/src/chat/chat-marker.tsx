@@ -62,7 +62,11 @@ type ChatMarkerProps = useRender.ComponentProps<'div'> &
     }
 
 function ChatMarker({ body, ...props }: ChatMarkerProps): React.ReactElement {
-    return body == null ? <ChatMarkerFlat {...props} /> : <ChatMarkerCollapsible body={body} {...props} />
+    // Every value React renders as nothing means there's nothing to disclose. `body == null` alone
+    // would miss `body={items.length > 0 && <List />}`, the usual way to pass one conditionally, and
+    // give the row a chevron that opens onto an empty panel.
+    const hasBody = body != null && body !== false && body !== ''
+    return hasBody ? <ChatMarkerCollapsible body={body} {...props} /> : <ChatMarkerFlat {...props} />
 }
 
 function ChatMarkerFlat({

@@ -25,7 +25,7 @@ type ChatStreamProps = React.ComponentProps<'div'> & {
     pinned?: boolean
 }
 
-function ChatStream({ pinned = false, className, children, ...props }: ChatStreamProps): React.ReactElement {
+function ChatStream({ pinned = false, className, children, onScroll, ...props }: ChatStreamProps): React.ReactElement {
     const viewportRef = React.useRef<HTMLDivElement>(null)
     const streamRef = React.useRef<HTMLDivElement>(null)
 
@@ -145,7 +145,13 @@ function ChatStream({ pinned = false, className, children, ...props }: ChatStrea
             data-quill
             data-slot="stream"
             data-pinned={following || undefined}
-            onScroll={sync}
+            // Taken out of `props` and merged rather than spread over: the fades are derived from
+            // the scroll position, so a caller's own handler must not be able to replace the sync
+            // that keeps them true.
+            onScroll={(event) => {
+                sync()
+                onScroll?.(event)
+            }}
             className={cn('quill-chat-stream', className)}
             {...props}
         >

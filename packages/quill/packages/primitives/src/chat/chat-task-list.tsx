@@ -118,7 +118,15 @@ function ChatTaskListProgress({ className, ...props }: React.ComponentProps<'spa
                 data-status={done ? 'done' : undefined}
                 className={cn('quill-chat-bullet', 'quill-chat-swap__icon')}
             >
-                {value <= 0 ? <ListIcon /> : done ? <CircleCheckIcon /> : <ProgressRing value={value} total={total} />}
+                {/* No steps yet, or no plan at all: a list, not a ring of nothing. Guarding `total`
+                    here also keeps the ring's percentage from dividing by zero. */}
+                {value <= 0 || total <= 0 ? (
+                    <ListIcon />
+                ) : done ? (
+                    <CircleCheckIcon />
+                ) : (
+                    <ProgressRing value={value} total={total} />
+                )}
             </span>
             <ChevronRightIcon aria-hidden="true" className={cn('quill-chat-chevron', 'quill-chat-swap__chevron')} />
         </span>
