@@ -33,6 +33,8 @@ import {
     type ToolContext,
 } from '@posthog/agent-shared'
 
+import { resolveMemoryScope, SPACE } from './memory-scope'
+
 // =====================================================================
 // Shared envelope shape — all memory tool returns share { ok, error?, data? }
 // for consistent surface to the model (matches the PG-era shape, keeps any
@@ -57,28 +59,6 @@ function err(error: string): Result<never> {
 // Scope + store resolution
 // =====================================================================
 
-type Scope = { teamId: number; applicationId: string; space?: string }
-// Resolve the storage scope. `space` targets a shared memory space (see
-// MemoryStore); it's honoured only when the agent's spec grants access — reads
-// need any grant, writes need `read_write`. Omitting `space` = the agent's own
-// private memory (always allowed). `teamId` is NEVER taken from an arg, so a
-// grant can only reach spaces in the agent's own team. null = access denied.
-function resolveScope(ctx: ToolContext, space: string | undefined, needWrite: boolean): Scope | null {
-    if (space === undefined) {
-        return { teamId: ctx.teamId, applicationId: ctx.applicationId }
-    }
-    const grant = ctx.memorySpaceGrants?.get(space)
-    if (!grant || (needWrite && grant.access !== 'read_write')) {
-        return null
-    }
-    return { teamId: ctx.teamId, applicationId: ctx.applicationId, space }
-}
-const SPACE = Type.Optional(
-    Type.String({
-        description:
-            'Use a shared memory space instead of your own private memory: the space slug. Works only when your agent is granted access to that space (same team). Reads need a read grant; writes need read_write. Omit to use your own private memory.',
-    })
-)
 function denied(space: string | undefined): Result<never> {
     return err(`access_denied: no memory access to space '${space}'`)
 }
@@ -124,7 +104,7 @@ export const memoryListV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error)
         }
-        const sc = resolveScope(ctx, args.space, false)
+        const sc = resolveMemoryScope(ctx, args.space, false)
         if (!sc) {
             return denied(args.space)
         }
@@ -163,7 +143,7 @@ export const memorySearchV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error)
         }
-        const sc = resolveScope(ctx, args.space, false)
+        const sc = resolveMemoryScope(ctx, args.space, false)
         if (!sc) {
             return denied(args.space)
         }
@@ -195,7 +175,7 @@ export const memoryReadV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error)
         }
-        const sc = resolveScope(ctx, args.space, false)
+        const sc = resolveMemoryScope(ctx, args.space, false)
         if (!sc) {
             return denied(args.space)
         }
@@ -248,7 +228,7 @@ export const memoryWriteV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error)
         }
-        const sc = resolveScope(ctx, args.space, true)
+        const sc = resolveMemoryScope(ctx, args.space, true)
         if (!sc) {
             return denied(args.space)
         }
@@ -291,7 +271,7 @@ export const memoryUpdateV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error)
         }
-        const sc = resolveScope(ctx, args.space, true)
+        const sc = resolveMemoryScope(ctx, args.space, true)
         if (!sc) {
             return denied(args.space)
         }
@@ -334,7 +314,7 @@ export const memoryDeleteV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error)
         }
-        const sc = resolveScope(ctx, args.space, true)
+        const sc = resolveMemoryScope(ctx, args.space, true)
         if (!sc) {
             return denied(args.space)
         }

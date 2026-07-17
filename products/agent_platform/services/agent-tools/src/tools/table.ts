@@ -30,6 +30,8 @@ import {
     Type,
 } from '@posthog/agent-shared'
 
+import { resolveMemoryScope, SPACE } from './memory-scope'
+
 // The TypeBox `where` schema infers as Record<string, unknown>; the store
 // evaluates each condition structurally at runtime (scalar or predicate), so we
 // cast at the tool boundary.
@@ -48,28 +50,6 @@ type Result<T> = { ok: true; data: T } | { ok: false; error: string; code: strin
 const ok = <T>(data: T): Result<T> => ({ ok: true, data })
 const err = (error: string, code = 'error'): Result<never> => ({ ok: false, error, code })
 
-type Scope = { teamId: number; applicationId: string; space?: string }
-// Resolve the storage scope. `space` targets a shared memory space (see
-// MemoryStore); it's honoured only when the agent's spec grants access — reads
-// need any grant, writes need `read_write`. Omitting `space` = the agent's own
-// private tables (always allowed). `teamId` is NEVER taken from an arg, so a
-// grant can only reach spaces in the agent's own team. null = access denied.
-function resolveScope(ctx: ToolContext, space: string | undefined, needWrite: boolean): Scope | null {
-    if (space === undefined) {
-        return { teamId: ctx.teamId, applicationId: ctx.applicationId }
-    }
-    const grant = ctx.memorySpaceGrants?.get(space)
-    if (!grant || (needWrite && grant.access !== 'read_write')) {
-        return null
-    }
-    return { teamId: ctx.teamId, applicationId: ctx.applicationId, space }
-}
-const SPACE = Type.Optional(
-    Type.String({
-        description:
-            'Use a shared memory space instead of your own private tables: the space slug. Works only when your agent is granted access to that space (same team). Reads need a read grant; writes need read_write. Omit to use your own private tables.',
-    })
-)
 function denied(space: string | undefined): Result<never> {
     return err(`no memory access to space '${space}'`, 'access_denied')
 }
@@ -112,7 +92,7 @@ export const tableMembershipV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error, 'unavailable')
         }
-        const sc = resolveScope(ctx, args.space, false)
+        const sc = resolveMemoryScope(ctx, args.space, false)
         if (!sc) {
             return denied(args.space)
         }
@@ -145,7 +125,7 @@ export const tableAppendV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error, 'unavailable')
         }
-        const sc = resolveScope(ctx, args.space, true)
+        const sc = resolveMemoryScope(ctx, args.space, true)
         if (!sc) {
             return denied(args.space)
         }
@@ -179,7 +159,7 @@ export const tableQueryV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error, 'unavailable')
         }
-        const sc = resolveScope(ctx, args.space, false)
+        const sc = resolveMemoryScope(ctx, args.space, false)
         if (!sc) {
             return denied(args.space)
         }
@@ -210,7 +190,7 @@ export const tableCountV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error, 'unavailable')
         }
-        const sc = resolveScope(ctx, args.space, false)
+        const sc = resolveMemoryScope(ctx, args.space, false)
         if (!sc) {
             return denied(args.space)
         }
@@ -234,7 +214,7 @@ export const tableDeleteV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error, 'unavailable')
         }
-        const sc = resolveScope(ctx, args.space, true)
+        const sc = resolveMemoryScope(ctx, args.space, true)
         if (!sc) {
             return denied(args.space)
         }
@@ -258,7 +238,7 @@ export const tableTruncateV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error, 'unavailable')
         }
-        const sc = resolveScope(ctx, args.space, true)
+        const sc = resolveMemoryScope(ctx, args.space, true)
         if (!sc) {
             return denied(args.space)
         }
