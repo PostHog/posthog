@@ -195,7 +195,8 @@ class TestVisionActionSynthesis(BaseTest):
 
     def test_summary_leads_with_scanner_window_and_count_header(self) -> None:
         # The report must always state which scanner it's for, how many recordings it covers, and the
-        # window start — prepended in code so it's present regardless of what the LLM returns.
+        # window start — prepended in code so it's present regardless of what the LLM returns. The
+        # scanner name links to this run's page so both the in-app report and Slack can jump back to it.
         self._observation("Users churned at checkout", title="Checkout")
         self._observation("Onboarding looked smooth", title="Onboarding", session_id="s2")
         action = self._action()
@@ -204,12 +205,13 @@ class TestVisionActionSynthesis(BaseTest):
         self._synthesize(action, run, llm_content="# Summary\nThemes.")
 
         run.refresh_from_db()
+        run_url = f"{settings.SITE_URL}/project/{self.team.id}/replay-vision/actions/{action.id}/runs/{run.id}"
         self.assertTrue(
-            run.synthesized_markdown.startswith("**Summary for summarizer** — 2 recordings since "),
+            run.synthesized_markdown.startswith(f"**Summary for [summarizer]({run_url})** — 2 recordings since "),
             run.synthesized_markdown,
         )
-        # The header rides into the Slack payload too (bold header → *bold*).
-        self.assertIn("*Summary for summarizer*", run.output["slack"])
+        # The linked header rides into the Slack payload too (**bold** → *bold*, [name](url) → <url|name>).
+        self.assertIn(f"*Summary for <{run_url}|summarizer>*", run.output["slack"])
 
     def test_header_flags_sampling_when_window_exceeds_cap(self) -> None:
         # When the period holds more observations than the cap, the header must say the summary covers
@@ -236,7 +238,7 @@ class TestVisionActionSynthesis(BaseTest):
         self._synthesize(action, run)
 
         run.refresh_from_db()
-        self.assertIn("**Summary for Checkoutflow**", run.synthesized_markdown)
+        self.assertIn("**Summary for [Checkoutflow](", run.synthesized_markdown)
 
     def test_summary_header_defangs_links_in_scanner_name(self) -> None:
         # A scanner name is free text and lands in the header; a name with link/image markdown must not

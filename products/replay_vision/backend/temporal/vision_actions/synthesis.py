@@ -175,6 +175,11 @@ def _synthesize(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryR
     markdown = strip_external_links_markdown(
         _summary_header(action, batch.window_start, len(batch.lines), batch.window_total) + markdown
     )
+    # Link the header's scanner name to this run's page. Added after the strip pass (like the citation
+    # links) so the PostHog URL survives on non-posthog.com hosts.
+    markdown = _linkify_summary_header(
+        markdown, _clean_scanner_name(action), _run_url(team.id, str(action.id), str(run.pk))
+    )
     slack_text = _markdown_to_slack(markdown, team_id=team.id, observation_ids=batch.observation_ids)
 
     run.synthesized_markdown = markdown
@@ -360,15 +365,19 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
     )
 
 
+def _clean_scanner_name(action: VisionAction) -> str:
+    """Scanner name is free-text; strip markdown/mrkdwn control chars so it can't garble the bold header
+    (in-app Markdown or the Slack `**`→`*` pass) and collapse any newlines that would break the line."""
+    raw_name = action.scanner.name if action.scanner_id else ""
+    return re.sub(r"\s+", " ", re.sub(r"[*_`#]", "", raw_name)).strip() or "your scanner"
+
+
 def _summary_header(action: VisionAction, window_start: datetime | None, count: int, window_total: int = 0) -> str:
     """A trusted one-line preface stating which scanner this summary is for, how many recordings it
     covers, and the window's start — the "summary for scans since <prev run>" context the reader needs.
     When the window held more observations than the cap, it says so ("sampled N of M") so the reader
     knows the report covers only a sample of the period, not every observation."""
-    # Scanner name is free-text; strip markdown/mrkdwn control chars so it can't garble the bold header
-    # (in-app Markdown or the Slack `**`→`*` pass) and collapse any newlines that would break the line.
-    raw_name = action.scanner.name if action.scanner_id else ""
-    scanner_name = re.sub(r"\s+", " ", re.sub(r"[*_`#]", "", raw_name)).strip() or "your scanner"
+    scanner_name = _clean_scanner_name(action)
     noun = "recording" if count == 1 else "recordings"
     # When the period held more observations than the cap, only `count` were summarized — say so.
     coverage = f"sampled {count} of {window_total:,} {noun}" if window_total > count else f"{count} {noun}"
@@ -434,6 +443,21 @@ def _run_synthesis(team: Team, action: VisionAction, lines: list[str]) -> str:
 
 def _observation_url(team_id: int, observation_id: str) -> str:
     return f"{settings.SITE_URL}/project/{team_id}/replay-vision/observations/{observation_id}"
+
+
+def _run_url(team_id: int, action_id: str, run_id: str) -> str:
+    return f"{settings.SITE_URL}/project/{team_id}/replay-vision/actions/{action_id}/runs/{run_id}"
+
+
+def _linkify_summary_header(markdown: str, scanner_name: str, run_url: str) -> str:
+    """Wrap the header's scanner name in a link to this summary's run page — the full report plus every
+    cited observation. Added AFTER `strip_external_links_markdown` so the PostHog URL isn't defanged on
+    instances whose SITE_URL isn't a posthog.com host (self-hosted, dev). If the strip pass rewrote the
+    name (e.g. it carried a bare URL, now a code span), the prefix won't match — leave it unlinked."""
+    prefix = f"**Summary for {scanner_name}**"
+    if not markdown.startswith(prefix):
+        return markdown
+    return f"**Summary for [{scanner_name}]({run_url})**" + markdown[len(prefix) :]
 
 
 def _citations_to_slack_links(markdown: str, team_id: int, observation_ids: list[str]) -> str:
