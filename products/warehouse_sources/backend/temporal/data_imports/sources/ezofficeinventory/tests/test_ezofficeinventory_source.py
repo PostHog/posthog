@@ -116,7 +116,8 @@ class TestResumableWiring:
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = MagicMock()
         inputs.schema_name = "members"
-        inputs.logger = MagicMock()
+        inputs.team_id = 7
+        inputs.job_id = "job-1"
         manager = MagicMock()
 
         with patch(f"{_MODULE}.ezofficeinventory_source") as mocked:
@@ -126,6 +127,8 @@ class TestResumableWiring:
             api_key="tok",
             subdomain="acme",
             endpoint="members",
-            logger=inputs.logger,
+            team_id=7,
+            job_id="job-1",
             resumable_source_manager=manager,
+            db_incremental_field_last_value=None,
         )
