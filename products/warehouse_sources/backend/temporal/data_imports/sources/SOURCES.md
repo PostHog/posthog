@@ -917,7 +917,6 @@ doesn't conflict with concurrent PRs.
 - sonatype_nexus
 - sourcegraph
 - spacelift
-- splunk_observability_cloud
 - spotify_ads
 - spotlercrm
 - squadcast
