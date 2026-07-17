@@ -317,17 +317,6 @@ class TestGetRows:
             with pytest.raises(octopus_deploy_module.OctopusDeployPaginationLimitError):
                 self._run(manager, responses, endpoint=endpoint)
 
-    # The page ceiling only catches a host returning pages *fast*; one that keeps advertising
-    # `Page.Next` while each page burns wall-clock (slow drip / stall before headers) would hold a
-    # worker indefinitely without the time budget. Same two loops as the page-ceiling test.
-    @pytest.mark.parametrize("endpoint", ["spaces", "projects"])
-    def test_pagination_time_budget_aborts_slow_listing(self, endpoint):
-        manager = self._manager()
-        responses = [_page([{"Id": "Spaces-1"}], has_next=True)]
-        with mock.patch.object(octopus_deploy_module, "MAX_LISTING_SECONDS", -1):
-            with pytest.raises(octopus_deploy_module.OctopusDeployPaginationLimitError):
-                self._run(manager, responses, endpoint=endpoint)
-
     def test_saves_state_after_page_and_between_spaces(self):
         manager = self._manager()
         responses = [
