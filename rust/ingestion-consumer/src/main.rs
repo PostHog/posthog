@@ -197,6 +197,7 @@ async fn async_main(config: Config) -> Result<()> {
         api_secret,
         &[],
         config.ingestion_worker_concurrent_batches,
+        config.transport_compression_enabled,
     );
     if let Some(recorder) = &debug_recorder {
         transport.set_debug_recorder(Arc::clone(recorder));
