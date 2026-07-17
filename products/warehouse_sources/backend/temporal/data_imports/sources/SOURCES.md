@@ -490,6 +490,7 @@ the row lists both.
 | sonar_cloud                      | HTTP                        | requests                                                        | ✅                          |
 | sonarqube                        | HTTP                        | requests                                                        | ✅                          |
 | sonatype_nexus                   | HTTP                        | requests                                                        | ✅                          |
+| sourcegraph                      | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | spacelift                        | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | sparkpost                        | HTTP                        | requests                                                        | ✅                          |
 | split_io                         | HTTP                        | requests                                                        | ✅                          |
@@ -929,7 +930,6 @@ doesn't conflict with concurrent PRs.
 - solarwinds_service_desk
 - sonar_cloud
 - sonatype_nexus
-- sourcegraph
 - spacelift
 - spotify_ads
 - spotlercrm
