@@ -1905,6 +1905,45 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
             it('returns no messages for undefined input', () => {
                 expect(normalizeMessages(undefined, 'assistant')).toEqual([])
             })
+
+            it('unwraps an OpenAI Responses API response envelope', () => {
+                const response = {
+                    object: 'response',
+                    id: 'resp_056c1b85',
+                    model: 'gpt-5-mini',
+                    status: 'completed',
+                    output: [
+                        {
+                            type: 'reasoning',
+                            id: 'rs_1',
+                            summary: [{ type: 'summary_text', text: 'Checking the schema first.' }],
+                        },
+                        {
+                            type: 'function_call',
+                            call_id: 'call_0jiRyPVqRBGcb9vzirO1WZDO',
+                            name: 'exec',
+                            arguments: '{"command":"info execute-sql"}',
+                        },
+                    ],
+                }
+
+                const result = normalizeMessages(response, 'assistant')
+
+                expect(result).toEqual([
+                    { role: 'assistant (thinking)', content: 'Checking the schema first.' },
+                    {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [
+                            {
+                                type: 'function',
+                                id: 'call_0jiRyPVqRBGcb9vzirO1WZDO',
+                                function: { name: 'exec', arguments: { command: 'info execute-sql' } },
+                            },
+                        ],
+                    },
+                ])
+            })
         })
 
         describe('Role normalization', () => {

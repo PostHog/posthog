@@ -3,6 +3,14 @@
 id: openai_responses
 
 rules:
+    # A full Responses API response object (`{object: response, output: [...]}`), as
+    # captured when the SDK logs the whole response: unwrap the output items so each
+    # is re-matched (function_call/reasoning below, message blocks via compat_array).
+    - on:
+          object: response
+          output: { is: array }
+      delegateEach: $.output
+
     - on:
           type: function_call
           call_id: { is: string }
