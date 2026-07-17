@@ -36,12 +36,14 @@ If a merge is already in progress (CI invokes the agent only after a conflicted 
 
 ## Adapting incoming changes: tab awareness
 
-This branch is "scene aware": scene logics are attached to the scene logic so they stay mounted and awake while their tab is in the background.
-Not all scenes are converted yet, and the long-term intent is that every scene — including new scenes arriving from upstream — is tab aware.
+This branch restores the in-app tab scaffolding that upstream removed (#61977–#62052): `sceneLogic` owns the tab set and per-tab mounted scene logics, scenes key their root logic per tab via `tabAwareScene()`, and URL sync goes through `tabAwareUrlToAction` / `tabAwareActionToUrl`.
+Expect upstream changes to scene logics to conflict with this — merge both intents: keep upstream's feature changes, keep this branch's tab keying and tabAware URL handlers.
 
-The conversion playbook is not written yet.
-Until it is: do not attempt conversions during sync.
-Instead, list any new or substantially reworked scenes that arrived from upstream in the sync commit message body (`Scenes needing tab-awareness review: ...`) so they can be converted deliberately later.
+Rules of thumb during sync:
+
+- If upstream replaces `tabAwareUrlToAction`/`tabAwareActionToUrl` with the plain kea-router builders in a converted scene, keep the tabAware variants with upstream's handler bodies.
+- New scenes arriving from upstream are not tab aware; don't convert them during sync. Add them to `products/desktop/TAB_AWARENESS.md` and note them in the sync commit body (`Scenes needing tab-awareness review: ...`). The conversion playbook is the `making-scenes-tab-aware` skill.
+- Bare references to a tab-aware scene logic (no `tabId`) fall back to a shared `__no_tab__` instance rather than crashing, so upstream child logics keep working until they're converted.
 
 ## Verifying
 

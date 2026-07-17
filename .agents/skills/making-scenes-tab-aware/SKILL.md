@@ -95,3 +95,13 @@ Then run the relevant tests plus:
 hogli lint:skills
 hogli build:skills
 ```
+
+## Tracking conversion progress
+
+`products/desktop/TAB_AWARENESS.md` lists every `SceneExport` scene and whether its root logic is tab aware.
+Update it (or regenerate via the audit commands) when you convert a scene.
+
+Two transitional behaviors to know about:
+
+- `tabAwareScene()` no longer throws when built without a `tabId`; it falls back to one shared `__no_tab__` instance and logs a console warning. That keeps unconverted callers working, but they do not see the per-tab instance the scene renders — thread the `tabId` through instead.
+- `tabAwareUrlToAction` / `tabAwareActionToUrl` on a logic without a `tabId` prop behave like plain `urlToAction` / `actionToUrl`, so singleton logics can adopt them before being keyed.
