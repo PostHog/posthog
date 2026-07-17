@@ -198,6 +198,28 @@ class TestGetRows:
         manager.save_state.assert_not_called()
 
 
+class TestSessionHardening:
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda: validate_credentials("key", "secret", "us"),
+            lambda: get_endpoint_permissions("key", "secret", "us", ["controls"]),
+            lambda: list(get_rows("key", "secret", "us", "controls", mock.MagicMock(), _make_manager())),
+        ],
+    )
+    @mock.patch(f"{MOCK_MODULE}.make_tracked_session")
+    def test_session_excludes_responses_from_sample_capture_and_redacts_credentials(self, mock_session, call):
+        mock_session.return_value.get.return_value = _response({"data": []})
+
+        call()
+
+        # Secureframe responses carry customer PII the generic scrubber can't remove, so the
+        # session must opt out of HTTP sample capture and mask both credential halves.
+        _, kwargs = mock_session.call_args
+        assert kwargs["capture"] is False
+        assert set(kwargs["redact_values"]) == {"key", "secret"}
+
+
 class TestSecureframeSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):

@@ -44,6 +44,18 @@ def _get_headers(api_key: str, api_secret: str) -> dict[str, str]:
     }
 
 
+def _make_session(api_key: str, api_secret: str) -> requests.Session:
+    # capture=False keeps Secureframe's credentialed responses out of the shared HTTP sample
+    # bucket: they carry personnel, device (serial/MAC/IP), and compliance-evidence fields the
+    # generic scrubber can't reliably redact. Requests stay metered and logged; redact_values
+    # masks the key/secret from logged URLs.
+    return make_tracked_session(
+        headers=_get_headers(api_key, api_secret),
+        redact_values=(api_key, api_secret),
+        capture=False,
+    )
+
+
 def _build_url(region: str, path: str, page: int) -> str:
     params = {"page": page, "per_page": PAGE_SIZE}
     return f"{_base_url(region)}{path}?{urlencode(params)}"
@@ -84,12 +96,11 @@ def _extract_rows(payload: Any) -> list[dict[str, Any]]:
     return [row for row in (_flatten_resource(item) for item in items) if row is not None]
 
 
-def _probe_endpoint(api_key: str, api_secret: str, region: str, path: str) -> int:
+def _probe_endpoint(session: requests.Session, region: str, path: str) -> int:
     """Fetch a single row from an endpoint and return the HTTP status code."""
     params = {"page": 1, "per_page": 1}
-    response = make_tracked_session().get(
+    response = session.get(
         f"{_base_url(region)}{path}?{urlencode(params)}",
-        headers=_get_headers(api_key, api_secret),
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     return response.status_code
@@ -105,7 +116,7 @@ def validate_credentials(api_key: str, api_secret: str, region: str, endpoint: s
     """
     path = SECUREFRAME_ENDPOINTS[endpoint].path if endpoint else "/users"
     try:
-        status = _probe_endpoint(api_key, api_secret, region, path)
+        status = _probe_endpoint(_make_session(api_key, api_secret), region, path)
     except Exception:
         return False, False
 
@@ -118,13 +129,14 @@ def validate_credentials(api_key: str, api_secret: str, region: str, endpoint: s
 
 def get_endpoint_permissions(api_key: str, api_secret: str, region: str, endpoints: list[str]) -> dict[str, str | None]:
     permissions: dict[str, str | None] = {}
+    session = _make_session(api_key, api_secret)
     for endpoint in endpoints:
         config = SECUREFRAME_ENDPOINTS.get(endpoint)
         if config is None:
             permissions[endpoint] = None
             continue
         try:
-            status = _probe_endpoint(api_key, api_secret, region, config.path)
+            status = _probe_endpoint(session, region, config.path)
         except Exception:
             # A throttle, 5xx, or network blip is not a denial — report reachable.
             permissions[endpoint] = None
@@ -148,7 +160,7 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[SecureframeResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     config = SECUREFRAME_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key, api_secret)
+    session = _make_session(api_key, api_secret)
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:
@@ -164,7 +176,7 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(page_url: str) -> Any:
-        response = make_tracked_session().get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+        response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
 
         # Secureframe doesn't publish rate limits; back off on 429 and transient 5xx.
         if response.status_code == 429 or response.status_code >= 500:
