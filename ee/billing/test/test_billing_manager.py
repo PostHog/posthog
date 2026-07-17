@@ -74,6 +74,25 @@ class TestBillingManager(BaseTest):
             "https://billing.posthog.com/api/products-v2", params={"plan": "standard"}, headers={}
         )
 
+    @parameterized.expand(
+        [
+            ("with_ip", "203.0.113.7", True),
+            ("without_ip", None, False),
+        ]
+    )
+    def test_get_auth_headers_forwards_actor_ip(self, _name, ip_address, expect_header):
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        headers = BillingManager(license, self.user, ip_address=ip_address).get_auth_headers(self.organization)
+
+        assert headers["Authorization"].startswith("Bearer ")
+        assert ("X-PostHog-Actor-IP" in headers) is expect_header
+        if expect_header:
+            assert headers["X-PostHog-Actor-IP"] == ip_address
+
     @patch(
         "ee.billing.billing_manager.requests.patch",
         return_value=MagicMock(status_code=200, json=MagicMock(return_value={"text": "ok"})),
