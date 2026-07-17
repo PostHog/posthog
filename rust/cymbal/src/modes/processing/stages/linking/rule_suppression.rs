@@ -6,7 +6,7 @@ use crate::{
     metric_consts::{RULE_SUPPRESSED_EVENTS, RULE_SUPPRESSION_OPERATOR},
     stages::{linking::LinkingStage, pipeline::HandledError},
     types::{
-        exception_properties::ExceptionProperties,
+        exception_event::{ExceptionEvent, Fingerprinted},
         operator::{OperatorResult, ValueOperator},
     },
 };
@@ -15,7 +15,7 @@ use crate::{
 pub struct RuleSuppression;
 
 impl ValueOperator for RuleSuppression {
-    type Item = ExceptionProperties;
+    type Item = ExceptionEvent<Fingerprinted>;
     type Context = LinkingStage;
     type HandledError = HandledError;
     type UnhandledError = UnhandledError;
@@ -28,7 +28,7 @@ impl ValueOperator for RuleSuppression {
         let mut rules = ctx
             .app_context
             .team_manager
-            .get_suppression_rules(&ctx.app_context.posthog_pool, input.team_id)
+            .get_suppression_rules(&ctx.app_context.posthog_pool, input.team_id())
             .await?;
 
         if rules.is_empty() {
@@ -38,13 +38,10 @@ impl ValueOperator for RuleSuppression {
         rules.sort_unstable_by_key(|r| r.order_key);
 
         // Only serialize the event once we know the team has suppression rules.
-        let props_json = match serde_json::to_value(&input) {
-            Ok(v) => v,
-            Err(_) => return Ok(Ok(input)),
-        };
+        let props_json = input.to_properties_value();
 
         for rule in rules {
-            match rule.should_suppress(&props_json, &input.uuid) {
+            match rule.should_suppress(&props_json, &input.uuid()) {
                 Ok(false) => continue,
                 Ok(true) => {
                     counter!(RULE_SUPPRESSED_EVENTS).increment(1);
@@ -73,7 +70,7 @@ impl ValueOperator for RuleSuppression {
                     ctx.app_context
                         .team_manager
                         .suppression_rules
-                        .invalidate(&input.team_id);
+                        .invalidate(&input.team_id());
                 }
             }
         }

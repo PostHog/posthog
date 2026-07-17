@@ -12,8 +12,8 @@ from hypothesis import (
 )
 from parameterized import parameterized
 
-from products.logs.backend.alert_utils import (
-    SCHEDULE_INTERVAL_SECONDS,
+from products.alerts.backend.scheduling import (
+    DEFAULT_SCHEDULE_INTERVAL_SECONDS,
     advance_next_check_at,
     compute_shard_offset_seconds,
 )
@@ -336,10 +336,10 @@ class TestComputeShardOffsetSeconds(TestCase):
 
     @parameterized.expand([(c,) for c in (1, 5, 10, 15, 30, 60)])
     def test_offset_is_minute_aligned_and_within_cadence(self, cadence: int) -> None:
-        # Offset must be a multiple of SCHEDULE_INTERVAL_SECONDS and < cadence.
+        # Offset must be a schedule-sized slot within the cadence.
         alert_id = UUID("019dec00-0000-0000-0000-000000000042")
         offset = compute_shard_offset_seconds(alert_id, cadence)
-        assert offset % SCHEDULE_INTERVAL_SECONDS == 0
+        assert offset % DEFAULT_SCHEDULE_INTERVAL_SECONDS == 0
         assert 0 <= offset < cadence * 60
 
     def test_distribution_across_many_alerts_is_roughly_uniform(self) -> None:
@@ -432,8 +432,8 @@ class TestAdvanceNextCheckAtWithShard(TestCase):
     def test_steady_state_gap_equals_cadence_with_shard(self, cadence: int, shard_index: int) -> None:
         # Same property as the non-sharded test: inter-eval gaps stay exactly
         # `cadence` minutes once on grid, regardless of shard offset.
-        shard_count = max(1, (cadence * 60) // SCHEDULE_INTERVAL_SECONDS)
-        offset = (shard_index % shard_count) * SCHEDULE_INTERVAL_SECONDS
+        shard_count = max(1, (cadence * 60) // DEFAULT_SCHEDULE_INTERVAL_SECONDS)
+        offset = (shard_index % shard_count) * DEFAULT_SCHEDULE_INTERVAL_SECONDS
 
         anchor = datetime(2026, 3, 19, 12, 0, tzinfo=UTC)
         # Heal once to land on shard grid.
