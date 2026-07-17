@@ -77,10 +77,9 @@ from products.data_warehouse.backend.facade.api import (
     delete_webhook_and_hog_function,
     detect_schema_clear_transition as detect_sql_schema_clear_transition,
     ensure_cdc_slot_cleanup_schedule,
-    get_mysql_source_location,
+    get_direct_query_engine,
     get_or_create_webhook_hog_function,
     get_postgres_source_location,
-    get_redshift_source_location,
     get_webhook_url,
     github_repositories_for_job_inputs,
     is_any_external_data_schema_paused,
@@ -98,10 +97,6 @@ from products.data_warehouse.backend.facade.api import (
     sync_discover_schemas_schedule,
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
-    upsert_direct_mysql_table,
-    upsert_direct_postgres_table,
-    upsert_direct_redshift_table,
-    upsert_direct_snowflake_table,
 )
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.presentation.views.external_data_schema import (
@@ -117,12 +112,7 @@ from products.data_warehouse.backend.presentation.views.source_api_versions impo
     api_version_deprecation_payload,
 )
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
-from products.warehouse_sources.backend.facade.api import (
-    mysql_columns_to_dwh_columns,
-    postgres_columns_to_dwh_columns,
-    snowflake_columns_to_dwh_columns,
-    validate_source_prefix,
-)
+from products.warehouse_sources.backend.facade.api import validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
     CustomOAuth2Integration,
     DataWarehouseTable,
@@ -475,62 +465,6 @@ def get_postgres_source_table_location(
             "source_schema": source_schema.source_schema if source_schema else None,
             "source_table_name": source_schema.source_table_name if source_schema else None,
         },
-        default_schema=default_schema,
-    )
-
-
-def get_mysql_source_table_location(
-    *,
-    schema_name: str,
-    source_schema: SourceSchema | None,
-    default_schema: str | None,
-) -> tuple[str, str]:
-    return get_mysql_source_location(
-        schema_name=schema_name,
-        schema_metadata={
-            "source_schema": source_schema.source_schema if source_schema else None,
-            "source_table_name": source_schema.source_table_name if source_schema else None,
-        },
-        default_schema=default_schema,
-    )
-
-
-def get_snowflake_source_table_location(
-    *,
-    schema_name: str,
-    source_schema: SourceSchema | None,
-    default_schema: str | None,
-    default_catalog: str | None = None,
-) -> tuple[str | None, str, str]:
-    catalog = source_schema.source_catalog if source_schema and source_schema.source_catalog else default_catalog
-    if source_schema and source_schema.source_schema and source_schema.source_table_name:
-        return catalog, source_schema.source_schema, source_schema.source_table_name
-
-    normalized_default_schema = (
-        default_schema.strip() if isinstance(default_schema, str) and default_schema.strip() else None
-    )
-    if normalized_default_schema is None and "." in schema_name:
-        inferred_schema, inferred_table_name = schema_name.split(".", 1)
-        return catalog, inferred_schema, inferred_table_name
-
-    return catalog, normalized_default_schema or "", schema_name
-
-
-def get_redshift_source_table_location(
-    *,
-    schema_name: str,
-    source_schema: SourceSchema | None,
-    default_schema: str | None,
-    default_catalog: str | None = None,
-) -> tuple[str | None, str, str]:
-    return get_redshift_source_location(
-        schema_name=schema_name,
-        schema_metadata={
-            "source_catalog": source_schema.source_catalog if source_schema else None,
-            "source_schema": source_schema.source_schema if source_schema else None,
-            "source_table_name": source_schema.source_table_name if source_schema else None,
-        },
-        default_catalog=default_catalog,
         default_schema=default_schema,
     )
 
@@ -2093,9 +2027,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if created_via == ExternalDataSource.CreatedVia.WIZARD and is_wizard_self_driving_program(request):
                 created_via = ExternalDataSource.CreatedVia.SELF_DRIVING
         is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
-        is_direct_mysql = is_direct_query and source_type == ExternalDataSourceType.MYSQL
-        is_direct_snowflake = is_direct_query and source_type == ExternalDataSourceType.SNOWFLAKE
-        is_direct_redshift = is_direct_query and source_type == ExternalDataSourceType.REDSHIFT
 
         if is_direct_query and source_type not in direct_capable_source_types():
             return Response(
@@ -2338,6 +2269,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     data={"message": cdc_error},
                 )
 
+        # Direct-query table materialization is engine-specific; dispatch on the engine, not the
+        # source type. None for non-direct-capable sources.
+        direct_engine_adapter = get_direct_query_engine(new_source_model.direct_engine)
+
         # Create all ExternalDataSchema objects and enable syncing for active schemas
         for schema in payload_schemas:
             sync_type = schema.get("sync_type")
@@ -2382,35 +2317,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             metadata_source_catalog: str | None
             metadata_source_schema: str | None
             metadata_source_table_name: str | None
-            if source_type_model == ExternalDataSourceType.POSTGRES:
+            # Direct mode needs a resolved source location for the live-query table; warehouse mode
+            # keeps storing whatever the source reported to avoid changing sync routing (except
+            # Postgres, which resolves in both modes — carried by the adapter flag).
+            if direct_engine_adapter is not None and (
+                is_direct_query or direct_engine_adapter.resolves_location_in_warehouse_mode
+            ):
                 metadata_source_catalog, metadata_source_schema, metadata_source_table_name = (
-                    get_postgres_source_table_location(
-                        schema_name=schema_name,
-                        source_schema=source_schema,
-                        default_schema=default_source_schema,
-                    )
-                )
-            elif is_direct_mysql:
-                # Direct mode needs a resolved source location for the live-query table; warehouse
-                # mode keeps storing whatever the source reported to avoid changing sync routing.
-                metadata_source_catalog = None
-                metadata_source_schema, metadata_source_table_name = get_mysql_source_table_location(
-                    schema_name=schema_name,
-                    source_schema=source_schema,
-                    default_schema=default_source_schema or source_config.to_dict().get("database"),
-                )
-            elif is_direct_snowflake:
-                metadata_source_catalog, metadata_source_schema, metadata_source_table_name = (
-                    get_snowflake_source_table_location(
-                        schema_name=schema_name,
-                        source_schema=source_schema,
-                        default_schema=default_source_schema,
-                        default_catalog=default_source_catalog,
-                    )
-                )
-            elif is_direct_redshift:
-                metadata_source_catalog, metadata_source_schema, metadata_source_table_name = (
-                    get_redshift_source_table_location(
+                    direct_engine_adapter.source_table_location(
                         schema_name=schema_name,
                         source_schema=source_schema,
                         default_schema=default_source_schema,
@@ -2562,10 +2476,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 row_filters=row_filters,
             )
 
-            # The CDC path is Postgres-only, and the direct paths are engine-specific —
-            # `get_postgres_source_table_location` / `get_mysql_source_table_location` guarantee
-            # non-None schema/table in their branches above. `cast` narrows for mypy without a
-            # runtime check. The adapter no-ops for self-managed / no-publication.
+            # The CDC path is Postgres-only, and the engine adapter's `source_table_location`
+            # guarantees non-None schema/table when it resolves above. `cast` narrows for mypy
+            # without a runtime check. The adapter no-ops for self-managed / no-publication.
             if is_cdc_schema and should_sync and cdc_enabled and cdc_adapter is not None:
                 cdc_adapter.add_table(
                     new_source_model,
@@ -2573,74 +2486,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     cast(str, metadata_source_table_name),
                 )
 
-            if new_source_model.is_direct_postgres and should_sync:
+            if direct_engine_adapter is not None and is_direct_query and should_sync:
                 # Apply the picker's column subset on the very first DataWarehouseTable build,
                 # not just on subsequent updates — otherwise users see all columns in HogQL until
-                # they hit save again or a refresh runs.
-                schema_model.table = upsert_direct_postgres_table(
+                # they hit save again or a refresh runs. Columns are keyed by raw, case-sensitive
+                # source names (`normalize=False`).
+                schema_model.table = direct_engine_adapter.upsert_table(
                     None,
                     schema_name=schema_name,
                     source=new_source_model,
                     columns=filter_dwh_columns_by_enabled_columns(
-                        postgres_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                        direct_engine_adapter.columns_to_dwh_columns(source_schema.columns if source_schema else []),
                         enabled_columns,
                         source_schema.detected_primary_keys if source_schema else None,
                         incremental_field,
-                        # Direct-postgres columns are keyed by raw, case-sensitive source names.
-                        normalize=False,
-                    ),
-                    source_catalog=metadata_source_catalog,
-                    source_schema=cast(str, metadata_source_schema),
-                    source_table_name=cast(str, metadata_source_table_name),
-                )
-                schema_model.save(update_fields=["table"])
-            elif new_source_model.is_direct_mysql and should_sync:
-                schema_model.table = upsert_direct_mysql_table(
-                    None,
-                    schema_name=schema_name,
-                    source=new_source_model,
-                    columns=filter_dwh_columns_by_enabled_columns(
-                        mysql_columns_to_dwh_columns(source_schema.columns if source_schema else []),
-                        enabled_columns,
-                        source_schema.detected_primary_keys if source_schema else None,
-                        incremental_field,
-                        # Direct-mysql columns are keyed by raw, case-sensitive source names.
-                        normalize=False,
-                    ),
-                    source_schema=cast(str, metadata_source_schema),
-                    source_table_name=cast(str, metadata_source_table_name),
-                )
-                schema_model.save(update_fields=["table"])
-            elif new_source_model.is_direct_snowflake and should_sync:
-                schema_model.table = upsert_direct_snowflake_table(
-                    None,
-                    schema_name=schema_name,
-                    source=new_source_model,
-                    columns=filter_dwh_columns_by_enabled_columns(
-                        snowflake_columns_to_dwh_columns(source_schema.columns if source_schema else []),
-                        enabled_columns,
-                        source_schema.detected_primary_keys if source_schema else None,
-                        incremental_field,
-                        # Direct-snowflake columns are keyed by raw, case-sensitive source names.
-                        normalize=False,
-                    ),
-                    source_catalog=metadata_source_catalog,
-                    source_schema=cast(str, metadata_source_schema),
-                    source_table_name=cast(str, metadata_source_table_name),
-                )
-                schema_model.save(update_fields=["table"])
-            elif new_source_model.is_direct_redshift and should_sync:
-                schema_model.table = upsert_direct_redshift_table(
-                    None,
-                    schema_name=schema_name,
-                    source=new_source_model,
-                    columns=filter_dwh_columns_by_enabled_columns(
-                        # Redshift information_schema types are Postgres-style, so reuse the Postgres mapper.
-                        postgres_columns_to_dwh_columns(source_schema.columns if source_schema else []),
-                        enabled_columns,
-                        source_schema.detected_primary_keys if source_schema else None,
-                        incremental_field,
-                        # Direct-redshift columns are keyed by raw source names.
                         normalize=False,
                     ),
                     source_catalog=metadata_source_catalog,
