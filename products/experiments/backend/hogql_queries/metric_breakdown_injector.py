@@ -140,7 +140,12 @@ class MetricBreakdownInjector:
             select=[projection],
             select_from=ast.JoinExpr(table=ast.Field(chain=["entity_metrics"])),
             group_by=[ast.Field(chain=["entity_metrics", alias]) for alias in aliases],
-            order_by=[ast.OrderExpr(expr=ast.Call(name="count", args=[]), order="DESC")],
+            # Tie-break by breakdown value so the cutoff at the limit is deterministic
+            # across executions; count() alone lets ClickHouse pick tied tuples arbitrarily.
+            order_by=[
+                ast.OrderExpr(expr=ast.Call(name="count", args=[]), order="DESC"),
+                *[ast.OrderExpr(expr=ast.Field(chain=["entity_metrics", alias]), order="ASC") for alias in aliases],
+            ],
             limit=ast.Constant(value=self._breakdown_limit()),
         )
         return subquery

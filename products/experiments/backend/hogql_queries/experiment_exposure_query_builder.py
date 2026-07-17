@@ -319,7 +319,13 @@ class ExposureQueryBuilder:
         if self.context.activation_config is not None:
             return self._build_activation_exposure_select_query()
 
-        if self.preaggregation_job_ids and not self.context.breakdowns:
+        # Precomputed exposures carry no event properties, so they can't serve breakdowns
+        # attributed from the exposure event. Metric-event breakdowns never read exposure
+        # properties, so they can still use the precomputed table.
+        needs_exposure_breakdowns = bool(
+            self.context.breakdowns and self.breakdown_injector and self.breakdown_injector.attributes_from_exposure()
+        )
+        if self.preaggregation_job_ids and not needs_exposure_breakdowns:
             return self.precomputed_select_query(self.preaggregation_job_ids)
 
         return self._build_exposure_select_query()
