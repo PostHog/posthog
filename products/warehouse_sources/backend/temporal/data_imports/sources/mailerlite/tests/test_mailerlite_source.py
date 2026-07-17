@@ -9,7 +9,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.mailerlite import (
     MailerLiteResumeConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.settings import (
+    ENDPOINTS,
+    MAILERLITE_V1,
+    MAILERLITE_V2,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.source import MailerLiteSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -77,10 +81,28 @@ class TestMailerLiteSourceClass:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is MailerLiteResumeConfig
 
-    def test_source_for_pipeline_plumbing(self) -> None:
+    def test_default_version_is_v2(self) -> None:
+        source = MailerLiteSource()
+        assert source.default_version == MAILERLITE_V2
+        assert set(source.supported_versions) == {MAILERLITE_V1, MAILERLITE_V2}
+        assert source.default_version in source.supported_versions
+
+    @pytest.mark.parametrize(
+        ("pin", "expected"),
+        [(None, MAILERLITE_V2), ("", MAILERLITE_V2), (MAILERLITE_V1, MAILERLITE_V1), (MAILERLITE_V2, MAILERLITE_V2)],
+    )
+    def test_resolve_api_version(self, pin: str | None, expected: str) -> None:
+        assert MailerLiteSource().resolve_api_version(pin) == expected
+
+    @pytest.mark.parametrize(
+        ("pin", "expected_version"),
+        [(None, MAILERLITE_V2), (MAILERLITE_V1, MAILERLITE_V1), (MAILERLITE_V2, MAILERLITE_V2)],
+    )
+    def test_source_for_pipeline_plumbing(self, pin: str | None, expected_version: str) -> None:
         inputs = MagicMock(spec=SourceInputs)
         inputs.schema_name = "subscribers"
         inputs.logger = MagicMock()
+        inputs.api_version = pin
         manager = MagicMock(spec=ResumableSourceManager)
 
         with patch(
@@ -92,4 +114,5 @@ class TestMailerLiteSourceClass:
                 endpoint="subscribers",
                 logger=inputs.logger,
                 resumable_source_manager=manager,
+                api_version=expected_version,
             )

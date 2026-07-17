@@ -16,7 +16,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite
     mailerlite_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.settings import (
+    ENDPOINTS,
+    MAILERLITE_V1,
+    MAILERLITE_V2,
+)
 
 
 def _make_response(body: dict[str, Any], status_code: int = 200) -> Response:
@@ -210,6 +214,50 @@ class TestGetRows:
 
         with pytest.raises(ValueError, match="unexpected URL"):
             _drive_get_rows("subscribers", manager, [])
+
+
+class TestApiVersionHeader:
+    def _headers_for_version(self, api_version: str) -> dict[str, str]:
+        """Return the headers get_rows sends for a given resolved version."""
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+        captured: dict[str, str] = {}
+
+        def fake_get(url: str, *_args: Any, **kwargs: Any) -> Response:
+            captured.update(kwargs["headers"])
+            return _make_response(_page([{"id": "1"}], None))
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.mailerlite.make_tracked_session"
+        ) as MockSession:
+            MockSession.return_value.get.side_effect = fake_get
+            list(get_rows("test-key", "subscribers", MagicMock(), manager, api_version=api_version))
+        return captured
+
+    def test_v1_sends_no_version_header(self) -> None:
+        # v1 predates version pinning; existing syncs must stay byte-for-byte unchanged.
+        headers = self._headers_for_version(MAILERLITE_V1)
+        assert "X-Version" not in headers
+
+    def test_default_get_rows_version_is_v1(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+        captured: dict[str, str] = {}
+
+        def fake_get(url: str, *_args: Any, **kwargs: Any) -> Response:
+            captured.update(kwargs["headers"])
+            return _make_response(_page([{"id": "1"}], None))
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.mailerlite.make_tracked_session"
+        ) as MockSession:
+            MockSession.return_value.get.side_effect = fake_get
+            list(get_rows("test-key", "subscribers", MagicMock(), manager))
+        assert "X-Version" not in captured
+
+    def test_v2_pins_version_header(self) -> None:
+        headers = self._headers_for_version(MAILERLITE_V2)
+        assert headers["X-Version"] == "2038-01-19"
 
 
 class TestValidateCredentials:

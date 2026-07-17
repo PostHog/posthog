@@ -11,7 +11,11 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.settings import MAILERLITE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.settings import (
+    API_VERSION_HEADERS,
+    MAILERLITE_ENDPOINTS,
+    MAILERLITE_V1,
+)
 
 MAILERLITE_BASE_URL = "https://connect.mailerlite.com/api"
 
@@ -30,11 +34,16 @@ class MailerLiteResumeConfig:
     next_url: str
 
 
-def _get_headers(api_key: str) -> dict[str, str]:
-    return {
+def _get_headers(api_key: str, api_version: str = MAILERLITE_V1) -> dict[str, str]:
+    headers = {
         "Authorization": f"Bearer {api_key}",
         "Accept": "application/json",
     }
+    # `v1` maps to no header (unchanged legacy behaviour); newer versions pin `X-Version`.
+    version_header = API_VERSION_HEADERS.get(api_version)
+    if version_header is not None:
+        headers["X-Version"] = version_header
+    return headers
 
 
 def _build_initial_url(path: str) -> str:
@@ -56,9 +65,10 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[MailerLiteResumeConfig],
+    api_version: str = MAILERLITE_V1,
 ) -> Iterator[list[dict[str, Any]]]:
     config = MAILERLITE_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
+    headers = _get_headers(api_key, api_version)
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:
@@ -128,6 +138,7 @@ def mailerlite_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[MailerLiteResumeConfig],
+    api_version: str = MAILERLITE_V1,
 ) -> SourceResponse:
     endpoint_config = MAILERLITE_ENDPOINTS[endpoint]
 
@@ -138,6 +149,7 @@ def mailerlite_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=api_version,
         ),
         primary_keys=["id"],
         partition_count=1,

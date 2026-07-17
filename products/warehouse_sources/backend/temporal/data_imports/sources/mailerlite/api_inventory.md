@@ -48,6 +48,13 @@ This matches the Airbyte MailerLite connector, which is also full-refresh only.
 Pagination is still resumable (the source is a `ResumableSource`): the next-page URL is persisted to
 Redis after each page so Temporal can resume mid-collection after a heartbeat timeout.
 
+## API versioning
+
+The new API is date-versioned via the optional `X-Version: YYYY-MM-DD` header and serves the
+latest version when it's absent. Framework version `v1` sends no header (legacy default-tracking
+behaviour); `v2` — the default for new sources — pins `X-Version: 2038-01-19`, the version-pin
+value MailerLite's docs and official SDK publish. Mapping lives in `settings.API_VERSION_HEADERS`.
+
 ## Rate limits
 
 120 requests/minute globally (5/minute for bulk import/upsert, which this source does not use).

@@ -71,3 +71,22 @@ MAILERLITE_ENDPOINTS: dict[str, MailerLiteEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(MAILERLITE_ENDPOINTS.keys())
+
+
+# The new MailerLite API (connect.mailerlite.com) is date-versioned through the `X-Version`
+# header and serves the latest version when it's absent. Framework version labels map to that
+# header here: `v1` predates version pinning and sends no header (the exact behaviour existing
+# sources sync under), `v2` pins MailerLite's documented version date so responses stay on a
+# fixed shape instead of silently tracking "latest".
+MAILERLITE_V1 = "v1"
+MAILERLITE_V2 = "v2"
+
+SUPPORTED_VERSIONS: tuple[str, ...] = (MAILERLITE_V1, MAILERLITE_V2)
+DEFAULT_VERSION = MAILERLITE_V2
+
+# `None` means "send no `X-Version` header". `2038-01-19` is the version-pin value MailerLite's
+# own docs and official SDK publish for locking the API version.
+API_VERSION_HEADERS: dict[str, str | None] = {
+    MAILERLITE_V1: None,
+    MAILERLITE_V2: "2038-01-19",
+}
