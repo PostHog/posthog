@@ -1642,7 +1642,9 @@ class GainsightPxSourceConfig(config.Config):
 
 @config.config
 class GerritSourceConfig(config.Config):
-    pass
+    host: str
+    username: str | None = None
+    http_password: str | None = None
 
 
 @config.config
