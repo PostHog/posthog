@@ -746,6 +746,9 @@ importers:
       '@posthog/products-product-analytics':
         specifier: workspace:*
         version: link:../products/product_analytics
+      '@posthog/products-pulse':
+        specifier: workspace:*
+        version: link:../products/pulse
       '@posthog/products-replay':
         specifier: workspace:*
         version: link:../products/replay
