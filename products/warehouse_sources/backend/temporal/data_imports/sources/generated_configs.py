@@ -593,7 +593,7 @@ class BitlySourceConfig(config.Config):
 
 @config.config
 class BitriseSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -867,7 +867,12 @@ class CircleCISourceConfig(config.Config):
 
 @config.config
 class CircleciInsightsSourceConfig(config.Config):
-    pass
+    api_token: str
+    project_slugs: str
+    reporting_window: Literal["last-24-hours", "last-7-days", "last-30-days", "last-60-days", "last-90-days"] | None = (
+        config.value(default="last-90-days")
+    )
+    branch_scope: Literal["default_branch", "all_branches"] | None = config.value(default="default_branch")
 
 
 @config.config
@@ -2270,7 +2275,9 @@ class JudgeMeReviewsSourceConfig(config.Config):
 
 @config.config
 class JumpcloudSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
+    org_id: str | None = None
 
 
 @config.config
@@ -2394,7 +2401,9 @@ class KustomerSourceConfig(config.Config):
 
 @config.config
 class LaceworkSourceConfig(config.Config):
-    pass
+    account_name: str
+    key_id: str
+    secret_key: str
 
 
 @config.config
@@ -2485,7 +2494,7 @@ class LinearSourceConfig(config.Config):
 
 @config.config
 class LinearbSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -4551,7 +4560,8 @@ class UsersnapSourceConfig(config.Config):
 
 @config.config
 class UservoiceSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
