@@ -62,6 +62,7 @@ export interface PromptLogicProps {
     promptName: string | 'new'
     mode?: PromptMode
     selectedVersion?: number | null
+    tabId?: string
 }
 
 export interface PromptFormValues {
@@ -407,7 +408,10 @@ export type llmPromptLogicType = MakeLogicType<
 export const llmPromptLogic = kea<llmPromptLogicType>([
     path(['scenes', 'ai-observability', 'llmPromptLogic']),
     props({ promptName: 'new' } as PromptLogicProps),
-    key(({ promptName, selectedVersion }) => `prompt-${promptName}:${selectedVersion ?? 'latest'}`),
+    key(
+        ({ promptName, selectedVersion, tabId }) =>
+            `prompt-${promptName}:${selectedVersion ?? 'latest'}::${tabId ?? 'default'}`
+    ),
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
     })),

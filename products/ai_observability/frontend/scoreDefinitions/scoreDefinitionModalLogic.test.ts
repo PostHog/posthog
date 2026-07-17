@@ -67,6 +67,7 @@ describe('scoreDefinitionModalLogic', () => {
         listLogic.actions.openModal('create')
 
         const modalLogic = scoreDefinitionModalLogic({
+            tabId: undefined,
             mode: 'create',
             scoreDefinition: null,
         })
@@ -96,6 +97,7 @@ describe('scoreDefinitionModalLogic', () => {
 
     it('stores the modal draft in logic', async () => {
         const modalLogic = scoreDefinitionModalLogic({
+            tabId: undefined,
             mode: 'create',
             scoreDefinition: null,
         })
@@ -124,6 +126,7 @@ describe('scoreDefinitionModalLogic', () => {
             { key: 'science', label: 'Science' },
         ]
         const modalLogic = scoreDefinitionModalLogic({
+            tabId: undefined,
             mode: 'config',
             scoreDefinition: {
                 ...mockScoreDefinition,

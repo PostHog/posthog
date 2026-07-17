@@ -394,8 +394,8 @@ function itemTableColumns(metricColumns: OfflineMetricColumn[]): LemonTableColum
     return [...baseColumns, ...dynamicMetricColumns, ...lastSeenColumn]
 }
 
-export function OfflineEvaluationsTab(): JSX.Element {
-    const logic = useMountedLogic(offlineEvaluationsLogic())
+export function OfflineEvaluationsTab({ tabId }: { tabId?: string }): JSX.Element {
+    const logic = useMountedLogic(offlineEvaluationsLogic({ tabId }))
     const { searchParams } = useValues(router)
 
     const {

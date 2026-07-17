@@ -36,6 +36,7 @@ import { EMPTY_JSON, coerceJsonToObject, isStringJsonObject, prettifyJson } from
 
 export interface DatasetLogicProps {
     datasetId: string | 'new'
+    tabId?: string
 }
 
 export enum DatasetTab {
@@ -233,7 +234,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
 
     props({ datasetId: 'new' } as DatasetLogicProps),
 
-    key(({ datasetId }) => `dataset-${datasetId}`),
+    key(({ datasetId, tabId }) => `dataset-${datasetId}::${tabId ?? 'default'}`),
 
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],

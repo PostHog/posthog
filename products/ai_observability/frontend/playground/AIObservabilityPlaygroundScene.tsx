@@ -104,18 +104,19 @@ export const scene: SceneExport = {
     productKey: ProductKey.AI_OBSERVABILITY,
 }
 
-export function AIObservabilityPlaygroundScene(): JSX.Element {
-    const promptsLogic = llmPlaygroundPromptsLogic()
-    const modelLogic = llmPlaygroundModelLogic()
-    const runLogic = llmPlaygroundRunLogic()
+export function AIObservabilityPlaygroundScene({ tabId }: { tabId?: string }): JSX.Element {
+    const promptsLogic = llmPlaygroundPromptsLogic({ tabId })
+    const modelLogic = llmPlaygroundModelLogic({ tabId })
+    const runLogic = llmPlaygroundRunLogic({ tabId })
 
+    // Attach child logics to the prompts logic so they persist across tab switches
     useAttachedLogic(modelLogic, promptsLogic)
     useAttachedLogic(runLogic, promptsLogic)
 
     return (
-        <BindLogic logic={llmPlaygroundPromptsLogic} props={{}}>
-            <BindLogic logic={llmPlaygroundModelLogic} props={{}}>
-                <BindLogic logic={llmPlaygroundRunLogic} props={{}}>
+        <BindLogic logic={llmPlaygroundPromptsLogic} props={{ tabId }}>
+            <BindLogic logic={llmPlaygroundModelLogic} props={{ tabId }}>
+                <BindLogic logic={llmPlaygroundRunLogic} props={{ tabId }}>
                     <SceneContent className="h-full">
                         <SceneTitleSection
                             name={sceneConfigurations[Scene.AIObservabilityPlayground].name}

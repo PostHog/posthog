@@ -40,6 +40,7 @@ import {
 export interface ClusterDetailLogicProps {
     runId: string
     clusterId: number
+    tabId?: string
 }
 
 export interface TraceWithSummary {
@@ -214,13 +215,13 @@ export type clusterDetailLogicType = MakeLogicType<
 export const clusterDetailLogic = kea<clusterDetailLogicType>([
     path(['products', 'ai_observability', 'frontend', 'clusters', 'clusterDetailLogic']),
     props({} as ClusterDetailLogicProps),
-    key((props) => `${props.runId}:${props.clusterId}`),
-    connect(() => ({
-        values: [aiObservabilitySharedLogic, ['propertyFilters', 'shouldFilterTestAccounts']],
+    key((props) => `${props.runId}:${props.clusterId}::${props.tabId ?? 'default'}`),
+    connect((props: ClusterDetailLogicProps) => ({
+        values: [aiObservabilitySharedLogic({ tabId: props.tabId }), ['propertyFilters', 'shouldFilterTestAccounts']],
         actions: [
             teamLogic,
             ['addProductIntent'],
-            aiObservabilitySharedLogic,
+            aiObservabilitySharedLogic({ tabId: props.tabId }),
             ['setPropertyFilters', 'setShouldFilterTestAccounts', 'applyUrlState'],
         ],
     })),

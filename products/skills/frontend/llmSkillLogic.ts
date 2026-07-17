@@ -48,6 +48,7 @@ export interface SkillLogicProps {
     skillName: string | 'new'
     mode?: SkillMode
     selectedVersion?: number | null
+    tabId?: string
 }
 
 export interface SkillFormFileValues {
@@ -324,7 +325,10 @@ export type llmSkillLogicType = MakeLogicType<
 export const llmSkillLogic = kea<llmSkillLogicType>([
     path(['scenes', 'skills', 'llmSkillLogic']),
     props({ skillName: 'new' } as SkillLogicProps),
-    key(({ skillName, selectedVersion }) => `skill-${skillName}:${selectedVersion ?? 'latest'}`),
+    key(
+        ({ skillName, selectedVersion, tabId }) =>
+            `skill-${skillName}:${selectedVersion ?? 'latest'}::${tabId ?? 'default'}`
+    ),
     actions({
         setSkill: (skill: ResolvedLLMSkill | SkillFormValues) => ({ skill }),
         deleteSkill: true,

@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -38,7 +38,9 @@ export interface GroupedSentimentCard {
     traceCount: number
 }
 
-export type AIObservabilitySentimentLogicProps = Record<string, never>
+export interface AIObservabilitySentimentLogicProps {
+    tabId?: string
+}
 
 /** Stop auto-loading once we have at least this many visible cards */
 const MIN_VISIBLE_CARDS = 50
@@ -277,10 +279,11 @@ export type aiObservabilitySentimentLogicType = MakeLogicType<
 
 export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicType>([
     path(['products', 'ai_observability', 'frontend', 'tabs', 'aiObservabilitySentimentLogic']),
+    key((props: AIObservabilitySentimentLogicProps) => props.tabId || 'default'),
     props({} as AIObservabilitySentimentLogicProps),
-    connect(() => ({
+    connect((props: AIObservabilitySentimentLogicProps) => ({
         values: [
-            aiObservabilitySharedLogic,
+            aiObservabilitySharedLogic({ tabId: props.tabId }),
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters', 'activeTab'],
             groupsModel,
             ['groupsTaxonomicTypes'],

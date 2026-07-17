@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
@@ -58,7 +58,9 @@ type RawOfflineExperimentMetricRow = [
     target_type: HogQLPrimitive,
 ]
 
-export type OfflineEvaluationsLogicProps = Record<string, never>
+export interface OfflineEvaluationsLogicProps {
+    tabId?: string
+}
 
 export interface OfflineExperiment {
     experimentId: string
@@ -442,6 +444,7 @@ export type offlineEvaluationsLogicType = MakeLogicType<
 export const offlineEvaluationsLogic = kea<offlineEvaluationsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'evaluations', 'offlineEvaluationsLogic']),
     props({} as OfflineEvaluationsLogicProps),
+    key((props) => props.tabId ?? 'default'),
 
     actions({
         refreshOfflineEvaluations: true,

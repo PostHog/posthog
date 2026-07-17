@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -80,7 +80,9 @@ export function getDataNodeLogicProps({
     return dataNodeLogicProps
 }
 
-export type AIObservabilityTraceLogicProps = Record<string, never>
+export interface AIObservabilityTraceLogicProps {
+    tabId?: string
+}
 
 /** Git ref stamped on a trace's events by a coding-agent session (branch-only MVP; either field may be null). */
 export interface TraceGitMetadata {
@@ -361,12 +363,13 @@ export type aiObservabilityTraceLogicType = MakeLogicType<
 export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
     path(['scenes', 'ai-observability', 'aiObservabilityTraceLogic']),
     props({} as AIObservabilityTraceLogicProps),
+    key((props) => props.tabId ?? 'default'),
 
-    connect(() => ({
+    connect((props: AIObservabilityTraceLogicProps) => ({
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            aiObservabilitySharedLogic,
+            aiObservabilitySharedLogic({ tabId: props.tabId }),
             ['dateFilter', 'propertyFilters', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces'],
         ],
     })),

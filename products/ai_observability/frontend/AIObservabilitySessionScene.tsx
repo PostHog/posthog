@@ -50,20 +50,26 @@ export const scene: SceneExport = {
     logic: aiObservabilitySessionLogic,
 }
 
-export function AIObservabilitySessionScene(): JSX.Element {
-    return <SessionDetailPanel showBreadcrumb />
+export function AIObservabilitySessionScene({ tabId }: { tabId?: string }): JSX.Element {
+    return <SessionDetailPanel showBreadcrumb tabId={tabId} />
 }
 
-export function SessionDetailPanel({ showBreadcrumb = false }: { showBreadcrumb?: boolean }): JSX.Element {
-    const sessionLogic = aiObservabilitySessionLogic()
+export function SessionDetailPanel({
+    showBreadcrumb = false,
+    tabId,
+}: {
+    showBreadcrumb?: boolean
+    tabId?: string
+}): JSX.Element {
+    const sessionLogic = aiObservabilitySessionLogic({ tabId })
     const { sessionId, query } = useValues(sessionLogic)
-    const sessionDataLogic = aiObservabilitySessionDataLogic({ sessionId, query })
+    const sessionDataLogic = aiObservabilitySessionDataLogic({ sessionId, query, tabId })
 
     useAttachedLogic(sessionDataLogic, sessionLogic)
 
     return (
-        <BindLogic logic={aiObservabilitySessionLogic} props={{}}>
-            <BindLogic logic={aiObservabilitySessionDataLogic} props={{ sessionId, query }}>
+        <BindLogic logic={aiObservabilitySessionLogic} props={{ tabId }}>
+            <BindLogic logic={aiObservabilitySessionDataLogic} props={{ sessionId, query, tabId }}>
                 <SessionSceneWrapper showBreadcrumb={showBreadcrumb} />
             </BindLogic>
         </BindLogic>

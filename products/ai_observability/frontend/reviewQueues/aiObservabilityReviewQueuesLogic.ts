@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
@@ -39,7 +39,9 @@ export interface ReviewQueueItemFilters {
 
 export type ReviewQueueEditorMode = 'create' | 'rename'
 
-export type AIObservabilityReviewQueuesLogicProps = Record<string, never>
+export interface AIObservabilityReviewQueuesLogicProps {
+    tabId?: string
+}
 
 const EMPTY_QUEUE_LIST: PaginatedReviewQueueListApi = {
     count: 0,
@@ -329,6 +331,7 @@ export type aiObservabilityReviewQueuesLogicType = MakeLogicType<
 export const aiObservabilityReviewQueuesLogic = kea<aiObservabilityReviewQueuesLogicType>([
     path(['products', 'ai_observability', 'frontend', 'reviewQueues', 'aiObservabilityReviewQueuesLogic']),
     props({} as AIObservabilityReviewQueuesLogicProps),
+    key((props) => props.tabId ?? 'default'),
 
     actions({
         setQueueFilters: (filters: Partial<ReviewQueueFilters>, merge: boolean = true, debounce: boolean = true) => ({

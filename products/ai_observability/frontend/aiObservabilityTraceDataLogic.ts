@@ -49,9 +49,10 @@ export interface TraceDataLogicProps {
     query?: DataTableNode | null
     cachedResults?: AnyResponseType | null
     searchQuery: string
+    tabId?: string
 }
 
-function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogicProps): DataNodeLogicProps {
+function getDataNodeLogicProps({ traceId, query, cachedResults, tabId }: TraceDataLogicProps): DataNodeLogicProps {
     const fallbackTraceQuery: TraceQuery = {
         kind: NodeKind.TraceQuery,
         traceId,
@@ -62,15 +63,17 @@ function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogic
         },
     }
 
+    const tabScope = tabId ?? 'default'
+    const scopedTraceId = `${traceId}:${tabScope}`
     const insightProps: InsightLogicProps<DataTableNode> = {
-        dashboardItemId: `new-Trace.${traceId}`,
-        dataNodeCollectionId: traceId,
+        dashboardItemId: `new-Trace.${scopedTraceId}`,
+        dataNodeCollectionId: scopedTraceId,
     }
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query?.source ?? fallbackTraceQuery,
         key: vizKey,
-        dataNodeCollectionId: traceId,
+        dataNodeCollectionId: scopedTraceId,
         cachedResults: cachedResults || undefined,
     }
     return dataNodeLogicProps
@@ -376,15 +379,15 @@ export type aiObservabilityTraceDataLogicType = MakeLogicType<
 export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicType>([
     path(['scenes', 'ai-observability', 'aiObservabilityTraceDataLogic']),
     props({} as TraceDataLogicProps),
-    key((props) => props.traceId),
+    key((props) => `${props.traceId}:${props.tabId ?? 'default'}`),
     connect((props: TraceDataLogicProps) => ({
         values: [
-            aiObservabilityTraceLogic,
+            aiObservabilityTraceLogic({ tabId: props.tabId }),
             ['eventId', 'searchQuery', 'initialTab'],
             dataNodeLogic(getDataNodeLogicProps(props)),
             ['elapsedTime', 'response', 'responseLoading', 'responseError'],
         ],
-        actions: [aiObservabilityTraceLogic, ['setEventId']],
+        actions: [aiObservabilityTraceLogic({ tabId: props.tabId }), ['setEventId']],
     })),
     actions({
         reportSingleTraceLoadIfReady: true,
@@ -726,7 +729,7 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
         },
         trace: (trace: LLMTrace | undefined, oldTrace: LLMTrace | undefined) => {
             if (trace?.createdAt && props.traceId) {
-                aiObservabilityTraceLogic.actions.loadNeighbors(props.traceId, trace.createdAt)
+                aiObservabilityTraceLogic({ tabId: props.tabId }).actions.loadNeighbors(props.traceId, trace.createdAt)
             }
 
             if (trace?.distinctId) {

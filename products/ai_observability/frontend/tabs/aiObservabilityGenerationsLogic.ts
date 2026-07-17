@@ -12,7 +12,9 @@ import type { ApplyUrlStatePayload } from '../aiObservabilitySharedLogic'
 import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
 import { GENERATION_SENTIMENT_SELECT } from '../sentimentResults'
 
-export type AIObservabilityGenerationsLogicProps = Record<string, never>
+export interface AIObservabilityGenerationsLogicProps {
+    tabId?: string
+}
 
 export function getDefaultGenerationsColumns(): string[] {
     return [
@@ -126,18 +128,19 @@ export type aiObservabilityGenerationsLogicType = MakeLogicType<
 
 export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'tabs', 'aiObservabilityGenerationsLogic']),
-    // Singleton (unkeyed): the persisted column selection lives in a single localStorage key
-    // for the scene, so a stable key keeps the user's choice across refreshes.
+    // Intentionally not keyed by tabId: the in-app multi-tab feature was removed, so tabId is now a
+    // fresh random id per page load. Keying by it would make the persisted column selection's
+    // localStorage key change on every refresh, losing the user's choice.
     props({} as AIObservabilityGenerationsLogicProps),
-    connect(() => ({
+    connect((props: AIObservabilityGenerationsLogicProps) => ({
         values: [
-            aiObservabilitySharedLogic,
+            aiObservabilitySharedLogic({ tabId: props.tabId }),
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
         ],
         actions: [
-            aiObservabilitySharedLogic,
+            aiObservabilitySharedLogic({ tabId: props.tabId }),
             ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts', 'applyUrlState'],
         ],
     })),

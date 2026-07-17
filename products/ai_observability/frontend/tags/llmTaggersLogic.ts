@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -15,7 +15,9 @@ import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { defaultTaggerTemplates } from './templates'
 import { getIntervalFromDateRange, Tagger } from './types'
 
-export type LLMTaggersLogicProps = Record<string, never>
+export interface LLMTaggersLogicProps {
+    tabId?: string
+}
 
 export interface TaggerRunStats {
     tagger_id: string
@@ -161,6 +163,7 @@ export type llmTaggersLogicType = MakeLogicType<
 export const llmTaggersLogic = kea<llmTaggersLogicType>([
     path(['products', 'ai_observability', 'taggers', 'llmTaggersLogic']),
     props({} as LLMTaggersLogicProps),
+    key((props) => props.tabId ?? 'default'),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], aiObservabilitySharedLogic, ['dateFilter']],
         actions: [

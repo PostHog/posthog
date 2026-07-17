@@ -26,7 +26,10 @@ describe('aiObservabilityTraceLogic', () => {
         })
         initKeaTests()
         sceneLogic({ scenes }).mount()
-        logic = aiObservabilityTraceLogic()
+        sceneLogic.actions.setTabs([
+            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
+        ])
+        logic = aiObservabilityTraceLogic({ tabId: '1' })
         logic.mount()
     })
 

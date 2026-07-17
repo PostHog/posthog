@@ -51,18 +51,21 @@ export interface SessionDataLogicProps {
     sessionId: string
     query: DataTableNode
     cachedResults?: AnyResponseType | null
+    tabId?: string
 }
 
-function getDataNodeLogicProps({ sessionId, query, cachedResults }: SessionDataLogicProps): DataNodeLogicProps {
+function getDataNodeLogicProps({ sessionId, query, cachedResults, tabId }: SessionDataLogicProps): DataNodeLogicProps {
+    const tabScope = tabId ?? 'default'
+    const scopedSessionId = `${sessionId}:${tabScope}`
     const insightProps: InsightLogicProps<DataTableNode> = {
-        dashboardItemId: `new-Session.${sessionId}`,
-        dataNodeCollectionId: sessionId,
+        dashboardItemId: `new-Session.${scopedSessionId}`,
+        dataNodeCollectionId: scopedSessionId,
     }
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
         key: vizKey,
-        dataNodeCollectionId: sessionId,
+        dataNodeCollectionId: scopedSessionId,
         cachedResults: cachedResults || undefined,
     }
     return dataNodeLogicProps
@@ -269,10 +272,10 @@ export type aiObservabilitySessionDataLogicType = MakeLogicType<
 export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLogicType>([
     path(['scenes', 'ai-observability', 'aiObservabilitySessionDataLogic']),
     props({} as SessionDataLogicProps),
-    key((props) => `${props.sessionId}`),
+    key((props) => `${props.sessionId}:${props.tabId ?? 'default'}`),
     connect((props: SessionDataLogicProps) => ({
         values: [
-            aiObservabilitySessionLogic,
+            aiObservabilitySessionLogic({ tabId: props.tabId }),
             ['sessionId', 'dateRange'],
             dataNodeLogic(getDataNodeLogicProps(props)),
             ['response', 'responseLoading', 'responseError', 'canLoadNextData', 'hasMoreData', 'nextDataLoading'],

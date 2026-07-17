@@ -29,8 +29,8 @@ function formatTraceId(traceId: string): string {
     return traceId.length > 12 ? `${traceId.slice(0, 4)}...${traceId.slice(-4)}` : traceId
 }
 
-export function AIObservabilityReviews(): JSX.Element {
-    const logic = useMountedLogic(aiObservabilityReviewsLogic())
+export function AIObservabilityReviews({ tabId }: { tabId?: string }): JSX.Element {
+    const logic = useMountedLogic(aiObservabilityReviewsLogic({ tabId }))
     const { setFilters, copyReviewsToClipboard } = useActions(logic)
     const { startExport } = useActions(exportsLogic)
     const {

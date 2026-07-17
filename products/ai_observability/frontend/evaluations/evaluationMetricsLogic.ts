@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, props, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -31,7 +31,9 @@ export interface SummaryMetrics {
 
 type RawStatsRow = [evaluation_id: string, runs_count: number, applicable_count: number, pass_count: number]
 
-export type EvaluationMetricsLogicProps = Record<string, never>
+export interface EvaluationMetricsLogicProps {
+    tabId?: string
+}
 
 function getIntervalFromDateRange(dateFrom: string | null): 'hour' | 'day' {
     if (!dateFrom) {
@@ -151,10 +153,11 @@ export type evaluationMetricsLogicType = MakeLogicType<
 export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'evaluations', 'evaluationMetricsLogic']),
     props({} as EvaluationMetricsLogicProps),
+    key((props) => props.tabId ?? 'default'),
 
-    connect(() => ({
-        values: [llmEvaluationsLogic, ['evaluations', 'dateFilter']],
-        actions: [llmEvaluationsLogic, ['setDates']],
+    connect((props: EvaluationMetricsLogicProps) => ({
+        values: [llmEvaluationsLogic({ tabId: props.tabId }), ['evaluations', 'dateFilter']],
+        actions: [llmEvaluationsLogic({ tabId: props.tabId }), ['setDates']],
     })),
 
     actions({

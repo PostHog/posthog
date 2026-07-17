@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -17,7 +17,9 @@ import type { AIObservabilityTabId } from '../aiObservabilitySharedLogic'
 import { llmSessionTitleLazyLoaderLogic } from '../llmSessionTitleLazyLoaderLogic'
 import type { DateRangeFilter } from '../types'
 
-export type AIObservabilitySessionsViewLogicProps = Record<string, never>
+export interface AIObservabilitySessionsViewLogicProps {
+    tabId?: string
+}
 
 const SESSIONS_PAGE_SIZE = 50
 
@@ -146,17 +148,23 @@ export type aiObservabilitySessionsViewLogicType = MakeLogicType<
 
 export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewLogicType>([
     path(['products', 'ai_observability', 'frontend', 'tabs', 'aiObservabilitySessionsViewLogic']),
+    key((props: AIObservabilitySessionsViewLogicProps) => props.tabId || 'default'),
     props({} as AIObservabilitySessionsViewLogicProps),
-    connect(() => ({
+    connect((props: AIObservabilitySessionsViewLogicProps) => ({
         values: [
-            aiObservabilitySharedLogic,
+            aiObservabilitySharedLogic({ tabId: props.tabId }),
             ['activeTab', 'dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
             llmSessionTitleLazyLoaderLogic,
             ['getSessionTitle'],
         ],
-        actions: [llmSessionTitleLazyLoaderLogic, ['ensureSessionTitleLoaded']],
+        actions: [
+            llmSessionTitleLazyLoaderLogic,
+            ['ensureSessionTitleLoaded'],
+            aiObservabilitySharedLogic({ tabId: props.tabId }),
+            ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts', 'applyUrlState'],
+        ],
     })),
 
     actions({

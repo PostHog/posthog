@@ -421,17 +421,17 @@ export const scene: SceneExport = {
     logic: aiObservabilityTraceLogic,
 }
 
-export function AIObservabilityTraceScene(): JSX.Element {
-    const traceLogic = aiObservabilityTraceLogic()
+export function AIObservabilityTraceScene({ tabId }: { tabId?: string }): JSX.Element {
+    const traceLogic = aiObservabilityTraceLogic({ tabId })
     const { traceId, query, searchQuery } = useValues(traceLogic)
-    const logicProps = { traceId, query, cachedResults: null, searchQuery }
+    const logicProps = { traceId, query, cachedResults: null, searchQuery, tabId }
     const traceDataLogic = aiObservabilityTraceDataLogic(logicProps)
 
     useAttachedLogic(traceDataLogic, traceLogic)
 
     return (
         <BindLogic logic={llmPersonsLazyLoaderLogic} props={{}}>
-            <BindLogic logic={aiObservabilityTraceLogic} props={{}}>
+            <BindLogic logic={aiObservabilityTraceLogic} props={{ tabId }}>
                 <BindLogic logic={aiObservabilityTraceDataLogic} props={logicProps}>
                     <TraceSceneWrapper />
                 </BindLogic>

@@ -84,7 +84,7 @@ describe('aiObservabilitySharedLogic', () => {
         initKeaTests()
         sceneLogic.mount()
         router.actions.push(urls.aiObservabilityTraces())
-        logic = aiObservabilitySharedLogic({})
+        logic = aiObservabilitySharedLogic({ tabId: sceneLogic.values.activeTabId || '' })
         logic.mount()
     })
 
@@ -438,14 +438,14 @@ describe('AI observability persisted preferences', () => {
         window.localStorage.clear()
     })
 
-    it('persists generation column preferences across remount', () => {
+    it('keeps generation column preferences stable across tab ids', () => {
         const columns = ['uuid', 'timestamp']
-        const firstLogic = aiObservabilityGenerationsLogic()
+        const firstLogic = aiObservabilityGenerationsLogic({ tabId: 'first-tab' })
         firstLogic.mount()
         firstLogic.actions.setGenerationsColumns(columns)
         firstLogic.unmount()
 
-        const secondLogic = aiObservabilityGenerationsLogic()
+        const secondLogic = aiObservabilityGenerationsLogic({ tabId: 'second-tab' })
         secondLogic.mount()
 
         expect(secondLogic.values.generationsColumns).toEqual(columns)
@@ -453,13 +453,13 @@ describe('AI observability persisted preferences', () => {
         secondLogic.unmount()
     })
 
-    it('persists traces table preferences across remount', () => {
-        const firstLogic = aiObservabilityTracesTabLogic()
+    it('keeps traces table preferences stable across tab ids', () => {
+        const firstLogic = aiObservabilityTracesTabLogic({ tabId: 'first-tab' })
         firstLogic.mount()
         firstLogic.actions.setShowInputOutputColumns(false)
         firstLogic.unmount()
 
-        const secondLogic = aiObservabilityTracesTabLogic()
+        const secondLogic = aiObservabilityTracesTabLogic({ tabId: 'second-tab' })
         secondLogic.mount()
 
         expect(secondLogic.values.showInputOutputColumns).toBe(false)
@@ -467,13 +467,13 @@ describe('AI observability persisted preferences', () => {
         secondLogic.unmount()
     })
 
-    it('persists selected dashboard across remount', () => {
-        const firstLogic = aiObservabilityDashboardLogic()
+    it('keeps selected dashboard stable across tab ids', () => {
+        const firstLogic = aiObservabilityDashboardLogic({ tabId: 'first-tab' })
         firstLogic.mount()
         firstLogic.actions.loadLLMDashboardsSuccess([{ id: 42, name: 'AI dashboard', description: '' }])
         firstLogic.unmount()
 
-        const secondLogic = aiObservabilityDashboardLogic()
+        const secondLogic = aiObservabilityDashboardLogic({ tabId: 'second-tab' })
         secondLogic.mount()
 
         expect(secondLogic.values.selectedDashboardId).toBe(42)
@@ -481,8 +481,8 @@ describe('AI observability persisted preferences', () => {
         secondLogic.unmount()
     })
 
-    it('persists trace display preferences across remount', () => {
-        const firstLogic = aiObservabilityTraceLogic()
+    it('keeps trace display preferences stable across tab ids', () => {
+        const firstLogic = aiObservabilityTraceLogic({ tabId: 'first-tab' })
         firstLogic.mount()
         firstLogic.actions.setIsRenderingMarkdown(false)
         firstLogic.actions.setIsRenderingXml(true)
@@ -490,7 +490,7 @@ describe('AI observability persisted preferences', () => {
         firstLogic.actions.setTraceReviewPanelExpanded(true)
         firstLogic.unmount()
 
-        const secondLogic = aiObservabilityTraceLogic()
+        const secondLogic = aiObservabilityTraceLogic({ tabId: 'second-tab' })
         secondLogic.mount()
 
         expect(secondLogic.values.isRenderingMarkdown).toBe(false)
@@ -502,7 +502,7 @@ describe('AI observability persisted preferences', () => {
     })
 
     it('scopes explicit storage keys to the current team', () => {
-        const logic = aiObservabilityTraceLogic()
+        const logic = aiObservabilityTraceLogic({ tabId: 'team-scoped-tab' })
         logic.mount()
         logic.actions.setIsRenderingMarkdown(false)
 
