@@ -9,6 +9,7 @@ import {
     IconDownload,
     IconFlask,
     IconHome,
+    IconList,
     IconLive,
     IconListTree,
     IconLlmAnalytics,
@@ -83,6 +84,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconRewindPlay />
         case 'survey':
             return <IconMessage />
+        case 'tagger':
+            return <IconList />
         case 'task':
             return <IconBug />
         case 'web_analytics':

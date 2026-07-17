@@ -33,6 +33,7 @@ export const RESOURCE_ROLLOUT_FLAG_REQUIREMENTS: Partial<Record<AccessControlRes
     [AccessControlResourceType.Metrics]: FEATURE_FLAGS.METRICS,
     [AccessControlResourceType.RevenueAnalytics]: FEATURE_FLAGS.REVENUE_ANALYTICS,
     [AccessControlResourceType.Tracing]: FEATURE_FLAGS.TRACING,
+    [AccessControlResourceType.Tagger]: FEATURE_FLAGS.LLM_ANALYTICS_TAGS,
 }
 
 export function isResourceRolledOut(
@@ -180,6 +181,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.FeatureFlag,
                     AccessControlResourceType.Insight,
                     AccessControlResourceType.LlmAnalytics,
+                    AccessControlResourceType.Tagger,
                     AccessControlResourceType.Metrics,
                     AccessControlResourceType.Notebook,
                     AccessControlResourceType.RevenueAnalytics,

@@ -588,7 +588,7 @@ function AIObservabilityTaggerForm({ id }: { id: string }): JSX.Element {
 
                     <div className="flex gap-2 pt-4 border-t">
                         <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            resourceType={AccessControlResourceType.Tagger}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
                             <LemonButton
@@ -605,7 +605,7 @@ function AIObservabilityTaggerForm({ id }: { id: string }): JSX.Element {
                         </LemonButton>
                         {id !== 'new' && (
                             <AccessControlAction
-                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                resourceType={AccessControlResourceType.Tagger}
                                 minAccessLevel={AccessControlLevel.Editor}
                             >
                                 <LemonButton

@@ -376,8 +376,9 @@ class TestTaggersApi(APIBaseTest):
 
 
 class TestTaggersAccessControl(APIBaseTest):
-    # Tagger inherits access control from the `llm_analytics` resource (RESOURCE_INHERITANCE_MAP
-    # in posthog/rbac/user_access_control.py), same as Evaluations and Datasets.
+    # Tagger has its own access control resource (see ACCESS_CONTROL_RESOURCES in
+    # posthog/rbac/user_access_control.py), independent of the `llm_analytics` resource
+    # that Evaluations and Datasets inherit from.
     def setUp(self) -> None:
         super().setUp()
         self.organization.available_product_features = [
@@ -390,15 +391,15 @@ class TestTaggersAccessControl(APIBaseTest):
         self.editor_user = User.objects.create_and_join(self.organization, "tagger-editor@posthog.com", "testtest")
         self.no_access_user = User.objects.create_and_join(self.organization, "tagger-noaccess@posthog.com", "testtest")
 
-        self._grant_llm_analytics_access(self.viewer_user, "viewer")
-        self._grant_llm_analytics_access(self.editor_user, "editor")
-        self._grant_llm_analytics_access(self.no_access_user, "none")
+        self._grant_tagger_access(self.viewer_user, "viewer")
+        self._grant_tagger_access(self.editor_user, "editor")
+        self._grant_tagger_access(self.no_access_user, "none")
 
-    def _grant_llm_analytics_access(self, user: User, access_level: str) -> AccessControl:
+    def _grant_tagger_access(self, user: User, access_level: str) -> AccessControl:
         membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         return AccessControl.objects.create(
             team=self.team,
-            resource="llm_analytics",
+            resource="tagger",
             resource_id=None,
             access_level=access_level,
             organization_member=membership,
