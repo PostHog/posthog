@@ -1383,10 +1383,19 @@ def build_sandbox_custom_image(
         raise ValueError("The image spec is empty; add packages, commands, or env vars before building")
     validate_spec_buildable(spec, image.repository)
 
-    image.spec = spec.model_dump()
-    image.status = SandboxCustomImage.Status.SCANNING
-    image.error = ""
-    image.save(update_fields=["spec", "status", "error", "updated_at"])
+    updated = (
+        _accessible_custom_images(team_id, user_id)
+        .filter(id=image.id)
+        .exclude(status__in=(SandboxCustomImage.Status.SCANNING, SandboxCustomImage.Status.BUILDING))
+        .update(
+            spec=spec.model_dump(),
+            status=SandboxCustomImage.Status.SCANNING,
+            error="",
+            updated_at=django_timezone.now(),
+        )
+    )
+    if not updated:
+        raise ValueError("A build is already in progress for this image")
 
     observe_custom_image_build("started")
     execute_build_sandbox_image_workflow(str(image.id), team_id)

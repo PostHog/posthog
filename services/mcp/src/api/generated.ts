@@ -28536,16 +28536,21 @@ export namespace Schemas {
     }
 
     /**
-     * Fleet-wide tally of recently emitted findings — backs the "Scout findings" callout so it
-     * renders from one cheap query instead of the client walking the whole paginated runs window.
+     * Fleet-wide tally of recent scout output — legacy `emit_signal` findings plus reports
+     * authored/edited via the report channel. Backs the "Scout findings" callout so it renders
+     * from one cheap query instead of the client walking the whole paginated runs window.
      */
     export interface FleetFindingsSummary {
-      /** Total findings the fleet emitted in the window — the sum of each emitted run's `emitted_count`, over the most recent 120 emitted runs. */
+      /** Total findings the fleet emitted in the window — the sum of each run's `emitted_count`, over the most recent 120 runs that produced output. */
       count: number;
-      /** Number of distinct scouts (skills) that emitted at least one finding in the window. */
+      /** Number of distinct scouts (skills) that produced output in the window — emitted a finding, or authored/edited an inbox report that survives the 50-report cap (a report-only scout whose touched reports all fell outside the cap is not counted, matching the findings page's scout filter). */
       scout_count: number;
+      /** Number of distinct inbox reports scouts authored via `emit_report`, deduped across runs, over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently touched reports (the same slice the findings page lists). */
+      authored_report_count: number;
+      /** Number of distinct inbox reports scouts edited via `edit_report`, deduped across runs, over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently touched reports (the same slice the findings page lists) and excluding reports also authored within that set (authoring supersedes an edit; a report whose authoring run falls outside the cap counts as edited). */
+      edited_report_count: number;
       /**
-         * ISO-8601 timestamp of the most recently emitted finding's run (TaskRun completion, falling back to run creation), or null when nothing was emitted in the window.
+         * ISO-8601 timestamp of the most recent output run (TaskRun completion, falling back to run creation), or null when nothing was produced in the window.
          * @nullable
          */
       latest_at: string | null;
@@ -33158,6 +33163,8 @@ export namespace Schemas {
       /** Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents. */
       outline: LLMPromptOutlineEntry[];
       version: number;
+      /** The label this prompt was fetched by. Only present when fetching with the label parameter. */
+      label?: string;
       created_at: string;
       updated_at: string;
       deleted: boolean;
@@ -68151,6 +68158,12 @@ export namespace Schemas {
      */
     content?: EnvironmentsLlmPromptsNameRetrieveContent;
     /**
+     * Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version.
+     * @minLength 1
+     * @maxLength 128
+     */
+    label?: string;
+    /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
@@ -75858,6 +75871,12 @@ export namespace Schemas {
      * @minLength 1
      */
     content?: LlmPromptsNameRetrieveContent;
+    /**
+     * Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version.
+     * @minLength 1
+     * @maxLength 128
+     */
+    label?: string;
     /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
