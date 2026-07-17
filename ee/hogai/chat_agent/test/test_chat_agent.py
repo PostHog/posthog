@@ -1022,6 +1022,46 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
             actual_output, _ = await self._run_assistant_graph(graph)
             self.assertConversationEqual(actual_output, expected_output)
 
+    async def test_deleted_conversation_terminates_cleanly(self):
+        # A conversation deleted mid-run used to blow up across three DB paths (cancellation check,
+        # checkpoint write, and the lock status save) and surface as a generic StreamError. The run
+        # should now shut down cleanly, the same way a cancellation does.
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_root()
+            .compile()
+        )
+
+        with patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model") as root_mock:
+
+            def delete_conversation_mid_run(_):
+                # Hard-delete the row while the graph is still streaming; checkpoints cascade away.
+                Conversation.objects.filter(id=self.conversation.id).delete()
+                return messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "1",
+                            "name": "create_insight",
+                            "args": {
+                                "viz_title": "Foobar",
+                                "viz_description": "Test Description",
+                                "query_description": "Foobar",
+                                "insight_type": "trends",
+                            },
+                        }
+                    ],
+                )
+
+            root_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(delete_conversation_mid_run)
+
+            # Must not raise (no StreamError / DB error bubbling out of the stream).
+            output, _ = await self._run_assistant_graph(graph)
+
+        # Clean shutdown mirrors cancellation: no FailureMessage surfaced to the user.
+        self.assertFalse(any(isinstance(message, FailureMessage) for _, message in output), output)
+
     @patch("ee.hogai.core.title_generator.nodes.TitleGeneratorNode._model")
     async def test_conversation_metadata_updated(self, title_generator_model_mock):
         """Test that metadata (title, created_at, updated_at) is generated and set for a new conversation."""

@@ -3,10 +3,11 @@ import random
 from collections.abc import AsyncIterator, Sequence
 from typing import Any, Optional, cast
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Prefetch, Q
 
 import ormsgpack
+import structlog
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
     BaseCheckpointSaver,
@@ -23,10 +24,13 @@ from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
 from posthog.sync import database_sync_to_async
 
 from products.posthog_ai.backend.models.assistant import (
+    Conversation,
     ConversationCheckpoint,
     ConversationCheckpointBlob,
     ConversationCheckpointWrite,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
@@ -261,37 +265,56 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             }
         }
 
-        with transaction.atomic():
-            # nosemgrep: idor-lookup-without-team (internal LangGraph checkpoint)
-            updated_checkpoint, _ = ConversationCheckpoint.objects.update_or_create(
-                id=checkpoint["id"],
-                thread_id=thread_id,
-                checkpoint_ns=checkpoint_ns,
-                defaults={
-                    "parent_checkpoint_id": checkpoint_id,
-                    "checkpoint": self._dump_json({**checkpoint_copy, "pending_sends": []}),
-                    "metadata": self._dump_json(metadata),
-                },
-            )
-
-            blobs = []
-            for channel, version in new_versions.items():
-                type, blob = (
-                    self.serde.dumps_typed(channel_values[channel]) if channel in channel_values else ("empty", None)
+        try:
+            with transaction.atomic():
+                # nosemgrep: idor-lookup-without-team (internal LangGraph checkpoint)
+                updated_checkpoint, _ = ConversationCheckpoint.objects.update_or_create(
+                    id=checkpoint["id"],
+                    thread_id=thread_id,
+                    checkpoint_ns=checkpoint_ns,
+                    defaults={
+                        "parent_checkpoint_id": checkpoint_id,
+                        "checkpoint": self._dump_json({**checkpoint_copy, "pending_sends": []}),
+                        "metadata": self._dump_json(metadata),
+                    },
                 )
-                blobs.append(
-                    ConversationCheckpointBlob(
-                        checkpoint=updated_checkpoint,
-                        thread_id=thread_id,
-                        channel=channel,
-                        version=str(version),
-                        type=type,
-                        blob=blob,
+
+                blobs = []
+                for channel, version in new_versions.items():
+                    type, blob = (
+                        self.serde.dumps_typed(channel_values[channel])
+                        if channel in channel_values
+                        else ("empty", None)
                     )
-                )
+                    blobs.append(
+                        ConversationCheckpointBlob(
+                            checkpoint=updated_checkpoint,
+                            thread_id=thread_id,
+                            channel=channel,
+                            version=str(version),
+                            type=type,
+                            blob=blob,
+                        )
+                    )
 
-            ConversationCheckpointBlob.objects.bulk_create(blobs, ignore_conflicts=True)
+                ConversationCheckpointBlob.objects.bulk_create(blobs, ignore_conflicts=True)
+        except IntegrityError:
+            # The conversation (thread) was deleted mid-run; its checkpoints cascade away with
+            # it, so there's nothing to persist. Skip gracefully so the run can shut down
+            # cleanly instead of surfacing a generic StreamError.
+            if self._thread_deleted(thread_id):
+                return next_config
+            raise
         return next_config
+
+    @staticmethod
+    def _thread_deleted(thread_id: str) -> bool:
+        """Whether the conversation backing a thread no longer exists (deleted mid-run)."""
+        # nosemgrep: idor-lookup-without-team (internal LangGraph checkpoint)
+        deleted = not Conversation.objects.filter(id=thread_id).exists()
+        if deleted:
+            logger.warning("Skipping checkpoint write for deleted conversation", thread_id=thread_id)
+        return deleted
 
     async def aput_writes(
         self,
@@ -324,39 +347,45 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         checkpoint_id = get_checkpoint_id(config)
         checkpoint_ns: str | None = configurable.get("checkpoint_ns") or ""
 
-        with transaction.atomic():
-            # `put_writes` and `put` are concurrently called without guaranteeing the call order
-            # so we need to ensure the checkpoint is created before creating writes.
-            # Thread.lock() will prevent race conditions though to the same checkpoints within a single pod.
-            # nosemgrep: idor-lookup-without-team (internal LangGraph checkpoint)
-            checkpoint, _ = ConversationCheckpoint.objects.get_or_create(
-                id=checkpoint_id, thread_id=thread_id, checkpoint_ns=checkpoint_ns
-            )
-
-            writes_to_create = []
-            for idx, (channel, value) in enumerate(writes):
-                type, blob = self.serde.dumps_typed(value)
-                writes_to_create.append(
-                    ConversationCheckpointWrite(
-                        checkpoint=checkpoint,
-                        task_id=task_id,
-                        idx=idx,
-                        channel=channel,
-                        type=type,
-                        blob=blob,
-                    )
+        try:
+            with transaction.atomic():
+                # `put_writes` and `put` are concurrently called without guaranteeing the call order
+                # so we need to ensure the checkpoint is created before creating writes.
+                # Thread.lock() will prevent race conditions though to the same checkpoints within a single pod.
+                # nosemgrep: idor-lookup-without-team (internal LangGraph checkpoint)
+                checkpoint, _ = ConversationCheckpoint.objects.get_or_create(
+                    id=checkpoint_id, thread_id=thread_id, checkpoint_ns=checkpoint_ns
                 )
 
-            # Setting update_conflicts=True to handle resume-from-interrupt scenarios.
-            # When a tool calls interrupt() and later resumes, LangGraph may write to the
-            # same (checkpoint_id, task_id, idx) combination. We want to ensure we update
-            # existing writes on duplicate key.
-            ConversationCheckpointWrite.objects.bulk_create(
-                writes_to_create,
-                update_conflicts=True,
-                unique_fields=["checkpoint", "task_id", "idx"],
-                update_fields=["channel", "type", "blob"],
-            )
+                writes_to_create = []
+                for idx, (channel, value) in enumerate(writes):
+                    type, blob = self.serde.dumps_typed(value)
+                    writes_to_create.append(
+                        ConversationCheckpointWrite(
+                            checkpoint=checkpoint,
+                            task_id=task_id,
+                            idx=idx,
+                            channel=channel,
+                            type=type,
+                            blob=blob,
+                        )
+                    )
+
+                # Setting update_conflicts=True to handle resume-from-interrupt scenarios.
+                # When a tool calls interrupt() and later resumes, LangGraph may write to the
+                # same (checkpoint_id, task_id, idx) combination. We want to ensure we update
+                # existing writes on duplicate key.
+                ConversationCheckpointWrite.objects.bulk_create(
+                    writes_to_create,
+                    update_conflicts=True,
+                    unique_fields=["checkpoint", "task_id", "idx"],
+                    update_fields=["channel", "type", "blob"],
+                )
+        except IntegrityError:
+            # See `_put`: the conversation was deleted mid-run, so skip the cascade-deleted writes.
+            if self._thread_deleted(thread_id):
+                return
+            raise
 
     # `channel` is typed `None` (deprecated) in the base class since 2.1, but langgraph 0.4 still passes a real channel object, so accept both
     def get_next_version(self, current: Optional[str | int], channel: Optional[ChannelProtocol] = None) -> str:
