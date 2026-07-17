@@ -56,8 +56,9 @@ class TestRampSource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "401 Client Error: Unauthorized for url: https://api.ramp.com/developer/v1/token",
-            "400 Client Error: Bad Request for url: https://demo-api.ramp.com/developer/v1/token",
+            # Permanent OAuth2 token-exchange failures carry the framework's stable marker.
+            "HTTP 401 from the OAuth2 token endpoint: invalid_client [oauth2_token_config_error]",
+            "HTTP 400 from the OAuth2 token endpoint: invalid_scope [oauth2_token_config_error]",
             "403 Client Error: Forbidden for url: https://api.ramp.com/developer/v1/transactions",
         ],
     )
