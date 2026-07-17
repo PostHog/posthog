@@ -130,7 +130,9 @@ def get_rows(
     config = CAMPFIRE_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session(redact_values=(api_key,))
+    # capture=False keeps accounting responses (amounts, invoice/transaction IDs, free-form
+    # business fields the name-based scrubbers can't recognise) out of HTTP sample storage.
+    session = make_tracked_session(redact_values=(api_key,), capture=False)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_url:
