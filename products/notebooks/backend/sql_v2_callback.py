@@ -8,6 +8,7 @@ posthog/urls.py at internal/notebooks/runs/<run_id>/result/.
 import json
 
 from django.core import signing
+from django.db.models import Q
 from django.http import JsonResponse
 
 import structlog
@@ -118,4 +119,14 @@ def _store_frame_snapshot(run: NotebookNodeRun, frames: list | None, team_id: in
     # the live one. Team AND user because a KernelRuntime is scoped to both — kernels are per
     # user, so a notebook's collaborators each have their own, and a snapshot must never land
     # on someone else's row. Both come from the run, which was itself looked up team-scoped.
-    KernelRuntime.objects.filter(id=run.kernel_runtime_id, team_id=team_id, user=run.user).update(frames=frames)
+    #
+    # The created_at guard makes the write last-run-wins rather than last-callback-wins. The
+    # kernel runs cells one at a time in arrival order, but callbacks land on separate web
+    # workers and can arrive out of order, so without it a slow older callback would overwrite
+    # a newer catalog and leave deleted frames on show until the next run. Done as a
+    # conditional UPDATE rather than read-then-write so concurrent callbacks can't interleave.
+    (
+        KernelRuntime.objects.filter(id=run.kernel_runtime_id, team_id=team_id, user=run.user)
+        .filter(Q(frames_run_created_at__isnull=True) | Q(frames_run_created_at__lt=run.created_at))
+        .update(frames=frames, frames_run_created_at=run.created_at)
+    )

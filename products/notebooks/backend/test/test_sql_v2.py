@@ -223,6 +223,44 @@ class TestSQLV2Callback(APIBaseTest):
         self.assertEqual(ran_on.frames, frames)
         self.assertIsNone(replaced_by.frames)
 
+    def test_a_late_callback_cannot_overwrite_a_newer_snapshot(self):
+        # The kernel runs cells one at a time, but their callbacks land on separate web workers
+        # and can arrive out of order. Without a guard the slow older one wins, leaving frames
+        # it has since dropped on show until some later run happens to refresh them.
+        ran_on = self._create_runtime(KernelRuntime.Status.RUNNING)
+        with team_scope(self.team.id):
+            older = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                user=self.user,
+                node_id="n-old",
+                status=NotebookNodeRun.Status.RUNNING,
+                kernel_runtime_id=ran_on.id,
+            )
+            newer = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                user=self.user,
+                node_id="n-new",
+                status=NotebookNodeRun.Status.RUNNING,
+                kernel_runtime_id=ran_on.id,
+            )
+        fresh = [{"name": "after", "kind": "frame", "columns": [], "row_count": 1}]
+        stale = [{"name": "before", "kind": "frame", "columns": [], "row_count": 1}]
+
+        # Newer run's callback lands first, then the older one's arrives late.
+        for run, frames in ((newer, fresh), (older, stale)):
+            response = self.client.post(
+                f"/internal/notebooks/runs/{run.id}/result/",
+                data=json.dumps({"envelope": {**self.envelope, "frames": frames}}),
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {mint_callback_token(str(run.id), self.team.id)}",
+            )
+            self.assertEqual(response.status_code, 200)
+
+        ran_on.refresh_from_db()
+        self.assertEqual(ran_on.frames, fresh)
+
     def test_hogql_envelope_leaves_the_previous_snapshot_standing(self):
         # A hogql run never enters the kernel, so it reports no frames and must not be read as
         # "the kernel now has none" — that would blank the browser on every SQL run.

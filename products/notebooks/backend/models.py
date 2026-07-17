@@ -178,6 +178,11 @@ class KernelRuntime(UUIDTModel):
     # reused while its sandbox is verifiably alive, so the snapshot cannot outlive the kernel
     # that produced it and go stale — a restarted kernel gets a new row with this unset.
     frames: JSONField = JSONField(default=None, null=True, blank=True)
+    # Which run's snapshot `frames` holds, as that run's created_at. The kernel executes runs
+    # one at a time in arrival order, but their callbacks land on different web workers and can
+    # arrive out of order, so a slow older callback must not overwrite a newer snapshot. Runs
+    # are created before dispatch, so created_at orders them the same way the kernel ran them.
+    frames_run_created_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_kernelruntime"
