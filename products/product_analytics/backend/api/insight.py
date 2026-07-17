@@ -343,7 +343,9 @@ DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER = Counter(
 
 def _dashboards_field_access_method(request: Request | None) -> str:
     authenticator = getattr(request, "successful_authenticator", None)
-    if authenticator is None or isinstance(authenticator, SessionAuthentication):
+    if authenticator is None:
+        return "no_authenticator"
+    if isinstance(authenticator, SessionAuthentication):
         return "session"
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         return "personal_api_key"
@@ -355,23 +357,20 @@ def should_serve_deprecated_dashboards_field(context: dict) -> bool:
     The insight `dashboards` field is deprecated in favor of `dashboard_tiles`, but computing it
     for every response keeps every caller coupled to it. The web app still reads and writes it,
     so session-authenticated requests keep receiving it until the frontend migrates; every other
-    caller must opt in with `?include_dashboards=true`. Serving is metered per insight payload so
-    remaining usage is visible before the field is removed.
+    caller must opt in with `?include_dashboards=true`.
     """
     request = context.get("request")
     if request is None:
         # Internal serialization (exports, subscriptions) has no requesting client to migrate.
         return True
     authenticator = getattr(request, "successful_authenticator", None)
+    # An unresolved authenticator (no DRF auth ran) fails open as session: it's not a token
+    # caller we're trying to migrate off the field, so keep serving it. See
+    # _dashboards_field_access_method for the corresponding metric label.
     is_session = authenticator is None or isinstance(authenticator, SessionAuthentication)
     query_params = getattr(request, "query_params", None)
     opted_in = query_params is not None and str_to_bool(query_params.get(INCLUDE_DASHBOARDS_PARAM, "0"))
-    if is_session or opted_in:
-        DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER.labels(
-            usage="read", access_method=_dashboards_field_access_method(request)
-        ).inc()
-        return True
-    return False
+    return is_session or opted_in
 
 
 @extend_schema_serializer(exclude_fields=["filters", "saved"], deprecate_fields=["dashboards"])
@@ -434,6 +433,9 @@ class InsightBasicSerializer(
         representation = super().to_representation(instance)
 
         if should_serve_deprecated_dashboards_field(self.context):
+            DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER.labels(
+                usage="read", access_method=_dashboards_field_access_method(self.context.get("request"))
+            ).inc()
             representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
         else:
             representation.pop("dashboards", None)
@@ -553,8 +555,9 @@ class InsightSerializer(InsightBasicSerializer):
         help_text="""
         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
         A dashboard ID for each of the dashboards that this insight is displayed on.
-        Only returned to API-token callers when `include_dashboards=true` is passed; the field
-        is omitted from responses otherwise.
+        Session-authenticated (web app) requests receive this field; other callers (personal API
+        keys, OAuth, sharing tokens) must pass the `include_dashboards=true` query parameter to
+        receive it.
         """,
         many=True,
         required=False,
@@ -650,9 +653,6 @@ class InsightSerializer(InsightBasicSerializer):
 
         new_dashboards = attrs.get("dashboards")
         if new_dashboards is not None:
-            DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER.labels(
-                usage="write", access_method=_dashboards_field_access_method(self.context.get("request"))
-            ).inc()
             team = self.context["get_team"]()
             existing_dashboard_ids: set[int] = set()
             if self.instance is not None:
@@ -701,6 +701,11 @@ class InsightSerializer(InsightBasicSerializer):
 
                 if dashboard.team_id != team_id:
                     raise serializers.ValidationError("Dashboard not found")
+
+            if target_dashboards:
+                DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER.labels(
+                    usage="write", access_method=_dashboards_field_access_method(self.context.get("request"))
+                ).inc()
 
         insight = Insight.objects.create(
             team_id=team_id,
@@ -931,6 +936,10 @@ class InsightSerializer(InsightBasicSerializer):
                     request=self.context["request"],
                 )
 
+        DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER.labels(
+            usage="write", access_method=_dashboards_field_access_method(self.context.get("request"))
+        ).inc()
+
         self.context["after_dashboard_changes"] = [describe_change(d) for d in dashboards if not d.deleted]
 
     @extend_schema_field(OpenApiTypes.ANY)
@@ -1071,7 +1080,11 @@ class InsightSerializer(InsightBasicSerializer):
         # when they have just been updated
         # we store them and can use that list to correct the response
         # and avoid refreshing from the DB
-        if self.context.get("after_dashboard_changes") and "dashboards" in representation:
+        #
+        # `after_dashboard_changes` is only populated when this request itself wrote `dashboards`
+        # (see _update_insight_dashboards), so a caller that isn't opted into the deprecated field
+        # for reads still needs to see the corrected value for the write it just made.
+        if self.context.get("after_dashboard_changes"):
             representation["dashboards"] = [
                 described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
             ]
@@ -1541,9 +1554,10 @@ Background calculation can be tracked using the `query_status` response field.""
             ),
         ]
     ),
+    create=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
     retrieve=extend_schema(parameters=[INSIGHT_ID_PATH_PARAMETER, INCLUDE_DASHBOARDS_PARAMETER]),
-    update=extend_schema(parameters=[INSIGHT_ID_PATH_PARAMETER]),
-    partial_update=extend_schema(parameters=[INSIGHT_ID_PATH_PARAMETER]),
+    update=extend_schema(parameters=[INSIGHT_ID_PATH_PARAMETER, INCLUDE_DASHBOARDS_PARAMETER]),
+    partial_update=extend_schema(parameters=[INSIGHT_ID_PATH_PARAMETER, INCLUDE_DASHBOARDS_PARAMETER]),
     destroy=extend_schema(parameters=[INSIGHT_ID_PATH_PARAMETER]),
 )
 class InsightViewSet(
