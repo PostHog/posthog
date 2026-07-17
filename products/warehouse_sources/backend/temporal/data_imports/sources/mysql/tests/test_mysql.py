@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import MagicMock
 
 import pymysql
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import SourceFieldInputConfig
 
@@ -1842,6 +1843,18 @@ class TestMySQLSourceValidateCredentials:
         assert valid is False
         assert error is not None
         capture.assert_called_once()
+
+    def test_ssh_tunnel_error_is_mapped_not_leaked(self, source, mocker):
+        # sshtunnel's raw "Could not establish session to SSH gateway" must be replaced with the
+        # friendly guidance, not surfaced verbatim to the wizard.
+        raw = "Could not establish session to SSH gateway"
+        mocker.patch.object(source, "get_schemas", side_effect=BaseSSHTunnelForwarderError(raw))
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error != raw
+        assert error == source.get_non_retryable_errors()[raw]
 
 
 class _RaisingTunnel:
