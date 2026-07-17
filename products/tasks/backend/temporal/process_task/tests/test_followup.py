@@ -197,6 +197,10 @@ def _mock_send_followup_records(input: SendFollowupToSandboxInput) -> None:
 
 @activity.defn(name="get_pr_context")
 def _mock_get_pr_context(_input) -> GetPrContextOutput | None:
+    # Defaults to failing CI: a fingerprint change alone no longer dispatches a
+    # follow-up — only an actionable state (failing CI or a changes-requested
+    # review) does. Overridable per test via the "ci_status" key.
+    ci_status = _pr_context_overrides.get("ci_status", "failing")
     behavior = _pr_context_overrides.get("behavior", "changing")
     if behavior == "missing":
         _pr_context_overrides["_call_count"] = _pr_context_overrides.get("_call_count", 0) + 1
@@ -206,6 +210,7 @@ def _mock_get_pr_context(_input) -> GetPrContextOutput | None:
             pr_url="https://github.com/org/repo/pull/1",
             pr_state="closed",
             fingerprint="closed-fp",
+            ci_status=ci_status,
         )
     if behavior == "unchanged":
         _pr_context_overrides["_call_count"] = _pr_context_overrides.get("_call_count", 0) + 1
@@ -213,6 +218,7 @@ def _mock_get_pr_context(_input) -> GetPrContextOutput | None:
             pr_url="https://github.com/org/repo/pull/1",
             pr_state="open",
             fingerprint="stable-fp",
+            ci_status=ci_status,
         )
     if behavior == "sequence":
         # Returns fingerprints from a configured list, repeating the last value
@@ -225,6 +231,7 @@ def _mock_get_pr_context(_input) -> GetPrContextOutput | None:
             pr_url="https://github.com/org/repo/pull/1",
             pr_state="open",
             fingerprint=sequence[idx],
+            ci_status=ci_status,
         )
     # Default "changing": unique fingerprint per call so CI follow-up always fires
     _pr_context_overrides["_call_count"] = _pr_context_overrides.get("_call_count", 0) + 1
@@ -232,6 +239,7 @@ def _mock_get_pr_context(_input) -> GetPrContextOutput | None:
         pr_url="https://github.com/org/repo/pull/1",
         pr_state="open",
         fingerprint=f"fp-{_pr_context_overrides['_call_count']}",
+        ci_status=ci_status,
     )
 
 
