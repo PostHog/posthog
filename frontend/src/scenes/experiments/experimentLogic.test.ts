@@ -778,6 +778,26 @@ describe('experimentLogic', () => {
             expect((logic.values.experiment.metrics_secondary || []).map((m) => m.uuid)).toEqual(['metric-c'])
             expect(api.update).toHaveBeenCalledTimes(2)
         })
+
+        it('reinserts the metric at its position when the removal request fails', async () => {
+            logic.actions.setExperiment({
+                ...experiment,
+                metrics: [],
+                metrics_secondary: [metricA, metricB],
+            } as unknown as Experiment)
+
+            jest.spyOn(api, 'update').mockRejectedValue(new Error('network down'))
+
+            await expectLogic(logic, () => {
+                logic.actions.removeMetric('metric-a', 'secondary')
+            }).toFinishAllListeners()
+
+            // The server kept the metric, so the optimistic removal must be rolled back.
+            expect((logic.values.experiment.metrics_secondary || []).map((m) => m.uuid)).toEqual([
+                'metric-a',
+                'metric-b',
+            ])
+        })
     })
     describe('breakdown management', () => {
         it('should add breakdown to inline metric', () => {

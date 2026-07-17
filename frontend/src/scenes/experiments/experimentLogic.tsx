@@ -3136,20 +3136,34 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             }
         },
-        removeMetric: ({ uuid, context }) => {
+        removeMetric: async ({ uuid, context }) => {
             const isPrimary = context === 'primary'
             const field = isPrimary ? 'metrics' : 'metrics_secondary'
             const currentMetrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[] =
                 values.experiment[field] || []
+            const removedIndex = currentMetrics.findIndex((m) => m.uuid === uuid)
+            const removedMetric = removedIndex === -1 ? undefined : currentMetrics[removedIndex]
 
             // Apply the removal optimistically so a concurrent save that rebuilds the whole
             // array from local state carries this removal instead of resurrecting the metric.
             actions.setExperiment({ [field]: currentMetrics.filter((m) => m.uuid !== uuid) })
 
-            actions.updateExperiment(() => ({
-                [field]: values.experiment[field] || [],
-                update_feature_flag_params: false,
-            }))
+            try {
+                await asyncActions.updateExperiment(() => ({
+                    [field]: values.experiment[field] || [],
+                    update_feature_flag_params: false,
+                }))
+            } catch {
+                // The server kept the metric — reinsert it locally so the UI doesn't drift.
+                if (removedMetric) {
+                    const metrics = [...(values.experiment[field] || [])]
+                    if (!metrics.some((m) => m.uuid === uuid)) {
+                        metrics.splice(Math.min(removedIndex, metrics.length), 0, removedMetric)
+                        actions.setExperiment({ [field]: metrics })
+                    }
+                }
+                lemonToast.error('Failed to remove metric')
+            }
         },
         saveMetricsReorder: async ({ isSecondary, orderedUuids, removedUuids, movedUuids }) => {
             const removed = new Set(removedUuids)
@@ -3281,25 +3295,30 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.reportExperimentMetricBreakdownAdded(values.experiment, uuid, breakdown, isPrimary)
 
-            const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
-            // Check if this is a shared metric by looking in saved_metrics
-            const isSharedMetric = savedMetrics.some(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
+            // Lazy payload: rebuilt from the latest local state once it's this write's turn
+            // in the serialized queue, so overlapping metric writes don't persist stale snapshots.
+            actions.updateExperiment(() => {
+                const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
+                // Check if this is a shared metric by looking in saved_metrics
+                const isSharedMetric = savedMetrics.some(
+                    ({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid
+                )
 
-            const updatePayload: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
-                metrics: values.experiment.metrics,
-                metrics_secondary: values.experiment.metrics_secondary,
-                update_feature_flag_params: false,
-            }
+                const updatePayload: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
+                    metrics: values.experiment.metrics,
+                    metrics_secondary: values.experiment.metrics_secondary,
+                    update_feature_flag_params: false,
+                }
 
-            // Only include saved_metrics_ids if we modified a shared metric
-            if (isSharedMetric) {
-                updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
-                    id: saved_metric,
-                    metadata,
-                }))
-            }
-
-            actions.updateExperiment(updatePayload)
+                // Only include saved_metrics_ids if we modified a shared metric
+                if (isSharedMetric) {
+                    updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
+                        id: saved_metric,
+                        metadata,
+                    }))
+                }
+                return updatePayload
+            })
 
             // Adding a breakdown changes how the metric is computed, so re-run results — recalculation
             // flow triggers a fresh recalc via config_change; legacy flow reloads per-metric results.
@@ -3316,25 +3335,30 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.reportExperimentMetricBreakdownRemoved(values.experiment, uuid, breakdown, index, isPrimary)
 
-            const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
-            // Check if this is a shared metric by looking in saved_metrics
-            const isSharedMetric = savedMetrics.some(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
+            // Lazy payload: rebuilt from the latest local state once it's this write's turn
+            // in the serialized queue, so overlapping metric writes don't persist stale snapshots.
+            actions.updateExperiment(() => {
+                const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
+                // Check if this is a shared metric by looking in saved_metrics
+                const isSharedMetric = savedMetrics.some(
+                    ({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid
+                )
 
-            const updatePayload: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
-                metrics: values.experiment.metrics,
-                metrics_secondary: values.experiment.metrics_secondary,
-                update_feature_flag_params: false,
-            }
+                const updatePayload: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
+                    metrics: values.experiment.metrics,
+                    metrics_secondary: values.experiment.metrics_secondary,
+                    update_feature_flag_params: false,
+                }
 
-            // Only include saved_metrics_ids if we modified a shared metric
-            if (isSharedMetric) {
-                updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
-                    id: saved_metric,
-                    metadata,
-                }))
-            }
-
-            actions.updateExperiment(updatePayload)
+                // Only include saved_metrics_ids if we modified a shared metric
+                if (isSharedMetric) {
+                    updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
+                        id: saved_metric,
+                        metadata,
+                    }))
+                }
+                return updatePayload
+            })
 
             // Removing a breakdown changes how the metric is computed, so re-run results. On the
             // recalculation flow this routes through refreshExperimentResults('config_change') (which
