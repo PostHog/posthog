@@ -52,6 +52,14 @@ class CodecovSource(ResumableSource[CodecovSourceConfig, CodecovResumeConfig]):
         return ExternalDataSourceType.CODECOV
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # The stored token is sent to api.codecov.io scoped by git provider + owner and filtered
+        # by the repository allow-list, so retargeting any of these must force re-entry of the
+        # token — otherwise an editor without it could point it at another owner/repo the token
+        # can read and sync that private data into the warehouse.
+        return ["service", "owner_username", "repositories"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CODECOV,

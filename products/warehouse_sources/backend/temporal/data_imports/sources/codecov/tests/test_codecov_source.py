@@ -56,6 +56,11 @@ class TestCodecovSource:
         field_names = [f.name for f in config.fields]
         assert field_names == ["service", "owner_username", "api_token", "repositories"]
 
+    def test_connection_host_fields_force_secret_reentry_on_scope_change(self):
+        # Retargeting the git provider, owner, or repository allow-list reuses the stored token
+        # against different Codecov resources, so the update serializer must require re-entry.
+        assert self.source.connection_host_fields == ["service", "owner_username", "repositories"]
+
     def test_api_token_field_is_secret_password(self):
         config = self.source.get_source_config
         api_token_field = next(
