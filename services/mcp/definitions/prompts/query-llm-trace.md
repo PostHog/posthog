@@ -77,6 +77,10 @@ If the trace is old, provide a date range to help the query find it efficiently:
 }
 ```
 
+# Response size
+
+To protect the agent's context window, very large traces are compacted before they reach you: individual property values longer than ~10K characters are truncated (with a `… [truncated N chars]` marker), and if a trace is still oversized after that, trailing events are dropped and a `_truncated` object reports how many events were omitted. When you see either marker, open the trace in PostHog for the full, untruncated data, or narrow the query to the specific events you need. The underlying trace data is never altered — only this response is bounded.
+
 # Reminders
 
 - Always get the `traceId` from `query-llm-traces-list` results — do not guess or fabricate trace IDs.
